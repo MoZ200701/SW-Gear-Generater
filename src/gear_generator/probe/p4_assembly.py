@@ -135,7 +135,9 @@ def _assembly(px: Px, with_link: bool) -> None:
         px.fact("first_component_fixed_on_insert", fixed if got else "raised")
         call(asm, "ClearSelection2", True)
         px.require(bool(call(first, "Select4", False, sc.null(), False)), "the first component selects")
-        got, _ = px.attempt("FixComponent", lambda: call(asm, "FixComponent"))
+        # FixComponent takes no arguments, so call() would only fetch it: an earlier
+        # version of this probe got back a bound method and never ran it.
+        got, _ = px.attempt("FixComponent() on the already fixed first component", lambda: asm.FixComponent())
         call(asm, "ClearSelection2", True)
         px.check(bool(call(first, "IsFixed")), "the first component is fixed")
 
@@ -190,6 +192,16 @@ def _assembly(px: Px, with_link: bool) -> None:
                 px.check(abs(math.hypot(where[0], where[1]) - 70.0) < 1e-6,
                          f"changing the global moves B to 70 mm: {where}")
         px.fact("mates", _mate_features(asm))
+        if not with_link:
+            # Last, because a fixed second component would fight its mates.
+            px.fact("second_component_fixed_before_fix_component", bool(call(second, "IsFixed")))
+            call(asm, "ClearSelection2", True)
+            px.require(bool(call(second, "Select4", False, sc.null(), False)), "the second component selects")
+            got, _ = px.attempt("FixComponent() on the free second component", lambda: asm.FixComponent())
+            call(asm, "ClearSelection2", True)
+            fixed = bool(call(second, "IsFixed"))
+            px.fact("second_component_fixed_after_fix_component", fixed)
+            px.check(got and fixed, "FixComponent() fixes the selected component")
     finally:
         for doc in (asm, part_b, part_a):
             try:

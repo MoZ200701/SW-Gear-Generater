@@ -1,0 +1,5241 @@
+{
+  "decisions": {
+    "arc_dimension": "radius",
+    "circle_dimension": "diameter",
+    "curve_trig": "radians",
+    "curves_are_fixed": true,
+    "cut_end_condition": 9,
+    "end_to_end": true,
+    "equal_constraint": "sgSAMELENGTH",
+    "equation_add_call": "Add2",
+    "equation_set_route": "indexed put Equation(i)",
+    "first_component_fixed": true,
+    "flank_recipe": "A",
+    "manual_steps": [
+      "material"
+    ],
+    "pattern_count_dim_index": 1,
+    "plane_select_route": "Select2 checked by count, then SelectByID2 by tree name",
+    "save_as_overwrites": true,
+    "set_units_mmgs_after_new": true,
+    "shared_ends_are_one_point": true,
+    "trig_default": "degrees"
+  },
+  "meta": {
+    "argv": [
+      "--out",
+      "\\\\wsl.localhost\\Ubuntu\\home\\m0obot\\Gear-Generator\\probe\\results",
+      "--tier",
+      "5",
+      "--timeout",
+      "400"
+    ],
+    "exit_code": 0,
+    "revision": "34.0.0",
+    "stamp": "20260914-183429",
+    "version": "SolidWorks 2026 (revision 34.0.0)"
+  },
+  "records": [
+    {
+      "error": null,
+      "facts": {
+        "open_at_start": [
+          "Aileron Hinge 1.2.SLDPRT"
+        ],
+        "revision": "34.0.0",
+        "version": "SolidWorks 2026 (revision 34.0.0)"
+      },
+      "lines": [
+        {
+          "detail": "34.0.0",
+          "level": "fact",
+          "text": "revision = '34.0.0'"
+        },
+        {
+          "detail": "SolidWorks 2026 (revision 34.0.0)",
+          "level": "fact",
+          "text": "version = 'SolidWorks 2026 (revision 34.0.0)'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "revision 34.0.0 is SolidWorks 2026 or newer"
+        },
+        {
+          "detail": [
+            "Aileron Hinge 1.2.SLDPRT"
+          ],
+          "level": "fact",
+          "text": "open_at_start = ['Aileron Hinge 1.2.SLDPRT']"
+        }
+      ],
+      "members": [
+        "ISldWorks.RevisionNumber",
+        "ISldWorks.GetFirstDocument"
+      ],
+      "name": "attach",
+      "reason": "",
+      "seconds": 0.021,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "assembly_template": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Assembly.asmdot",
+        "assembly_template_route": "GetDocumentTemplate",
+        "attempt:GetDocumentTemplate(1, '', 0, 0, 0)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot"
+        },
+        "attempt:GetDocumentTemplate(2, '', 0, 0, 0)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Assembly.asmdot"
+        },
+        "attempt:GetUserPreferenceStringValue(8)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot"
+        },
+        "attempt:GetUserPreferenceStringValue(9)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Assembly.asmdot"
+        },
+        "part_template": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot",
+        "part_template_route": "GetDocumentTemplate"
+      },
+      "lines": [
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot",
+          "level": "attempt",
+          "text": "GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Part.prtdot'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot",
+          "level": "attempt",
+          "text": "GetUserPreferenceStringValue(8): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Part.prtdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a part template exists on disk"
+        },
+        {
+          "detail": "GetDocumentTemplate",
+          "level": "fact",
+          "text": "part_template_route = 'GetDocumentTemplate'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot",
+          "level": "fact",
+          "text": "part_template = 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Part.prtdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the part template is a .prtdot file"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Assembly.asmdot",
+          "level": "attempt",
+          "text": "GetDocumentTemplate(2, '', 0, 0, 0): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Assembly.asmdot'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Assembly.asmdot",
+          "level": "attempt",
+          "text": "GetUserPreferenceStringValue(9): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Assembly.asmdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a assembly template exists on disk"
+        },
+        {
+          "detail": "GetDocumentTemplate",
+          "level": "fact",
+          "text": "assembly_template_route = 'GetDocumentTemplate'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Assembly.asmdot",
+          "level": "fact",
+          "text": "assembly_template = 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Assembly.asmdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the assembly template is a .asmdot file"
+        }
+      ],
+      "members": [
+        "ISldWorks.GetUserPreferenceStringValue",
+        "ISldWorks.GetDocumentTemplate"
+      ],
+      "name": "templates",
+      "reason": "",
+      "seconds": 0.022,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "new_part_features": [
+          [
+            "Comments",
+            "CommentsFolder"
+          ],
+          [
+            "Favorites",
+            "FavoriteFolder"
+          ],
+          [
+            "History",
+            "HistoryFolder"
+          ],
+          [
+            "Selection Sets",
+            "SelectionSetFolder"
+          ],
+          [
+            "Sensors",
+            "SensorFolder"
+          ],
+          [
+            "Design Binder",
+            "DocsFolder"
+          ],
+          [
+            "Annotations",
+            "DetailCabinet"
+          ],
+          [
+            "Surface Bodies",
+            "SurfaceBodyFolder"
+          ],
+          [
+            "Solid Bodies",
+            "SolidBodyFolder"
+          ],
+          [
+            "Lights and Cameras",
+            "EnvFolder"
+          ],
+          [
+            "Markups",
+            "InkMarkupFolder"
+          ],
+          [
+            "Equations",
+            "EqnFolder"
+          ],
+          [
+            "Material <not specified>",
+            "MaterialFolder"
+          ],
+          [
+            "Front Plane",
+            "RefPlane"
+          ],
+          [
+            "Top Plane",
+            "RefPlane"
+          ],
+          [
+            "Right Plane",
+            "RefPlane"
+          ],
+          [
+            "Origin",
+            "OriginProfileFeature"
+          ]
+        ],
+        "new_part_path": "",
+        "new_part_title": "Part269",
+        "plane_names_in_tree_order": [
+          "Front Plane",
+          "Top Plane",
+          "Right Plane"
+        ]
+      },
+      "lines": [
+        {
+          "detail": "Part269",
+          "level": "fact",
+          "text": "new_part_title = 'Part269'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "NewDocument from the part template makes a part"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the new part is the active document"
+        },
+        {
+          "detail": [
+            "Front Plane",
+            "Top Plane",
+            "Right Plane"
+          ],
+          "level": "fact",
+          "text": "plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the part has exactly three reference planes"
+        },
+        {
+          "detail": [
+            [
+              "Comments",
+              "CommentsFolder"
+            ],
+            [
+              "Favorites",
+              "FavoriteFolder"
+            ],
+            [
+              "History",
+              "HistoryFolder"
+            ],
+            [
+              "Selection Sets",
+              "SelectionSetFolder"
+            ],
+            [
+              "Sensors",
+              "SensorFolder"
+            ],
+            [
+              "Design Binder",
+              "DocsFolder"
+            ],
+            [
+              "Annotations",
+              "DetailCabinet"
+            ],
+            [
+              "Surface Bodies",
+              "SurfaceBodyFolder"
+            ],
+            [
+              "Solid Bodies",
+              "SolidBodyFolder"
+            ],
+            [
+              "Lights and Cameras",
+              "EnvFolder"
+            ],
+            [
+              "Markups",
+              "InkMarkupFolder"
+            ],
+            [
+              "Equations",
+              "EqnFolder"
+            ],
+            [
+              "Material <not specified>",
+              "MaterialFolder"
+            ],
+            [
+              "Front Plane",
+              "RefPlane"
+            ],
+            [
+              "Top Plane",
+              "RefPlane"
+            ],
+            [
+              "Right Plane",
+              "RefPlane"
+            ],
+            [
+              "Origin",
+              "OriginProfileFeature"
+            ]
+          ],
+          "level": "fact",
+          "text": "new_part_features = [('Comments', 'CommentsFolder'), ('Favorites', 'FavoriteFolder'), ('History', 'HistoryFolder'), ('Selection Sets', 'SelectionSetFolder'), ('Sensors', 'SensorFolder'), ('Design Binder', 'DocsFolder'), ('Annotations', 'DetailCabinet'), ('Surface Bodies', 'SurfaceBodyFolder'), ('Solid Bodies', 'SolidBodyFolder'), ('Lights and Cameras', 'EnvFolder'), ('Markups', 'InkMarkupFolder'), ('Equations', 'EqnFolder'), ('Material <not specified>', 'MaterialFolder'), ('Front Plane', 'RefPlane'), ('Top Plane', 'RefPlane'), ('Right Plane', 'RefPlane'), ('Origin', 'OriginProfileFeature')]"
+        },
+        {
+          "detail": "",
+          "level": "fact",
+          "text": "new_part_path = ''"
+        }
+      ],
+      "members": [
+        "ISldWorks.NewDocument",
+        "IModelDoc2.GetTitle",
+        "IModelDoc2.GetType",
+        "ISldWorks.ActiveDoc",
+        "IFeature.GetTypeName2"
+      ],
+      "name": "new_document",
+      "reason": "",
+      "seconds": 1.352,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:CreatePoint(0.01, 0.01, 0)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:GetSaveFlag": {
+          "ok": true,
+          "value": true
+        },
+        "attempt:InsertSketch(True) to close": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:InsertSketch(True) to open": {
+          "ok": true,
+          "value": null
+        },
+        "close_doc_returns": null,
+        "modified_before_close": true,
+        "select_routes_so_far": {
+          "Select2": 1
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first reference plane selects by tree order"
+        },
+        {
+          "detail": {
+            "Select2": 1
+          },
+          "level": "fact",
+          "text": "select_routes_so_far = {'Select2': 1}"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "InsertSketch(True) to open: returned None"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "CreatePoint(0.01, 0.01, 0): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "InsertSketch(True) to close: returned None"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "GetSaveFlag: returned True"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "modified_before_close = True"
+        },
+        {
+          "detail": null,
+          "level": "fact",
+          "text": "close_doc_returns = None"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CloseDoc closed the modified part without a prompt"
+        }
+      ],
+      "members": [
+        "ISldWorks.CloseDoc",
+        "IModelDoc2.GetSaveFlag",
+        "ISketchManager.InsertSketch",
+        "ISketchManager.CreatePoint"
+      ],
+      "name": "close_document",
+      "reason": "",
+      "seconds": 2.098,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "activate_doc3_returns_shape": "CDispatch",
+        "attempt:ActivateDoc3(title, False, 0, out long)": {
+          "ok": true,
+          "value": "CDispatch"
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the second new part is active"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "ActivateDoc3(title, False, 0, out long): returned 'CDispatch'"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "fact",
+          "text": "activate_doc3_returns_shape = 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "ActivateDoc3 made the first part active again"
+        }
+      ],
+      "members": [
+        "ISldWorks.ActivateDoc3"
+      ],
+      "name": "activate_document",
+      "reason": "",
+      "seconds": 2.506,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "add3_form": "Add2",
+        "add3_single_configuration_returns": -1,
+        "angular_equation_units_property": 1,
+        "attempt:Add2": {
+          "ok": true,
+          "value": 0
+        },
+        "attempt:Add3 on a one-configuration part, all configurations, None": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:AngularEquationUnits": {
+          "ok": true,
+          "value": 1
+        },
+        "delete_returns": 0,
+        "equation_text_readback": "\"Probe A\"= 2.5",
+        "equations_in_new_part": 0
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetEquationMgr returns an equation manager"
+        },
+        {
+          "detail": 1,
+          "level": "attempt",
+          "text": "AngularEquationUnits: returned 1"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "angular_equation_units_property = 1"
+        },
+        {
+          "detail": 0,
+          "level": "fact",
+          "text": "equations_in_new_part = 0"
+        },
+        {
+          "detail": 0,
+          "level": "attempt",
+          "text": "Add2: returned 0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "some documented way of adding a global works"
+        },
+        {
+          "detail": "Add2",
+          "level": "fact",
+          "text": "add3_form = 'Add2'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Add2 at index -1 appends, returning 0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetCount goes up by one"
+        },
+        {
+          "detail": "\"Probe A\"= 2.5",
+          "level": "fact",
+          "text": "equation_text_readback = '\"Probe A\"= 2.5'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Equation(i) reads back '\"Probe A\"= 2.5'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Value(i) reads back 2.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GlobalVariable(i) says it is a global"
+        },
+        {
+          "detail": 0,
+          "level": "fact",
+          "text": "delete_returns = 0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Delete(i) removes it again"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Add3 on a one-configuration part, all configurations, None: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "add3_single_configuration_returns = -1"
+        }
+      ],
+      "members": [
+        "IModelDoc2.GetEquationMgr",
+        "IEquationMgr.Add2",
+        "IEquationMgr.Add3",
+        "IEquationMgr.GetCount",
+        "IEquationMgr.Equation",
+        "IEquationMgr.Value",
+        "IEquationMgr.GlobalVariable",
+        "IEquationMgr.Delete",
+        "IEquationMgr.AngularEquationUnits"
+      ],
+      "name": "equation_add",
+      "reason": "",
+      "seconds": 1.297,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "add3_bad_parse_returns": -1,
+        "add3_unknown_name_returns": -1,
+        "attempt:Add3 bad parse: \"Probe Bad\"= ( 1 +": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:Add3 unknown name: \"Probe Unknown\"= \"No Such Name\" * 2": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:Status after it": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:half power of a tiny number: \"Probe Half1\"= 0.0001 ^ 0.5": {
+          "ok": true,
+          "value": 14
+        },
+        "attempt:half power of zero: \"Probe Half0\"= 0 ^ 0.5": {
+          "ok": true,
+          "value": 13
+        },
+        "attempt:iif guarding an invalid sqr: \"Probe Lazy\"= IIF ( 1 > 1 , sqr ( -1 ) , 0 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:iif guarding sqr of zero: \"Probe Lazy0\"= IIF ( 1 > 1 , sqr ( 0 ) , 0 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:sqr of a ratio just above one: \"Probe Unit2\"= sqr ( ( 35.46 / 35.238473279 ) ^ 2 - 1 )": {
+          "ok": true,
+          "value": 16
+        },
+        "attempt:sqr of a ratio that is exactly one, no abs: \"Probe Unit Raw\"= sqr ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:sqr of a ratio that is exactly one, with abs: \"Probe Unit\"= sqr ( abs ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ) )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:sqr of one: \"Probe Sqr1\"= sqr ( 1 )": {
+          "ok": true,
+          "value": 15
+        },
+        "attempt:sqr of zero: \"Probe Sqr0\"= sqr ( 0 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:unary minus squared: \"Probe Neg\"= -2 ^ 2": {
+          "ok": true,
+          "value": 12
+        },
+        "attempt:unbracketed comparison: \"Probe Unbracketed\"= IIF ( 3 >= 1 + 5 , 1 , 0 )": {
+          "ok": true,
+          "value": 11
+        },
+        "half_power_of_a_tiny_number": {
+          "index": 14,
+          "value": 0.01
+        },
+        "half_power_of_zero": {
+          "index": 13,
+          "value": 0.0
+        },
+        "iif_guarding_an_invalid_sqr": {
+          "index": -1,
+          "value": null
+        },
+        "iif_guarding_sqr_of_zero": {
+          "index": -1,
+          "value": null
+        },
+        "sqr_of_a_ratio_just_above_one": {
+          "index": 16,
+          "value": 0.1123054913132504
+        },
+        "sqr_of_a_ratio_that_is_exactly_one_no_abs": {
+          "index": -1,
+          "value": null
+        },
+        "sqr_of_a_ratio_that_is_exactly_one_with_abs": {
+          "index": -1,
+          "value": null
+        },
+        "sqr_of_one": {
+          "index": 15,
+          "value": 1.0
+        },
+        "sqr_of_zero": {
+          "index": -1,
+          "value": null
+        },
+        "status_after_bad_parse": -1,
+        "status_after_unknown_name": -1,
+        "trig_units": "degrees",
+        "unary_minus_squared": {
+          "index": 12,
+          "value": -4.0
+        },
+        "unbracketed_comparison": {
+          "index": 11,
+          "value": 1.0
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a sin() equation is accepted"
+        },
+        {
+          "detail": "degrees",
+          "level": "fact",
+          "text": "sin ( 90 ) = 1.0, so trig is in degrees"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "trig units are recognisable"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "pi: \"Probe Pi\"= pi is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "pi: evaluates to 3.141592653589793"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "power: \"Probe Pow\"= 2 ^ 3 is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "power: evaluates to 8.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sqr: \"Probe Sqr\"= sqr ( 16 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sqr: evaluates to 4.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif: \"Probe Iif\"= IIF ( 1 <= 1.25 , 2.4 , 2.25 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif: evaluates to 2.4"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif greater-or-equal: \"Probe Iif2\"= IIF ( 1.5 >= 2 , 1 , 0 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif greater-or-equal: evaluates to 0.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "reference: \"Probe Ref\"= \"Probe Pi\" * 2 is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "reference: evaluates to 6.283185307179586"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "cos: \"Probe Cos\"= cos ( 60 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "cos: evaluates to 0.5000000000000001"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "tan: \"Probe Tan\"= tan ( 20 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "tan: evaluates to 0.36397023426620234"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "abs: \"Probe Abs\"= abs ( -2 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "abs: evaluates to 2.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "bracketed comparison: \"Probe Bracket\"= IIF ( 3 >= ( 1 + 5 ) , 1 , 0 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "bracketed comparison: evaluates to 0.0"
+        },
+        {
+          "detail": 11,
+          "level": "attempt",
+          "text": "unbracketed comparison: \"Probe Unbracketed\"= IIF ( 3 >= 1 + 5 , 1 , 0 ): returned 11"
+        },
+        {
+          "detail": {
+            "index": 11,
+            "value": 1.0
+          },
+          "level": "fact",
+          "text": "unbracketed_comparison = {'index': 11, 'value': 1.0}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "sqr of a ratio that is exactly one, no abs: \"Probe Unit Raw\"= sqr ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "sqr_of_a_ratio_that_is_exactly_one_no_abs = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": 12,
+          "level": "attempt",
+          "text": "unary minus squared: \"Probe Neg\"= -2 ^ 2: returned 12"
+        },
+        {
+          "detail": {
+            "index": 12,
+            "value": -4.0
+          },
+          "level": "fact",
+          "text": "unary_minus_squared = {'index': 12, 'value': -4.0}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "sqr of a ratio that is exactly one, with abs: \"Probe Unit\"= sqr ( abs ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ) ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "sqr_of_a_ratio_that_is_exactly_one_with_abs = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "sqr of zero: \"Probe Sqr0\"= sqr ( 0 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "sqr_of_zero = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": 13,
+          "level": "attempt",
+          "text": "half power of zero: \"Probe Half0\"= 0 ^ 0.5: returned 13"
+        },
+        {
+          "detail": {
+            "index": 13,
+            "value": 0.0
+          },
+          "level": "fact",
+          "text": "half_power_of_zero = {'index': 13, 'value': 0.0}"
+        },
+        {
+          "detail": 14,
+          "level": "attempt",
+          "text": "half power of a tiny number: \"Probe Half1\"= 0.0001 ^ 0.5: returned 14"
+        },
+        {
+          "detail": {
+            "index": 14,
+            "value": 0.01
+          },
+          "level": "fact",
+          "text": "half_power_of_a_tiny_number = {'index': 14, 'value': 0.01}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "iif guarding an invalid sqr: \"Probe Lazy\"= IIF ( 1 > 1 , sqr ( -1 ) , 0 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "iif_guarding_an_invalid_sqr = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "iif guarding sqr of zero: \"Probe Lazy0\"= IIF ( 1 > 1 , sqr ( 0 ) , 0 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "iif_guarding_sqr_of_zero = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": 15,
+          "level": "attempt",
+          "text": "sqr of one: \"Probe Sqr1\"= sqr ( 1 ): returned 15"
+        },
+        {
+          "detail": {
+            "index": 15,
+            "value": 1.0
+          },
+          "level": "fact",
+          "text": "sqr_of_one = {'index': 15, 'value': 1.0}"
+        },
+        {
+          "detail": 16,
+          "level": "attempt",
+          "text": "sqr of a ratio just above one: \"Probe Unit2\"= sqr ( ( 35.46 / 35.238473279 ) ^ 2 - 1 ): returned 16"
+        },
+        {
+          "detail": {
+            "index": 16,
+            "value": 0.1123054913132504
+          },
+          "level": "fact",
+          "text": "sqr_of_a_ratio_just_above_one = {'index': 16, 'value': 0.1123054913132504}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Add3 bad parse: \"Probe Bad\"= ( 1 +: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "add3_bad_parse_returns = -1"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Status after it: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "status_after_bad_parse = -1"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Add3 unknown name: \"Probe Unknown\"= \"No Such Name\" * 2: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "add3_unknown_name_returns = -1"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Status after it: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "status_after_unknown_name = -1"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Value",
+        "IEquationMgr.Status"
+      ],
+      "name": "equation_syntax",
+      "reason": "",
+      "seconds": 2.848,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "equation_text_rewritten": {},
+        "globals_match_maths": true,
+        "globals_mismatched": []
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"No. of Teeth\"= 25"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Module\"= 1.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Bore Diameter\"= 10"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Pressure Angle\"= 20"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Outer Diameter\"= ( \"No. of Teeth\" + 2 ) * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Pitch Diameter\"= \"No. of Teeth\" * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Backlash\"= 0.3 * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Arc Length\"= ( ( \"Module\" * pi ) / 2 + \"Backlash\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Fillet Radius\"= 0.38 * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Tooth Depth\"= IIF ( \"Module\" <= 1.25 , \"Module\" * 2.4 , \"Module\" * 2.25 )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Face Width\"= 10"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Root Diameter\"= \"Outer Diameter\" - 2 * \"Tooth Depth\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Base Diameter\"= \"Pitch Diameter\" * cos ( \"Pressure Angle\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Base Radius\"= \"Base Diameter\" / 2"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Tooth Thickness\"= \"Module\" * pi - \"Arc Length\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Half Space Angle\"= ( \"Arc Length\" / \"Pitch Diameter\" ) * 180 / pi"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Involute Fn\"= tan ( \"Pressure Angle\" ) - \"Pressure Angle\" * pi / 180"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Offset\"= \"Arc Length\" / \"Pitch Diameter\" - \"Involute Fn\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Tip Cap Diameter\"= \"Outer Diameter\" + 2 * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Start Diameter\"= IIF ( \"Base Diameter\" >= ( \"Root Diameter\" + 3 * \"Fillet Radius\" ) , \"Base Diameter\" , \"Root Diameter\" + 3 * \"Fillet Radius\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Involute t1\"= ( abs ( ( \"Flank Start Diameter\" / \"Base Diameter\" ) ^ 2 - 1 ) ) ^ 0.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Involute t2\"= ( abs ( ( \"Tip Cap Diameter\" / \"Base Diameter\" ) ^ 2 - 1 ) ) ^ 0.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Arc Radius\"= ( \"Pitch Diameter\" / 2 ) * sin ( \"Pressure Angle\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Centre Angle\"= \"Half Space Angle\" + \"Pressure Angle\""
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "globals_match_maths = True"
+        },
+        {
+          "detail": [],
+          "level": "fact",
+          "text": "globals_mismatched = []"
+        },
+        {
+          "detail": {},
+          "level": "fact",
+          "text": "0 equation(s) read back differently from how they were written"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Value",
+        "IEquationMgr.Equation"
+      ],
+      "name": "gear_globals",
+      "reason": "",
+      "seconds": 3.666,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:SetEquationAndConfigurationOption": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:indexed put Equation(i)": {
+          "ok": true,
+          "value": null
+        },
+        "equation_set_routes": [
+          "indexed put Equation(i)"
+        ]
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "two linked globals are added"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "indexed put Equation(i): returned None"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "indexed put Equation(i): the dependent global follows to 10.0"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "SetEquationAndConfigurationOption: returned -1"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "SetEquationAndConfigurationOption: the dependent global reads 10.0 (does not follow)"
+        },
+        {
+          "detail": [
+            "indexed put Equation(i)"
+          ],
+          "level": "fact",
+          "text": "equation_set_routes = ['indexed put Equation(i)']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "at least one way of changing a global's value works"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Equation",
+        "IEquationMgr.SetEquationAndConfigurationOption",
+        "IEquationMgr.EvaluateAll",
+        "IModelDoc2.ForceRebuild3"
+      ],
+      "name": "equation_set",
+      "reason": "",
+      "seconds": 1.507,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:SetUserPreferenceInteger(swUnitSystem, 0, swUnitSystem_MMGS)": {
+          "ok": true,
+          "value": true
+        },
+        "default_template_is_mm": false,
+        "mm_templates": [
+          "C:\\ProgramData\\SOLIDWORKS\\SOLIDWORKS 2026\\templates\\Part.PRTDOT"
+        ],
+        "set_mmgs_default": {
+          "linear_after": 0,
+          "returned": true
+        },
+        "set_mmgs_works": true,
+        "units_2026_folder": {
+          "linear": 0,
+          "path": "C:\\ProgramData\\SOLIDWORKS\\SOLIDWORKS 2026\\templates\\Part.PRTDOT",
+          "system": 5
+        },
+        "units_default": {
+          "linear": 3,
+          "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot",
+          "system": 3
+        }
+      },
+      "lines": [
+        {
+          "detail": {
+            "linear": 3,
+            "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot",
+            "system": 3
+          },
+          "level": "fact",
+          "text": "units_default = {'path': 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2025\\\\templates\\\\Part.prtdot', 'linear': 3, 'system': 3}"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "SetUserPreferenceInteger(swUnitSystem, 0, swUnitSystem_MMGS): returned True"
+        },
+        {
+          "detail": {
+            "linear_after": 0,
+            "returned": true
+          },
+          "level": "fact",
+          "text": "set_mmgs_default = {'returned': True, 'linear_after': 0}"
+        },
+        {
+          "detail": {
+            "linear": 0,
+            "path": "C:\\ProgramData\\SOLIDWORKS\\SOLIDWORKS 2026\\templates\\Part.PRTDOT",
+            "system": 5
+          },
+          "level": "fact",
+          "text": "units_2026_folder = {'path': 'C:\\\\ProgramData\\\\SOLIDWORKS\\\\SOLIDWORKS 2026\\\\templates\\\\Part.PRTDOT', 'linear': 0, 'system': 5}"
+        },
+        {
+          "detail": [
+            "C:\\ProgramData\\SOLIDWORKS\\SOLIDWORKS 2026\\templates\\Part.PRTDOT"
+          ],
+          "level": "fact",
+          "text": "mm_templates = ['C:\\\\ProgramData\\\\SOLIDWORKS\\\\SOLIDWORKS 2026\\\\templates\\\\Part.PRTDOT']"
+        },
+        {
+          "detail": false,
+          "level": "fact",
+          "text": "default_template_is_mm = False"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "set_mmgs_works = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a new part can be had in millimetres"
+        }
+      ],
+      "members": [
+        "IModelDocExtension.GetUserPreferenceInteger",
+        "IModelDocExtension.SetUserPreferenceInteger"
+      ],
+      "name": "document_units",
+      "reason": "",
+      "seconds": 2.459,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "add_to_db_reads_back": true,
+        "attempt:IFeature.Select2(False, 0) on the first RefPlane": {
+          "ok": true,
+          "value": true
+        },
+        "attempt:SelectByID2(\"Front Plane\", \"PLANE\", ...) with the name read from the tree": {
+          "ok": true,
+          "value": true
+        },
+        "rename_onto_taken_name_reads_back": "Sketch2",
+        "select2_plane": {
+          "returned": true,
+          "selected": 1
+        },
+        "select_by_id2_plane_tree_name": {
+          "returned": true,
+          "selected": 1
+        },
+        "select_routes_used": {
+          "Select2": 3
+        }
+      },
+      "lines": [
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "IFeature.Select2(False, 0) on the first RefPlane: returned True"
+        },
+        {
+          "detail": {
+            "returned": true,
+            "selected": 1
+          },
+          "level": "fact",
+          "text": "select2_plane = {'returned': True, 'selected': 1}"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "SelectByID2(\"Front Plane\", \"PLANE\", ...) with the name read from the tree: returned True"
+        },
+        {
+          "detail": {
+            "returned": true,
+            "selected": 1
+          },
+          "level": "fact",
+          "text": "select_by_id2_plane_tree_name = {'returned': True, 'selected': 1}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first RefPlane in tree order can be selected by one of the two routes"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "add_to_db_reads_back = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "InsertSketch(True) opens a sketch"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreateCircleByRadius returns the new segment"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a second InsertSketch(True) closes it"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the new sketch feature renames and reads back 'Probe Sketch'"
+        },
+        {
+          "detail": "Sketch2",
+          "level": "fact",
+          "text": "rename_onto_taken_name_reads_back = 'Sketch2'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "renaming onto a taken name does not take it, and read-back shows so"
+        },
+        {
+          "detail": {
+            "Select2": 3
+          },
+          "level": "fact",
+          "text": "select_routes_used = {'Select2': 3}"
+        }
+      ],
+      "members": [
+        "IFeature.Select2",
+        "ISketchManager.InsertSketch",
+        "ISketchManager.ActiveSketch",
+        "ISketchManager.AddToDB",
+        "ISketchManager.CreateCircleByRadius",
+        "IFeature.Name",
+        "IModelDocExtension.SelectByID2"
+      ],
+      "name": "sketch_open_close",
+      "reason": "",
+      "seconds": 2.523,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "arc_direction_+1": {
+          "end": [
+            0.0,
+            30.0
+          ],
+          "length_mm": 47.12388980384689,
+          "start": [
+            30.0,
+            0.0
+          ]
+        },
+        "arc_direction_-1": {
+          "end": [
+            0.0,
+            30.0
+          ],
+          "length_mm": 141.3716694115407,
+          "start": [
+            30.0,
+            0.0
+          ]
+        },
+        "attempt:CreateArc direction +1.GetLength": {
+          "ok": true,
+          "value": 0.047123889803846894
+        },
+        "attempt:CreateArc direction -1.GetLength": {
+          "ok": true,
+          "value": 0.1413716694115407
+        },
+        "attempt:CreateCircle(centre, point).GetRadius": {
+          "ok": true,
+          "value": 0.005999999999999998
+        },
+        "attempt:circle.GetCenterPoint2": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:circle.GetRadius": {
+          "ok": true,
+          "value": 0.004999999999999999
+        },
+        "attempt:three-point arc.GetCenterPoint2": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "centreline_is_construction": true,
+        "circle_segment_type": 1,
+        "line_segment_type": 0,
+        "segments_after_close": 7
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreateCircleByRadius makes a circle"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "circle_segment_type = 1"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "circle.GetCenterPoint2: returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a circle's centre reads back from the segment itself: (10.0, 20.0)"
+        },
+        {
+          "detail": 0.004999999999999999,
+          "level": "attempt",
+          "text": "circle.GetRadius: returned 0.004999999999999999"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetRadius reads the radius in metres"
+        },
+        {
+          "detail": 0.005999999999999998,
+          "level": "attempt",
+          "text": "CreateCircle(centre, point).GetRadius: returned 0.005999999999999998"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreateCircle takes a centre and a point on it"
+        },
+        {
+          "detail": 0.047123889803846894,
+          "level": "attempt",
+          "text": "CreateArc direction +1.GetLength: returned 0.047123889803846894"
+        },
+        {
+          "detail": {
+            "end": [
+              0.0,
+              30.0
+            ],
+            "length_mm": 47.12388980384689,
+            "start": [
+              30.0,
+              0.0
+            ]
+          },
+          "level": "fact",
+          "text": "arc_direction_+1 = {'length_mm': 47.12388980384689, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreateArc with direction +1 runs counter-clockwise from its start"
+        },
+        {
+          "detail": 0.1413716694115407,
+          "level": "attempt",
+          "text": "CreateArc direction -1.GetLength: returned 0.1413716694115407"
+        },
+        {
+          "detail": {
+            "end": [
+              0.0,
+              30.0
+            ],
+            "length_mm": 141.3716694115407,
+            "start": [
+              30.0,
+              0.0
+            ]
+          },
+          "level": "fact",
+          "text": "arc_direction_-1 = {'length_mm': 141.3716694115407, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreateArc with direction -1 runs clockwise from its start"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "three-point arc.GetCenterPoint2: returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Create3PointArc passes through its three points: centre (90.0, -5.204170427930421e-15)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a line's ends read back: (1.0, 2.0), (31.0, 42.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetLength is in metres"
+        },
+        {
+          "detail": 0,
+          "level": "fact",
+          "text": "line_segment_type = 0"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "centreline_is_construction = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "ConstructionGeometry sets and reads back on a line"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreatePoint puts a point where asked"
+        },
+        {
+          "detail": 7,
+          "level": "fact",
+          "text": "segments_after_close = 7"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "all seven segments are still in the sketch once it is closed"
+        }
+      ],
+      "members": [
+        "ISketchManager.CreateCircle",
+        "ISketchManager.CreateArc",
+        "ISketchManager.Create3PointArc",
+        "ISketchManager.CreateLine",
+        "ISketchManager.CreateCenterLine",
+        "ISketchManager.CreatePoint",
+        "ISketchSegment.ConstructionGeometry",
+        "ISketchSegment.GetType",
+        "ISketchSegment.GetLength",
+        "ISketchArc.GetCenterPoint2",
+        "ISketchArc.GetRadius",
+        "ISketchLine.GetStartPoint2",
+        "ISketch.GetSketchSegments"
+      ],
+      "name": "sketch_entities",
+      "reason": "",
+      "seconds": 2.281,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:sgEQUAL on two circles": {
+          "ok": true,
+          "value": null
+        },
+        "equal_radius_constraint": "sgSAMELENGTH",
+        "origin_point_mm": [
+          0.0,
+          0.0
+        ],
+        "select_routes_so_far": {
+          "Select2": 5,
+          "Select4": 18
+        },
+        "sgEQUAL_radii_after": [
+          0.0040000000000000036,
+          0.007000000000000006
+        ]
+      },
+      "lines": [
+        {
+          "detail": [
+            0.0,
+            0.0
+          ],
+          "level": "fact",
+          "text": "origin_point_mm = (0.0, 0.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sgCOINCIDENT pulls a line's start onto the origin: (0.0, 0.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sgHORIZONTAL2D levels the line: (0.0, 0.0) (26.925824035672523, 0.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the origin and a line made coincident put the origin on the line's extension: (25.0, 25.0) (45.00000000000001, 45.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sgCOINCIDENT puts a point on a circle: (89.66234939601246, 2.576626505603322)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sgTANGENT makes the line touch the arc: 10.0 vs 10.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sgSYMMETRIC mirrors two points about a centreline: (140.0, 20.0) (159.99999999999997, 20.0)"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "sgEQUAL on two circles: returned None"
+        },
+        {
+          "detail": [
+            0.0040000000000000036,
+            0.007000000000000006
+          ],
+          "level": "fact",
+          "text": "after sgEQUAL the radii are (0.0040000000000000036, 0.007000000000000006)"
+        },
+        {
+          "detail": "sgSAMELENGTH",
+          "level": "fact",
+          "text": "equal_radius_constraint = 'sgSAMELENGTH'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "some constant makes two radii equal: ['sgSAMELENGTH'] (0.0040000000000000036, 0.003999999999999992)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "an arc's centre point goes onto a circle: (60.0, 60.0)"
+        },
+        {
+          "detail": {
+            "Select2": 5,
+            "Select4": 18
+          },
+          "level": "fact",
+          "text": "select_routes_so_far = {'Select2': 5, 'Select4': 18}"
+        }
+      ],
+      "members": [
+        "IModelDoc2.SketchAddConstraints",
+        "ISketchSegment.Select4",
+        "ISketchPoint.Select4",
+        "ISketch.GetSketchPoints2"
+      ],
+      "name": "relations",
+      "reason": "",
+      "seconds": 3.2,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "angle_dimension_system_value": 0.34906585039886595,
+        "arc_dimension_measures": "radius",
+        "circle_dimension_measures": "diameter",
+        "dimension_names_after_close": [
+          "OD",
+          "R",
+          "HalfSpace"
+        ],
+        "full_name_after_close": "OD@Probe Dims@Part282.Part",
+        "full_name_while_open": "OD@Sketch1@Part282.Part"
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "AddDimension2 makes the OD dimension"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the OD dimension renames and reads back"
+        },
+        {
+          "detail": "diameter",
+          "level": "fact",
+          "text": "a circle's dimension reads 0.02 m: its diameter"
+        },
+        {
+          "detail": "OD@Sketch1@Part282.Part",
+          "level": "fact",
+          "text": "full_name_while_open = 'OD@Sketch1@Part282.Part'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "setting SystemValue in metres drives the circle"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "AddDimension2 makes the R dimension"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the R dimension renames and reads back"
+        },
+        {
+          "detail": "radius",
+          "level": "fact",
+          "text": "an arc's dimension reads 0.009999999999999995 m: its radius"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "AddDimension2 makes the HalfSpace dimension"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the HalfSpace dimension renames and reads back"
+        },
+        {
+          "detail": 0.34906585039886595,
+          "level": "fact",
+          "text": "angle_dimension_system_value = 0.34906585039886595"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "an angle dimension's SystemValue is radians: 0.34906585039886595"
+        },
+        {
+          "detail": [
+            "OD",
+            "R",
+            "HalfSpace"
+          ],
+          "level": "fact",
+          "text": "dimension_names_after_close = ['OD', 'R', 'HalfSpace']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "names set while the sketch was open survive closing it"
+        },
+        {
+          "detail": "OD@Probe Dims@Part282.Part",
+          "level": "fact",
+          "text": "full_name_after_close = 'OD@Probe Dims@Part282.Part'"
+        }
+      ],
+      "members": [
+        "IModelDoc2.AddDimension2",
+        "IDisplayDimension.GetDimension2",
+        "IDimension.Name",
+        "IDimension.FullName",
+        "IDimension.SystemValue",
+        "IFeature.GetFirstDisplayDimension",
+        "IFeature.GetNextDisplayDimension",
+        "ISldWorks.SetUserPreferenceToggle"
+      ],
+      "name": "dimensions",
+      "reason": "",
+      "seconds": 2.548,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:link before the dimension exists: \"OD@Probe Link\"= 30": {
+          "ok": true,
+          "value": -1
+        },
+        "equation_length_units": "mm",
+        "link_before_dimension_returns": -1,
+        "link_text_reads_back": "\"OD@Probe Link\"= \"Probe D\""
+      },
+      "lines": [
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "link before the dimension exists: \"OD@Probe Link\"= 30: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "link_before_dimension_returns = -1"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the global is added"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the link \"OD@Probe Link\"= \"Probe D\" is accepted once the dimension exists"
+        },
+        {
+          "detail": "\"OD@Probe Link\"= \"Probe D\"",
+          "level": "fact",
+          "text": "link_text_reads_back = '\"OD@Probe Link\"= \"Probe D\"'"
+        },
+        {
+          "detail": "mm",
+          "level": "fact",
+          "text": "a global of 30 drives the dimension to 0.03 m"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "equations are in millimetres in this document"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "changing the global and rebuilding moves the dimension to 0.04 m"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Equation",
+        "IDimension.SystemValue",
+        "IModelDoc2.ForceRebuild3"
+      ],
+      "name": "dimension_link",
+      "reason": "",
+      "seconds": 2.679,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "status_after_close": 3,
+        "status_defined_line": 3,
+        "status_free_line": 2
+      },
+      "lines": [
+        {
+          "detail": 2,
+          "level": "fact",
+          "text": "status_free_line = 2"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "status_defined_line = 3"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a free line reads 2 (swUnderConstrained is 2)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a line fixed at one end, level and dimensioned reads 3 (swFullyConstrained is 3)"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "status_after_close = 3"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the closed sketch reports the same status through its feature"
+        }
+      ],
+      "members": [
+        "ISketch.GetConstrainedStatus"
+      ],
+      "name": "constrained_status",
+      "reason": "",
+      "seconds": 2.429,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:bracketed sum: CreateEquationSpline2(\"10*cos((t+0.1)-0.1)\", \"10*sin((t+0.1)-0.1)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:bracketed sum: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:bracketed t with conversion: CreateEquationSpline2(\"10*cos((t)*180/pi)\", \"10*sin((t)*180/pi)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:degree conversion, no spaces: CreateEquationSpline2(\"10*cos(t*180/pi)\", \"10*sin(t*180/pi)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:degree conversion, spaces: CreateEquationSpline2(\"10 * cos ( t * 180 / pi )\", \"10 * sin ( t * 180 / pi )\", \"\", \"0\", \"pi / 2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:quarter: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:quarter: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:sgFIXED on the curve": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:spaces: CreateEquationSpline2(\"10 * cos ( t )\", \"10 * sin ( t )\", \"\", \"0\", \"pi / 2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:spaces: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:status: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:straight: CreateEquationSpline2(\"t\", \"2*t\", \"\", \"0\", \"10\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:straight: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:unlocked: CreateEquationSpline2(\"t\", \"t*t\", \"\", \"0\", \"5\", False, 0, 0, 0, False, False)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "curve_expression_units": "document units (mm)",
+        "curve_spellings": {
+          "bracketed sum": {
+            "end": [
+              1.2061808937093932e-10,
+              10.0
+            ],
+            "made": true
+          },
+          "bracketed t with conversion": {
+            "end": null,
+            "made": false
+          },
+          "degree conversion, no spaces": {
+            "end": null,
+            "made": false
+          },
+          "degree conversion, spaces": {
+            "end": null,
+            "made": false
+          },
+          "spaces": {
+            "end": [
+              1.206181300285221e-10,
+              10.000000000000002
+            ],
+            "made": true
+          }
+        },
+        "curve_trig_units": "radians",
+        "equation_curve_segment_type": 3,
+        "quarter_circle_ends_mm": [
+          [
+            9.999999999999996,
+            -5.22395316238193e-11
+          ],
+          [
+            1.206181300285221e-10,
+            10.000000000000002
+          ]
+        ],
+        "status_one_fixed_curve": 3,
+        "status_one_locked_curve": 2,
+        "status_with_one_unlocked_curve": 2,
+        "straight_curve_ends_mm": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            20.0
+          ]
+        ]
+      },
+      "lines": [
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "straight: CreateEquationSpline2(\"t\", \"2*t\", \"\", \"0\", \"10\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CreateEquationSpline2 makes a curve from literal expressions"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "equation_curve_segment_type = 3"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "straight: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              10.0,
+              20.0
+            ]
+          ],
+          "level": "fact",
+          "text": "straight_curve_ends_mm = ((0.0, 0.0), (10.0, 20.0))"
+        },
+        {
+          "detail": "document units (mm)",
+          "level": "fact",
+          "text": "curve_expression_units = 'document units (mm)'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "expressions are in document units: t = 10 ends at (10.0, 20.0)"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "quarter: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "quarter: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": [
+            [
+              9.999999999999996,
+              -5.22395316238193e-11
+            ],
+            [
+              1.206181300285221e-10,
+              10.000000000000002
+            ]
+          ],
+          "level": "fact",
+          "text": "quarter_circle_ends_mm = ((9.999999999999996, -5.22395316238193e-11), (1.206181300285221e-10, 10.000000000000002))"
+        },
+        {
+          "detail": "radians",
+          "level": "fact",
+          "text": "cos(t) from 0 to pi/2 ends at (1.206181300285221e-10, 10.000000000000002): trig is in radians"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "spaces: CreateEquationSpline2(\"10 * cos ( t )\", \"10 * sin ( t )\", \"\", \"0\", \"pi / 2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "spaces: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "degree conversion, no spaces: CreateEquationSpline2(\"10*cos(t*180/pi)\", \"10*sin(t*180/pi)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned None"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "degree conversion, spaces: CreateEquationSpline2(\"10 * cos ( t * 180 / pi )\", \"10 * sin ( t * 180 / pi )\", \"\", \"0\", \"pi / 2\", False, 0, 0, 0, True, True): returned None"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "bracketed t with conversion: CreateEquationSpline2(\"10*cos((t)*180/pi)\", \"10*sin((t)*180/pi)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned None"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "bracketed sum: CreateEquationSpline2(\"10*cos((t+0.1)-0.1)\", \"10*sin((t+0.1)-0.1)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "bracketed sum: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": {
+            "bracketed sum": {
+              "end": [
+                1.2061808937093932e-10,
+                10.0
+              ],
+              "made": true
+            },
+            "bracketed t with conversion": {
+              "end": null,
+              "made": false
+            },
+            "degree conversion, no spaces": {
+              "end": null,
+              "made": false
+            },
+            "degree conversion, spaces": {
+              "end": null,
+              "made": false
+            },
+            "spaces": {
+              "end": [
+                1.206181300285221e-10,
+                10.000000000000002
+              ],
+              "made": true
+            }
+          },
+          "level": "fact",
+          "text": "curve_spellings = {'spaces': {'made': True, 'end': (1.206181300285221e-10, 10.000000000000002)}, 'degree conversion, no spaces': {'made': False, 'end': None}, 'degree conversion, spaces': {'made': False, 'end': None}, 'bracketed t with conversion': {'made': False, 'end': None}, 'bracketed sum': {'made': True, 'end': (1.2061808937093932e-10, 10.0)}}"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "status: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": 2,
+          "level": "fact",
+          "text": "status_one_locked_curve = 2"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "sgFIXED on the curve: returned None"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "status_one_fixed_curve = 3"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "unlocked: CreateEquationSpline2(\"t\", \"t*t\", \"\", \"0\", \"5\", False, 0, 0, 0, False, False): returned 'CDispatch'"
+        },
+        {
+          "detail": 2,
+          "level": "fact",
+          "text": "status_with_one_unlocked_curve = 2"
+        }
+      ],
+      "members": [
+        "ISketchManager.CreateEquationSpline2",
+        "ISketchSpline.GetPoints2",
+        "ISketchSegment.GetType"
+      ],
+      "name": "curve_literal",
+      "reason": "",
+      "seconds": 7.418,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:name in expression: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"pi / 2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:name in expression: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:name in range: CreateEquationSpline2(\"10 * cos ( t )\", \"10 * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:name in range: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:names in both: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:names in both: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "curve_globals": {
+          "name in expression": {
+            "ends": [
+              [
+                9.999999999999996,
+                -5.22395316238193e-11
+              ],
+              [
+                6.030940382740289e-11,
+                10.0
+              ]
+            ],
+            "made": true
+          },
+          "name in range": {
+            "ends": [
+              [
+                10.000000000000005,
+                2.979929671076409e-13
+              ],
+              [
+                3.887515309664025e-12,
+                9.999999999996108
+              ]
+            ],
+            "made": true
+          },
+          "names in both": {
+            "ends": [
+              [
+                10.0,
+                0.0
+              ],
+              [
+                3.403527459866496e-11,
+                10.000000000025963
+              ]
+            ],
+            "made": true
+          }
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the globals are added"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "name in expression: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"pi / 2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "name in expression: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "name in expression: the curve is made and ends at (6.030940382740289e-11, 10.0)"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "name in range: CreateEquationSpline2(\"10 * cos ( t )\", \"10 * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "name in range: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "name in range: the curve is made and ends at (3.887515309664025e-12, 9.999999999996108)"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "names in both: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "names in both: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "names in both: the curve is made and ends at (3.403527459866496e-11, 10.000000000025963)"
+        },
+        {
+          "detail": {
+            "name in expression": {
+              "ends": [
+                [
+                  9.999999999999996,
+                  -5.22395316238193e-11
+                ],
+                [
+                  6.030940382740289e-11,
+                  10.0
+                ]
+              ],
+              "made": true
+            },
+            "name in range": {
+              "ends": [
+                [
+                  10.000000000000005,
+                  2.979929671076409e-13
+                ],
+                [
+                  3.887515309664025e-12,
+                  9.999999999996108
+                ]
+              ],
+              "made": true
+            },
+            "names in both": {
+              "ends": [
+                [
+                  10.0,
+                  0.0
+                ],
+                [
+                  3.403527459866496e-11,
+                  10.000000000025963
+                ]
+              ],
+              "made": true
+            }
+          },
+          "level": "fact",
+          "text": "curve_globals = {'name in expression': {'made': True, 'ends': ((9.999999999999996, -5.22395316238193e-11), (6.030940382740289e-11, 10.0))}, 'name in range': {'made': True, 'ends': ((10.000000000000005, 2.979929671076409e-13), (3.887515309664025e-12, 9.999999999996108))}, 'names in both': {'made': True, 'ends': ((10.0, 0.0), (3.403527459866496e-11, 10.000000000025963))}}"
+        }
+      ],
+      "members": [
+        "ISketchManager.CreateEquationSpline2"
+      ],
+      "name": "curve_globals",
+      "reason": "",
+      "seconds": 2.619,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:after rebuild: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:follows: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "ends_after_global_change_mm": [
+          [
+            19.99999999999999,
+            -1.1060930801288713e-12
+          ],
+          [
+            -7.6571373978539e-15,
+            20.0
+          ]
+        ]
+      },
+      "lines": [
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "follows: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the curve over globals is made"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the rebuilt sketch still holds one curve (1)"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "after rebuild: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": [
+            [
+              19.99999999999999,
+              -1.1060930801288713e-12
+            ],
+            [
+              -7.6571373978539e-15,
+              20.0
+            ]
+          ],
+          "level": "fact",
+          "text": "ends_after_global_change_mm = ((19.99999999999999, -1.1060930801288713e-12), (-7.6571373978539e-15, 20.0))"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "after R goes from 10 to 20 the curve ends at (-7.6571373978539e-15, 20.0)"
+        }
+      ],
+      "members": [
+        "ISketchManager.CreateEquationSpline2",
+        "IModelDoc2.ForceRebuild3",
+        "ISketch.GetSketchSegments"
+      ],
+      "name": "curve_rebuild",
+      "reason": "",
+      "seconds": 2.45,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:sgCOINCIDENT line end to curve start": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:target after relation: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:target: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:the curve's start as a sketch point": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "curve_ends_after_relation_mm": [
+          [
+            9.99999999999999,
+            -1.5671869875109823e-10
+          ],
+          [
+            2.412343404948296e-10,
+            10.000000000120624
+          ]
+        ],
+        "line_end_after_relation_mm": [
+          9.99999999999999,
+          -1.5671869875109823e-10
+        ],
+        "sketch_points_with_curve": [
+          [
+            9.999999999999996,
+            -5.22395316238193e-11
+          ],
+          [
+            1.206181300285221e-10,
+            10.000000000000002
+          ]
+        ]
+      },
+      "lines": [
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "target: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the target curve is made"
+        },
+        {
+          "detail": [
+            [
+              9.999999999999996,
+              -5.22395316238193e-11
+            ],
+            [
+              1.206181300285221e-10,
+              10.000000000000002
+            ]
+          ],
+          "level": "fact",
+          "text": "sketch_points_with_curve = [(9.999999999999996, -5.22395316238193e-11), (1.206181300285221e-10, 10.000000000000002)]"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "the curve's start as a sketch point: returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the curve's start point is a selectable sketch point"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "sgCOINCIDENT line end to curve start: returned None"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "target after relation: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": [
+            9.99999999999999,
+            -1.5671869875109823e-10
+          ],
+          "level": "fact",
+          "text": "line_end_after_relation_mm = (9.99999999999999, -1.5671869875109823e-10)"
+        },
+        {
+          "detail": [
+            [
+              9.99999999999999,
+              -1.5671869875109823e-10
+            ],
+            [
+              2.412343404948296e-10,
+              10.000000000120624
+            ]
+          ],
+          "level": "fact",
+          "text": "curve_ends_after_relation_mm = ((9.99999999999999, -1.5671869875109823e-10), (2.412343404948296e-10, 10.000000000120624))"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the line's end is on the curve's start: (9.99999999999999, -1.5671869875109823e-10)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the locked curve did not move to meet the line"
+        }
+      ],
+      "members": [
+        "ISketch.GetSketchPoints2",
+        "IModelDoc2.SketchAddConstraints"
+      ],
+      "name": "curve_relations",
+      "reason": "",
+      "seconds": 2.161,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:broken: CreateEquationSpline2(\"t *\", \"t\", \"\", \"0\", \"1\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": null
+        },
+        "broken_expression_makes": "nothing"
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "broken: CreateEquationSpline2(\"t *\", \"t\", \"\", \"0\", \"1\", False, 0, 0, 0, True, True): returned None"
+        },
+        {
+          "detail": "nothing",
+          "level": "fact",
+          "text": "broken_expression_makes = 'nothing'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a broken expression came back without a hang"
+        }
+      ],
+      "members": [
+        "ISketchManager.CreateEquationSpline2"
+      ],
+      "name": "curve_bad",
+      "reason": "",
+      "seconds": 2.01,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:fixed after rebuild: GetPoints2 ends": {
+          "ok": true,
+          "value": "tuple"
+        },
+        "attempt:fixed: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "fixed_curve_follows_global": true,
+        "status_fixed_curve_after_rebuild": 3,
+        "status_fixed_curve_over_globals": 3
+      },
+      "lines": [
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "fixed: CreateEquationSpline2(\"\"Probe R\" * cos ( t )\", \"\"Probe R\" * sin ( t )\", \"\", \"0\", \"\"Probe End\"\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the curve over globals is made"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "status_fixed_curve_over_globals = 3"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the rebuilt sketch still holds the curve"
+        },
+        {
+          "detail": "tuple",
+          "level": "attempt",
+          "text": "fixed after rebuild: GetPoints2 ends: returned 'tuple'"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "after R 10 to 20 the fixed curve ends at (-7.6571373978539e-15, 20.0)"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "status_fixed_curve_after_rebuild = 3"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the fixed curve's behaviour on a rebuild is recorded"
+        }
+      ],
+      "members": [
+        "IModelDoc2.SketchAddConstraints",
+        "ISketch.GetConstrainedStatus"
+      ],
+      "name": "curve_fixed_rebuild",
+      "reason": "",
+      "seconds": 2.499,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "a_line_0_1_mm_away_is_its_own_point": true,
+        "attempt:ends: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:sgFIXED on the curve": {
+          "ok": true,
+          "value": null
+        },
+        "captured_start_selects_after_fixed": {
+          "returned": true,
+          "selected": 1
+        },
+        "captured_start_selects_after_line": {
+          "returned": true,
+          "selected": 1
+        },
+        "line_end_is_the_curve_start_point": false,
+        "line_start_is_the_arc_start": true,
+        "line_start_is_the_curve_start_point": true,
+        "line_start_is_the_previous_line_end": true,
+        "points_at_a_shared_arc_end": 1,
+        "points_at_a_shared_line_end": 1,
+        "points_at_curve_start_after_fixed": 1,
+        "points_at_curve_start_after_line": 1,
+        "points_at_curve_start_with_curve_only": 1,
+        "selected_after_selecting_the_merged_point_twice": 1,
+        "status_curve_fixed_line_from_its_start": 2
+      },
+      "lines": [
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "ends: CreateEquationSpline2(\"10*cos(t)\", \"10*sin(t)\", \"\", \"0\", \"pi/2\", False, 0, 0, 0, True, True): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the curve is made"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "points_at_curve_start_with_curve_only = 1"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the curve's start is one sketch point"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "points_at_curve_start_after_line = 1"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "line_start_is_the_curve_start_point = True"
+        },
+        {
+          "detail": false,
+          "level": "fact",
+          "text": "line_end_is_the_curve_start_point = False"
+        },
+        {
+          "detail": {
+            "returned": true,
+            "selected": 1
+          },
+          "level": "fact",
+          "text": "captured_start_selects_after_line = {'returned': True, 'selected': 1}"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "selected_after_selecting_the_merged_point_twice = 1"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "sgFIXED on the curve: returned None"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "points_at_curve_start_after_fixed = 1"
+        },
+        {
+          "detail": {
+            "returned": true,
+            "selected": 1
+          },
+          "level": "fact",
+          "text": "captured_start_selects_after_fixed = {'returned': True, 'selected': 1}"
+        },
+        {
+          "detail": 2,
+          "level": "fact",
+          "text": "status_curve_fixed_line_from_its_start = 2"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "points_at_a_shared_line_end = 1"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "line_start_is_the_previous_line_end = True"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "points_at_a_shared_arc_end = 1"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "line_start_is_the_arc_start = True"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "a_line_0_1_mm_away_is_its_own_point = True"
+        }
+      ],
+      "members": [
+        "ISketch.GetSketchPoints2",
+        "ISketchPoint.Select4",
+        "IModelDoc2.SketchAddConstraints"
+      ],
+      "name": "curve_end_points",
+      "reason": "",
+      "seconds": 2.397,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "blank_volume_mm3": 12566.370614359175,
+        "depth_dimension_default_name": "D1",
+        "depth_full_name": "Width@Blank@Part292.Part",
+        "extrude_dimensions": [
+          [
+            "D1",
+            0.01
+          ],
+          [
+            "OD",
+            0.04
+          ]
+        ],
+        "extrude_type_name": "Extrusion"
+      },
+      "lines": [
+        {
+          "detail": "Extrusion",
+          "level": "fact",
+          "text": "extrude_type_name = 'Extrusion'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the extrusion renames and reads back"
+        },
+        {
+          "detail": 12566.370614359175,
+          "level": "fact",
+          "text": "blank_volume_mm3 = 12566.370614359175"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the blank's volume is 12566.371 mm³ (expected 12566.371)"
+        },
+        {
+          "detail": [
+            [
+              "D1",
+              0.01
+            ],
+            [
+              "OD",
+              0.04
+            ]
+          ],
+          "level": "fact",
+          "text": "extrude_dimensions = [('D1', 0.01), ('OD', 0.04)]"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the depth dimension is found by its value"
+        },
+        {
+          "detail": "D1",
+          "level": "fact",
+          "text": "depth_dimension_default_name = 'D1'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the depth dimension renames to Width"
+        },
+        {
+          "detail": "Width@Blank@Part292.Part",
+          "level": "fact",
+          "text": "depth_full_name = 'Width@Blank@Part292.Part'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a width global is added"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the link \"Width@Blank\"= \"Probe W\" is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "linked to 12 mm the blank is 15079.645 mm³"
+        }
+      ],
+      "members": [
+        "IFeatureManager.FeatureExtrusion3",
+        "IModelDocExtension.CreateMassProperty",
+        "IMassProperty.Volume",
+        "IFeature.GetFirstDisplayDimension"
+      ],
+      "name": "extrude",
+      "reason": "",
+      "seconds": 3.843,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:FeatureCut4 through all both": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:FeatureCut4 through all, both ends": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:FeatureCut4 through all, default direction": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:FeatureCut4 through all, direction flipped": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "cut through all both": {
+          "made": true,
+          "removed_mm3": 282.728,
+          "type": "ICE"
+        },
+        "cut through all, both ends": {
+          "made": true,
+          "removed_mm3": 282.728,
+          "type": "ICE"
+        },
+        "cut through all, default direction": {
+          "made": false,
+          "removed_mm3": 0.0,
+          "type": null
+        },
+        "cut through all, direction flipped": {
+          "made": true,
+          "removed_mm3": 282.743,
+          "type": "ICE"
+        },
+        "cut_routes_that_remove_the_hole": [
+          "through all, direction flipped",
+          "through all both",
+          "through all, both ends"
+        ]
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the hole sketch selects"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "FeatureCut4 through all, default direction: returned None"
+        },
+        {
+          "detail": {
+            "made": false,
+            "removed_mm3": 0.0,
+            "type": null
+          },
+          "level": "fact",
+          "text": "cut through all, default direction = {'made': False, 'removed_mm3': 0.0, 'type': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the hole sketch selects"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "FeatureCut4 through all, direction flipped: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "made": true,
+            "removed_mm3": 282.743,
+            "type": "ICE"
+          },
+          "level": "fact",
+          "text": "cut through all, direction flipped = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the hole sketch selects"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "FeatureCut4 through all both: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "made": true,
+            "removed_mm3": 282.728,
+            "type": "ICE"
+          },
+          "level": "fact",
+          "text": "cut through all both = {'made': True, 'removed_mm3': 282.728, 'type': 'ICE'}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the hole sketch selects"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "FeatureCut4 through all, both ends: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "made": true,
+            "removed_mm3": 282.728,
+            "type": "ICE"
+          },
+          "level": "fact",
+          "text": "cut through all, both ends = {'made': True, 'removed_mm3': 282.728, 'type': 'ICE'}"
+        },
+        {
+          "detail": [
+            "through all, direction flipped",
+            "through all both",
+            "through all, both ends"
+          ],
+          "level": "fact",
+          "text": "cut_routes_that_remove_the_hole = ['through all, direction flipped', 'through all both', 'through all, both ends']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "some FeatureCut4 form removes exactly the hole"
+        }
+      ],
+      "members": [
+        "IFeatureManager.FeatureCut4",
+        "IFeatureManager.FeatureCut3"
+      ],
+      "name": "cut",
+      "reason": "",
+      "seconds": 19.478,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "axis_new_features": [
+          [
+            "Axis1",
+            "RefAxis"
+          ]
+        ],
+        "axis_type_name": "RefAxis",
+        "insert_axis2_returns": true
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "planes 2 and 3 select together"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "insert_axis2_returns = True"
+        },
+        {
+          "detail": [
+            [
+              "Axis1",
+              "RefAxis"
+            ]
+          ],
+          "level": "fact",
+          "text": "axis_new_features = [('Axis1', 'RefAxis')]"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "InsertAxis2 adds exactly one feature"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the axis renames and reads back"
+        },
+        {
+          "detail": "RefAxis",
+          "level": "fact",
+          "text": "axis_type_name = 'RefAxis'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the axis can be selected again"
+        }
+      ],
+      "members": [
+        "IModelDoc2.InsertAxis2"
+      ],
+      "name": "axis",
+      "reason": "",
+      "seconds": 1.945,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:FeatureCircularPattern5 DName \"NULL\"": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "pattern_call": "FeatureCircularPattern5 DName \"NULL\"",
+        "pattern_count_dim_default_name": "D1",
+        "pattern_count_dim_index": 1,
+        "pattern_dimensions": [
+          [
+            "D3",
+            6.283185307179586
+          ],
+          [
+            "D1",
+            6.0
+          ]
+        ],
+        "pattern_type_name": "CirPattern"
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "planes 2 and 3 select"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the hole sketch selects"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the seed cut is made"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the axis selects at mark 1"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the cut selects at mark 4"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "FeatureCircularPattern5 DName \"NULL\": returned 'CDispatch'"
+        },
+        {
+          "detail": "FeatureCircularPattern5 DName \"NULL\"",
+          "level": "fact",
+          "text": "pattern_call = 'FeatureCircularPattern5 DName \"NULL\"'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a circular pattern is made"
+        },
+        {
+          "detail": "CirPattern",
+          "level": "fact",
+          "text": "pattern_type_name = 'CirPattern'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the pattern renames and reads back"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "six holes leave 10869.911 mm³ (expected 10869.911)"
+        },
+        {
+          "detail": [
+            [
+              "D3",
+              6.283185307179586
+            ],
+            [
+              "D1",
+              6.0
+            ]
+          ],
+          "level": "fact",
+          "text": "pattern_dimensions = [('D3', 6.283185307179586), ('D1', 6.0)]"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "exactly one pattern dimension has the count's value"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "pattern_count_dim_index = 1"
+        },
+        {
+          "detail": "D1",
+          "level": "fact",
+          "text": "pattern_count_dim_default_name = 'D1'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the count dimension renames to Count"
+        }
+      ],
+      "members": [
+        "IFeatureManager.FeatureCircularPattern5",
+        "IFeatureManager.FeatureCircularPattern4"
+      ],
+      "name": "pattern",
+      "reason": "",
+      "seconds": 7.082,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "count_link_index": 1
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the pattern is made"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the count dimension is found by value"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the count global is added"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "count_link_index = 1"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the link \"Count@Teeth\"= \"Probe N\" is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "linked to 8 the pattern leaves 10304.424 mm³"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2"
+      ],
+      "name": "pattern_count_link",
+      "reason": "",
+      "seconds": 6.758,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a cut is made while CommandInProgress is True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the flag reads back False after restoring"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "after one rebuild the part is 12283.627 mm³"
+        }
+      ],
+      "members": [
+        "ISldWorks.CommandInProgress"
+      ],
+      "name": "batched_under_command_in_progress",
+      "reason": "",
+      "seconds": 3.582,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:IModelDoc2.SaveAs3 on another new part": {
+          "ok": true,
+          "value": "dict"
+        },
+        "attempt:SaveAs3 onto the same path": {
+          "ok": true,
+          "value": true
+        },
+        "attempt:SaveAs3(path, current version, silent, null, null, out long, out long)": {
+          "ok": true,
+          "value": true
+        },
+        "imodeldoc2_save_as3": {
+          "on_disk": true,
+          "returned": 0
+        },
+        "path_after_save": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Save.SLDPRT",
+        "save_as3_onto_existing_file": {
+          "flag": true,
+          "size_after": 36012,
+          "size_before": 35248
+        },
+        "save_as3_result": "True",
+        "save_as3_result_is_tuple": false,
+        "title_after_save": "Probe Save.SLDPRT"
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Save.SLDPRT does not exist yet"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "SaveAs3(path, current version, silent, null, null, out long, out long): returned True"
+        },
+        {
+          "detail": "True",
+          "level": "fact",
+          "text": "save_as3_result = 'True'"
+        },
+        {
+          "detail": false,
+          "level": "fact",
+          "text": "save_as3_result_is_tuple = False"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "SaveAs3 says it saved"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the file is on disk"
+        },
+        {
+          "detail": "Probe Save.SLDPRT",
+          "level": "fact",
+          "text": "title_after_save = 'Probe Save.SLDPRT'"
+        },
+        {
+          "detail": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Save.SLDPRT",
+          "level": "fact",
+          "text": "path_after_save = 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200\\\\Probe Save.SLDPRT'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetPathName now names the new file"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "SaveAs3 onto the same path: returned True"
+        },
+        {
+          "detail": {
+            "flag": true,
+            "size_after": 36012,
+            "size_before": 35248
+          },
+          "level": "fact",
+          "text": "save_as3_onto_existing_file = {'flag': True, 'size_before': 35248, 'size_after': 36012}"
+        },
+        {
+          "detail": "dict",
+          "level": "attempt",
+          "text": "IModelDoc2.SaveAs3 on another new part: returned 'dict'"
+        },
+        {
+          "detail": {
+            "on_disk": true,
+            "returned": 0
+          },
+          "level": "fact",
+          "text": "imodeldoc2_save_as3 = {'returned': 0, 'on_disk': True}"
+        }
+      ],
+      "members": [
+        "IModelDocExtension.SaveAs3",
+        "IModelDoc2.GetPathName",
+        "IModelDoc2.GetTitle"
+      ],
+      "name": "save_as",
+      "reason": "",
+      "seconds": 3.433,
+      "status": "pass",
+      "tier": 3,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "assembly_units_before_setting": 3,
+        "attempt:AddComponent5(part A at the origin)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddComponent5(part B at 60 mm)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 angle between top planes": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 axis on top plane": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 coincident fronts": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 distance axis to right plane": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:FixComponent() on the already fixed first component": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:FixComponent() on the free second component": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:IsFixed of the first component": {
+          "ok": true,
+          "value": true
+        },
+        "component_b_translation_mm_as_inserted": [
+          60.0,
+          0.0,
+          -5.0
+        ],
+        "component_b_translation_mm_mated": [
+          60.0,
+          0.0,
+          -5.0
+        ],
+        "component_names": [
+          "Probe Add A-1",
+          "Probe Add B-1"
+        ],
+        "distance_mate_dimensions": [
+          [
+            "D1",
+            0.06
+          ]
+        ],
+        "first_component_fixed_on_insert": true,
+        "mate angle between top planes": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mate axis on top plane": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mate coincident fronts": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mate distance axis to right plane": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mates": [
+          [
+            "Coincident1",
+            "MateCoincident"
+          ],
+          [
+            "Coincident2",
+            "MateCoincident"
+          ],
+          [
+            "Centre Distance",
+            "MateDistanceDim"
+          ],
+          [
+            "Angle1",
+            "MatePlanarAngleDim"
+          ]
+        ],
+        "second_component_fixed_after_fix_component": true,
+        "second_component_fixed_before_fix_component": false
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "there is a scratch folder to save parts in"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "assembly_units_before_setting = 3"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "NewDocument from the assembly template is an assembly"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddComponent5(part A at the origin): returned 'CDispatch'"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddComponent5(part B at 60 mm): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "both components are inserted"
+        },
+        {
+          "detail": [
+            "Probe Add A-1",
+            "Probe Add B-1"
+          ],
+          "level": "fact",
+          "text": "component_names = ('Probe Add A-1', 'Probe Add B-1')"
+        },
+        {
+          "detail": [
+            60.0,
+            0.0,
+            -5.0
+          ],
+          "level": "fact",
+          "text": "component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "IsFixed of the first component: returned True"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "first_component_fixed_on_insert = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first component selects"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "FixComponent() on the already fixed first component: returned None"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first component is fixed"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the two front planes select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 coincident fronts: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate coincident fronts = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "coincident fronts: one mate appears under Mates"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "B's axis and A's top plane select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 axis on top plane: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate axis on top plane = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "axis on top plane: one mate appears under Mates"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "B's axis and A's right plane select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 distance axis to right plane: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "distance axis to right plane: one mate appears under Mates"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the two top planes select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 angle between top planes: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate angle between top planes = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "angle between top planes: one mate appears under Mates"
+        },
+        {
+          "detail": [
+            60.0,
+            0.0,
+            -5.0
+          ],
+          "level": "fact",
+          "text": "component_b_translation_mm_mated = (60.0, 0.0, -5.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the distance mate is found in the tree"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the distance mate renames and reads back"
+        },
+        {
+          "detail": [
+            [
+              "D1",
+              0.06
+            ]
+          ],
+          "level": "fact",
+          "text": "distance_mate_dimensions = [('D1', 0.06)]"
+        },
+        {
+          "detail": [
+            [
+              "Coincident1",
+              "MateCoincident"
+            ],
+            [
+              "Coincident2",
+              "MateCoincident"
+            ],
+            [
+              "Centre Distance",
+              "MateDistanceDim"
+            ],
+            [
+              "Angle1",
+              "MatePlanarAngleDim"
+            ]
+          ],
+          "level": "fact",
+          "text": "mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]"
+        },
+        {
+          "detail": false,
+          "level": "fact",
+          "text": "second_component_fixed_before_fix_component = False"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the second component selects"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "FixComponent() on the free second component: returned None"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "second_component_fixed_after_fix_component = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "FixComponent() fixes the selected component"
+        }
+      ],
+      "members": [
+        "IAssemblyDoc.AddComponent5",
+        "IComponent2.Name2",
+        "IComponent2.Transform2",
+        "IComponent2.IsFixed",
+        "IAssemblyDoc.FixComponent",
+        "IComponent2.FeatureByName",
+        "IAssemblyDoc.AddMate5"
+      ],
+      "name": "assembly_components_and_mates",
+      "reason": "",
+      "seconds": 13.983,
+      "status": "pass",
+      "tier": 4,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "assembly_units_before_setting": 3,
+        "attempt:AddComponent5(part A at the origin)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddComponent5(part B at 60 mm)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 angle between top planes": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 axis on top plane": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 coincident fronts": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:AddMate5 distance axis to right plane": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:FixComponent() on the already fixed first component": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:IsFixed of the first component": {
+          "ok": true,
+          "value": true
+        },
+        "component_b_translation_mm_after_global_70": [
+          70.0,
+          0.0,
+          -5.0
+        ],
+        "component_b_translation_mm_as_inserted": [
+          60.0,
+          0.0,
+          -5.0
+        ],
+        "component_b_translation_mm_mated": [
+          60.0,
+          0.0,
+          -5.0
+        ],
+        "component_names": [
+          "Probe Link A-1",
+          "Probe Link B-1"
+        ],
+        "distance_mate_dimensions": [
+          [
+            "D1",
+            0.06
+          ]
+        ],
+        "first_component_fixed_on_insert": true,
+        "mate angle between top planes": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mate axis on top plane": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mate coincident fronts": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mate distance axis to right plane": {
+          "returned": "CDispatch",
+          "status": null
+        },
+        "mates": [
+          [
+            "Coincident1",
+            "MateCoincident"
+          ],
+          [
+            "Coincident2",
+            "MateCoincident"
+          ],
+          [
+            "Centre Distance",
+            "MateDistanceDim"
+          ],
+          [
+            "Angle1",
+            "MatePlanarAngleDim"
+          ]
+        ]
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "there is a scratch folder to save parts in"
+        },
+        {
+          "detail": 3,
+          "level": "fact",
+          "text": "assembly_units_before_setting = 3"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "NewDocument from the assembly template is an assembly"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddComponent5(part A at the origin): returned 'CDispatch'"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddComponent5(part B at 60 mm): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "both components are inserted"
+        },
+        {
+          "detail": [
+            "Probe Link A-1",
+            "Probe Link B-1"
+          ],
+          "level": "fact",
+          "text": "component_names = ('Probe Link A-1', 'Probe Link B-1')"
+        },
+        {
+          "detail": [
+            60.0,
+            0.0,
+            -5.0
+          ],
+          "level": "fact",
+          "text": "component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "IsFixed of the first component: returned True"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "first_component_fixed_on_insert = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first component selects"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "FixComponent() on the already fixed first component: returned None"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first component is fixed"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the two front planes select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 coincident fronts: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate coincident fronts = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "coincident fronts: one mate appears under Mates"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "B's axis and A's top plane select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 axis on top plane: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate axis on top plane = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "axis on top plane: one mate appears under Mates"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "B's axis and A's right plane select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 distance axis to right plane: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "distance axis to right plane: one mate appears under Mates"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the two top planes select"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "AddMate5 angle between top planes: returned 'CDispatch'"
+        },
+        {
+          "detail": {
+            "returned": "CDispatch",
+            "status": null
+          },
+          "level": "fact",
+          "text": "mate angle between top planes = {'returned': 'CDispatch', 'status': None}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "angle between top planes: one mate appears under Mates"
+        },
+        {
+          "detail": [
+            60.0,
+            0.0,
+            -5.0
+          ],
+          "level": "fact",
+          "text": "component_b_translation_mm_mated = (60.0, 0.0, -5.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the distance mate is found in the tree"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the distance mate renames and reads back"
+        },
+        {
+          "detail": [
+            [
+              "D1",
+              0.06
+            ]
+          ],
+          "level": "fact",
+          "text": "distance_mate_dimensions = [('D1', 0.06)]"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the distance mate's dimension is found by value"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "an assembly global is added"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the link \"D1@Centre Distance\"= \"Centre Distance\" is accepted"
+        },
+        {
+          "detail": [
+            70.0,
+            0.0,
+            -5.0
+          ],
+          "level": "fact",
+          "text": "component_b_translation_mm_after_global_70 = (70.0, 0.0, -5.0)"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "changing the global moves B to 70 mm: (70.0, 0.0, -5.0)"
+        },
+        {
+          "detail": [
+            [
+              "Coincident1",
+              "MateCoincident"
+            ],
+            [
+              "Coincident2",
+              "MateCoincident"
+            ],
+            [
+              "Centre Distance",
+              "MateDistanceDim"
+            ],
+            [
+              "Angle1",
+              "MatePlanarAngleDim"
+            ]
+          ],
+          "level": "fact",
+          "text": "mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IFeature.GetFirstDisplayDimension"
+      ],
+      "name": "assembly_distance_link",
+      "reason": "",
+      "seconds": 14.427,
+      "status": "pass",
+      "tier": 4,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "blank_dimensions_after": {
+          "OD": 0.03375,
+          "Width": 0.01
+        },
+        "build_log": [
+          "build   Part307 · spur · recipe A · trig degrees",
+          "ok      new part Part307",
+          "ok      trig units measured: degrees",
+          "ok      global \"No. of Teeth\"",
+          "ok      global \"Module\"",
+          "ok      global \"Bore Diameter\"",
+          "ok      global \"Pressure Angle\"",
+          "ok      global \"Outer Diameter\"",
+          "ok      global \"Pitch Diameter\"",
+          "ok      global \"Backlash\"",
+          "ok      global \"Arc Length\"",
+          "ok      global \"Fillet Radius\"",
+          "ok      global \"Tooth Depth\"",
+          "ok      global \"Face Width\"",
+          "ok      global \"Root Diameter\"",
+          "ok      global \"Base Diameter\"",
+          "ok      global \"Base Radius\"",
+          "ok      global \"Tooth Thickness\"",
+          "ok      global \"Half Space Angle\"",
+          "ok      global \"Involute Fn\"",
+          "ok      global \"Flank Offset\"",
+          "ok      global \"Tip Cap Diameter\"",
+          "ok      global \"Flank Start Diameter\"",
+          "ok      global \"Involute t1\"",
+          "ok      global \"Involute t2\"",
+          "ok      global \"Flank Arc Radius\"",
+          "ok      global \"Flank Centre Angle\"",
+          "ok      axis Gear Axis",
+          "ok      sketch blank opened on plane 1",
+          "ok      circle od",
+          "ok      coincident od.centre origin",
+          "ok      dimension OD",
+          "ok      sketch Blank Sketch",
+          "ok      extrude Blank",
+          "ok      link \"OD@Blank Sketch\"",
+          "ok      link \"Width@Blank\"",
+          "ok      sketch space opened on plane 1",
+          "ok      curve I+",
+          "ok      curve I-",
+          "ok      line L+",
+          "ok      line L-",
+          "ok      arc F+",
+          "ok      arc F-",
+          "ok      arc R",
+          "ok      line T",
+          "ok      fixed I+",
+          "ok      fixed I-",
+          "ok      coincident R.centre origin",
+          "ok      coincident L+.start I+.start (already one point)",
+          "ok      coincident L-.start I-.start (already one point)",
+          "ok      coincident origin L+",
+          "ok      coincident origin L-",
+          "ok      coincident F+.start L+.end (already one point)",
+          "ok      coincident F-.end L-.end (already one point)",
+          "ok      coincident F+.end R.end (already one point)",
+          "ok      coincident F-.start R.start (already one point)",
+          "ok      tangent F+ L+",
+          "ok      tangent F- L-",
+          "ok      tangent F+ R",
+          "ok      tangent F- R",
+          "ok      equal F+ F-",
+          "ok      coincident T.start I+.end (already one point)",
+          "ok      coincident T.end I-.end (already one point)",
+          "ok      dimension Root",
+          "ok      dimension Fillet",
+          "ok      sketch Tooth Space Sketch",
+          "ok      link \"Root@Tooth Space Sketch\"",
+          "ok      link \"Fillet@Tooth Space Sketch\"",
+          "ok      cut Tooth Space",
+          "ok      pattern Teeth × 12",
+          "ok      link \"Count@Teeth\"",
+          "ok      sketch bore opened on plane 1",
+          "ok      circle bore_circle",
+          "ok      coincident bore_circle.centre origin",
+          "ok      dimension Bore",
+          "ok      sketch Bore Sketch",
+          "ok      cut Bore",
+          "ok      link \"Bore@Bore Sketch\"",
+          "ok      24 globals read back and match the maths",
+          "ok      Blank Sketch is fully defined",
+          "ok      Tooth Space Sketch is fully defined",
+          "ok      Bore Sketch is fully defined",
+          "ok      rebuilt once",
+          "MANUAL  1 step(s) to do by hand",
+          "MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.",
+          "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT"
+        ],
+        "feature_names": [
+          "Comments",
+          "Favorites",
+          "History",
+          "Selection Sets",
+          "Sensors",
+          "Design Binder",
+          "Annotations",
+          "Notes",
+          "Notes1___EndTag___",
+          "Surface Bodies",
+          "Solid Bodies",
+          "Lights and Cameras",
+          "Ambient",
+          "Directional1",
+          "Directional2",
+          "Directional3",
+          "Markups",
+          "Equations",
+          "Material <not specified>",
+          "Front Plane",
+          "Top Plane",
+          "Right Plane",
+          "Origin",
+          "Gear Axis",
+          "Blank Sketch",
+          "Blank",
+          "Blank Sketch",
+          "Tooth Space Sketch",
+          "Tooth Space",
+          "Tooth Space Sketch",
+          "Teeth",
+          "Bore Sketch",
+          "Bore",
+          "Bore Sketch"
+        ],
+        "recipe": "A",
+        "sketch_checks": [],
+        "sketch_statuses": {
+          "Blank Sketch": 3,
+          "Bore Sketch": 3,
+          "Tooth Space Sketch": 3
+        },
+        "sketch_statuses_after": {
+          "Blank Sketch": 3,
+          "Bore Sketch": 3,
+          "Tooth Space Sketch": 3
+        },
+        "teeth_dimensions": {
+          "Count": 12.0,
+          "D3": 6.283185307179586
+        },
+        "update_changed": [
+          "No. of Teeth",
+          "Module"
+        ],
+        "volume_mm3_z12": {
+          "od_cylinder": 5654.8667764616275,
+          "root_cylinder": 2332.6325452904216,
+          "volume": 3531.5674902883707
+        },
+        "volume_mm3_z13": {
+          "od_cylinder": 8443.521130374693,
+          "root_cylinder": 3880.971393350672,
+          "volume": 5545.110964056051
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT does not exist yet"
+        },
+        {
+          "detail": [],
+          "level": "ok",
+          "text": "the plan is sound"
+        },
+        {
+          "detail": "A",
+          "level": "fact",
+          "text": "recipe = 'A'"
+        },
+        {
+          "detail": [
+            "build   Part307 · spur · recipe A · trig degrees",
+            "ok      new part Part307",
+            "ok      trig units measured: degrees",
+            "ok      global \"No. of Teeth\"",
+            "ok      global \"Module\"",
+            "ok      global \"Bore Diameter\"",
+            "ok      global \"Pressure Angle\"",
+            "ok      global \"Outer Diameter\"",
+            "ok      global \"Pitch Diameter\"",
+            "ok      global \"Backlash\"",
+            "ok      global \"Arc Length\"",
+            "ok      global \"Fillet Radius\"",
+            "ok      global \"Tooth Depth\"",
+            "ok      global \"Face Width\"",
+            "ok      global \"Root Diameter\"",
+            "ok      global \"Base Diameter\"",
+            "ok      global \"Base Radius\"",
+            "ok      global \"Tooth Thickness\"",
+            "ok      global \"Half Space Angle\"",
+            "ok      global \"Involute Fn\"",
+            "ok      global \"Flank Offset\"",
+            "ok      global \"Tip Cap Diameter\"",
+            "ok      global \"Flank Start Diameter\"",
+            "ok      global \"Involute t1\"",
+            "ok      global \"Involute t2\"",
+            "ok      global \"Flank Arc Radius\"",
+            "ok      global \"Flank Centre Angle\"",
+            "ok      axis Gear Axis",
+            "ok      sketch blank opened on plane 1",
+            "ok      circle od",
+            "ok      coincident od.centre origin",
+            "ok      dimension OD",
+            "ok      sketch Blank Sketch",
+            "ok      extrude Blank",
+            "ok      link \"OD@Blank Sketch\"",
+            "ok      link \"Width@Blank\"",
+            "ok      sketch space opened on plane 1",
+            "ok      curve I+",
+            "ok      curve I-",
+            "ok      line L+",
+            "ok      line L-",
+            "ok      arc F+",
+            "ok      arc F-",
+            "ok      arc R",
+            "ok      line T",
+            "ok      fixed I+",
+            "ok      fixed I-",
+            "ok      coincident R.centre origin",
+            "ok      coincident L+.start I+.start (already one point)",
+            "ok      coincident L-.start I-.start (already one point)",
+            "ok      coincident origin L+",
+            "ok      coincident origin L-",
+            "ok      coincident F+.start L+.end (already one point)",
+            "ok      coincident F-.end L-.end (already one point)",
+            "ok      coincident F+.end R.end (already one point)",
+            "ok      coincident F-.start R.start (already one point)",
+            "ok      tangent F+ L+",
+            "ok      tangent F- L-",
+            "ok      tangent F+ R",
+            "ok      tangent F- R",
+            "ok      equal F+ F-",
+            "ok      coincident T.start I+.end (already one point)",
+            "ok      coincident T.end I-.end (already one point)",
+            "ok      dimension Root",
+            "ok      dimension Fillet",
+            "ok      sketch Tooth Space Sketch",
+            "ok      link \"Root@Tooth Space Sketch\"",
+            "ok      link \"Fillet@Tooth Space Sketch\"",
+            "ok      cut Tooth Space",
+            "ok      pattern Teeth × 12",
+            "ok      link \"Count@Teeth\"",
+            "ok      sketch bore opened on plane 1",
+            "ok      circle bore_circle",
+            "ok      coincident bore_circle.centre origin",
+            "ok      dimension Bore",
+            "ok      sketch Bore Sketch",
+            "ok      cut Bore",
+            "ok      link \"Bore@Bore Sketch\"",
+            "ok      24 globals read back and match the maths",
+            "ok      Blank Sketch is fully defined",
+            "ok      Tooth Space Sketch is fully defined",
+            "ok      Bore Sketch is fully defined",
+            "ok      rebuilt once",
+            "MANUAL  1 step(s) to do by hand",
+            "MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.",
+            "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT"
+          ],
+          "level": "fact",
+          "text": "build_log = ['build   Part307 · spur · recipe A · trig degrees', 'ok      new part Part307', 'ok      trig units measured: degrees', 'ok      global \"No. of Teeth\"', 'ok      global \"Module\"', 'ok      global \"Bore Diameter\"', 'ok      global \"Pressure Angle\"', 'ok      global \"Outer Diameter\"', 'ok      global \"Pitch Diameter\"', 'ok      global \"Backlash\"', 'ok      global \"Arc Length\"', 'ok      global \"Fillet Radius\"', 'ok      global \"Tooth Depth\"', 'ok      global \"Face Width\"', 'ok      global \"Root Diameter\"', 'ok      global \"Base Diameter\"', 'ok      global \"Base Radius\"', 'ok      global \"Tooth Thickness\"', 'ok      global \"Half Space Angle\"', 'ok      global \"Involute Fn\"', 'ok      global \"Flank Offset\"', 'ok      global \"Tip Cap Diameter\"', 'ok      global \"Flank Start Diameter\"', 'ok      global \"Involute t1\"', 'ok      global \"Involute t2\"', 'ok      global \"Flank Arc Radius\"', 'ok      global \"Flank Centre Angle\"', 'ok      axis Gear Axis', 'ok      sketch blank opened on plane 1', 'ok      circle od', 'ok      coincident od.centre origin', 'ok      dimension OD', 'ok      sketch Blank Sketch', 'ok      extrude Blank', 'ok      link \"OD@Blank Sketch\"', 'ok      link \"Width@Blank\"', 'ok      sketch space opened on plane 1', 'ok      curve I+', 'ok      curve I-', 'ok      line L+', 'ok      line L-', 'ok      arc F+', 'ok      arc F-', 'ok      arc R', 'ok      line T', 'ok      fixed I+', 'ok      fixed I-', 'ok      coincident R.centre origin', 'ok      coincident L+.start I+.start (already one point)', 'ok      coincident L-.start I-.start (already one point)', 'ok      coincident origin L+', 'ok      coincident origin L-', 'ok      coincident F+.start L+.end (already one point)', 'ok      coincident F-.end L-.end (already one point)', 'ok      coincident F+.end R.end (already one point)', 'ok      coincident F-.start R.start (already one point)', 'ok      tangent F+ L+', 'ok      tangent F- L-', 'ok      tangent F+ R', 'ok      tangent F- R', 'ok      equal F+ F-', 'ok      coincident T.start I+.end (already one point)', 'ok      coincident T.end I-.end (already one point)', 'ok      dimension Root', 'ok      dimension Fillet', 'ok      sketch Tooth Space Sketch', 'ok      link \"Root@Tooth Space Sketch\"', 'ok      link \"Fillet@Tooth Space Sketch\"', 'ok      cut Tooth Space', 'ok      pattern Teeth × 12', 'ok      link \"Count@Teeth\"', 'ok      sketch bore opened on plane 1', 'ok      circle bore_circle', 'ok      coincident bore_circle.centre origin', 'ok      dimension Bore', 'ok      sketch Bore Sketch', 'ok      cut Bore', 'ok      link \"Bore@Bore Sketch\"', 'ok      24 globals read back and match the maths', 'ok      Blank Sketch is fully defined', 'ok      Tooth Space Sketch is fully defined', 'ok      Bore Sketch is fully defined', 'ok      rebuilt once', 'MANUAL  1 step(s) to do by hand', 'MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.', 'ok      saved C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200\\\\Probe Gear m2 N12.SLDPRT']"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "build   Part307 · spur · recipe A · trig degrees"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      new part Part307"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      trig units measured: degrees"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"No. of Teeth\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Bore Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Pressure Angle\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Outer Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Pitch Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Backlash\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Arc Length\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Fillet Radius\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Tooth Depth\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Face Width\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Root Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Base Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Base Radius\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Tooth Thickness\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Half Space Angle\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Involute Fn\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Flank Offset\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Tip Cap Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Flank Start Diameter\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Involute t1\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Involute t2\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Flank Arc Radius\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      global \"Flank Centre Angle\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      axis Gear Axis"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      sketch blank opened on plane 1"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      circle od"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident od.centre origin"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      dimension OD"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      sketch Blank Sketch"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      extrude Blank"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      link \"OD@Blank Sketch\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      link \"Width@Blank\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      sketch space opened on plane 1"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      curve I+"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      curve I-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      line L+"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      line L-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      arc F+"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      arc F-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      arc R"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      line T"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      fixed I+"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      fixed I-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident R.centre origin"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident L+.start I+.start (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident L-.start I-.start (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident origin L+"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident origin L-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident F+.start L+.end (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident F-.end L-.end (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident F+.end R.end (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident F-.start R.start (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      tangent F+ L+"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      tangent F- L-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      tangent F+ R"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      tangent F- R"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      equal F+ F-"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident T.start I+.end (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident T.end I-.end (already one point)"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      dimension Root"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      dimension Fillet"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      sketch Tooth Space Sketch"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      link \"Root@Tooth Space Sketch\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      link \"Fillet@Tooth Space Sketch\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      cut Tooth Space"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      pattern Teeth × 12"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      link \"Count@Teeth\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      sketch bore opened on plane 1"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      circle bore_circle"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      coincident bore_circle.centre origin"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      dimension Bore"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      sketch Bore Sketch"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      cut Bore"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      link \"Bore@Bore Sketch\""
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      24 globals read back and match the maths"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      Blank Sketch is fully defined"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      Tooth Space Sketch is fully defined"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      Bore Sketch is fully defined"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      rebuilt once"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "MANUAL  1 step(s) to do by hand"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset."
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT"
+        },
+        {
+          "detail": [],
+          "level": "ok",
+          "text": "the build reports no failures"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "ForceRebuild3 reported success"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the part is saved where asked"
+        },
+        {
+          "detail": [],
+          "level": "fact",
+          "text": "sketch_checks = []"
+        },
+        {
+          "detail": [],
+          "level": "ok",
+          "text": "every sketch is fully defined"
+        },
+        {
+          "detail": [
+            "Comments",
+            "Favorites",
+            "History",
+            "Selection Sets",
+            "Sensors",
+            "Design Binder",
+            "Annotations",
+            "Notes",
+            "Notes1___EndTag___",
+            "Surface Bodies",
+            "Solid Bodies",
+            "Lights and Cameras",
+            "Ambient",
+            "Directional1",
+            "Directional2",
+            "Directional3",
+            "Markups",
+            "Equations",
+            "Material <not specified>",
+            "Front Plane",
+            "Top Plane",
+            "Right Plane",
+            "Origin",
+            "Gear Axis",
+            "Blank Sketch",
+            "Blank",
+            "Blank Sketch",
+            "Tooth Space Sketch",
+            "Tooth Space",
+            "Tooth Space Sketch",
+            "Teeth",
+            "Bore Sketch",
+            "Bore",
+            "Bore Sketch"
+          ],
+          "level": "fact",
+          "text": "feature_names = ['Comments', 'Favorites', 'History', 'Selection Sets', 'Sensors', 'Design Binder', 'Annotations', 'Notes', 'Notes1___EndTag___', 'Surface Bodies', 'Solid Bodies', 'Lights and Cameras', 'Ambient', 'Directional1', 'Directional2', 'Directional3', 'Markups', 'Equations', 'Material <not specified>', 'Front Plane', 'Top Plane', 'Right Plane', 'Origin', 'Gear Axis', 'Blank Sketch', 'Blank', 'Blank Sketch', 'Tooth Space Sketch', 'Tooth Space', 'Tooth Space Sketch', 'Teeth', 'Bore Sketch', 'Bore', 'Bore Sketch']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "every feature the tool names is in the tree, by that name"
+        },
+        {
+          "detail": {
+            "Blank Sketch": 3,
+            "Bore Sketch": 3,
+            "Tooth Space Sketch": 3
+          },
+          "level": "fact",
+          "text": "sketch_statuses = {'Blank Sketch': 3, 'Tooth Space Sketch': 3, 'Bore Sketch': 3}"
+        },
+        {
+          "detail": {
+            "od_cylinder": 5654.8667764616275,
+            "root_cylinder": 2332.6325452904216,
+            "volume": 3531.5674902883707
+          },
+          "level": "fact",
+          "text": "volume_mm3_z12 = {'volume': 3531.5674902883707, 'root_cylinder': 2332.6325452904216, 'od_cylinder': 5654.8667764616275}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the volume lies between the root and OD cylinders"
+        },
+        {
+          "detail": {
+            "Count": 12.0,
+            "D3": 6.283185307179586
+          },
+          "level": "fact",
+          "text": "teeth_dimensions = {'D3': 6.283185307179586, 'Count': 12.0}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Count@Teeth is 12"
+        },
+        {
+          "detail": [
+            "No. of Teeth",
+            "Module"
+          ],
+          "level": "fact",
+          "text": "update_changed = ['No. of Teeth', 'Module']"
+        },
+        {
+          "detail": [],
+          "level": "ok",
+          "text": "update_variables reports no failures"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "exactly the two typed values changed"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the update rebuilt once"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "\"Outer Diameter\" is 33.75"
+        },
+        {
+          "detail": {
+            "Count": 13.0,
+            "D3": 6.283185307179586
+          },
+          "level": "ok",
+          "text": "Count@Teeth follows to 13"
+        },
+        {
+          "detail": {
+            "OD": 0.03375,
+            "Width": 0.01
+          },
+          "level": "fact",
+          "text": "blank_dimensions_after = {'Width': 0.01, 'OD': 0.03375}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "OD@Blank Sketch reads 33.75 mm"
+        },
+        {
+          "detail": {
+            "od_cylinder": 8443.521130374693,
+            "root_cylinder": 3880.971393350672,
+            "volume": 5545.110964056051
+          },
+          "level": "fact",
+          "text": "volume_mm3_z13 = {'volume': 5545.110964056051, 'root_cylinder': 3880.971393350672, 'od_cylinder': 8443.521130374693}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the volume changed"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the new volume lies between the new root and OD cylinders"
+        },
+        {
+          "detail": {
+            "Blank Sketch": 3,
+            "Bore Sketch": 3,
+            "Tooth Space Sketch": 3
+          },
+          "level": "fact",
+          "text": "sketch_statuses_after = {'Blank Sketch': 3, 'Tooth Space Sketch': 3, 'Bore Sketch': 3}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "every sketch is still fully defined after the change"
+        }
+      ],
+      "members": [
+        "swbuild.build",
+        "swbuild.update_variables"
+      ],
+      "name": "end_to_end",
+      "reason": "",
+      "seconds": 19.824,
+      "status": "pass",
+      "tier": 5,
+      "version": "SolidWorks 2026 (revision 34.0.0)"
+    }
+  ],
+  "schema": 1,
+  "summary": {
+    "pass": 33
+  }
+}

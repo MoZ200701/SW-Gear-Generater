@@ -32,7 +32,7 @@
     ],
     "exit_code": 0,
     "revision": "34.0.0",
-    "stamp": "20260914-180426",
+    "stamp": "20260914-183429",
     "version": "SolidWorks 2026 (revision 34.0.0)"
   },
   "records": [
@@ -40,7 +40,6 @@
       "error": null,
       "facts": {
         "open_at_start": [
-          "Master Geometry-Wing.SLDPRT",
           "Aileron Hinge 1.2.SLDPRT"
         ],
         "revision": "34.0.0",
@@ -64,11 +63,10 @@
         },
         {
           "detail": [
-            "Master Geometry-Wing.SLDPRT",
             "Aileron Hinge 1.2.SLDPRT"
           ],
           "level": "fact",
-          "text": "open_at_start = ['Master Geometry-Wing.SLDPRT', 'Aileron Hinge 1.2.SLDPRT']"
+          "text": "open_at_start = ['Aileron Hinge 1.2.SLDPRT']"
         }
       ],
       "members": [
@@ -77,7 +75,7 @@
       ],
       "name": "attach",
       "reason": "",
-      "seconds": 0.034,
+      "seconds": 0.021,
       "status": "pass",
       "tier": 0,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -174,7 +172,7 @@
       ],
       "name": "templates",
       "reason": "",
-      "seconds": 0.023,
+      "seconds": 0.022,
       "status": "pass",
       "tier": 0,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -253,7 +251,7 @@
           ]
         ],
         "new_part_path": "",
-        "new_part_title": "Part210",
+        "new_part_title": "Part269",
         "plane_names_in_tree_order": [
           "Front Plane",
           "Top Plane",
@@ -262,9 +260,9 @@
       },
       "lines": [
         {
-          "detail": "Part210",
+          "detail": "Part269",
           "level": "fact",
-          "text": "new_part_title = 'Part210'"
+          "text": "new_part_title = 'Part269'"
         },
         {
           "detail": null,
@@ -379,7 +377,7 @@
       ],
       "name": "new_document",
       "reason": "",
-      "seconds": 1.583,
+      "seconds": 1.352,
       "status": "pass",
       "tier": 0,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -466,7 +464,7 @@
       ],
       "name": "close_document",
       "reason": "",
-      "seconds": 2.357,
+      "seconds": 2.098,
       "status": "pass",
       "tier": 0,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -507,7 +505,7 @@
       ],
       "name": "activate_document",
       "reason": "",
-      "seconds": 2.884,
+      "seconds": 2.506,
       "status": "pass",
       "tier": 0,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -634,7 +632,7 @@
       ],
       "name": "equation_add",
       "reason": "",
-      "seconds": 1.315,
+      "seconds": 1.297,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1055,7 +1053,7 @@
       ],
       "name": "equation_syntax",
       "reason": "",
-      "seconds": 2.851,
+      "seconds": 2.848,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1211,7 +1209,7 @@
       ],
       "name": "gear_globals",
       "reason": "",
-      "seconds": 3.513,
+      "seconds": 3.666,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1278,7 +1276,7 @@
       ],
       "name": "equation_set",
       "reason": "",
-      "seconds": 1.514,
+      "seconds": 1.507,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1371,7 +1369,7 @@
       ],
       "name": "document_units",
       "reason": "",
-      "seconds": 2.452,
+      "seconds": 2.459,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1487,7 +1485,7 @@
       ],
       "name": "sketch_open_close",
       "reason": "",
-      "seconds": 2.41,
+      "seconds": 2.523,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1705,7 +1703,7 @@
       ],
       "name": "sketch_entities",
       "reason": "",
-      "seconds": 2.16,
+      "seconds": 2.281,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1815,7 +1813,7 @@
       ],
       "name": "relations",
       "reason": "",
-      "seconds": 3.176,
+      "seconds": 3.2,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1831,8 +1829,8 @@
           "R",
           "HalfSpace"
         ],
-        "full_name_after_close": "OD@Probe Dims@Part223.Part",
-        "full_name_while_open": "OD@Sketch1@Part223.Part"
+        "full_name_after_close": "OD@Probe Dims@Part282.Part",
+        "full_name_while_open": "OD@Sketch1@Part282.Part"
       },
       "lines": [
         {
@@ -1851,9 +1849,9 @@
           "text": "a circle's dimension reads 0.02 m: its diameter"
         },
         {
-          "detail": "OD@Sketch1@Part223.Part",
+          "detail": "OD@Sketch1@Part282.Part",
           "level": "fact",
-          "text": "full_name_while_open = 'OD@Sketch1@Part223.Part'"
+          "text": "full_name_while_open = 'OD@Sketch1@Part282.Part'"
         },
         {
           "detail": null,
@@ -1910,9 +1908,9 @@
           "text": "names set while the sketch was open survive closing it"
         },
         {
-          "detail": "OD@Probe Dims@Part223.Part",
+          "detail": "OD@Probe Dims@Part282.Part",
           "level": "fact",
-          "text": "full_name_after_close = 'OD@Probe Dims@Part223.Part'"
+          "text": "full_name_after_close = 'OD@Probe Dims@Part282.Part'"
         }
       ],
       "members": [
@@ -1927,7 +1925,7 @@
       ],
       "name": "dimensions",
       "reason": "",
-      "seconds": 2.44,
+      "seconds": 2.548,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -1993,7 +1991,7 @@
       ],
       "name": "dimension_link",
       "reason": "",
-      "seconds": 2.58,
+      "seconds": 2.679,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2042,7 +2040,7 @@
       ],
       "name": "constrained_status",
       "reason": "",
-      "seconds": 2.27,
+      "seconds": 2.429,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2340,7 +2338,7 @@
       ],
       "name": "curve_literal",
       "reason": "",
-      "seconds": 6.017,
+      "seconds": 7.418,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2516,7 +2514,7 @@
       ],
       "name": "curve_globals",
       "reason": "",
-      "seconds": 2.613,
+      "seconds": 2.619,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2591,7 +2589,7 @@
       ],
       "name": "curve_rebuild",
       "reason": "",
-      "seconds": 2.512,
+      "seconds": 2.45,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2724,7 +2722,7 @@
       ],
       "name": "curve_relations",
       "reason": "",
-      "seconds": 2.147,
+      "seconds": 2.161,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2760,7 +2758,7 @@
       ],
       "name": "curve_bad",
       "reason": "",
-      "seconds": 2.001,
+      "seconds": 2.01,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2828,7 +2826,7 @@
       ],
       "name": "curve_fixed_rebuild",
       "reason": "",
-      "seconds": 2.462,
+      "seconds": 2.499,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2970,7 +2968,7 @@
       ],
       "name": "curve_end_points",
       "reason": "",
-      "seconds": 2.185,
+      "seconds": 2.397,
       "status": "pass",
       "tier": 1,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -2980,7 +2978,7 @@
       "facts": {
         "blank_volume_mm3": 12566.370614359175,
         "depth_dimension_default_name": "D1",
-        "depth_full_name": "Width@Blank@Part233.Part",
+        "depth_full_name": "Width@Blank@Part292.Part",
         "extrude_dimensions": [
           [
             "D1",
@@ -3044,9 +3042,9 @@
           "text": "the depth dimension renames to Width"
         },
         {
-          "detail": "Width@Blank@Part233.Part",
+          "detail": "Width@Blank@Part292.Part",
           "level": "fact",
-          "text": "depth_full_name = 'Width@Blank@Part233.Part'"
+          "text": "depth_full_name = 'Width@Blank@Part292.Part'"
         },
         {
           "detail": null,
@@ -3072,7 +3070,7 @@
       ],
       "name": "extrude",
       "reason": "",
-      "seconds": 3.292,
+      "seconds": 3.843,
       "status": "pass",
       "tier": 2,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3220,7 +3218,7 @@
       ],
       "name": "cut",
       "reason": "",
-      "seconds": 14.436,
+      "seconds": 19.478,
       "status": "pass",
       "tier": 2,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3284,7 +3282,7 @@
       ],
       "name": "axis",
       "reason": "",
-      "seconds": 1.555,
+      "seconds": 1.945,
       "status": "pass",
       "tier": 2,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3408,7 +3406,7 @@
       ],
       "name": "pattern",
       "reason": "",
-      "seconds": 4.96,
+      "seconds": 7.082,
       "status": "pass",
       "tier": 2,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3455,7 +3453,7 @@
       ],
       "name": "pattern_count_link",
       "reason": "",
-      "seconds": 5.228,
+      "seconds": 6.758,
       "status": "pass",
       "tier": 2,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3485,7 +3483,7 @@
       ],
       "name": "batched_under_command_in_progress",
       "reason": "",
-      "seconds": 3.568,
+      "seconds": 3.582,
       "status": "pass",
       "tier": 2,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3509,11 +3507,11 @@
           "on_disk": true,
           "returned": 0
         },
-        "path_after_save": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Save.SLDPRT",
+        "path_after_save": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Save.SLDPRT",
         "save_as3_onto_existing_file": {
           "flag": true,
-          "size_after": 35405,
-          "size_before": 36249
+          "size_after": 36012,
+          "size_before": 35248
         },
         "save_as3_result": "True",
         "save_as3_result_is_tuple": false,
@@ -3523,12 +3521,12 @@
         {
           "detail": null,
           "level": "ok",
-          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-180216'"
+          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200'"
         },
         {
           "detail": null,
           "level": "ok",
-          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Save.SLDPRT does not exist yet"
+          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Save.SLDPRT does not exist yet"
         },
         {
           "detail": true,
@@ -3561,9 +3559,9 @@
           "text": "title_after_save = 'Probe Save.SLDPRT'"
         },
         {
-          "detail": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Save.SLDPRT",
+          "detail": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Save.SLDPRT",
           "level": "fact",
-          "text": "path_after_save = 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-180216\\\\Probe Save.SLDPRT'"
+          "text": "path_after_save = 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200\\\\Probe Save.SLDPRT'"
         },
         {
           "detail": null,
@@ -3578,11 +3576,11 @@
         {
           "detail": {
             "flag": true,
-            "size_after": 35405,
-            "size_before": 36249
+            "size_after": 36012,
+            "size_before": 35248
           },
           "level": "fact",
-          "text": "save_as3_onto_existing_file = {'flag': True, 'size_before': 36249, 'size_after': 35405}"
+          "text": "save_as3_onto_existing_file = {'flag': True, 'size_before': 35248, 'size_after': 36012}"
         },
         {
           "detail": "dict",
@@ -3605,7 +3603,7 @@
       ],
       "name": "save_as",
       "reason": "",
-      "seconds": 3.403,
+      "seconds": 3.433,
       "status": "pass",
       "tier": 3,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3638,9 +3636,13 @@
           "ok": true,
           "value": "CDispatch"
         },
-        "attempt:FixComponent": {
+        "attempt:FixComponent() on the already fixed first component": {
           "ok": true,
-          "value": "method"
+          "value": null
+        },
+        "attempt:FixComponent() on the free second component": {
+          "ok": true,
+          "value": null
         },
         "attempt:IsFixed of the first component": {
           "ok": true,
@@ -3700,7 +3702,9 @@
             "Angle1",
             "MatePlanarAngleDim"
           ]
-        ]
+        ],
+        "second_component_fixed_after_fix_component": true,
+        "second_component_fixed_before_fix_component": false
       },
       "lines": [
         {
@@ -3766,9 +3770,9 @@
           "text": "the first component selects"
         },
         {
-          "detail": "method",
+          "detail": null,
           "level": "attempt",
-          "text": "FixComponent: returned 'method'"
+          "text": "FixComponent() on the already fixed first component: returned None"
         },
         {
           "detail": null,
@@ -3922,6 +3926,31 @@
           ],
           "level": "fact",
           "text": "mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]"
+        },
+        {
+          "detail": false,
+          "level": "fact",
+          "text": "second_component_fixed_before_fix_component = False"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the second component selects"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "FixComponent() on the free second component: returned None"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "second_component_fixed_after_fix_component = True"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "FixComponent() fixes the selected component"
         }
       ],
       "members": [
@@ -3935,7 +3964,7 @@
       ],
       "name": "assembly_components_and_mates",
       "reason": "",
-      "seconds": 10.733,
+      "seconds": 13.983,
       "status": "pass",
       "tier": 4,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -3968,9 +3997,9 @@
           "ok": true,
           "value": "CDispatch"
         },
-        "attempt:FixComponent": {
+        "attempt:FixComponent() on the already fixed first component": {
           "ok": true,
-          "value": "method"
+          "value": null
         },
         "attempt:IsFixed of the first component": {
           "ok": true,
@@ -4101,9 +4130,9 @@
           "text": "the first component selects"
         },
         {
-          "detail": "method",
+          "detail": null,
           "level": "attempt",
-          "text": "FixComponent: returned 'method'"
+          "text": "FixComponent() on the already fixed first component: returned None"
         },
         {
           "detail": null,
@@ -4294,7 +4323,7 @@
       ],
       "name": "assembly_distance_link",
       "reason": "",
-      "seconds": 11.536,
+      "seconds": 14.427,
       "status": "pass",
       "tier": 4,
       "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -4307,8 +4336,8 @@
           "Width": 0.01
         },
         "build_log": [
-          "build   Part248 · spur · recipe A · trig degrees",
-          "ok      new part Part248",
+          "build   Part307 · spur · recipe A · trig degrees",
+          "ok      new part Part307",
           "ok      trig units measured: degrees",
           "ok      global \"No. of Teeth\"",
           "ok      global \"Module\"",
@@ -4391,8 +4420,8 @@
           "ok      Bore Sketch is fully defined",
           "ok      rebuilt once",
           "MANUAL  1 step(s) to do by hand",
-          "MANUAL  Assign a material to Gear_m2_N12; the build leaves it unset.",
-          "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Gear m2 N12.SLDPRT"
+          "MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.",
+          "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT"
         ],
         "feature_names": [
           "Comments",
@@ -4465,12 +4494,12 @@
         {
           "detail": null,
           "level": "ok",
-          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-180216'"
+          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200'"
         },
         {
           "detail": null,
           "level": "ok",
-          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Gear m2 N12.SLDPRT does not exist yet"
+          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT does not exist yet"
         },
         {
           "detail": [],
@@ -4484,8 +4513,8 @@
         },
         {
           "detail": [
-            "build   Part248 · spur · recipe A · trig degrees",
-            "ok      new part Part248",
+            "build   Part307 · spur · recipe A · trig degrees",
+            "ok      new part Part307",
             "ok      trig units measured: degrees",
             "ok      global \"No. of Teeth\"",
             "ok      global \"Module\"",
@@ -4568,21 +4597,21 @@
             "ok      Bore Sketch is fully defined",
             "ok      rebuilt once",
             "MANUAL  1 step(s) to do by hand",
-            "MANUAL  Assign a material to Gear_m2_N12; the build leaves it unset.",
-            "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Gear m2 N12.SLDPRT"
+            "MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.",
+            "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT"
           ],
           "level": "fact",
-          "text": "build_log = ['build   Part248 · spur · recipe A · trig degrees', 'ok      new part Part248', 'ok      trig units measured: degrees', 'ok      global \"No. of Teeth\"', 'ok      global \"Module\"', 'ok      global \"Bore Diameter\"', 'ok      global \"Pressure Angle\"', 'ok      global \"Outer Diameter\"', 'ok      global \"Pitch Diameter\"', 'ok      global \"Backlash\"', 'ok      global \"Arc Length\"', 'ok      global \"Fillet Radius\"', 'ok      global \"Tooth Depth\"', 'ok      global \"Face Width\"', 'ok      global \"Root Diameter\"', 'ok      global \"Base Diameter\"', 'ok      global \"Base Radius\"', 'ok      global \"Tooth Thickness\"', 'ok      global \"Half Space Angle\"', 'ok      global \"Involute Fn\"', 'ok      global \"Flank Offset\"', 'ok      global \"Tip Cap Diameter\"', 'ok      global \"Flank Start Diameter\"', 'ok      global \"Involute t1\"', 'ok      global \"Involute t2\"', 'ok      global \"Flank Arc Radius\"', 'ok      global \"Flank Centre Angle\"', 'ok      axis Gear Axis', 'ok      sketch blank opened on plane 1', 'ok      circle od', 'ok      coincident od.centre origin', 'ok      dimension OD', 'ok      sketch Blank Sketch', 'ok      extrude Blank', 'ok      link \"OD@Blank Sketch\"', 'ok      link \"Width@Blank\"', 'ok      sketch space opened on plane 1', 'ok      curve I+', 'ok      curve I-', 'ok      line L+', 'ok      line L-', 'ok      arc F+', 'ok      arc F-', 'ok      arc R', 'ok      line T', 'ok      fixed I+', 'ok      fixed I-', 'ok      coincident R.centre origin', 'ok      coincident L+.start I+.start (already one point)', 'ok      coincident L-.start I-.start (already one point)', 'ok      coincident origin L+', 'ok      coincident origin L-', 'ok      coincident F+.start L+.end (already one point)', 'ok      coincident F-.end L-.end (already one point)', 'ok      coincident F+.end R.end (already one point)', 'ok      coincident F-.start R.start (already one point)', 'ok      tangent F+ L+', 'ok      tangent F- L-', 'ok      tangent F+ R', 'ok      tangent F- R', 'ok      equal F+ F-', 'ok      coincident T.start I+.end (already one point)', 'ok      coincident T.end I-.end (already one point)', 'ok      dimension Root', 'ok      dimension Fillet', 'ok      sketch Tooth Space Sketch', 'ok      link \"Root@Tooth Space Sketch\"', 'ok      link \"Fillet@Tooth Space Sketch\"', 'ok      cut Tooth Space', 'ok      pattern Teeth × 12', 'ok      link \"Count@Teeth\"', 'ok      sketch bore opened on plane 1', 'ok      circle bore_circle', 'ok      coincident bore_circle.centre origin', 'ok      dimension Bore', 'ok      sketch Bore Sketch', 'ok      cut Bore', 'ok      link \"Bore@Bore Sketch\"', 'ok      24 globals read back and match the maths', 'ok      Blank Sketch is fully defined', 'ok      Tooth Space Sketch is fully defined', 'ok      Bore Sketch is fully defined', 'ok      rebuilt once', 'MANUAL  1 step(s) to do by hand', 'MANUAL  Assign a material to Gear_m2_N12; the build leaves it unset.', 'ok      saved C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-180216\\\\Probe Gear m2 N12.SLDPRT']"
+          "text": "build_log = ['build   Part307 · spur · recipe A · trig degrees', 'ok      new part Part307', 'ok      trig units measured: degrees', 'ok      global \"No. of Teeth\"', 'ok      global \"Module\"', 'ok      global \"Bore Diameter\"', 'ok      global \"Pressure Angle\"', 'ok      global \"Outer Diameter\"', 'ok      global \"Pitch Diameter\"', 'ok      global \"Backlash\"', 'ok      global \"Arc Length\"', 'ok      global \"Fillet Radius\"', 'ok      global \"Tooth Depth\"', 'ok      global \"Face Width\"', 'ok      global \"Root Diameter\"', 'ok      global \"Base Diameter\"', 'ok      global \"Base Radius\"', 'ok      global \"Tooth Thickness\"', 'ok      global \"Half Space Angle\"', 'ok      global \"Involute Fn\"', 'ok      global \"Flank Offset\"', 'ok      global \"Tip Cap Diameter\"', 'ok      global \"Flank Start Diameter\"', 'ok      global \"Involute t1\"', 'ok      global \"Involute t2\"', 'ok      global \"Flank Arc Radius\"', 'ok      global \"Flank Centre Angle\"', 'ok      axis Gear Axis', 'ok      sketch blank opened on plane 1', 'ok      circle od', 'ok      coincident od.centre origin', 'ok      dimension OD', 'ok      sketch Blank Sketch', 'ok      extrude Blank', 'ok      link \"OD@Blank Sketch\"', 'ok      link \"Width@Blank\"', 'ok      sketch space opened on plane 1', 'ok      curve I+', 'ok      curve I-', 'ok      line L+', 'ok      line L-', 'ok      arc F+', 'ok      arc F-', 'ok      arc R', 'ok      line T', 'ok      fixed I+', 'ok      fixed I-', 'ok      coincident R.centre origin', 'ok      coincident L+.start I+.start (already one point)', 'ok      coincident L-.start I-.start (already one point)', 'ok      coincident origin L+', 'ok      coincident origin L-', 'ok      coincident F+.start L+.end (already one point)', 'ok      coincident F-.end L-.end (already one point)', 'ok      coincident F+.end R.end (already one point)', 'ok      coincident F-.start R.start (already one point)', 'ok      tangent F+ L+', 'ok      tangent F- L-', 'ok      tangent F+ R', 'ok      tangent F- R', 'ok      equal F+ F-', 'ok      coincident T.start I+.end (already one point)', 'ok      coincident T.end I-.end (already one point)', 'ok      dimension Root', 'ok      dimension Fillet', 'ok      sketch Tooth Space Sketch', 'ok      link \"Root@Tooth Space Sketch\"', 'ok      link \"Fillet@Tooth Space Sketch\"', 'ok      cut Tooth Space', 'ok      pattern Teeth × 12', 'ok      link \"Count@Teeth\"', 'ok      sketch bore opened on plane 1', 'ok      circle bore_circle', 'ok      coincident bore_circle.centre origin', 'ok      dimension Bore', 'ok      sketch Bore Sketch', 'ok      cut Bore', 'ok      link \"Bore@Bore Sketch\"', 'ok      24 globals read back and match the maths', 'ok      Blank Sketch is fully defined', 'ok      Tooth Space Sketch is fully defined', 'ok      Bore Sketch is fully defined', 'ok      rebuilt once', 'MANUAL  1 step(s) to do by hand', 'MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.', 'ok      saved C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20260914-183200\\\\Probe Gear m2 N12.SLDPRT']"
         },
         {
           "detail": null,
           "level": "note",
-          "text": "build   Part248 · spur · recipe A · trig degrees"
+          "text": "build   Part307 · spur · recipe A · trig degrees"
         },
         {
           "detail": null,
           "level": "note",
-          "text": "ok      new part Part248"
+          "text": "ok      new part Part307"
         },
         {
           "detail": null,
@@ -4997,12 +5026,12 @@
         {
           "detail": null,
           "level": "note",
-          "text": "MANUAL  Assign a material to Gear_m2_N12; the build leaves it unset."
+          "text": "MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset."
         },
         {
           "detail": null,
           "level": "note",
-          "text": "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-180216\\Probe Gear m2 N12.SLDPRT"
+          "text": "ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20260914-183200\\Probe Gear m2 N12.SLDPRT"
         },
         {
           "detail": [],
@@ -5199,7 +5228,7 @@
       ],
       "name": "end_to_end",
       "reason": "",
-      "seconds": 17.81,
+      "seconds": 19.824,
       "status": "pass",
       "tier": 5,
       "version": "SolidWorks 2026 (revision 34.0.0)"

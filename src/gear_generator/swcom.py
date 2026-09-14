@@ -1020,14 +1020,24 @@ class Session:
         return str(call(component, "Name2"))
 
     def fix_component(self, handle: str) -> None:
+        """Fix a component, and read back that it is fixed.
+
+        The first component inserted is already fixed (probe
+        assembly_components_and_mates). ``FixComponent`` takes no arguments,
+        so it is invoked explicitly: :func:`call` would only fetch it, which is
+        how an earlier version never ran it at all.
+        """
         component = self._handles[handle]["component"]
         if bool(call(component, "IsFixed")):
             return
-        call(self._doc(), "ClearSelection2", True)
+        doc = self._doc()
+        call(doc, "ClearSelection2", True)
         if not call(component, "Select4", False, _null_dispatch(), False):
             raise SolidWorksError(f"{call(component, 'Name2')} could not be selected to fix it.")
-        call(self._doc(), "FixComponent")
-        call(self._doc(), "ClearSelection2", True)
+        doc.FixComponent()
+        call(doc, "ClearSelection2", True)
+        if not bool(call(component, "IsFixed")):
+            raise SolidWorksError(f"{call(component, 'Name2')} is still floating after FixComponent.")
 
     def _component_ref(self, ref: str, append: bool) -> None:
         """``gear1:plane2`` or ``gear2:Gear Axis``, selected at mark 1 for a mate."""
