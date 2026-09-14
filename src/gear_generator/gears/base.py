@@ -1,0 +1,559 @@
+"""What every gear kind produces, and the closed set of steps a build is made of.
+
+A build is plain data: a :class:`BuildPlan` holding a tuple of operations, each
+a frozen dataclass. :mod:`swbuild` runs them against SolidWorks and a fake runs
+them in the tests, through one code path whatever the kind of gear. So a bevel
+gear later adds a kind and perhaps an operation or two; it does not touch the
+interpreter, the store or the pair solver.
+
+Lengths in an operation are millimetres and angles are degrees. Converting to
+metres and radians is :mod:`swcom`'s job, at the one boundary where SolidWorks
+is actually called.
+
+Entities are referred to by recipe ids, never by COM pointers: ``"R"`` is the
+root arc, ``"R.start"`` its start point, ``"origin"`` the sketch origin. The ids
+are made on the Tk thread and resolved on the worker thread, which is the only
+place a pointer may live.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, fields
+from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
+
+from . import equations
+from .equations import DEGREES, RADIANS, EquationError
+
+Point2 = Tuple[float, float]
+Point3 = Tuple[float, float, float]
+
+ERROR = "error"
+WARNING = "warning"
+
+ORIGIN = "origin"
+
+
+class GeometryError(ValueError):
+    """The numbers on the form do not make a gear."""
+
+
+@dataclass(frozen=True)
+class Diagnostic:
+    """One thing validation has to say, as a full sentence."""
+
+    level: str
+    message: str
+    field: str = ""
+
+    @property
+    def is_error(self) -> bool:
+        return self.level == ERROR
+
+
+@dataclass(frozen=True)
+class GlobalVariable:
+    """One global in the Equation Manager.
+
+    ``radian_expression`` is set only where trig is involved and the two modes
+    differ; a document's trig units are measured before anything is written.
+    """
+
+    name: str
+    expression: str
+    radian_expression: str = ""
+
+    def expression_for(self, trig: str) -> str:
+        if trig == RADIANS and self.radian_expression:
+            return self.radian_expression
+        return self.expression
+
+    def text(self, trig: str = DEGREES) -> str:
+        return equations.equation_text(self.name, self.expression_for(trig))
+
+
+# -- the operations ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NewPart:
+    template: str
+
+
+@dataclass(frozen=True)
+class NewAssembly:
+    template: str
+
+
+@dataclass(frozen=True)
+class AddGlobal:
+    name: str
+    expression: str
+    radian_expression: str = ""
+
+    def expression_for(self, trig: str) -> str:
+        return self.radian_expression if trig == RADIANS and self.radian_expression else self.expression
+
+
+@dataclass(frozen=True)
+class LinkDimension:
+    """``"OD@Blank Sketch"= "Outer Diameter"``, added once the dimension exists."""
+
+    dimension: str
+    expression: str
+    radian_expression: str = ""
+
+    def expression_for(self, trig: str) -> str:
+        return self.radian_expression if trig == RADIANS and self.radian_expression else self.expression
+
+
+@dataclass(frozen=True)
+class Axis:
+    """A reference axis through two planes, chosen by tree order, never by name."""
+
+    id: str
+    name: str
+    planes: Tuple[int, int] = (2, 3)
+
+
+@dataclass(frozen=True)
+class OpenSketch:
+    id: str
+    plane: int = 1
+
+
+@dataclass(frozen=True)
+class Circle:
+    id: str
+    centre: Point2
+    radius: float
+    construction: bool = False
+
+
+@dataclass(frozen=True)
+class Arc:
+    """An arc from ``start`` to ``end`` about ``centre``; ``direction`` +1 is CCW."""
+
+    id: str
+    centre: Point2
+    start: Point2
+    end: Point2
+    direction: int = 1
+    construction: bool = False
+
+
+@dataclass(frozen=True)
+class Line:
+    id: str
+    start: Point2
+    end: Point2
+    construction: bool = False
+
+
+@dataclass(frozen=True)
+class Point:
+    id: str
+    at: Point2
+
+
+@dataclass(frozen=True)
+class EquationCurve:
+    """A parametric curve ``x(t), y(t)`` for ``t`` from ``t1`` to ``t2``.
+
+    ``start`` and ``end`` are where the curve is expected to begin and end, in
+    millimetres: what the build checks the curve against, and what an endpoint
+    is locked to if SolidWorks will not relate one.
+    """
+
+    id: str
+    x: str
+    y: str
+    t1: str
+    t2: str
+    start: Point2
+    end: Point2
+    x_radians: str = ""
+    y_radians: str = ""
+
+    def expressions_for(self, trig: str) -> Tuple[str, str]:
+        if trig == RADIANS and self.x_radians:
+            return self.x_radians, self.y_radians
+        return self.x, self.y
+
+
+@dataclass(frozen=True)
+class Relation:
+    """A sketch relation over entities, in selection order (symmetric: the pair, then the line)."""
+
+    kind: str
+    refs: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Dimension:
+    """A driving dimension, named once made. ``unit`` is ``mm`` or ``deg``."""
+
+    name: str
+    refs: Tuple[str, ...]
+    at: Point2
+    value: float
+    unit: str = "mm"
+
+
+@dataclass(frozen=True)
+class CloseSketch:
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class Extrude:
+    id: str
+    sketch: str
+    name: str
+    depth: float
+    depth_dim: str = "Width"
+
+
+@dataclass(frozen=True)
+class Cut:
+    id: str
+    sketch: str
+    name: str
+
+
+@dataclass(frozen=True)
+class CircularPattern:
+    id: str
+    name: str
+    axis: str
+    feature: str
+    count: int
+    count_dim: str = "Count"
+
+
+@dataclass(frozen=True)
+class ManualStep:
+    """Something the build cannot do and a person must, counted in every log."""
+
+    cause: str
+    text: str
+
+
+@dataclass(frozen=True)
+class Rebuild:
+    """The one rebuild, after the rebuild flag is restored."""
+
+
+@dataclass(frozen=True)
+class SaveAs:
+    path: str
+
+
+@dataclass(frozen=True)
+class AddComponent:
+    id: str
+    path: str
+    at: Point3 = (0.0, 0.0, 0.0)
+
+
+@dataclass(frozen=True)
+class Fix:
+    component: str
+
+
+@dataclass(frozen=True)
+class Mate:
+    """A mate between two references, ``component:plane-or-feature``."""
+
+    id: str
+    kind: str
+    a: str
+    b: str
+    value: float = 0.0
+    name: str = ""
+
+
+Op = Union[
+    NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
+    EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, ManualStep,
+    Rebuild, SaveAs, AddComponent, Fix, Mate,
+]
+OPS = (
+    NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
+    EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, ManualStep,
+    Rebuild, SaveAs, AddComponent, Fix, Mate,
+)
+SKETCH_ENTITIES = (Circle, Arc, Line, Point, EquationCurve)
+GEOMETRY = SKETCH_ENTITIES + (Axis, OpenSketch, Relation, Dimension, CloseSketch, Extrude, Cut,
+                              CircularPattern, AddComponent, Fix, Mate)
+
+
+def ref_id(ref: str) -> str:
+    """``"R.start"`` -> ``"R"``; ``"gear2:Front"`` -> ``"gear2"``."""
+    return ref.split(":", 1)[0].split(".", 1)[0]
+
+
+# -- the plan ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BuildPlan:
+    kind: str
+    recipe: str
+    ops: Tuple[Op, ...]
+    path: str = ""
+    notes: Tuple[str, ...] = ()
+
+    def globals(self) -> List[AddGlobal]:
+        return [op for op in self.ops if isinstance(op, AddGlobal)]
+
+    def manual_steps(self) -> List[ManualStep]:
+        return [op for op in self.ops if isinstance(op, ManualStep)]
+
+    def links(self) -> List[LinkDimension]:
+        return [op for op in self.ops if isinstance(op, LinkDimension)]
+
+    def values(self, trig: str = DEGREES) -> Dict[str, float]:
+        """Every global's value, by running them in order through the evaluator."""
+        return equations.evaluate_all(
+            ((op.name, op.expression_for(trig)) for op in self.globals()), trig
+        )
+
+    def check(self) -> List[str]:
+        """What is wrong with this plan's order, as sentences. Empty when it is sound.
+
+        * every global is defined before anything refers to it, in both trig
+          modes, and all of them come before the first sketch;
+        * every id is defined before it is used, and every entity sits in an
+          open sketch;
+        * a link names a dimension that exists and whose owner has its name;
+        * exactly one rebuild, and a save, if any, is the last thing.
+        """
+        problems: List[str] = []
+        for trig in (DEGREES, RADIANS):
+            problems.extend(self._check_equations(trig))
+        problems.extend(self._check_ids())
+        return list(dict.fromkeys(problems))
+
+    def _check_equations(self, trig: str) -> List[str]:
+        problems: List[str] = []
+        scope: Dict[str, float] = {}
+        sketch_seen = False
+        for op in self.ops:
+            if isinstance(op, OpenSketch):
+                sketch_seen = True
+            if isinstance(op, AddGlobal):
+                if sketch_seen:
+                    problems.append(f"\"{op.name}\" is added after a sketch has been started.")
+                try:
+                    value = equations.evaluate(op.expression_for(trig), scope, trig)
+                except EquationError as exc:
+                    problems.append(f"\"{op.name}\" ({trig}): {exc}")
+                    value = 0.0
+                if op.name in scope:
+                    problems.append(f"\"{op.name}\" is added twice.")
+                scope[op.name] = value
+            elif isinstance(op, LinkDimension):
+                try:
+                    equations.evaluate(op.expression_for(trig), scope, trig)
+                except EquationError as exc:
+                    problems.append(f"The link for {op.dimension} ({trig}): {exc}")
+            elif isinstance(op, EquationCurve):
+                for label, text in zip(("x", "y"), op.expressions_for(trig)):
+                    for t in ("t1", "t2"):
+                        try:
+                            at = equations.evaluate(getattr(op, t), scope, trig)
+                            equations.evaluate(text, scope, trig, {"t": at})
+                        except EquationError as exc:
+                            problems.append(f"Curve {op.id} {label} at {t} ({trig}): {exc}")
+        return problems
+
+    def _check_ids(self) -> List[str]:
+        problems: List[str] = []
+        defined = {ORIGIN}
+        open_sketch: Optional[str] = None
+        sketch_names: Dict[str, str] = {}      # sketch id -> the name it was closed as
+        feature_names: Dict[str, str] = {}     # feature id -> its name
+        dimensions: Dict[str, List[str]] = {}  # sketch or feature id -> dimension names
+        rebuilds = 0
+
+        def use(ref: str, op: object) -> None:
+            if ref_id(ref) not in defined:
+                problems.append(f"{type(op).__name__} uses {ref!r} before it is defined.")
+
+        def define(identifier: str, op: object) -> None:
+            if identifier in defined:
+                problems.append(f"{type(op).__name__} defines {identifier!r} a second time.")
+            defined.add(identifier)
+
+        for index, op in enumerate(self.ops):
+            if index == 0 and not isinstance(op, (NewPart, NewAssembly)):
+                problems.append("A plan must start by making its document.")
+            if isinstance(op, OpenSketch):
+                if open_sketch is not None:
+                    problems.append(f"Sketch {op.id!r} is opened while {open_sketch!r} is still open.")
+                define(op.id, op)
+                open_sketch = op.id
+                dimensions[op.id] = []
+            elif isinstance(op, SKETCH_ENTITIES):
+                if open_sketch is None:
+                    problems.append(f"{type(op).__name__} {op.id!r} is drawn with no sketch open.")
+                define(op.id, op)
+            elif isinstance(op, Relation):
+                if open_sketch is None:
+                    problems.append(f"A {op.kind} relation is added with no sketch open.")
+                for ref in op.refs:
+                    use(ref, op)
+            elif isinstance(op, Dimension):
+                if open_sketch is None:
+                    problems.append(f"Dimension {op.name!r} is added with no sketch open.")
+                else:
+                    dimensions[open_sketch].append(op.name)
+                for ref in op.refs:
+                    use(ref, op)
+            elif isinstance(op, CloseSketch):
+                if open_sketch != op.id:
+                    problems.append(f"Sketch {op.id!r} is closed but it is not the open one.")
+                open_sketch = None
+                sketch_names[op.id] = op.name
+            elif isinstance(op, (Extrude, Cut)):
+                use(op.sketch, op)
+                define(op.id, op)
+                feature_names[op.id] = op.name
+                dimensions[op.id] = [op.depth_dim] if isinstance(op, Extrude) else []
+            elif isinstance(op, CircularPattern):
+                use(op.axis, op)
+                use(op.feature, op)
+                define(op.id, op)
+                feature_names[op.id] = op.name
+                dimensions[op.id] = [op.count_dim]
+            elif isinstance(op, Axis):
+                define(op.id, op)
+            elif isinstance(op, AddComponent):
+                define(op.id, op)
+            elif isinstance(op, Fix):
+                use(op.component, op)
+            elif isinstance(op, Mate):
+                use(op.a, op)
+                use(op.b, op)
+                define(op.id, op)
+                feature_names[op.id] = op.name or op.id
+                dimensions[op.id] = ["D1"] if op.kind in ("distance", "angle") else []
+            elif isinstance(op, LinkDimension):
+                dim, _, owner = op.dimension.partition("@")
+                owners = {**sketch_names, **feature_names}
+                matches = [key for key, name in owners.items() if name == owner]
+                if not matches:
+                    problems.append(f"{op.dimension} is linked before anything is named {owner!r}.")
+                elif not any(dim in dimensions.get(key, []) for key in matches):
+                    problems.append(f"{op.dimension} is linked but {owner} has no dimension {dim!r}.")
+            elif isinstance(op, Rebuild):
+                rebuilds += 1
+                if open_sketch is not None:
+                    problems.append(f"The rebuild comes while sketch {open_sketch!r} is still open.")
+            elif isinstance(op, SaveAs):
+                if index != len(self.ops) - 1:
+                    problems.append("SaveAs must be the last step.")
+                if rebuilds == 0:
+                    problems.append("SaveAs comes before the rebuild.")
+            if rebuilds and isinstance(op, GEOMETRY + (AddGlobal, LinkDimension)):
+                problems.append(f"{type(op).__name__} comes after the rebuild.")
+
+        if open_sketch is not None:
+            problems.append(f"Sketch {open_sketch!r} is never closed.")
+        if rebuilds != 1:
+            problems.append(f"A plan rebuilds exactly once; this one rebuilds {rebuilds} times.")
+        return problems
+
+    def log_lines(self, trig: str = DEGREES) -> List[str]:
+        """The plan as a dry run: one line per step, ``MANUAL`` for what a person does."""
+        lines: List[str] = []
+        manual = self.manual_steps()
+        lines.append(f"plan    {self.kind} · recipe {self.recipe} · {len(self.ops)} steps")
+        lines.append(f"globals {len(self.globals())}")
+        if manual:
+            lines.append(f"MANUAL  {len(manual)} step(s) a person must do, listed below")
+        for op in self.ops:
+            lines.append(describe(op, trig))
+        return lines
+
+
+def _fmt_point(point: Sequence[float]) -> str:
+    return "(" + ", ".join(equations.literal(round(v, 6)) for v in point) + ")"
+
+
+def describe(op: Op, trig: str = DEGREES) -> str:
+    """One op as one log line, in the ``ok``-token idiom of the build log."""
+    name = type(op).__name__
+    if isinstance(op, AddGlobal):
+        return f"global  {equations.equation_text(op.name, op.expression_for(trig))}"
+    if isinstance(op, LinkDimension):
+        return f"link    {equations.equation_text(op.dimension, op.expression_for(trig))}"
+    if isinstance(op, ManualStep):
+        return f"MANUAL  {op.text}"
+    if isinstance(op, (NewPart, NewAssembly)):
+        return f"new     {name} from {op.template or '(default template)'}"
+    if isinstance(op, Circle):
+        extra = " construction" if op.construction else ""
+        return f"circle  {op.id} at {_fmt_point(op.centre)} r {equations.literal(round(op.radius, 6))}{extra}"
+    if isinstance(op, Arc):
+        return f"arc     {op.id} about {_fmt_point(op.centre)} {_fmt_point(op.start)} -> {_fmt_point(op.end)}"
+    if isinstance(op, Line):
+        extra = " construction" if op.construction else ""
+        return f"line    {op.id} {_fmt_point(op.start)} -> {_fmt_point(op.end)}{extra}"
+    if isinstance(op, Point):
+        return f"point   {op.id} {_fmt_point(op.at)}"
+    if isinstance(op, EquationCurve):
+        x, y = op.expressions_for(trig)
+        return f"curve   {op.id} x: {x} | y: {y} | t: {op.t1} .. {op.t2}"
+    if isinstance(op, Relation):
+        return f"relate  {op.kind} {' '.join(op.refs)}"
+    if isinstance(op, Dimension):
+        return f"dim     {op.name} = {equations.literal(round(op.value, 6))} {op.unit} on {' '.join(op.refs)}"
+    if isinstance(op, OpenSketch):
+        return f"sketch  {op.id} on plane {op.plane}"
+    if isinstance(op, CloseSketch):
+        return f"close   {op.id} as {op.name!r}"
+    if isinstance(op, Axis):
+        return f"axis    {op.name!r} through planes {op.planes[0]} and {op.planes[1]}"
+    if isinstance(op, Extrude):
+        return f"extrude {op.name!r} from {op.sketch}, depth {equations.literal(op.depth)} ({op.depth_dim})"
+    if isinstance(op, Cut):
+        return f"cut     {op.name!r} from {op.sketch}, through all"
+    if isinstance(op, CircularPattern):
+        return f"pattern {op.name!r} of {op.feature} about {op.axis}, {op.count} ({op.count_dim})"
+    if isinstance(op, Rebuild):
+        return "rebuild once"
+    if isinstance(op, SaveAs):
+        return f"save    {op.path}"
+    if isinstance(op, AddComponent):
+        return f"insert  {op.id} {op.path} at {_fmt_point(op.at)}"
+    if isinstance(op, Fix):
+        return f"fix     {op.component}"
+    if isinstance(op, Mate):
+        value = f" {equations.literal(op.value)}" if op.kind in ("distance", "angle") else ""
+        return f"mate    {op.kind}{value} {op.a} ~ {op.b}" + (f" as {op.name!r}" if op.name else "")
+    return name  # pragma: no cover - every op is listed above
+
+
+def op_fields(op: Op) -> Dict[str, object]:
+    return {f.name: getattr(op, f.name) for f in fields(op)}
+
+
+# -- the seam every kind of gear fits ---------------------------------------
+
+
+class Derived(Protocol):
+    def values(self) -> Mapping[str, float]: ...
+
+
+class GearKind(Protocol):
+    kind: str
+    recipes: Mapping[str, str]
+    default_recipe: str
+
+    def derive(self, spec) -> Derived: ...
+    def validate(self, spec, derived: Optional[Derived] = None) -> List[Diagnostic]: ...
+    def variables(self, spec, derived: Derived, trig: str = DEGREES) -> List[GlobalVariable]: ...
+    def outline(self, spec, derived: Derived, recipe: str = "") -> List[Point2]: ...
+    def plan(self, spec, derived: Derived, recipe: str, template: str, path: str) -> BuildPlan: ...
