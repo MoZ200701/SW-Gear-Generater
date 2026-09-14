@@ -721,10 +721,16 @@ class GearApp(ttk.Frame):
         self._derive_after = None
         kind = KINDS.get(self.kind.get())
         self.kind_readout.set(ui_text.kind_readout(self.kind.get(), self.recipe.get()))
+        try:
+            # A placeholder is the name the file will get: in a pair that is
+            # Pinion_ or Gear_ by size, not each gear's own default.
+            stems = dict(zip(SIDES, self._stems())) if self.mode.get() == MODE_PAIR else {}
+        except InputError:
+            stems = {}
         for side in SIDES:
             spec = self._gear_spec(side)
             self.gear_readouts[side].set(ui_text.gear_readout(spec))
-            self._side_fields(side)["name"].set_placeholder(spec.default_stem())
+            self._side_fields(side)["name"].set_placeholder(stems.get(side) or spec.default_stem())
             self._derived[side], self._outlines[side], self._diagnostics[side] = None, [], []
             if kind is None:
                 self._diagnostics[side] = [Diagnostic("error", "That kind of gear comes in a later version.")]
