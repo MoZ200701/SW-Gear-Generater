@@ -10,7 +10,7 @@ three; the fourth decides whether endpoints are related or locked numerically.
 from __future__ import annotations
 
 import math
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..swcom import call
 from . import scaffold as sc
@@ -223,3 +223,83 @@ def curve_fixed_rebuild(px: Px) -> None:
         px.fact("fixed_curve_follows_global", follows, f"after R 10 to 20 the fixed curve ends at {ends and ends[1]}")
         px.fact("status_fixed_curve_after_rebuild", int(call(sketch, "GetConstrainedStatus")))
         px.check(True, "the fixed curve's behaviour on a rebuild is recorded")
+
+
+def _near_points(sketch: Any, where: Point, tol: float = 1e-4) -> List[Any]:
+    return [point for point, xy in sc.points_mm(sketch) if abs(xy[0] - where[0]) + abs(xy[1] - where[1]) <= tol]
+
+
+def _selects_alone(doc: Any, point: Any) -> Dict[str, Any]:
+    """Select one point on its own with Select4, and say what that did."""
+    call(doc, "ClearSelection2", True)
+    try:
+        returned = call(point, "Select4", False, sc.null())
+    except Exception as exc:  # noqa: BLE001 - a stale pointer raising is the evidence
+        return {"returned": "raised", "error": str(exc), "selected": sc.selected_count(doc)}
+    count = sc.selected_count(doc)
+    call(doc, "ClearSelection2", True)
+    return {"returned": returned, "selected": count}
+
+
+def _same(a: Any, b: Any) -> Any:
+    try:
+        return bool(a == b)
+    except Exception as exc:  # noqa: BLE001
+        return f"raised {exc}"
+
+
+@probe("curve_end_points", needs=("curve_relations", "curve_fixed_rebuild"), tier=1,
+       members=("ISketch.GetSketchPoints2", "ISketchPoint.Select4", "IModelDoc2.SketchAddConstraints"))
+def curve_end_points(px: Px) -> None:
+    """What a point drawn exactly on another entity's end becomes.
+
+    Recipe A draws each radial line starting exactly where its flank curve
+    starts, then relates the two. In the first end-to-end build that relation
+    could not select the curve's start, and the selection was empty afterwards.
+    This records whether the second point is a point at all, or the same one —
+    for a curve and a line, two lines, and an arc and a line — and whether
+    fixing the curve changes anything about it.
+    """
+    start = (10.0, 0.0)
+    with sc.scratch(px) as doc:
+        before = sc.feature_names(doc)
+        manager = sc.open_sketch(px, doc, 1)
+        sketch = call(manager, "ActiveSketch")
+        curve = _curve(px, manager, "ends", "10*cos(t)", "10*sin(t)", "0", "pi/2")
+        px.require(curve is not None, "the curve is made")
+        captured = _near_points(sketch, start)
+        px.fact("points_at_curve_start_with_curve_only", len(captured))
+        px.require(len(captured) == 1, "the curve's start is one sketch point")
+        captured = captured[0]
+
+        line = call(manager, "CreateLine", 0.010, 0.0, 0.0, 0.005, -0.005, 0.0)
+        line_start, line_end = call(line, "GetStartPoint2"), call(line, "GetEndPoint2")
+        at_start = _near_points(sketch, start)
+        px.fact("points_at_curve_start_after_line", len(at_start))
+        px.fact("line_start_is_the_curve_start_point", _same(line_start, captured))
+        px.fact("line_end_is_the_curve_start_point", _same(line_end, captured))
+        px.fact("captured_start_selects_after_line", _selects_alone(doc, captured))
+        call(doc, "ClearSelection2", True)
+        call(line_start, "Select4", False, sc.null())
+        call(captured, "Select4", True, sc.null())
+        px.fact("selected_after_selecting_the_merged_point_twice", sc.selected_count(doc))
+        call(doc, "ClearSelection2", True)
+
+        got, _ = px.attempt("sgFIXED on the curve", lambda: sc.relate(doc, "sgFIXED", curve))
+        px.fact("points_at_curve_start_after_fixed", len(_near_points(sketch, start)))
+        px.fact("captured_start_selects_after_fixed", _selects_alone(doc, captured))
+        px.fact("status_curve_fixed_line_from_its_start", int(call(sketch, "GetConstrainedStatus")))
+
+        first = call(manager, "CreateLine", 0.0, 0.020, 0.0, 0.005, 0.020, 0.0)
+        second = call(manager, "CreateLine", 0.005, 0.020, 0.0, 0.010, 0.025, 0.0)
+        px.fact("points_at_a_shared_line_end", len(_near_points(sketch, (5.0, 20.0))))
+        px.fact("line_start_is_the_previous_line_end", _same(call(second, "GetStartPoint2"),
+                                                              call(first, "GetEndPoint2")))
+        arc = call(manager, "CreateArc", 0.0, 0.040, 0.0, 0.005, 0.040, 0.0, 0.0, 0.045, 0.0, 1)
+        after_arc = call(manager, "CreateLine", 0.005, 0.040, 0.0, 0.010, 0.035, 0.0)
+        px.fact("points_at_a_shared_arc_end", len(_near_points(sketch, (5.0, 40.0))))
+        px.fact("line_start_is_the_arc_start", _same(call(after_arc, "GetStartPoint2"), call(arc, "GetStartPoint2")))
+        apart = call(manager, "CreateLine", 0.0051, 0.040, 0.0, 0.010, 0.045, 0.0)
+        px.fact("a_line_0_1_mm_away_is_its_own_point", not _same(call(apart, "GetStartPoint2"),
+                                                                 call(arc, "GetStartPoint2")))
+        sc.close_sketch(px, doc, "Probe Curve Ends", before)

@@ -51,8 +51,20 @@ FALLBACK_TEMPLATES = {
 }
 
 
+_LAST_APP: List[Any] = []
+
+
 def app(px: Px) -> Any:
-    return px.session._app  # noqa: SLF001 - probes call raw members by design
+    application = px.session._app  # noqa: SLF001 - probes call raw members by design
+    _LAST_APP[:] = [application]
+    return application
+
+
+def _active_title() -> str:
+    if not _LAST_APP:
+        return "unknown"
+    active = call(_LAST_APP[0], "ActiveDoc")
+    return "nothing" if active is None else str(call(active, "GetTitle"))
 
 
 def null() -> Any:
@@ -372,7 +384,10 @@ def select(doc: Any, *entities: Any) -> None:
                                   null(), 0) and selected_count(doc) > before:
             _count("SelectByID2 SKETCHPOINT at location")
             continue
-        raise Require(f"Entity {position + 1} of {len(entities)} could not be selected by any route.")
+        raise Require(
+            f"Entity {position + 1} of {len(entities)} could not be selected by any route "
+            f"(in {call(doc, 'GetTitle')}, with {_active_title()} active and {selected_count(doc)} selected)."
+        )
 
 
 def relate(doc: Any, constraint: str, *entities: Any) -> None:

@@ -849,6 +849,11 @@ def _space_ops_involute(g: SpurDerived) -> List[Op]:
         Arc("F-", _mirror(f.fillet_centre), _mirror(f.root_touch), _mirror(f.line_inner), 1),
         Arc("R", (0.0, 0.0), _mirror(f.root_touch), f.root_touch, 1),
         Line("T", f.end, _mirror(f.end)),
+        # A locked Equation Driven Curve still leaves its sketch under-defined on
+        # SolidWorks 2026; sgFIXED makes it fully defined and it still follows
+        # its globals on a rebuild.
+        Relation("fixed", ("I+",)),
+        Relation("fixed", ("I-",)),
         Relation("coincident", ("R.centre", ORIGIN)),
         Relation("coincident", ("L+.start", "I+.start")),
         Relation("coincident", ("L-.start", "I-.start")),
