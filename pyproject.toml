@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gear-generator"
+version = "0.1.0"
+description = "Build parametric spur gears, and solved gear pairs, straight into SolidWorks"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+# The SolidWorks link. Optional on purpose: without it the app still derives,
+# validates and solves gears, and the tests still run on a machine with no
+# Windows at all.
+live = ["pywin32>=306; sys_platform == 'win32'"]
+dev = [
+    "pytest>=7",
+    "pyinstaller>=6",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.gui-scripts]
+gear-generator = "gear_generator.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
