@@ -73,11 +73,20 @@ def test_the_involute_curves_start_and_end_where_the_plan_says(trig):
     curves = [op for op in plan.ops if isinstance(op, EquationCurve)]
     assert [c.id for c in curves] == ["I+", "I-"]
     for curve in curves:
-        x, y = curve.expressions_for(trig)
         for t_name, expected in (("t1", curve.start), ("t2", curve.end)):
             t = equations.evaluate(getattr(curve, t_name), scope, trig)
-            got = (equations.evaluate(x, scope, trig, {"t": t}), equations.evaluate(y, scope, trig, {"t": t}))
+            # A curve's own trig is radians in every document.
+            got = (equations.evaluate(curve.x, scope, RADIANS, {"t": t}),
+                   equations.evaluate(curve.y, scope, RADIANS, {"t": t}))
             assert got == pytest.approx(expected, abs=1e-9)
+
+
+def test_curve_expressions_never_convert_to_degrees():
+    """SolidWorks 2026 refused every curve spelling with * 180 / pi."""
+    spec = GearSpec()
+    plan = SPUR.plan(spec, SPUR.derive(spec), "A", "", "")
+    curves = [op for op in plan.ops if isinstance(op, EquationCurve)]
+    assert curves and all("180" not in c.x and "180" not in c.y for c in curves)
 
 
 def test_substituting_the_values_keeps_the_curve():
@@ -89,8 +98,8 @@ def test_substituting_the_values_keeps_the_curve():
     numeric = equations.substitute(curve.x, scope)
     assert '"' not in numeric
     for t in (0.1, 0.4):
-        assert equations.evaluate(numeric, {}, DEGREES, {"t": t}) == pytest.approx(
-            equations.evaluate(curve.x, scope, DEGREES, {"t": t}), abs=1e-7
+        assert equations.evaluate(numeric, {}, RADIANS, {"t": t}) == pytest.approx(
+            equations.evaluate(curve.x, scope, RADIANS, {"t": t}), abs=1e-7
         )
 
 

@@ -653,11 +653,17 @@ class SpurGear:
                            f"tan ( {rad_pa} ) - {_q(PRESSURE_ANGLE)} * pi / 180"),
             GlobalVariable(FLANK_OFFSET, f"{_q(ARC_LENGTH)} / {_q(PITCH)} - {_q(INVOLUTE_FN)}"),
             GlobalVariable(TIP_CAP, f"{_q(OUTER)} + 2 * {_q(MODULE)}"),
+            # Both sides of the comparison are bracketed: SolidWorks 2026 read
+            # "a >= b + c" as "( a >= b ) + c", which is always true.
             GlobalVariable(FLANK_START, (
-                f"IIF ( {_q(BASE)} >= {_q(ROOT)} + 3 * {_q(FILLET)} , {_q(BASE)} , "
+                f"IIF ( {_q(BASE)} >= ( {_q(ROOT)} + 3 * {_q(FILLET)} ) , {_q(BASE)} , "
                 f"{_q(ROOT)} + 3 * {_q(FILLET)} )")),
-            GlobalVariable(T1, f"sqr ( ( {_q(FLANK_START)} / {_q(BASE)} ) ^ 2 - 1 )"),
-            GlobalVariable(T2, f"sqr ( ( {_q(TIP_CAP)} / {_q(BASE)} ) ^ 2 - 1 )"),
+            # When the involute starts on the base circle the ratio is exactly 1.
+            # SolidWorks 2026 refuses sqr ( 0 ) outright, and IIF does not save
+            # it because both branches are evaluated; ^ 0.5 of zero is accepted.
+            # abs() keeps a rounding error below zero from doing the same.
+            GlobalVariable(T1, f"( abs ( ( {_q(FLANK_START)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
+            GlobalVariable(T2, f"( abs ( ( {_q(TIP_CAP)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
             GlobalVariable(FLANK_ARC, f"( {_q(PITCH)} / 2 ) * sin ( {deg_pa} )",
                            f"( {_q(PITCH)} / 2 ) * sin ( {rad_pa} )"),
             GlobalVariable(FLANK_CENTRE, f"{_q(HALF_SPACE)} + {_q(PRESSURE_ANGLE)}"),
@@ -814,30 +820,29 @@ def _blank_ops(g: SpurDerived) -> List[Op]:
     ]
 
 
-def _curve_expressions(lower: bool) -> Tuple[str, str, str, str]:
-    """x and y of the upper (or lower) involute, degree-document then radian-document."""
+def _curve_expressions(lower: bool) -> Tuple[str, str]:
+    """x and y of the upper (or lower) involute. Radians whatever the document says:
+    a curve's trig is radians, and SolidWorks refused the degree conversion."""
     br, off = _q(BASE_RADIUS), _q(FLANK_OFFSET)
-    forms = []
-    for arg in (f"( t + {off} ) * 180 / pi", f"( t + {off} )"):
-        x = f"{br} * ( cos ( {arg} ) + t * sin ( {arg} ) )"
-        if lower:
-            y = f"{br} * ( t * cos ( {arg} ) - sin ( {arg} ) )"
-        else:
-            y = f"{br} * ( sin ( {arg} ) - t * cos ( {arg} ) )"
-        forms.append((x, y))
-    return forms[0][0], forms[0][1], forms[1][0], forms[1][1]
+    arg = f"( t + {off} )"
+    x = f"{br} * ( cos {arg} + t * sin {arg} )"
+    if lower:
+        y = f"{br} * ( t * cos {arg} - sin {arg} )"
+    else:
+        y = f"{br} * ( sin {arg} - t * cos {arg} )"
+    return x, y
 
 
 def _space_ops_involute(g: SpurDerived) -> List[Op]:
     f = involute_flank(g)
-    x_up, y_up, x_up_rad, y_up_rad = _curve_expressions(lower=False)
-    x_lo, y_lo, x_lo_rad, y_lo_rad = _curve_expressions(lower=True)
+    x_up, y_up = _curve_expressions(lower=False)
+    x_lo, y_lo = _curve_expressions(lower=True)
     t1, t2 = _q(T1), _q(T2)
     rf = g.rf
     return [
         OpenSketch("space", 1),
-        EquationCurve("I+", x_up, y_up, t1, t2, f.start, f.end, x_up_rad, y_up_rad),
-        EquationCurve("I-", x_lo, y_lo, t1, t2, _mirror(f.start), _mirror(f.end), x_lo_rad, y_lo_rad),
+        EquationCurve("I+", x_up, y_up, t1, t2, f.start, f.end),
+        EquationCurve("I-", x_lo, y_lo, t1, t2, _mirror(f.start), _mirror(f.end)),
         Line("L+", f.start, f.line_inner),
         Line("L-", _mirror(f.start), _mirror(f.line_inner)),
         Arc("F+", f.fillet_centre, f.line_inner, f.root_touch, 1),

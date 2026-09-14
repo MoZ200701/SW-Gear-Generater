@@ -162,6 +162,12 @@ class EquationCurve:
     ``start`` and ``end`` are where the curve is expected to begin and end, in
     millimetres: what the build checks the curve against, and what an endpoint
     is locked to if SolidWorks will not relate one.
+
+    The expressions are in document units, and their trig is always radians.
+    On SolidWorks 2026 a curve's ``cos ( t )`` took ``t`` as radians in a
+    document whose Equation Manager works in degrees, and every spelling that
+    converted with ``* 180 / pi`` was refused outright. The range is ordinary
+    equation text and may name globals.
     """
 
     id: str
@@ -171,13 +177,6 @@ class EquationCurve:
     t2: str
     start: Point2
     end: Point2
-    x_radians: str = ""
-    y_radians: str = ""
-
-    def expressions_for(self, trig: str) -> Tuple[str, str]:
-        if trig == RADIANS and self.x_radians:
-            return self.x_radians, self.y_radians
-        return self.x, self.y
 
 
 @dataclass(frozen=True)
@@ -359,11 +358,11 @@ class BuildPlan:
                 except EquationError as exc:
                     problems.append(f"The link for {op.dimension} ({trig}): {exc}")
             elif isinstance(op, EquationCurve):
-                for label, text in zip(("x", "y"), op.expressions_for(trig)):
+                for label, text in (("x", op.x), ("y", op.y)):
                     for t in ("t1", "t2"):
                         try:
                             at = equations.evaluate(getattr(op, t), scope, trig)
-                            equations.evaluate(text, scope, trig, {"t": at})
+                            equations.evaluate(text, scope, RADIANS, {"t": at})
                         except EquationError as exc:
                             problems.append(f"Curve {op.id} {label} at {t} ({trig}): {exc}")
         return problems
@@ -504,8 +503,7 @@ def describe(op: Op, trig: str = DEGREES) -> str:
     if isinstance(op, Point):
         return f"point   {op.id} {_fmt_point(op.at)}"
     if isinstance(op, EquationCurve):
-        x, y = op.expressions_for(trig)
-        return f"curve   {op.id} x: {x} | y: {y} | t: {op.t1} .. {op.t2}"
+        return f"curve   {op.id} x: {op.x} | y: {op.y} | t: {op.t1} .. {op.t2}"
     if isinstance(op, Relation):
         return f"relate  {op.kind} {' '.join(op.refs)}"
     if isinstance(op, Dimension):
