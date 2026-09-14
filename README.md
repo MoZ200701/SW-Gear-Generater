@@ -4,16 +4,136 @@ Builds parametric spur gears in SolidWorks from a form, and solves gear pairs:
 given a centre distance and a ratio, it finds module and tooth counts that work,
 builds both gears and mates them in an assembly.
 
+The gear it builds is parametric in SolidWorks itself. Its sizes live in the
+Equation Manager as global variables, starting with the ten a person would type
+(`"No. of Teeth"`, `"Module"`, `"Bore Diameter"`, `"Pressure Angle"`, …), and
+every dimension in the part is driven by them. Change `"No. of Teeth"` to 40 in
+SolidWorks and the part rebuilds as a 40-tooth gear; nothing refers back to this
+app.
+
+No runtime dependencies beyond Python 3.9+ with tkinter. Building into
+SolidWorks needs Windows, SolidWorks 2026 or newer, and `pywin32`.
+
 ## Running
+
+```
+python main.py
+```
+
+or, installed, `gear-generator`. On a machine without SolidWorks or `pywin32`
+the window still works out, checks and draws gears and solves pairs; only
+**Build** needs SolidWorks.
 
 ## Using it
 
+1. Choose **Single gear** or **Gear pair**, and the flank: **Involute** (a true
+   involute, as an equation-driven curve — the default) or **Arcs** (circular
+   arcs approximating it).
+2. Type the gear: module, number of teeth, pressure angle, face width, and bore
+   (blank for none). Backlash and fillet radius default to 0.3 × and 0.38 ×
+   module; type a value to override either.
+3. The **Derived** panel shows every size the gear comes to, a preview of the
+   outline, and anything worth knowing — an undercut tooth count, a thin tip or
+   rim. Errors, such as a bore bigger than the root circle, disable **Build** and
+   say which field to change.
+4. Choose an output **Folder**. The part is saved there as `Gear_m1.5_N25.SLDPRT`
+   (or the name you type), with a `Gear_m1.5_N25.gear.json` record beside it.
+5. With SolidWorks open, **Build**. The status line says what was built, or
+   exactly where the build stopped and what SolidWorks said. A build never
+   overwrites a file: an existing name is refused before anything is made.
+
+Material is left unset, and the status line counts it as a step to do by hand.
+
+### Changing a built gear
+
+**Open .gear.json** puts a built gear back on the form. With its part the active
+document in SolidWorks, change a value and press **Update values**: only the
+globals that differ are set, in one batch, and the part rebuilds once. A change
+the equations cannot carry — the other flank recipe, or adding or removing a
+bore — is refused with a sentence saying to build a new part instead.
+
+Editing the globals in SolidWorks' own Equation Manager works just as well.
+
 ## The gear in SolidWorks
+
+One tooth space is cut from a blank the size of the outer diameter and
+patterned round the gear axis:
+
+| Feature | What it holds |
+|---|---|
+| `Gear Axis` | the axis the teeth are patterned about |
+| `Blank Sketch`, `Blank` | the outer diameter (`OD`) and face width (`Width`) |
+| `Tooth Space Sketch`, `Tooth Space` | one space: root arc, fillets, flanks, and a chord beyond the tip |
+| `Teeth` | the circular pattern, its count (`Count`) linked to `"No. of Teeth"` |
+| `Bore Sketch`, `Bore` | the bore, when there is one |
+
+Every sketch is fully defined. The build measures whether the part's Equation
+Manager works in degrees or radians before writing a single global, and after
+the rebuild reads every global's value back and compares it with the maths.
 
 ## Solving a pair
 
+In **Gear pair** mode, type the **Centre distance** and the **Ratio**, driven
+over driver: `3` (or `3:1`) makes the second gear three times the first, and
+`1:3` makes it a third. Choose a module series and **Solve**. The candidates
+open beside the form, best first: hitting the centre distance exactly, a
+standard module, no undercut, the smallest ratio error, then the larger module.
+Click one to put its module and tooth counts on both gears; nothing else on the
+form changes.
+
+**Build** then makes both parts and an assembly, `Pair_m1.5_20T_60T.SLDASM`. The
+second gear is mated at the centre distance its teeth make, turned so a tooth
+meets the first gear's space, and the distance is driven by the assembly global
+`"Centre Distance"`. Checking the mesh by eye is counted as a step to do by hand.
+
 ## Driving SolidWorks
+
+The app attaches to a SolidWorks that is already running — it never starts one
+— through the Running Object Table, so with several versions installed it uses
+the one on screen. It needs SolidWorks 2026 (revision 34) or newer.
+
+It only ever works in documents it made. Nothing you have open is touched.
+
+Every SolidWorks call the build makes was first run by the probe against a live
+session, and the results are committed under `probe/results/`:
+
+```
+./probe.sh                 from WSL, through the Windows Python beside SolidWorks
+probe.bat                  from Windows
+python -m gear_generator.probe --list
+```
+
+The probe works in scratch documents under `Documents\GearGeneratorProbe` and
+closes only what it created. Its last tier builds a whole gear through this
+app's own code and changes it through its equations. What it settled is in
+`src/gear_generator/findings.py`, and `tests/test_findings.py` holds those
+constants to the committed results.
+
+`python -m gear_generator.swcom [--templates] [--equations]` prints what this
+machine's SolidWorks looks like from here: the sessions found, the default
+templates, the open documents, and the active document's equations.
 
 ## Building the executable
 
+```
+pip install pyinstaller pywin32
+build.bat
+```
+
+makes `dist\Gear Generator v0.1.exe`.
+
 ## Development
+
+```
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"
+python -m pytest
+```
+
+The tests need no SolidWorks and no display. The build runs against a fake
+SolidWorks in `tests/test_swbuild.py`.
+
+`python -m gear_generator.gears --spec m=1.5,z=25 --recipe A` prints the build
+plan for a gear — every global and every step — without SolidWorks.
+
+`docs/PLAN.md` is the design the app was built to.

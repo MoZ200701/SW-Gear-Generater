@@ -1,6 +1,10 @@
 @echo off
-REM Build a single double-clickable "Gear Generator.exe" into dist\.
+REM Build a single double-clickable "Gear Generator v0.1.exe" into dist\.
 REM Requires: pip install pyinstaller pywin32
+REM
+REM PyInstaller is run as a module of the Python on PATH rather than as the
+REM pyinstaller command: the Windows Store Python installs its Scripts folder
+REM off PATH, and there "pyinstaller" is not recognised even when installed.
 REM
 REM The hidden imports are pywin32's. PyInstaller cannot see them through the
 REM lazy import in swcom.py, and without them the SolidWorks link is missing
@@ -12,7 +16,7 @@ REM The bundled faces (Libre Franklin, JetBrains Mono) are registered privately
 REM at launch. The folder is carried whether or not the .ttf files are in it: a
 REM build without them falls back to Segoe UI and Consolas, which is a design
 REM the window is meant to survive, not a failure.
-pyinstaller --onefile --windowed --name "Gear Generator v0.1" ^
+python -m PyInstaller --onefile --windowed --name "Gear Generator v0.1" ^
     --paths src ^
     --add-data "src\gear_generator\assets\fonts;assets/fonts" ^
     --hidden-import pythoncom ^
