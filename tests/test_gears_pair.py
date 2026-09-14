@@ -124,3 +124,34 @@ def test_the_mesh_angle_turns_an_even_gear_half_a_tooth():
 def test_nonsense_is_refused(centre, ratio):
     with pytest.raises(Exception, match="more than zero"):
         pair.solve(centre, ratio)
+
+
+# -- the assembly -------------------------------------------------------------
+
+
+def _assembly(teeth_a="20", teeth_b="60", module="1.5"):
+    return pair.assembly_plan(GearSpec(module=module, teeth=teeth_a), GearSpec(module=module, teeth=teeth_b),
+                              r"C:\g\Pinion.SLDPRT", r"C:\g\Gear.SLDPRT", "", r"C:\g\Pair.SLDASM")
+
+
+def test_the_assembly_plan_is_sound_and_mates_at_the_centre_the_teeth_make():
+    from gear_generator.gears.base import AddGlobal, Mate
+    plan = _assembly()
+    assert plan.check() == []
+    globals_ = {op.name: op.expression for op in plan.ops if isinstance(op, AddGlobal)}
+    assert globals_ == {"Centre Distance": "60", "Ratio": "3", "Mesh Angle": "3"}
+    distance = next(op for op in plan.ops if isinstance(op, Mate) and op.kind == "distance")
+    assert (distance.value, distance.name, distance.a, distance.b) == (60.0, "Centre Distance", "gear2:Gear Axis",
+                                                                       "gear1:plane3")
+    assert len(plan.manual_steps()) == 1
+
+
+def test_the_mate_angle_is_never_zero_and_an_odd_count_turns_a_whole_pitch():
+    assert pair.mate_angle(60) == pair.mesh_angle(60) == 3.0
+    assert pair.mesh_angle(45) == 0.0 and pair.mate_angle(45) == 8.0
+
+
+def test_gears_of_different_modules_do_not_make_an_assembly():
+    from gear_generator.spec import InputError
+    with pytest.raises(InputError, match="same module"):
+        pair.assembly_plan(GearSpec(module="1.5"), GearSpec(module="2"), "a", "b", "", "c")

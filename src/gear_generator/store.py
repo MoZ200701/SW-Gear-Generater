@@ -242,3 +242,56 @@ def save_recent(recent: Recent, path: Optional[str] = None) -> bool:
         return True
     except Exception:  # noqa: BLE001 - a convenience file must never stop the app
         return False
+
+
+# -- records from a build ---------------------------------------------------
+
+
+def built_sidecar(
+    part_path: str,
+    part_title: str,
+    *,
+    kind: str,
+    recipe: str,
+    spec: Dict[str, Any],
+    derived: Dict[str, Any],
+    variables: List[List[str]],
+    features: List[str],
+    dimensions: List[str],
+    manual_steps: List[str],
+    template: str,
+    trig: str,
+    written_by: str,
+    previous: Optional[Sidecar] = None,
+    partner: str = "",
+    assembly: str = "",
+    centre_distance: str = "",
+    ratio: str = "",
+    stamp: Optional[str] = None,
+) -> Sidecar:
+    """The record for a part a build just saved.
+
+    A record already beside that path keeps its id and creation time, so the
+    history of one file stays one history.
+    """
+    stamp = stamp or now()
+    kept = previous.record if previous is not None and same_path(previous.part_path, part_path) else None
+    record = GearRecord(
+        record_id=kept.record_id if kept else new_record_id(),
+        kind=kind, recipe=recipe, spec=dict(spec), derived=dict(derived),
+        variables=[list(v) for v in variables], features=list(features), dimensions=list(dimensions),
+        manual_steps=list(manual_steps), template=template, trig=trig,
+        partner=partner, assembly=assembly, centre_distance=centre_distance, ratio=ratio,
+        created=kept.created if kept and kept.created else stamp, last_built=stamp,
+        last_updated=kept.last_updated if kept else "",
+    )
+    return Sidecar(part_path=part_path, part_title=part_title, written_by=written_by, record=record)
+
+
+def updated_sidecar(sidecar: Sidecar, spec: Dict[str, Any], derived: Dict[str, Any],
+                    variables: List[List[str]], stamp: Optional[str] = None) -> Sidecar:
+    """The same record after Update values: new form and values, same everything else."""
+    record = GearRecord(**{**asdict(sidecar.record), "spec": dict(spec), "derived": dict(derived),
+                           "variables": [list(v) for v in variables], "last_updated": stamp or now()})
+    return Sidecar(part_path=sidecar.part_path, part_title=sidecar.part_title,
+                   schema_version=sidecar.schema_version, written_by=sidecar.written_by, record=record)

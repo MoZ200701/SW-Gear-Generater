@@ -9,9 +9,10 @@ import tkinter as tk
 from tkinter import filedialog, font as tkfont, ttk
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import __version__, findings, store, swcom, theme, ui_text, widgets
+from . import __version__, findings, store, swbuild, swcom, theme, ui_text, widgets
 from .gears import KINDS, PLANNED_KINDS, pair as pairs, standards
 from .gears.base import Diagnostic, GeometryError, Point2
+from .gears.equations import literal
 from .spec import (
     MODE_PAIR,
     MODE_SINGLE,
@@ -918,23 +919,222 @@ class GearApp(ttk.Frame):
         self._derive_now()
         self._set_status(f"Opened {os.path.basename(path)}. Open its part in SolidWorks to update its values.")
 
-    # -- building (the SolidWorks side arrives with swbuild)
+    # -- building
+    #
+    # A build is planned here, on the Tk thread, from the form as it stands; the
+    # plan is plain data, so it crosses to the worker as one job and nothing
+    # COM-shaped comes back. The poll collects the result, writes the records
+    # beside the parts, and says what happened in one sentence.
 
     def _update_target(self) -> Tuple[int, str]:
-        """How many variables Update values would change, and in which document."""
-        return 0, ""
+        """How many variables Update values would change, and in which document.
+
+        Only for the part an opened record describes, while it is the active
+        document, and only for a change the equations can carry.
+        """
+        sidecar, snapshot = self._loaded, self._snapshot
+        if sidecar is None or not snapshot or self.mode.get() != MODE_SINGLE:
+            return 0, ""
+        if not store.same_path(snapshot.get("path", ""), sidecar.part_path) or self._derived["a"] is None:
+            return 0, ""
+        spec = self._gear_spec("a")
+        kind = KINDS.get(spec.kind)
+        if kind is None or swbuild.structural_change(sidecar.record.spec, spec.to_dict()):
+            return 0, ""
+        trig = sidecar.record.trig or findings.TRIG_DEFAULT
+        held = {name: "".join(expression.split()) for name, expression in sidecar.record.variables}
+        count = sum(1 for v in kind.variables(spec, self._derived["a"])
+                    if held.get(v.name) != "".join(v.expression_for(trig).split()))
+        return count, snapshot.get("title", "")
 
     def _show_update_button(self) -> None:
-        if self._update_target()[0]:
+        if self._update_target()[0] and self._pending_build is None:
             self.update_button.grid()
         else:
             self.update_button.grid_remove()
 
     def _build_gear(self) -> None:
-        self._set_status("SolidWorks is not connected to the build yet, so nothing was built.", ok=False)
+        if self._pending_build is not None:
+            return
+        if self._worker is None:
+            self._set_status("SolidWorks cannot be reached from here, so nothing was built. "
+                             + swcom.unavailable_reason(), ok=False)
+            return
+        folder = self.out_folder.get().strip()
+        if not folder or not os.path.isdir(folder):
+            self._set_status("Choose an output folder that exists before building.", ok=False)
+            return
+        try:
+            context = self._plan_pair(folder) if self.mode.get() == MODE_PAIR else self._plan_single(folder)
+        except (InputError, GeometryError, ValueError) as exc:
+            self._set_status(str(exc), ok=False)
+            return
+        existing = [path for path in context["paths"] if os.path.exists(path)]
+        if existing:
+            self._set_status(f"{existing[0]} already exists, and a build never overwrites a file. "
+                             "Change the name or the folder.", ok=False)
+            return
+        self._build_context = context
+        self._pending_build = self._worker.submit(context.pop("job"))
+        self._set_status(f"Building {', '.join(os.path.basename(p) for p in context['paths'])} in SolidWorks…")
+        self._derive_now()
+
+    def _plan_single(self, folder: str) -> Dict[str, Any]:
+        spec, derived = self._gear_spec("a"), self._derived["a"]
+        if derived is None:
+            raise InputError("The gear on the form does not work out yet, so it cannot be built.")
+        kind = KINDS[spec.kind]
+        path = os.path.join(folder, spec.stem() + ".SLDPRT")
+        plan = kind.plan(spec, derived, kind.recipe_for(spec), self.part_template.get().strip(), path)
+        return {"job_kind": MODE_SINGLE, "paths": [path], "plans": [plan], "specs": [spec], "derived": [derived],
+                "job": lambda session: swbuild.build(session, plan)}
+
+    def _plan_pair(self, folder: str) -> Dict[str, Any]:
+        pair = self._pair_spec()
+        if self._derived["a"] is None or self._derived["b"] is None:
+            raise InputError("Both gears must work out before a pair can be built.")
+        stem_a, stem_b, stem_pair = pair_stems(pair)
+        spec_a, spec_b = pair.gear_a, pair.gear_b
+        path_a, path_b = os.path.join(folder, stem_a + ".SLDPRT"), os.path.join(folder, stem_b + ".SLDPRT")
+        path_pair = os.path.join(folder, stem_pair + ".SLDASM")
+        template = self.part_template.get().strip()
+        plans = []
+        for spec, side, path in ((spec_a, "a", path_a), (spec_b, "b", path_b)):
+            kind = KINDS[spec.kind]
+            plans.append(kind.plan(spec, self._derived[side], kind.recipe_for(spec), template, path))
+        assembly = pairs.assembly_plan(spec_a, spec_b, path_a, path_b, self.assembly_template.get().strip(), path_pair)
+        plan_a, plan_b = plans
+        return {"job_kind": MODE_PAIR, "paths": [path_a, path_b, path_pair], "plans": plans,
+                "specs": [spec_a, spec_b], "derived": [self._derived["a"], self._derived["b"]],
+                "job": lambda session: swbuild.build_pair(session, plan_a, plan_b, assembly)}
 
     def _update_values(self) -> None:
-        self._set_status("Nothing to update.", ok=False)
+        if self._pending_build is not None or self._worker is None:
+            return
+        sidecar = self._loaded
+        if sidecar is None:
+            self._set_status("Open a gear's .gear.json first, so the tool knows which part to update.", ok=False)
+            return
+        spec, derived = self._gear_spec("a"), self._derived["a"]
+        if derived is None:
+            self._set_status("The gear on the form does not work out yet, so nothing was updated.", ok=False)
+            return
+        reason = swbuild.structural_change(sidecar.record.spec, spec.to_dict())
+        if reason:
+            self._set_status(reason, ok=False)
+            return
+        variables = KINDS[spec.kind].variables(spec, derived)
+        part = sidecar.part_path
+        self._build_context = {"job_kind": "update", "spec": spec, "derived": derived, "variables": variables,
+                               "sidecar": sidecar, "record_path": self._loaded_path}
+        self._pending_build = self._worker.submit(lambda session: swbuild.update_variables(session, variables, part))
+        self._set_status(f"Updating the values in {sidecar.part_title}…")
+        self._derive_now()
+
+    def _collect_build(self) -> None:
+        if self._pending_build is None:
+            return
+        answer = self._pending_build.poll()
+        if answer is None:
+            return
+        value, error = answer
+        context, self._pending_build, self._build_context = self._build_context or {}, None, None
+        try:
+            if error is not None:
+                if isinstance(error, swcom.SolidWorksError):
+                    self._set_status(str(error), ok=False)
+                else:
+                    self._set_status(f"The build hit a problem in SolidWorks — {type(error).__name__}: {error}",
+                                     ok=False)
+            elif context.get("job_kind") == "update":
+                self._finish_update(context, value)
+            elif context.get("job_kind") == MODE_PAIR:
+                self._finish_pair(context, value)
+            else:
+                self._finish_single(context, value)
+        finally:
+            self._derive_now()
+
+    def _finish_single(self, context: Dict[str, Any], result: swbuild.BuildResult) -> None:
+        _log(result.log_lines())
+        text, ok = ui_text.build_status(result)
+        if result.saved:
+            note, sidecar, path = self._write_sidecar(context["specs"][0], context["derived"][0],
+                                                      context["plans"][0], result)
+            text, ok = (text + " " + note, ok and sidecar is not None) if note else (text, ok)
+            if sidecar is not None:
+                self._loaded, self._loaded_path = sidecar, path
+                self.record_hint.configure(text=os.path.basename(path))
+        self._remember_output()
+        self._set_status(text, ok)
+
+    def _finish_pair(self, context: Dict[str, Any], result: swbuild.PairResult) -> None:
+        _log(result.log_lines())
+        text, ok = ui_text.pair_status(result)
+        parts = [result.gear_a, result.gear_b]
+        paths = context["paths"]
+        assembly = result.assembly.saved if result.assembly is not None else ""
+        spec_a, spec_b = context["specs"]
+        centre = equations_literal(spec_a.module_mm() * (spec_a.teeth_count() + spec_b.teeth_count()) / 2.0)
+        ratio = equations_literal(spec_b.teeth_count() / spec_a.teeth_count())
+        for index, part in enumerate(parts):
+            if part is None or not part.saved:
+                continue
+            note, sidecar, _ = self._write_sidecar(context["specs"][index], context["derived"][index],
+                                                   context["plans"][index], part, partner=paths[1 - index],
+                                                   assembly=assembly, centre_distance=centre, ratio=ratio)
+            if note:
+                text, ok = text + " " + note, False
+        self._remember_output()
+        self._set_status(text, ok)
+
+    def _finish_update(self, context: Dict[str, Any], result: swbuild.UpdateResult) -> None:
+        text, ok = ui_text.update_status(result)
+        if result.ok and result.changed:
+            variables = [[v.name, v.expression_for(result.trig)] for v in context["variables"]]
+            updated = store.updated_sidecar(context["sidecar"], context["spec"].to_dict(),
+                                            context["derived"].to_dict(), variables)
+            try:
+                store.save(context["record_path"], updated)
+                self._loaded = updated
+            except OSError as exc:
+                text, ok = text + f" Its record could not be written: {exc}", False
+        self._set_status(text, ok)
+
+    def _write_sidecar(self, spec: GearSpec, derived: Any, plan: Any, result: swbuild.BuildResult,
+                       **pair: str) -> Tuple[str, Optional[store.Sidecar], str]:
+        """Write the record beside a saved part. Returns (a note if it went wrong, the record, its path)."""
+        path = store.sidecar_path(result.saved)
+        note = ""
+        try:
+            previous = store.load(path)
+        except store.UnknownSchema as exc:
+            return str(exc), None, path
+        except store.StoreError as exc:
+            previous, note = None, str(exc)
+        kind = KINDS[spec.kind]
+        sidecar = store.built_sidecar(
+            result.saved, os.path.basename(result.saved), kind=spec.kind, recipe=plan.recipe,
+            spec=spec.to_dict(), derived=derived.to_dict(),
+            variables=[[v.name, v.expression_for(result.trig)] for v in kind.variables(spec, derived)],
+            features=result.features, dimensions=sorted(result.dimensions.values()), manual_steps=result.manual,
+            template=getattr(plan.ops[0], "template", ""), trig=result.trig,
+            written_by=f"gear-generator {__version__}", previous=previous, **pair,
+        )
+        try:
+            store.save(path, sidecar)
+        except OSError as exc:
+            return f"Its record could not be written beside it: {exc}", None, path
+        self.recent.remember(path)
+        return note, sidecar, path
+
+    def _remember_output(self) -> None:
+        self.recent.folder = self.out_folder.get().strip()
+        self.recent.part_template = self.part_template.get().strip()
+        self.recent.assembly_template = self.assembly_template.get().strip()
+        self.recent.recipe = self.recipe.get()
+        self.recent.mode = self.mode.get()
+        store.save_recent(self.recent)
 
     # ------------------------------------------------------ the live link
 
@@ -1011,10 +1211,6 @@ class GearApp(ttk.Frame):
             self._refresh_link_labels()
             self._derive_now()
 
-    def _collect_build(self) -> None:
-        """Collect a finished build. Filled in with the build itself."""
-        return
-
     @staticmethod
     def _link_message(error: BaseException) -> str:
         if isinstance(error, swcom.NotRunning):
@@ -1029,6 +1225,22 @@ class GearApp(ttk.Frame):
         headline, state = ui_text.link_headline(swcom.is_available(), self._snapshot)
         self.sw_headline.set(headline)
         self.sw_dot.set_color({"ok": theme.OK, "bad": theme.ERROR}.get(state, theme.FAINT))
+
+
+def equations_literal(value: float) -> str:
+    return literal(round(value, 9))
+
+
+def _log(lines: Sequence[str]) -> None:
+    """The build log on the console, when there is one; a windowed exe has no stdout."""
+    stream = sys.stdout
+    if stream is None:
+        return
+    try:
+        for line in lines:
+            print(line, file=stream)
+    except (OSError, ValueError, UnicodeError):
+        pass
 
 
 def _declare_dpi_aware() -> None:

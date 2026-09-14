@@ -28,6 +28,7 @@ those gears with a sentence rather than building a part with slivers in it.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -705,7 +706,8 @@ class SpurGear:
         ops.append(LinkDimension(f"Count@{TEETH_PATTERN}", _q(TEETH)))
         if spec.has_bore():
             ops.extend(_bore_ops(g))
-        ops.append(ManualStep("material", f"Assign a material to {spec.stem()}; the build leaves it unset."))
+        part = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0] if path else spec.stem()
+        ops.append(ManualStep("material", f"Assign a material to {part}; the build leaves it unset."))
         ops.append(Rebuild())
         ops.append(SaveAs(path))
         return BuildPlan(kind=KIND, recipe=recipe, ops=tuple(ops), path=path)

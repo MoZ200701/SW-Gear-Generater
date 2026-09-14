@@ -146,3 +146,44 @@ def test_recent_lives_in_appdata_on_windows_and_config_elsewhere():
     )
     assert "Gear Generator" in store.recent_path({"APPDATA": r"C:\Users\u\AppData\Roaming"}, "win32")
     assert store.recent_path({"HOME": "/home/u"}, "linux") == "/home/u/.config/gear-generator/recent.json"
+
+
+# -- records from a build ---------------------------------------------------
+
+
+def _built(previous=None, path=r"C:\Gears\Gear_m1.5_N25.SLDPRT", stamp="2026-09-15T00:00:00Z"):
+    return store.built_sidecar(
+        path, "Gear_m1.5_N25.SLDPRT", kind="spur", recipe="A", spec={"module": "1.5"}, derived={"d": 37.5},
+        variables=[["Module", "1.5"]], features=["Blank"], dimensions=["OD@Blank Sketch"],
+        manual_steps=["Assign a material."], template="", trig="degrees", written_by="gear-generator 0.1.0",
+        previous=previous, stamp=stamp,
+    )
+
+
+def test_a_first_build_gets_a_new_id_and_is_created_now():
+    built = _built()
+    assert built.record.record_id.startswith("gear-")
+    assert built.record.created == built.record.last_built == "2026-09-15T00:00:00Z"
+    assert built.record.last_updated == ""
+
+
+def test_a_rebuild_to_the_same_path_keeps_its_id_and_creation():
+    first = sidecar()
+    again = _built(previous=first, path=first.part_path.lower())
+    assert again.record.record_id == "gear-1234abcd"
+    assert again.record.created == "2026-09-14T00:00:00Z"
+    assert again.record.last_built == "2026-09-15T00:00:00Z"
+
+
+def test_a_record_for_another_path_is_not_inherited():
+    assert _built(previous=sidecar(), path=r"C:\Gears\Other.SLDPRT").record.record_id != "gear-1234abcd"
+
+
+def test_update_values_changes_the_form_and_values_only():
+    before = sidecar()
+    after = store.updated_sidecar(before, {"module": "2"}, {"d": 50.0}, [["Module", "2"]], "2026-09-16T00:00:00Z")
+    assert after.record.spec == {"module": "2"} and after.record.variables == [["Module", "2"]]
+    assert after.record.features == before.record.features
+    assert after.record.record_id == before.record.record_id
+    assert after.record.last_updated == "2026-09-16T00:00:00Z"
+    assert before.record.spec == {"module": "1.5", "teeth": "25"}

@@ -175,3 +175,64 @@ def angle_text(degrees: float) -> str:
 
 def contact_ratio_text(epsilon: float) -> str:
     return "—" if not math.isfinite(epsilon) else _n(epsilon, 3)
+
+
+# -- after SolidWorks has done something -------------------------------------
+
+
+def _file(path: str) -> str:
+    return path.replace("\\", "/").rsplit("/", 1)[-1] if path else ""
+
+
+def build_status(result) -> Tuple[str, bool]:
+    """One sentence for a finished build, and whether it went well.
+
+    ``result`` is a :class:`swbuild.BuildResult`, read by its fields only.
+    """
+    if result.failures:
+        what, why = result.failures[0]
+        where = f"{result.document} was left open, unsaved" if result.document else "Nothing was built"
+        return f"{where}. {what.strip()}: {why}", False
+    if not result.saved:
+        return f"SolidWorks reported an error rebuilding {result.document}, so it was left open, unsaved.", False
+    text = f"Built {_file(result.saved)}."
+    if result.checks:
+        text += " Check: " + "; ".join(result.checks) + "."
+    manual = manual_steps_line(result.manual)
+    if manual:
+        text += " " + manual
+    return text, not result.checks
+
+
+def pair_status(result) -> Tuple[str, bool]:
+    """One sentence for a pair: the first thing that went wrong, or all three files."""
+    for part in (result.gear_a, result.gear_b, result.assembly):
+        if part is None:
+            continue
+        text, ok = build_status(part)
+        if not ok or not part.saved:
+            return text + (f" Skipped {result.skipped}." if result.skipped else ""), False
+    files = [_file(part.saved) for part in (result.gear_a, result.gear_b, result.assembly) if part is not None]
+    manual = [step for part in (result.gear_a, result.gear_b, result.assembly) if part is not None
+              for step in part.manual]
+    checks = [check for part in (result.gear_a, result.gear_b, result.assembly) if part is not None
+              for check in part.checks]
+    text = f"Built {', '.join(files[:-1])} and {files[-1]}."
+    if checks:
+        text += " Check: " + "; ".join(checks) + "."
+    line = manual_steps_line(manual)
+    return (text + (" " + line if line else "")), not checks
+
+
+def update_status(result) -> Tuple[str, bool]:
+    """One sentence for Update values."""
+    if result.failures:
+        what, why = result.failures[0]
+        return f"{what} could not be set in {result.document}: {why}", False
+    if not result.changed:
+        return f"Nothing to update: every value in {result.document} already matches the form.", True
+    noun = "variable" if len(result.changed) == 1 else "variables"
+    if not result.rebuilt:
+        return (f"Changed {len(result.changed)} {noun} in {result.document}, but SolidWorks reported an error "
+                "on the rebuild."), False
+    return f"Changed {len(result.changed)} {noun} in {result.document} and rebuilt it.", True

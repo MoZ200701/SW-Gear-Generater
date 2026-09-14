@@ -23,7 +23,8 @@ from typing import List, Optional, Tuple
 
 from ..spec import GearSpec, InputError, PairSpec
 from . import equations, standards
-from .spur import contact_ratio, undercut_minimum
+from .base import AddComponent, AddGlobal, BuildPlan, Fix, LinkDimension, ManualStep, Mate, NewAssembly, Rebuild, SaveAs
+from .spur import AXIS_NAME, contact_ratio, undercut_minimum
 
 # Rows below this share of Min teeth are not offered at all: the undercut takes
 # so much of the flank that listing them only buries the useful ones.
@@ -166,7 +167,63 @@ def mesh_angle(teeth_driven: int) -> float:
     return 0.0 if teeth_driven % 2 else 180.0 / teeth_driven
 
 
+def mate_angle(teeth_driven: int) -> float:
+    """The mesh angle as the assembly's angle mate holds it: never zero.
+
+    An odd count meshes one whole tooth pitch round just as it does at zero,
+    and a zero-degree angle mate is not something the probe exercised — nor is
+    a zero a value a dimension can be told apart by.
+    """
+    return mesh_angle(teeth_driven) or 360.0 / teeth_driven
+
+
+PAIR_KIND = "pair"
+CENTRE_DISTANCE = "Centre Distance"
+RATIO = "Ratio"
+MESH_ANGLE = "Mesh Angle"
+
+
+def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, template: str,
+                  path: str) -> BuildPlan:
+    """Both built parts in an assembly, meshing, their distance driven by ``"Centre Distance"``.
+
+    The centre distance is the one the teeth make, m (N1 + N2) / 2, not the one
+    typed into the solver: mating at any other would pull the teeth apart or
+    into each other. The mates are the ones the assembly probes made on
+    SolidWorks 2026 — front planes coincident, gear 2's axis on gear 1's top
+    plane, a distance from gear 1's right plane, and an angle between the top
+    planes that turns a tooth of gear 2 into gear 1's space.
+    """
+    module = gear_a.module_mm()
+    if abs(gear_b.module_mm() - module) > 1e-9:
+        raise InputError(f"Two gears only mesh with the same module (got {gear_a.module.strip()} and "
+                         f"{gear_b.module.strip()}).")
+    n1, n2 = gear_a.teeth_count(), gear_b.teeth_count()
+    centre = module * (n1 + n2) / 2.0
+    angle = mate_angle(n2)
+    name = f'"{CENTRE_DISTANCE}"'
+    ops = (
+        NewAssembly(template),
+        AddGlobal(CENTRE_DISTANCE, equations.literal(round(centre, 9))),
+        AddGlobal(RATIO, equations.literal(round(n2 / n1, 9))),
+        AddGlobal(MESH_ANGLE, equations.literal(round(angle, 9))),
+        AddComponent("gear1", path_a, (0.0, 0.0, 0.0)),
+        AddComponent("gear2", path_b, (centre, 0.0, 0.0)),
+        Fix("gear1"),
+        Mate("faces", "coincident", "gear2:plane1", "gear1:plane1"),
+        Mate("axis", "coincident", f"gear2:{AXIS_NAME}", "gear1:plane2"),
+        Mate("centre", "distance", f"gear2:{AXIS_NAME}", "gear1:plane3", centre, CENTRE_DISTANCE),
+        LinkDimension(f"D1@{CENTRE_DISTANCE}", name),
+        Mate("mesh", "angle", "gear2:plane2", "gear1:plane2", angle, MESH_ANGLE),
+        LinkDimension(f"D1@{MESH_ANGLE}", f'"{MESH_ANGLE}"'),
+        ManualStep("mesh", "Look along the gear axis and check the teeth mesh without clashing."),
+        Rebuild(),
+        SaveAs(path),
+    )
+    return BuildPlan(kind=PAIR_KIND, recipe="", ops=ops, path=path)
+
+
 __all__ = [
-    "Candidate", "apply", "describe", "floor_teeth", "mesh_angle", "solve", "solve_spec",
-    "undercut_minimum",
+    "Candidate", "apply", "assembly_plan", "describe", "floor_teeth", "mate_angle", "mesh_angle", "solve",
+    "solve_spec", "undercut_minimum",
 ]

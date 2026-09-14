@@ -110,3 +110,53 @@ def test_manual_steps_are_counted():
     assert ui_text.manual_steps_line([]) == ""
     assert ui_text.manual_steps_line(["Assign a material."]) == "1 thing to do by hand: Assign a material."
     assert ui_text.manual_steps_line(["A.", "B", "A."]) == "2 things to do by hand: A; B."
+
+
+# -- after a build -------------------------------------------------------------
+
+
+def _result(**values):
+    from gear_generator.swbuild import BuildResult
+    base = dict(document="Part1", saved=r"C:\Gears\Gear_m1.5_N25.SLDPRT", rebuilt=True,
+                manual=["Assign a material to Gear_m1.5_N25; the build leaves it unset."])
+    base.update(values)
+    return BuildResult(**base)
+
+
+def test_a_clean_build_names_the_file_and_the_manual_step():
+    text, ok = ui_text.build_status(_result())
+    assert ok
+    assert text == ("Built Gear_m1.5_N25.SLDPRT. 1 thing to do by hand: Assign a material to Gear_m1.5_N25; "
+                    "the build leaves it unset.")
+
+
+def test_a_failed_build_says_where_it_stopped_and_what_solidworks_said():
+    text, ok = ui_text.build_status(_result(saved="", failures=[("cut     'Tooth Space' from space, through all",
+                                                                   "FeatureCut4 would not cut.")]))
+    assert not ok
+    assert text == "Part1 was left open, unsaved. cut     'Tooth Space' from space, through all: FeatureCut4 would not cut."
+
+
+def test_a_build_with_something_to_check_is_not_all_clear():
+    text, ok = ui_text.build_status(_result(checks=["Tooth Space Sketch is under-defined, not fully defined"]))
+    assert not ok and "Check: Tooth Space Sketch is under-defined" in text
+
+
+def test_a_pair_lists_all_three_files_or_the_first_failure():
+    from gear_generator.swbuild import PairResult
+    asm = _result(saved=r"C:\Gears\Pair_m1.5_20T_60T.SLDASM", manual=["Look along the gear axis."])
+    text, ok = ui_text.pair_status(PairResult(_result(saved=r"C:\G\Pinion.SLDPRT"), _result(saved=r"C:\G\Gear.SLDPRT"), asm))
+    assert ok and text.startswith("Built Pinion.SLDPRT, Gear.SLDPRT and Pair_m1.5_20T_60T.SLDASM.")
+    assert "2 things to do by hand" in text
+    broken = PairResult(_result(saved="", failures=[("pattern", "no")]), skipped="the second gear and the assembly")
+    text, ok = ui_text.pair_status(broken)
+    assert not ok and text.endswith("Skipped the second gear and the assembly.")
+
+
+def test_update_values_says_how_many_changed():
+    from gear_generator.swbuild import UpdateResult
+    assert ui_text.update_status(UpdateResult(document="G.SLDPRT", changed=["Module"], rebuilt=True)) == (
+        "Changed 1 variable in G.SLDPRT and rebuilt it.", True)
+    assert ui_text.update_status(UpdateResult(document="G.SLDPRT"))[0].startswith("Nothing to update")
+    text, ok = ui_text.update_status(UpdateResult(document="G.SLDPRT", failures=[('"Module"', "refused")]))
+    assert not ok and text == '"Module" could not be set in G.SLDPRT: refused'

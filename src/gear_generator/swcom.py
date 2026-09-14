@@ -1218,7 +1218,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     later cheap to place.
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
-    del arguments  # no options yet
+    unknown = [a for a in arguments if a not in ("--templates", "--equations")]
+    if unknown:
+        print(f"unknown option {unknown[0]}; use --templates or --equations")
+        return EXIT_COM_ERROR
     if not is_available():
         print(f"pywin32 is not usable here: {unavailable_reason()}")
         print("Install it with: pip install pywin32")
@@ -1255,6 +1258,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     note = " — newer than tested" if is_newer_than_tested(chosen.revision) else ""
     print(f"\nusing {session.label}, PID {session.pid}{note}")
 
+    if "--templates" in arguments:
+        for kind in ("part", "assembly"):
+            path = session.default_template(kind)
+            state = "exists" if path and os.path.isfile(path) else "MISSING"
+            print(f"{kind} template: {path or '(none set)'}  {state}")
+
     documents = session.documents()
     if not documents:
         print("no documents open")
@@ -1269,6 +1278,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if active is None:
         print("\nno active document, so no features listed")
         return EXIT_OK
+
+    if "--equations" in arguments:
+        session._build_doc = None  # noqa: SLF001 - read the active document, not a build's
+        try:
+            listed = session.equations()
+        except SolidWorksError as exc:
+            print(f"\nerror reading the equations of {active.title}: {exc}")
+            return EXIT_COM_ERROR
+        print(f"\n{active.title}: {len(listed)} equations")
+        for index, (text, value) in enumerate(listed):
+            print(f"    {index:>3}  {text}  = {value!r}")
 
     try:
         features = session.features()
