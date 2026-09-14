@@ -1264,8 +1264,8 @@ def _declare_dpi_aware() -> None:
             pass
 
 
-def _work_area_height(root: tk.Tk) -> int:
-    """The screen minus the taskbar, which is what a window can actually use."""
+def _work_area(root: tk.Tk) -> Tuple[int, int, int]:
+    """``(left, top, height)`` of the screen minus the taskbar, wherever the taskbar is."""
     if sys.platform == "win32":
         import ctypes
         from ctypes import wintypes
@@ -1273,10 +1273,15 @@ def _work_area_height(root: tk.Tk) -> int:
         rect = wintypes.RECT()
         try:
             if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
-                return rect.bottom - rect.top
+                return rect.left, rect.top, rect.bottom - rect.top
         except (AttributeError, OSError):
             pass
-    return root.winfo_screenheight()
+    return 0, 0, root.winfo_screenheight()
+
+
+def _work_area_height(root: tk.Tk) -> int:
+    """The screen minus the taskbar, which is what a window can actually use."""
+    return _work_area(root)[2]
 
 
 def _scale_to_dpi(root: tk.Tk) -> float:
@@ -1312,8 +1317,12 @@ def main() -> None:
     root.update_idletasks()
     app._size_page()
     root.update_idletasks()
-    room = _work_area_height(root) - int(round(40 * scale))
-    root.geometry(f"{root.winfo_reqwidth()}x{min(root.winfo_reqheight(), room)}")
+    left, top, height = _work_area(root)
+    room = height - int(round(40 * scale))
+    # Placed at the top of the work area: left to Windows, a window sized to the
+    # screen cascades down by its offset and its footer, Build with it, starts
+    # below the bottom edge.
+    root.geometry(f"{root.winfo_reqwidth()}x{min(root.winfo_reqheight(), room)}+{left}+{top}")
     root.mainloop()
 
 
