@@ -26,6 +26,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
 
+from . import findings
 from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
 from .gears.equations import DEGREES, EquationError, evaluate_all, split_equation
@@ -80,6 +81,8 @@ class SolidWorks(Protocol):
     def fix_component(self, handle: str) -> None: ...
     def add_mate(self, handle: str, kind: str, a: str, b: str, value: float = 0.0,
                  name: str = "") -> Tuple[str, str]: ...
+    def interference_count(self) -> Tuple[int, float]: ...
+    def place_component(self, handle: str, rotation: Sequence[float], at) -> None: ...
 
 
 class BuildError(SolidWorksError):
@@ -298,13 +301,18 @@ def _fix(sw, op: base.Fix, result, trig):
     return f"fixed {op.component}"
 
 
+def _place(sw, op: base.Place, result, trig):
+    sw.place_component(op.component, op.rotation, op.at)
+    return f"placed {op.component}"
+
+
 def _mate(sw, op: base.Mate, result, trig):
     kept, dim = sw.add_mate(op.id, op.kind, op.a, op.b, op.value, op.name)
     if op.name:
         _kept(result, "mate", op.name, kept)
     else:
         result.features.append(kept)
-    if op.kind in ("distance", "angle"):
+    if op.kind in base.VALUED_MATES:
         if not dim:
             raise SolidWorksError(f"The {op.kind} mate {kept} has no dimension with its value.")
         result.dimensions[f"D1@{op.name or op.id}"] = f"{dim}@{kept}"
@@ -332,6 +340,7 @@ _RUNNERS: Mapping[type, Callable] = {
     base.MirrorBody: _mirror,
     base.AddComponent: _component,
     base.Fix: _fix,
+    base.Place: _place,
     base.Mate: _mate,
 }
 
@@ -424,7 +433,13 @@ def _verify(sw: SolidWorks, plan: BuildPlan, result: BuildResult) -> None:
 
 def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: BuildPlan,
                exists: Callable[[str], bool] = os.path.exists) -> PairResult:
-    """Both parts, then the assembly — skipped if either part failed."""
+    """Both parts, then the assembly — skipped if either part failed — then whether the teeth interfere.
+
+    An assembly that built cleanly is checked for interference (probe
+    interference): none is a line in ``done``, and any is a ``CHECK`` with the
+    count and volume, which does not fail the build — the parts are still the
+    gears asked for, and the sentence says where to look.
+    """
     for plan in (gear_a, gear_b, assembly):
         save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
         if save is not None and save.path and exists(save.path):
@@ -438,6 +453,18 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
         pair.skipped = "the assembly, because the second gear failed"
         return pair
     pair.assembly = build(sw, assembly, exists)
+    if pair.assembly.ok and findings.INTERFERENCE_CHECKED:
+        try:
+            count, volume = sw.interference_count()
+        except SolidWorksError as exc:
+            pair.assembly.checks.append(f"interference could not be checked: {exc}")
+        else:
+            if count:
+                pair.assembly.checks.append(
+                    f"the gears interfere in {count} place{'s' if count != 1 else ''}, {volume:.3f} mm³; "
+                    "look along the gear axis at the mesh")
+            else:
+                pair.assembly.done.append("no interference between the gears")
     return pair
 
 

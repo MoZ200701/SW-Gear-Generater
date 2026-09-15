@@ -307,8 +307,30 @@ class Fix:
 
 
 @dataclass(frozen=True)
+class Place:
+    """Set a component's frame outright: a rotation (rows of a 3 × 3 matrix) and where its origin goes, in mm.
+
+    Mates that can be satisfied more than one way take the nearest, so a
+    component is placed where it belongs before it is mated.
+    """
+
+    component: str
+    rotation: Tuple[float, ...]
+    at: Point3
+
+
+# The mate kinds that carry a value, and so a dimension an equation can drive.
+VALUED_MATES = ("distance", "angle", "axis angle", "point distance")
+
+
+@dataclass(frozen=True)
 class Mate:
-    """A mate between two references, ``component:plane-or-feature``."""
+    """A mate between two references, ``component:plane-or-feature``.
+
+    ``kind`` is ``coincident``, ``distance`` or ``angle`` between planes and
+    axes; ``axis angle`` between two axes; ``point`` (coincident) and ``point
+    distance`` from a component's origin, ``gearN:origin``, to a plane.
+    """
 
     id: str
     kind: str
@@ -321,16 +343,16 @@ class Mate:
 Op = Union[
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
     EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
-    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Mate,
+    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
 ]
 OPS = (
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
     EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
-    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Mate,
+    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
 )
 SKETCH_ENTITIES = (Circle, Arc, Line, Point, EquationCurve)
 GEOMETRY = SKETCH_ENTITIES + (Axis, OpenSketch, Relation, Dimension, CloseSketch, Extrude, Cut,
-                              CircularPattern, RefPlane, SweepCut, MirrorBody, AddComponent, Fix, Mate)
+                              CircularPattern, RefPlane, SweepCut, MirrorBody, AddComponent, Fix, Place, Mate)
 
 
 def ref_id(ref: str) -> str:
@@ -501,14 +523,14 @@ class BuildPlan:
                 define(op.id, op)
             elif isinstance(op, AddComponent):
                 define(op.id, op)
-            elif isinstance(op, Fix):
+            elif isinstance(op, (Fix, Place)):
                 use(op.component, op)
             elif isinstance(op, Mate):
                 use(op.a, op)
                 use(op.b, op)
                 define(op.id, op)
                 feature_names[op.id] = op.name or op.id
-                dimensions[op.id] = ["D1"] if op.kind in ("distance", "angle") else []
+                dimensions[op.id] = ["D1"] if op.kind in VALUED_MATES else []
             elif isinstance(op, LinkDimension):
                 dim, _, owner = op.dimension.partition("@")
                 owners = {**sketch_names, **feature_names}
@@ -608,8 +630,10 @@ def describe(op: Op, trig: str = DEGREES) -> str:
         return f"insert  {op.id} {op.path} at {_fmt_point(op.at)}"
     if isinstance(op, Fix):
         return f"fix     {op.component}"
+    if isinstance(op, Place):
+        return f"place   {op.component} at {_fmt_point(op.at)} turned {_fmt_point(op.rotation)}"
     if isinstance(op, Mate):
-        value = f" {equations.literal(op.value)}" if op.kind in ("distance", "angle") else ""
+        value = f" {equations.literal(round(op.value, 9))}" if op.kind in VALUED_MATES else ""
         return f"mate    {op.kind}{value} {op.a} ~ {op.b}" + (f" as {op.name!r}" if op.name else "")
     return name  # pragma: no cover - every op is listed above
 

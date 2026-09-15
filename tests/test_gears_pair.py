@@ -143,7 +143,8 @@ def test_the_assembly_plan_is_sound_and_mates_at_the_centre_the_teeth_make():
     distance = next(op for op in plan.ops if isinstance(op, Mate) and op.kind == "distance")
     assert (distance.value, distance.name, distance.a, distance.b) == (60.0, "Centre Distance", "gear2:Gear Axis",
                                                                        "gear1:plane3")
-    assert len(plan.manual_steps()) == 1
+    # The build checks the teeth for interference, so nobody has to look along the axis.
+    assert plan.manual_steps() == []
 
 
 def test_the_mate_angle_is_never_zero_and_an_odd_count_turns_a_whole_pitch():

@@ -157,5 +157,8 @@ def decide(records: Records) -> Dict[str, Any]:
         "twist_reverse_flips": _fact(records, "sweep_twist", "reverse_flag_flips"),
         "mirror_body_route": (_fact(records, "mirror_body_merge", "mirror_body_routes") or [None])[0],
         "helical_end_to_end": _passed(records, "helical_end_to_end"),
+        "annulus_extrudes": _passed(records, "annulus_extrude") or None,
+        "interference_route": _fact(records, "interference", "interference_route"),
+        "internal_end_to_end": _passed(records, "internal_end_to_end"),
         "manual_steps": manual_steps(records, recipe),
     }

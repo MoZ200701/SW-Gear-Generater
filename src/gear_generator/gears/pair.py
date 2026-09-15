@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import List, Optional, Tuple
 
+from .. import findings
 from ..spec import (
     HAND_LEFT,
     HAND_RIGHT,
@@ -37,8 +38,20 @@ from ..spec import (
     InputError,
     PairSpec,
 )
-from . import equations, helical, internal, standards
-from .base import AddComponent, AddGlobal, BuildPlan, Fix, LinkDimension, ManualStep, Mate, NewAssembly, Rebuild, SaveAs
+from . import crossed, equations, helical, internal, standards
+from .base import (
+    AddComponent,
+    AddGlobal,
+    BuildPlan,
+    Fix,
+    LinkDimension,
+    ManualStep,
+    Mate,
+    NewAssembly,
+    Place,
+    Rebuild,
+    SaveAs,
+)
 from .spur import AXIS_NAME, contact_ratio, undercut_minimum
 
 # Rows below this share of Min teeth are not offered at all: the undercut takes
@@ -65,6 +78,12 @@ class Candidate:
     overlap: float = 0.0      # εβ, from gear A's face width; nan when it cannot be read
     mesh: str = MESH_EXTERNAL
     clash: float = 0.0        # mm the teeth of an internal pair run into each other; 0 when they clear
+    helix_angle_b: float = 0.0  # a crossed pair's second helix angle, degrees; 0 otherwise
+    shaft_angle: float = 0.0    # a crossed pair's shaft angle, degrees; 0 for parallel shafts
+
+    @property
+    def crossed(self) -> bool:
+        return self.shaft_angle > 0.0
 
     @property
     def exact(self) -> bool:
@@ -75,14 +94,19 @@ class Candidate:
         return self.clash > internal.CLASH_TOLERANCE
 
     def rank(self) -> Tuple[bool, bool, bool, bool, float, float, float, int]:
+        # Parallel: the smaller helix, the less axial thrust. Crossed: the nearer
+        # the two helix angles are to each other, the less the sliding.
+        helix = abs(self.helix_angle - self.shaft_angle / 2.0) if self.crossed else self.helix_angle
         return (
             abs(self.centre_error) > TOLERANCE,
             not self.standard,
             self.undercut,
             self.clashes,
             round(self.ratio_error, 12),
+            # Among a crossed pair's near misses, the nearer the better; parallel rows keep their order.
+            round(abs(self.centre_error), 9) if self.crossed else 0.0,
             -self.module,
-            round(self.helix_angle, 9),   # the smaller helix, the less axial thrust
+            round(helix, 9),
             self.teeth_driver,
         )
 
@@ -149,7 +173,8 @@ def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Opt
           series: str = standards.SERIES_1, min_teeth: int = 17, max_teeth: int = 200,
           limit: int = DEFAULT_LIMIT, kind: str = KIND_SPUR, helix_angle: Optional[float] = None,
           helix_range: Tuple[float, float] = helical.DEFAULT_RANGE[helical.KIND_HELICAL],
-          face_width: Optional[float] = None, mesh: str = MESH_EXTERNAL) -> List[Candidate]:
+          face_width: Optional[float] = None, mesh: str = MESH_EXTERNAL, shafts: str = "parallel",
+          shaft_angle: float = 90.0) -> List[Candidate]:
     """Every candidate worth listing, best first.
 
     For the helical kinds ``module`` and ``pressure_angle`` are normal, and
@@ -165,6 +190,9 @@ def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Opt
     if mesh == MESH_INTERNAL:
         return _solve_internal(centre, ratio, pressure_angle, module, series, min_teeth, max_teeth, limit,
                                kind, helix_angle, helix_range, face_width)
+    if shafts == "crossed":
+        return _solve_crossed(centre, ratio, shaft_angle, pressure_angle, module, series, min_teeth, max_teeth, limit,
+                              helix_angle)
     if kind in HELICAL_KINDS:
         return _solve_helical(centre, ratio, pressure_angle, module, series, min_teeth, max_teeth, limit,
                               helix_angle, helix_range, face_width)
@@ -337,9 +365,102 @@ def _solve_internal(centre: float, ratio: float, pressure_angle: float, module: 
     return ranked[:limit]
 
 
+def _solve_crossed(centre: float, ratio: float, shaft: float, pressure_angle: float, module: Optional[float],
+                   series: str, min_teeth: int, max_teeth: int, limit: int,
+                   helix_angle: Optional[float]) -> List[Candidate]:
+    """Two helical gears on shafts ``shaft`` degrees apart, same hand, ``β1 + β2 = Σ``.
+
+    With ``helix_angle`` (β1) typed, the tooth counts are the ones whose centre
+    distance comes nearest, as a parallel pair's are. Left blank, every tooth
+    pair that fits gets the β1 that meets the centre distance exactly, the one
+    nearest half the shaft angle.
+    """
+    if centre <= 0:
+        raise InputError("Centre distance must be more than zero.")
+    if ratio <= 0:
+        raise InputError("Ratio must be more than zero.")
+    if not crossed.SHAFT_MIN <= shaft <= crossed.SHAFT_MAX:
+        raise InputError(f"The shaft angle must be between {crossed.SHAFT_MIN:g}° and {crossed.SHAFT_MAX:g}° "
+                         f"(got {shaft:g}°).")
+    if helix_angle is not None and not (0.0 < helix_angle < 90.0 and 0.0 < shaft - helix_angle < 90.0):
+        raise InputError(f"A helix angle of {helix_angle:g}° leaves the other gear {shaft - helix_angle:g}° on "
+                         f"{shaft:g}° shafts; both must be between 0° and 90°.")
+    floor = floor_teeth(min_teeth)
+    if max_teeth < floor:
+        raise InputError(f"Max teeth ({max_teeth}) is below the smallest gear the solver offers ({floor}).")
+    allowed = (float(module),) if module is not None else standards.modules(series)
+    found = {}
+
+    def offer(m: float, n1: int, n2: int, standard: bool, beta_1: float) -> None:
+        if not (floor <= n1 <= max_teeth and floor <= n2 <= max_teeth):
+            return
+        key = (round(m, 9), n1, n2, round(beta_1, 9))
+        if key in found:
+            return
+        beta_2 = shaft - beta_1
+        actual = crossed.centre_distance(m, n1, n2, beta_1, beta_2)
+        limit_1 = helical.undercut_minimum(pressure_angle, beta_1)
+        limit_2 = helical.undercut_minimum(pressure_angle, beta_2)
+        found[key] = Candidate(
+            module=m, teeth_driver=n1, teeth_driven=n2, standard=standard, ratio=n2 / n1,
+            centre_distance=actual, ratio_error=abs(n2 / n1 - ratio) / ratio, centre_error=actual - centre,
+            undercut=n1 < int(math.floor(limit_1 + 0.5)) or n2 < int(math.floor(limit_2 + 0.5)),
+            contact_ratio=crossed.normal_contact_ratio(m, n1, n2, beta_1, beta_2, pressure_angle),
+            helix_angle=beta_1, helix_angle_b=beta_2, shaft_angle=shaft,
+        )
+
+    for m in allowed:
+        standard = module is None or standards.is_standard(m)
+        if helix_angle is not None:
+            c1 = 1.0 / math.cos(math.radians(helix_angle))
+            c2 = 1.0 / math.cos(math.radians(shaft - helix_angle))
+            middle = 2.0 * centre / (m * (c1 + ratio * c2))
+            for n1 in range(int(math.floor(middle)) - 1, int(math.ceil(middle)) + 2):
+                if n1 >= 1:
+                    offer(m, n1, int(math.floor(ratio * n1 + 0.5)), standard, helix_angle)
+            continue
+        target = 2.0 * centre / m
+        for n1 in range(floor, max_teeth + 1):
+            n2 = int(math.floor(ratio * n1 + 0.5))
+            if n1 + n2 > target + TOLERANCE:
+                break
+            beta_1 = crossed.beta_1_for(m, n1, n2, shaft, centre)
+            if beta_1 is not None:
+                offer(m, n1, n2, standard, beta_1)
+    if helix_angle is not None and module is None:
+        exact = Fraction(ratio).limit_denominator(max_teeth)
+        p, q = exact.numerator, exact.denominator
+        c1 = 1.0 / math.cos(math.radians(helix_angle))
+        c2 = 1.0 / math.cos(math.radians(shaft - helix_angle))
+        k = 1
+        while k * max(p, q) <= max_teeth:
+            n1, n2 = k * q, k * p
+            m_star = 2.0 * centre / (n1 * c1 + n2 * c2)
+            if not any(abs(m_star - m) <= TOLERANCE for m in allowed):
+                offer(m_star, n1, n2, False, helix_angle)
+            k += 1
+
+    ranked = sorted(found.values(), key=Candidate.rank)
+    return ranked[:limit]
+
+
 def solve_spec(pair: PairSpec) -> List[Candidate]:
     kind = pair.gear_a.kind
     mesh = pair.mesh_value()
+    if kind in HELICAL_KINDS and pair.shafts_value() == "crossed":
+        return solve(
+            centre=pair.centre_distance_mm(),
+            ratio=pair.ratio_value(),
+            pressure_angle=pair.gear_a.pressure_angle_deg(),
+            module=pair.module_mm(),
+            series=pair.series or standards.SERIES_1,
+            min_teeth=pair.min_teeth_count(),
+            max_teeth=pair.max_teeth_count(),
+            kind=kind,
+            helix_angle=pair.helix_angle_deg(),
+            shafts="crossed",
+            shaft_angle=pair.shaft_angle_deg(),
+        )
     if mesh == MESH_INTERNAL:
         try:
             width: Optional[float] = pair.gear_a.face_width_mm()
@@ -395,6 +516,10 @@ def apply(candidate: Candidate, gear_a: GearSpec, gear_b: GearSpec) -> Tuple[Gea
     module = equations.literal(round(candidate.module, 6))
     a = gear_a.with_values(module=module, teeth=str(candidate.teeth_driver))
     b = gear_b.with_values(module=module, teeth=str(candidate.teeth_driven))
+    if candidate.crossed:
+        a = a.with_values(helix_angle=equations.literal(round(candidate.helix_angle, 6)))
+        b = b.with_values(helix_angle=equations.literal(round(candidate.helix_angle_b, 6)), hand=gear_a.hand)
+        return a, b
     if candidate.helix_angle:
         beta = equations.literal(round(candidate.helix_angle, 6))
         same = str(gear_a.hand).strip().lower()
@@ -460,10 +585,103 @@ PAIR_KIND = "pair"
 CENTRE_DISTANCE = "Centre Distance"
 RATIO = "Ratio"
 MESH_ANGLE = "Mesh Angle"
+SHAFT_ANGLE = "Shaft Angle"
+HELIX_ANGLE_1 = "Helix Angle 1"
+HELIX_ANGLE_2 = "Helix Angle 2"
+OFFSET_Y = "Offset Y"
+OFFSET_Z = "Offset Z"
+ROUTE_MATES = "mates"
+ROUTE_FIXED = "fixed"
+
+
+def describe_crossed(module: float, teeth_1: int, teeth_2: int, beta_1: float, beta_2: float,
+                     pressure_angle: float = 20.0) -> Tuple[float, float, float]:
+    """``(centre distance, ratio, normal contact ratio)`` of a crossed pair."""
+    return (crossed.centre_distance(module, teeth_1, teeth_2, beta_1, beta_2), teeth_2 / teeth_1,
+            crossed.normal_contact_ratio(module, teeth_1, teeth_2, beta_1, beta_2, pressure_angle))
+
+
+def crossed_assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, template: str, path: str,
+                          shaft_angle: float, route: Optional[str] = None) -> BuildPlan:
+    """Two helical gears on crossed shafts, gear 1 fixed and gear 2 placed by :func:`crossed.placement`.
+
+    ``route`` (default: ``findings.CROSSED_ROUTE``) is how gear 2 is held there.
+    ``mates``: gear 2 is first placed, then mated — its axis at the centre
+    distance from gear 1's right plane, at the shaft angle to gear 1's axis, its
+    origin at two distances from gear 1's top and front planes, and its top plane
+    at an angle to gear 1's right plane that fixes its spin — with the centre
+    distance and shaft angle driven by globals. ``fixed``: gear 2 is placed and
+    fixed there, and no global drives it.
+    """
+    route = route or getattr(findings, "CROSSED_ROUTE", None)
+    if route not in (ROUTE_MATES, ROUTE_FIXED):
+        raise InputError("How to hold crossed-axis gears in an assembly has not been settled on SolidWorks yet.")
+    for gear in (gear_a, gear_b):
+        if gear.kind != helical.KIND_HELICAL or gear.is_internal():
+            raise InputError("Only external helical gears go on crossed shafts.")
+    module = gear_a.module_mm()
+    if abs(gear_b.module_mm() - module) > 1e-9:
+        raise InputError(f"Two gears only mesh with the same module (got {gear_a.module.strip()} and "
+                         f"{gear_b.module.strip()}).")
+    kind = helical.HelicalGear()
+    g1, g2 = kind.derive(gear_a), kind.derive(gear_b)
+    problems = crossed.validate(g1, g2, shaft_angle)
+    if problems:
+        raise InputError(problems[0])
+    placed = crossed.placement(g1, g2, shaft_angle)
+    rotation = tuple(value for row in placed.rotation for value in row)
+    # Gear 2's top plane contains its axis; its angle to gear 1's right plane is gear 2's spin.
+    spin_angle = crossed.angle_between(crossed.apply(placed.rotation, (0.0, 1.0, 0.0)), (1.0, 0.0, 0.0))
+    offset_y, offset_z = abs(placed.origin[1]), abs(placed.origin[2])
+    n1, n2 = g1.teeth, g2.teeth
+
+    def literal(value: float) -> str:
+        return equations.literal(round(value, 9))
+
+    ops: List = [
+        NewAssembly(template),
+        AddGlobal(CENTRE_DISTANCE, literal(placed.centre_distance)),
+        AddGlobal(SHAFT_ANGLE, literal(shaft_angle)),
+        AddGlobal(HELIX_ANGLE_1, literal(g1.helix_angle_deg)),
+        AddGlobal(HELIX_ANGLE_2, literal(g2.helix_angle_deg)),
+        AddGlobal(RATIO, literal(n2 / n1)),
+        AddGlobal(MESH_ANGLE, literal(spin_angle)),
+        *((AddGlobal(OFFSET_Y, literal(offset_y)), AddGlobal(OFFSET_Z, literal(offset_z)))
+          if route == ROUTE_MATES else ()),
+        AddComponent("gear1", path_a, (0.0, 0.0, 0.0)),
+        AddComponent("gear2", path_b, placed.origin),
+        Place("gear2", rotation, placed.origin),
+        Fix("gear1"),
+    ]
+    if route == ROUTE_FIXED:
+        ops.append(Fix("gear2"))
+        notes = ("Gear 2 is placed and fixed: the centre distance and shaft angle globals record the pair "
+                 "but do not move it.",)
+    else:
+        ops.extend([
+            Mate("centre", "distance", f"gear2:{AXIS_NAME}", "gear1:plane3", placed.centre_distance, CENTRE_DISTANCE),
+            LinkDimension(f"D1@{CENTRE_DISTANCE}", f'"{CENTRE_DISTANCE}"'),
+            Mate("shaft", "axis angle", f"gear2:{AXIS_NAME}", f"gear1:{AXIS_NAME}", shaft_angle, SHAFT_ANGLE),
+            LinkDimension(f"D1@{SHAFT_ANGLE}", f'"{SHAFT_ANGLE}"'),
+        ])
+        for identifier, plane, value, name in (("offset_y", "gear1:plane2", offset_y, OFFSET_Y),
+                                               ("offset_z", "gear1:plane1", offset_z, OFFSET_Z)):
+            if value < 1e-6:
+                ops.append(Mate(identifier, "point", "gear2:origin", plane))
+            else:
+                ops.append(Mate(identifier, "point distance", "gear2:origin", plane, value, name))
+                ops.append(LinkDimension(f"D1@{name}", f'"{name}"'))
+        ops.extend([
+            Mate("mesh", "angle", "gear2:plane2", "gear1:plane3", spin_angle, MESH_ANGLE),
+            LinkDimension(f"D1@{MESH_ANGLE}", f'"{MESH_ANGLE}"'),
+        ])
+        notes = ()
+    ops.extend([Rebuild(), SaveAs(path)])
+    return BuildPlan(kind=PAIR_KIND, recipe="", ops=tuple(ops), path=path, notes=notes)
 
 
 def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, template: str,
-                  path: str) -> BuildPlan:
+                  path: str, shafts: str = "parallel", shaft_angle: float = 90.0) -> BuildPlan:
     """Both built parts in an assembly, meshing, their distance driven by ``"Centre Distance"``.
 
     The centre distance is the one the teeth make, m (N1 + N2) / 2, not the one
@@ -473,6 +691,8 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
     plane, a distance from gear 1's right plane, and an angle between the top
     planes that turns a tooth of gear 2 into gear 1's space.
     """
+    if shafts == "crossed":
+        return crossed_assembly_plan(gear_a, gear_b, path_a, path_b, template, path, shaft_angle)
     module = gear_a.module_mm()
     if abs(gear_b.module_mm() - module) > 1e-9:
         raise InputError(f"Two gears only mesh with the same module (got {gear_a.module.strip()} and "
@@ -514,7 +734,9 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
         LinkDimension(f"D1@{CENTRE_DISTANCE}", name),
         Mate("mesh", "angle", "gear2:plane2", "gear1:plane2", angle, MESH_ANGLE),
         LinkDimension(f"D1@{MESH_ANGLE}", f'"{MESH_ANGLE}"'),
-        ManualStep("mesh", "Look along the gear axis and check the teeth mesh without clashing."),
+        # The build checks interference itself once that has been probed, so a person need not look.
+        *(() if findings.INTERFERENCE_CHECKED else
+          (ManualStep("mesh", "Look along the gear axis and check the teeth mesh without clashing."),)),
         Rebuild(),
         SaveAs(path),
     )
@@ -522,7 +744,7 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
 
 
 __all__ = [
-    "Candidate", "apply", "assembly_plan", "describe", "floor_teeth", "internal_mesh_angle", "mate_angle", "mesh_angle",
+    "Candidate", "apply", "assembly_plan", "crossed_assembly_plan", "describe", "describe_crossed", "floor_teeth", "internal_mesh_angle", "mate_angle", "mesh_angle",
     "solve",
     "solve_spec", "undercut_minimum",
 ]

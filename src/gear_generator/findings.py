@@ -179,3 +179,32 @@ SWEEP_ENDS = "overrun"
 # pattern_sweep: FeatureCircularPattern5 of a twisted cut left N·A·w removed and
 # one body; 24 of them rebuilt in 0.37 s, 0.20 s as a geometry pattern.
 PATTERN_OF_SWEEPS_SECONDS_24 = 0.373
+
+# -- internal gears ---------------------------------------------------------
+
+# annulus_extrude: a sketch of two concentric circles, D 40 and d 24, extruded
+# by FeatureExtrusion3 to one body of pi/4 (D^2 - d^2) w to 1e-6; the inner
+# circle's diameter linked to a global of 20 opened the hole to match.
+ANNULUS_EXTRUDES = True
+
+# -- interference -----------------------------------------------------------
+
+# interference: IAssemblyDoc.InterferenceDetectionManager on two r 20 mm,
+# 10 mm cylinders 30 mm apart counted one interference of 1813.247 mm^3, the
+# lens exactly, and none 50 mm apart. GetInterferenceCount, GetInterferences
+# and IInterference.Volume (m^3) read as properties; Done is a method. The
+# options below were set before counting.
+INTERFERENCE_CALL = "IAssemblyDoc.InterferenceDetectionManager"
+INTERFERENCE_OPTIONS = (
+    ("TreatCoincidenceAsInterference", False),
+    ("TreatSubAssembliesAsComponents", True),
+    ("IncludeMultibodyPartInterferences", True),
+    ("MakeInterferingPartsTransparent", False),
+    ("CreateFastenersFolder", False),
+    ("IgnoreHiddenBodies", True),
+    ("ShowIgnoredInterferences", False),
+    ("UseTransform", False),
+)
+# So a pair's assembly is checked for interference by the build, and a person
+# no longer has to look along the axis for clashing teeth.
+INTERFERENCE_CHECKED = True

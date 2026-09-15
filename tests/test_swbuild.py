@@ -14,7 +14,9 @@ PATH = r"C:\Gears\Gear_m1.5_N25.SLDPRT"
 
 
 class FakeSolidWorks:
-    def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None):
+    def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None,
+                 interference=(0, 0.0)):
+        self.interference = interference
         self.revision = (34, 0, 0)
         self.calls = []
         self.trig = trig
@@ -166,7 +168,15 @@ class FakeSolidWorks:
 
     def add_mate(self, handle, kind, a, b, value=0.0, name=""):
         self._log("add_mate", kind, a, b)
-        return (name or f"Mate{len(self.calls)}"), ("D7" if kind in ("distance", "angle") else "")
+        return (name or f"Mate{len(self.calls)}"), ("D7" if kind in ("distance", "angle", "axis angle",
+                                                                    "point distance") else "")
+
+    def place_component(self, handle, rotation, at):
+        self._log("place_component", handle)
+
+    def interference_count(self):
+        self._log("interference_count")
+        return self.interference
 
 
 def plan(spec=None, recipe="A", path=PATH):
@@ -346,13 +356,39 @@ def test_a_pair_builds_both_parts_then_the_assembly_linking_the_kept_dimension()
     assert link == ("D7@Centre Distance", '"Centre Distance"')
 
 
+def test_a_clean_pair_is_checked_for_interference_after_the_assembly():
+    fake = FakeSolidWorks()
+    result = swbuild.build_pair(fake, plan(path=r"C:\g\a.SLDPRT"), plan(path=r"C:\g\b.SLDPRT"),
+                                _assembly_plan(), never_exists)
+    assert result.ok and names(fake)[-1] == "interference_count"
+    assert "no interference between the gears" in result.assembly.done
+    assert not result.assembly.checks
+
+
+def test_interfering_teeth_are_a_check_not_a_failure():
+    fake = FakeSolidWorks(interference=(3, 12.5))
+    result = swbuild.build_pair(fake, plan(path=r"C:\g\a.SLDPRT"), plan(path=r"C:\g\b.SLDPRT"),
+                                _assembly_plan(), never_exists)
+    assert result.ok
+    assert result.assembly.checks == ["the gears interfere in 3 places, 12.500 mm³; look along the gear axis at the mesh"]
+    assert "CHECK   the gears interfere in 3 places, 12.500 mm³; look along the gear axis at the mesh" \
+        in result.log_lines()
+
+
+def test_an_interference_check_that_raises_is_reported_and_the_pair_still_stands():
+    fake = FakeSolidWorks(fail_on={"interference_count": "no manager"})
+    result = swbuild.build_pair(fake, plan(path=r"C:\g\a.SLDPRT"), plan(path=r"C:\g\b.SLDPRT"),
+                                _assembly_plan(), never_exists)
+    assert result.ok and result.assembly.checks == ["interference could not be checked: no manager"]
+
+
 def test_a_pair_skips_the_assembly_when_a_part_fails():
     fake = FakeSolidWorks(fail_on={"circular_pattern": "no pattern"})
     result = swbuild.build_pair(fake, plan(path=r"C:\g\a.SLDPRT"), plan(path=r"C:\g\b.SLDPRT"),
                                 _assembly_plan(), never_exists)
     assert not result.ok
     assert result.gear_b is None and result.assembly is None
-    assert "new_assembly" not in names(fake)
+    assert "new_assembly" not in names(fake) and "interference_count" not in names(fake)
     assert "SKIPPED" in result.log_lines()[-1]
 
 

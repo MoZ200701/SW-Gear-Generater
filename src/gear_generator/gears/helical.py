@@ -99,6 +99,10 @@ PATH_SKETCH = "Path Sketch"
 MIRROR = "Mirror"
 
 HELIX_MAX = 45.0
+# The steepest helix a single gear may have. Parallel pairs stay within
+# HELIX_MAX; a gear of a crossed-axis pair can be steeper, since the two helix
+# angles add up to the shaft angle.
+HELIX_LIMIT = 80.0
 # What the pair solver searches when the helix angle is left blank, and what
 # the form does not warn about.
 DEFAULT_RANGE = {KIND_HELICAL: (8.0, 25.0), KIND_HERRINGBONE: (20.0, 40.0)}
@@ -237,9 +241,9 @@ class HelicalGear:
         except InputError as exc:
             out.append(Diagnostic(ERROR, str(exc), "helix_angle"))
         else:
-            if not 0.0 < beta <= HELIX_MAX:
+            if not 0.0 < beta <= HELIX_LIMIT:
                 out.append(Diagnostic(ERROR, (
-                    f"Helix angle must be more than 0° and at most {_num(HELIX_MAX)}° (got {_num(beta)}°); "
+                    f"Helix angle must be more than 0° and at most {_num(HELIX_LIMIT)}° (got {_num(beta)}°); "
                     "a gear with no helix is a spur gear."), "helix_angle"))
         try:
             spec.hand_value()

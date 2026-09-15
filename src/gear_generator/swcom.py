@@ -522,7 +522,15 @@ class Session:
         call(self._app, "CloseDoc", title)
 
     def activate(self, title: str) -> None:
+        """Bring an open document forward, and make it the one this session reads and changes.
+
+        Without forgetting the last build's document, a volume or body count
+        asked for after activating a part would still be of the assembly built
+        last (probe internal_end_to_end, SolidWorks 2026: GetBodies2 was asked
+        of an assembly).
+        """
         call(self._app, "ActivateDoc3", title, False, 0, _out_long())
+        self._build_doc = None
 
     def document_title(self) -> str:
         return str(call(self._doc(), "GetTitle"))
@@ -1223,6 +1231,29 @@ class Session:
             dim = str(call(matches[0], "Name")) if len(matches) == 1 else ""
         self._handles[handle] = {"mate": kept}
         return kept, dim
+
+    def interference_count(self) -> Tuple[int, float]:
+        """How many interferences the build's assembly has, and their volume in mm³.
+
+        Probe interference, SolidWorks 2026: two cylinders overlapping by a lens
+        counted one interference of exactly the lens's volume, and none apart.
+        ``GetInterferenceCount``, ``GetInterferences`` and ``Volume`` are
+        property gets through late binding; ``Done`` is a method, and is called
+        whatever the count came to.
+        """
+        doc = self._doc()
+        manager = call(doc, "InterferenceDetectionManager")
+        if manager is None:
+            raise SolidWorksError(f"{call(doc, 'GetTitle')} has no interference detection manager.")
+        for name, value in findings.INTERFERENCE_OPTIONS:
+            setattr(manager, name, value)
+        try:
+            count = int(call(manager, "GetInterferenceCount"))
+            items = list(call(manager, "GetInterferences") or ())
+            volume = sum(float(call(item, "Volume")) for item in items) * 1e9
+        finally:
+            manager.Done()
+        return count, volume
 
     def component_translation(self, handle: str) -> Tuple[float, float, float]:
         data = call(call(self._handles[handle]["component"], "Transform2"), "ArrayData")

@@ -139,7 +139,7 @@ def test_the_path_is_held_on_the_axis_by_relations_and_two_linked_lengths():
 @pytest.mark.parametrize("changes, field, words", [
     ({"helix_angle": ""}, "helix_angle", "Helix angle is empty"),
     ({"helix_angle": "0"}, "helix_angle", "a spur gear"),
-    ({"helix_angle": "50"}, "helix_angle", "at most 45"),
+    ({"helix_angle": "85"}, "helix_angle", "at most 80"),
     ({"hand": "sideways"}, "hand", "Hand must be"),
 ])
 def test_refusals_name_their_field(changes, field, words):
