@@ -155,7 +155,7 @@ pip install pyinstaller pywin32
 build.bat
 ```
 
-makes `dist\Gear Generator v0.1.exe`.
+makes `dist\Gear Generator v0.2.exe`.
 
 ## Development
 
