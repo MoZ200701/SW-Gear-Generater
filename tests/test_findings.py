@@ -121,7 +121,7 @@ def test_helical_decisions(evidence):
 def test_bevel_decisions(evidence):
     _, records, decided = evidence
     assert decided["revolve_axis_mark"] == findings.REVOLVE_AXIS_MARK
-    assert facts(records, "revolve")["revolve_type"] == findings.REVOLVE_TYPE
+    assert facts(records, "revolve")["revolve_selected_type"] == findings.REVOLVE_TYPE
     assert decided["bevel_section_x_sign"] == findings.BEVEL_SECTION_X_SIGN
     assert decided["loft_cut_route"] == f"heel then toe, mark {findings.LOFT_PROFILE_MARK}"
     assert decided["loft_cut_type"] == findings.LOFT_CUT_TYPE

@@ -1102,7 +1102,9 @@ class GearApp(ttk.Frame):
 
         if shown:
             columns = [dict(ui_text.derived_rows(self._derived[side])) for side in shown]
-            labels = [label for label, _ in ui_text.derived_rows(first)]
+            # A ring's column and its pinion's do not share every row (Inner tip, Rim):
+            # every label once, in the order it first appears, and a dash where a gear has none.
+            labels = list(dict.fromkeys(label for side in shown for label, _ in ui_text.derived_rows(self._derived[side])))
             for index, side in enumerate(shown):
                 caption = f"{side.upper()} · mm" if len(sides) > 1 else "mm"
                 head = tk.Label(self.derived_rows, text=caption, bg=theme.WHITE, fg=theme.READOUT,
@@ -1115,7 +1117,7 @@ class GearApp(ttk.Frame):
                 name.grid(row=row, column=0, sticky="w")
                 self._derived_widgets.append(name)
                 for index, values in enumerate(columns):
-                    value = tk.Label(self.derived_rows, text=values[label], bg=theme.WHITE, fg=theme.INK,
+                    value = tk.Label(self.derived_rows, text=values.get(label, "—"), bg=theme.WHITE, fg=theme.INK,
                                      font=self.fonts.mono_tiny, anchor="w")
                     value.grid(row=row, column=1 + index, sticky="w", padx=(theme.px(8), 0))
                     self._derived_widgets.append(value)
