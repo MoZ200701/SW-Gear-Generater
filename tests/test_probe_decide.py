@@ -94,3 +94,13 @@ def test_an_unlinkable_twist_falls_back_to_a_helix_guide_and_nothing_else():
 def test_no_atn_or_no_mirror_stops_rather_than_guessing():
     assert decide.helix_route(records(HELIX[1:], failing=("equation_inverse_trig",))) == "STOP"
     assert decide.herringbone_route(records(HELIX, failing=("mirror_body_merge",))) == "STOP"
+
+
+def test_the_non_parallel_routes_come_from_the_frames_read_back():
+    passing = {"nonparallel_mates": {"status": "pass", "facts": {
+        "bevel_frame_error": {"rotation": 1e-16, "origin_mm": 0.0}, "place_route": "Transform2 put"}}}
+    assert decide.bevel_mate_route(passing) == "mates" and decide.crossed_route(passing) == "mates"
+    failing = {"nonparallel_mates": {"status": "fail", "facts": {
+        "bevel_frame_error": {"rotation": 1e-16, "origin_mm": 5.0}, "place_route": "Transform2 put"}}}
+    assert decide.bevel_mate_route(failing) is None and decide.crossed_route(failing) is None
+    assert decide.crossed_route({}) is None and decide.bevel_mate_route({}) is None

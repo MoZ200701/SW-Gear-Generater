@@ -22,6 +22,9 @@ RECIPE_WORDS = {RECIPE_INVOLUTE: "involute curve", RECIPE_ARCS: "arc flanks"}
 RECIPE_LABELS = {RECIPE_INVOLUTE: "Involute", RECIPE_ARCS: "Arcs"}
 KIND_LABELS = {"spur": "Spur", "helical": "Helical", "herringbone": "Herringbone", "bevel": "Bevel",
                "internal": "Internal"}
+TEETH_SIDE_LABELS = {"external": "External", "internal": "Internal"}
+MESH_LABELS = TEETH_SIDE_LABELS
+SHAFTS_LABELS = {"parallel": "Parallel", "crossed": "Crossed"}
 HAND_LABELS = {"right": "Right", "left": "Left"}
 # Five kinds share one segmented row, and "Herringbone" does not fit its share;
 # the Gear panel's readout still says the whole word.
@@ -48,12 +51,16 @@ def gear_readout(spec: GearSpec) -> str:
     """``m1.5 · z25 · 20° · PD 37.5 mm``, or what is stopping it.
 
     A helical gear adds its helix, ``β15° R``, and its pitch diameter is the
-    transverse one, ``m z / cos β``.
+    transverse one, ``m z / cos β``. A ring ends ``· ring``; a bevel gear names
+    its mate and shaft angle, ``z20:40 · Σ90°``.
     """
     try:
         m = spec.module_mm()
         n = spec.teeth_count()
         alpha = spec.pressure_angle_deg()
+        if spec.kind == "bevel":
+            return (f"m{_n(m)} · z{n}:{spec.mate_teeth_count()} · {_n(alpha, 2)}° · "
+                    f"Σ{_n(spec.shaft_angle_deg(), 2)}° · PD {_n(m * n)} mm")
         if spec.is_helical():
             beta = spec.helix_angle_deg()
             hand = spec.hand_value()
@@ -61,14 +68,32 @@ def gear_readout(spec: GearSpec) -> str:
                 return CHECK_THE_FIELDS
     except InputError:
         return CHECK_THE_FIELDS
+    ring = " · ring" if spec.is_internal() else ""
     if spec.is_helical():
         return (f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · β{_n(beta, 2)}° {hand[0].upper()} · "
-                f"PD {_n(m * n / math.cos(math.radians(beta)))} mm")
-    return f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · PD {_n(m * n)} mm"
+                f"PD {_n(m * n / math.cos(math.radians(beta)))} mm{ring}")
+    return f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · PD {_n(m * n)} mm{ring}"
+
+
+def is_bevel(g) -> bool:
+    """A :class:`bevel.BevelDerived` — which passes every other name through to its back-cone section."""
+    return type(g).__name__ == "BevelDerived"
+
+
+def is_ring(g) -> bool:
+    return type(g).__name__ == "InternalDerived"
 
 
 def derived_line(g) -> str:
-    """``PD 37.5 · OD 40.5 · RD 33.75 · base 35.238 · p 4.712``."""
+    """``PD 37.5 · OD 40.5 · RD 33.75 · base 35.238 · p 4.712``.
+
+    A bevel gear: ``δ 26.565° · R 67.082 · OD 67.218 · X 58.195``; a ring
+    ``PD 120 · tip 116 · root 125 · rim 137``.
+    """
+    if is_bevel(g):
+        return (f"δ {_n(g.delta, 3)}° · R {_n(g.cone_distance)} · OD {_n(g.da)} · X {_n(g.crown_to_apex)}")
+    if is_ring(g):
+        return f"PD {_n(g.d)} · tip {_n(g.da)} · root {_n(g.df)} · rim {_n(g.rim)}"
     return (
         f"PD {_n(g.d)} · OD {_n(g.da)} · RD {_n(g.df)} · base {_n(g.db)} · p {_n(g.p)}"
     )
@@ -80,6 +105,27 @@ def derived_rows(g) -> List[Tuple[str, str]]:
     Short on purpose: in pair mode two columns of these share the width the
     preview leaves.
     """
+    if is_bevel(g):
+        return [
+            ("Pitch cone δ", f"{_n(g.delta, 3)}°"),
+            ("Cone distance", _n(g.cone_distance)),
+            ("Pitch diameter", _n(g.d)),
+            ("Outer diameter", _n(g.da)),
+            ("Apex to crown", _n(g.crown_to_apex)),
+            ("Addendum", _n(g.addendum)),
+            ("Dedendum", _n(g.dedendum)),
+            ("Face angle", f"{_n(g.face_angle, 3)}°"),
+            ("Root angle", f"{_n(g.root_angle, 3)}°"),
+            ("Virtual teeth", _n(g.virtual_teeth, 2)),
+            ("Toe scale", _n(g.toe_scale, 4)),
+            ("Tooth at pitch", _n(g.section.s)),
+            ("Backlash", _n(g.section.backlash) + ("" if g.section.backlash_typed else " · 0.3m")),
+        ]
+    ring = []
+    if is_ring(g):
+        ring = [
+            ("Rim diameter", _n(g.rim) + ("" if g.rim_typed else " · root + 6m")),
+        ]
     helix = []
     if hasattr(g, "helix_angle_deg"):
         helix = [
@@ -90,9 +136,15 @@ def derived_rows(g) -> List[Tuple[str, str]]:
             ("Twist on face", f"{_n(g.face_twist_deg, 2)}°"),
             ("Overlap εβ", _n(g.overlap, 3)),
         ]
-    return helix + [
+    if is_ring(g):
+        fillet_note = " · 0.15m"
+        tip_label = "Inner tip"
+    else:
+        fillet_note = " · 0.38m"
+        tip_label = "Outer diameter"
+    return helix + ring + [
         ("Pitch diameter", _n(g.d)),
-        ("Outer diameter", _n(g.da)),
+        (tip_label, _n(g.da)),
         ("Root diameter", _n(g.df)),
         ("Base diameter", _n(g.db)),
         ("Tooth depth", _n(g.h)),
@@ -101,7 +153,7 @@ def derived_rows(g) -> List[Tuple[str, str]]:
         ("Tooth at pitch", _n(g.s)),
         ("Tip thickness", _n(g.tip_thickness)),
         ("Backlash", _n(g.backlash) + ("" if g.backlash_typed else " · 0.3m")),
-        ("Fillet", _n(g.fillet) + ("" if g.fillet_typed else " · 0.38m")),
+        ("Fillet", _n(g.fillet) + ("" if g.fillet_typed else fillet_note)),
     ]
 
 
@@ -111,11 +163,11 @@ def warning_lines(diagnostics: Sequence[Diagnostic]) -> List[str]:
     return list(dict.fromkeys(d.message for d in ordered))
 
 
-def pair_readout(centre: str, ratio: str, chosen: Optional["pairs.Candidate"] = None) -> str:
-    """``C 60 mm · i 3`` and, once one is chosen, ``· m1.5 20:60``."""
+def pair_readout(centre: str, ratio: str, chosen: Optional["pairs.Candidate"] = None, symbol: str = "C") -> str:
+    """``C 60 mm · i 3`` and, once one is chosen, ``· m1.5 20:60``; a bevel pair's ``R 50 mm``."""
     parts = []
     if centre.strip():
-        parts.append(f"C {centre.strip()} mm")
+        parts.append(f"{symbol} {centre.strip()} mm")
     if ratio.strip():
         parts.append(f"i {ratio.strip()}")
     if chosen is not None:
@@ -123,21 +175,21 @@ def pair_readout(centre: str, ratio: str, chosen: Optional["pairs.Candidate"] = 
     return " · ".join(parts) or "centre distance and ratio"
 
 
-def pair_derived_readout(centre: float, ratio: float, epsilon: float) -> str:
+def pair_derived_readout(centre: float, ratio: float, epsilon: float, symbol: str = "C") -> str:
     """``C 60 mm · i 3 · contact ratio 1.671`` — the Derived panel's readout in pair mode.
 
     The three numbers are the pair's own, from :func:`pairs.describe`: the
     centre distance the teeth make, the ratio they turn at, and how many teeth
     are in contact on average. The per-gear sizes are in the table below it.
     """
-    return f"C {_n(centre)} mm · i {_n(ratio)} · contact ratio {contact_ratio_text(epsilon)}"
+    return f"{symbol} {_n(centre)} mm · i {_n(ratio)} · contact ratio {contact_ratio_text(epsilon)}"
 
 
 def pair_derived_rows(centre: float, ratio: float, epsilon: float,
-                      teeth_driver: int, teeth_driven: int) -> List[Tuple[str, str]]:
-    """The three rows above the per-gear columns in Derived."""
+                      teeth_driver: int, teeth_driven: int, label: str = "Centre distance") -> List[Tuple[str, str]]:
+    """The three rows above the per-gear columns in Derived; a bevel pair's first is its cone distance."""
     return [
-        ("Centre distance", f"{_n(centre)} mm"),
+        (label, f"{_n(centre)} mm"),
         ("Ratio", f"{_n(ratio)} · {teeth_driver} : {teeth_driven}"),
         ("Contact ratio", contact_ratio_text(epsilon)),
     ]
@@ -151,14 +203,19 @@ def candidate_row(candidate: "pairs.Candidate") -> Tuple[str, str, str, str]:
     module = _n(candidate.module, 4) + ("" if candidate.standard else " *")
     teeth = f"{candidate.teeth_driver} : {candidate.teeth_driven}"
     errors = []
+    symbol = "R" if candidate.cone else "C"
     if abs(candidate.centre_error) > pairs.TOLERANCE:
-        errors.append(f"C {'+' if candidate.centre_error > 0 else '−'}{_n(abs(candidate.centre_error))} mm")
+        errors.append(f"{symbol} {'+' if candidate.centre_error > 0 else '−'}{_n(abs(candidate.centre_error))} mm")
     if candidate.ratio_error > pairs.TOLERANCE:
         errors.append(f"i {_n(candidate.ratio_error * 100, 2)} %")
     if candidate.undercut:
         errors.append("undercut")
+    if candidate.clashes:
+        errors.append(f"clash {_n(candidate.clash, 2)} mm")
     text = " · ".join(errors) if errors else "exact"
-    if candidate.helix_angle:
+    if candidate.crossed:
+        text = f"β{_n(candidate.helix_angle, 2)}°/{_n(candidate.helix_angle_b, 2)}° · {text}"
+    elif candidate.helix_angle:
         text = f"β{_n(candidate.helix_angle, 2)}° · {text}"
     return module, teeth, text, "exact" if candidate.exact else "near"
 
@@ -238,8 +295,10 @@ def manual_steps_line(steps: Iterable[str]) -> str:
 # readout, so it changes as the form does.
 
 # The fields with a card, in the order they are on the form.
-GEAR_EXPLAINERS = ("module", "teeth", "pressure_angle", "face_width", "bore", "backlash", "fillet", "name")
-PAIR_EXPLAINERS = ("centre_distance", "ratio", "pair_module", "series", "teeth_range", "assembly_name")
+GEAR_EXPLAINERS = ("module", "teeth", "pressure_angle", "face_width", "bore", "backlash", "fillet", "teeth_side",
+                   "rim", "shaft_angle", "mate_teeth", "name")
+PAIR_EXPLAINERS = ("centre_distance", "cone_distance", "ratio", "pair_module", "series", "teeth_range", "mesh",
+                   "shafts", "pair_shaft_angle", "assembly_name")
 EXPLAINER_FIELDS = GEAR_EXPLAINERS + PAIR_EXPLAINERS
 
 # (name, symbol, what it is). The symbol is what the diagram beside it marks.
@@ -270,6 +329,20 @@ _EXPLAINER_COPY: Dict[str, Tuple[str, str, str]] = {
     "fillet": ("Fillet", "ρ",
                "The radius where each flank meets the root circle. It rounds off the sharp inside corner where "
                "a tooth would otherwise crack. Blank uses 0.38 × module."),
+    "teeth_side": ("Teeth", "",
+                   "Which side of the rim the teeth are cut on. External teeth point outward, as on any gear; "
+                   "internal teeth point inward from a ring, and a pinion runs inside it turning the same way. "
+                   "A bevel gear's teeth are always external."),
+    "rim": ("Rim", "",
+            "A ring's outside diameter: the solid rim round the roots of its teeth. Blank leaves three modules "
+            "of rim outside the root circle; under two modules the ring is thin."),
+    "shaft_angle": ("Shaft angle", "Σ",
+                    "The angle between the two shafts a bevel gear works across, 90° for a right-angle drive. "
+                    "Each gear's pitch cone is its share of it, set by the two tooth counts; both gears of a pair "
+                    "must be cut for the same angle."),
+    "mate_teeth": ("Mate teeth", "z₂",
+                   "How many teeth the gear this bevel gear meshes with has. A bevel gear's cone, and the Gleason "
+                   "split of its tooth depth, depend on its mate; in a pair it is the other gear's teeth."),
     "name": ("Name", "",
              "The file the part is saved as, without .SLDPRT. Blank uses the name shown, built from module and "
              "teeth; in a pair the smaller gear is the pinion."),
@@ -277,6 +350,19 @@ _EXPLAINER_COPY: Dict[str, Tuple[str, str, str]] = {
                         "Shaft to shaft, centre to centre. Standard gears sit at C = m (z₁ + z₂) / 2, their "
                         "pitch circles touching, so C fixes how many teeth the pair has between them once a "
                         "module is chosen."),
+    "cone_distance": ("Cone distance", "R",
+                      "From the pitch apex, where the two bevel gears' axes meet, out along the pitch cone to "
+                      "the back of the teeth. It is a bevel pair's size, as the centre distance is a spur "
+                      "pair's: R = m √(z₁² + z₂² + 2 z₁ z₂ cos Σ) / (2 sin Σ)."),
+    "mesh": ("Mesh", "",
+             "External puts the two gears side by side, turning opposite ways. Internal makes gear B a ring "
+             "with gear A inside it, turning the same way, at C = m (z₂ − z₁) / 2."),
+    "shafts": ("Shafts", "",
+               "Parallel shafts mesh helical gears of equal helix and opposite hand. Crossed shafts mesh them "
+               "at an angle, both the same hand, with the two helix angles adding up to the shaft angle."),
+    "pair_shaft_angle": ("Shaft angle", "Σ",
+                         "The angle between the two shafts. A crossed helical pair splits it between its helix "
+                         "angles; a bevel pair between its pitch cones."),
     "ratio": ("Ratio", "i",
               "Turns of the driver for one turn of the driven gear, z₂ / z₁. 3 or 3:1 makes the second gear "
               "three times the first; 1:3 makes it a third."),
@@ -364,8 +450,28 @@ def _gear_worked(field: str, g, stem: str, folder: str) -> str:
                 f"play in the mesh {_n(2 * g.backlash)}")
     if field == "fillet":
         blank = "" if g.fillet_typed else "blank → "
-        default = "" if g.fillet_typed else " (0.38 m)"
+        default = "" if g.fillet_typed else (" (0.15 m)" if is_ring(g) else " (0.38 m)")
         return f"{blank}{_n(g.fillet)} mm{default}"
+    if field == "teeth_side":
+        if is_bevel(g):
+            return "external → a bevel gear's teeth are always outside"
+        if is_ring(g):
+            return f"internal → teeth point inward from a {_n(g.rim)} mm rim, tips at {_n(g.da)} mm"
+        return f"external → teeth point outward, tips at {_n(g.da)} mm"
+    if field == "rim":
+        if not is_ring(g):
+            return "only a ring has a rim"
+        blank = "" if g.rim_typed else "blank → "
+        return f"{blank}{_n(g.rim)} mm → {_n((g.rim - g.df) / 2)} mm of rim outside the root circle"
+    if field == "shaft_angle":
+        if not is_bevel(g):
+            return "only a bevel gear has a shaft angle"
+        return f"Σ {_n(g.shaft_angle, 2)}° → this gear's cone {_n(g.delta, 3)}°, its mate's {_n(g.delta_mate, 3)}°"
+    if field == "mate_teeth":
+        if not is_bevel(g):
+            return "only a bevel gear has a mate count"
+        return (f"z₂ {g.mate_teeth} → cone distance {_n(g.cone_distance)} mm · addendum {_n(g.addendum)} · "
+                f"dedendum {_n(g.dedendum)}")
     if field == "name":
         return f"{stem}.SLDPRT{_in(folder)}"
     raise ValueError(f"There is no worked line for a gear field called {field!r}.")
@@ -380,6 +486,21 @@ def _pair_worked(field: str, g, pair: PairSpec, folder: str) -> str:
         tried = [g.module] + sorted(smaller, reverse=True)[:2]
         sums = " · ".join(f"{int(round(2 * centre / m))} at m {_n(m)}" for m in tried)
         return f"{_n(centre)} mm → z₁ + z₂ = {sums}"
+    if field == "cone_distance":
+        radius = pair.cone_distance_mm()
+        shaft = pair.shaft_angle_deg()
+        return (f"{_n(radius)} mm at Σ {_n(shaft, 2)}° → m {_n(g.module)} × z {g.teeth} gives R "
+                f"{_n(pairs.bevel.cone_distance(g.module, g.teeth, pair.gear_b.teeth_count(), shaft))}")
+    if field == "mesh":
+        if pair.mesh_value() == "internal":
+            return f"internal → gear B is a ring round gear A, C = m (z₂ − z₁) / 2"
+        return "external → the gears sit side by side, C = m (z₁ + z₂) / 2"
+    if field == "shafts":
+        if pair.shafts_value() == "crossed":
+            return f"crossed → β₁ + β₂ = {_n(pair.shaft_angle_deg(), 2)}°, both gears the same hand"
+        return "parallel → both gears the same helix angle, opposite hands"
+    if field == "pair_shaft_angle":
+        return f"Σ {_n(pair.shaft_angle_deg(), 2)}°"
     if field == "ratio":
         wanted = pair.ratio.strip() or _n(pair.ratio_value())
         return f"{wanted} → {pair.gear_a.teeth_count()} : {pair.gear_b.teeth_count()}"

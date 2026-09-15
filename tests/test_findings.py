@@ -116,3 +116,23 @@ def test_helical_decisions(evidence):
     assert decided["helical_end_to_end"] is True
     assert "overrun " + findings.SWEEP_CUT_CALL.split(".")[-1] in facts(records, "sweep_cut_ends")["sweep_cut_routes"]
     assert facts(records, "equation_inverse_trig")["inverse_trig_accepted"]["atn"] == findings.INVERSE_TRIG_UNITS
+
+
+def test_bevel_decisions(evidence):
+    _, records, decided = evidence
+    assert decided["revolve_axis_mark"] == findings.REVOLVE_AXIS_MARK
+    assert facts(records, "revolve")["revolve_type"] == findings.REVOLVE_TYPE
+    assert decided["bevel_section_x_sign"] == findings.BEVEL_SECTION_X_SIGN
+    assert decided["loft_cut_route"] == f"heel then toe, mark {findings.LOFT_PROFILE_MARK}"
+    assert decided["loft_cut_type"] == findings.LOFT_CUT_TYPE
+    assert decided["bevel_end_to_end"] is True
+
+
+def test_non_parallel_assembly_decisions(evidence):
+    _, records, decided = evidence
+    assert decided["place_route"] == findings.PLACE_ROUTE
+    assert decided["transform_array_order"] == findings.TRANSFORM_ARRAY_ORDER
+    assert decided["origin_select_route"] == f"SelectByID2 EXTSKETCHPOINT {findings.ORIGIN_POINT}@Origin"
+    assert decided["bevel_mate_route"] == findings.BEVEL_MATE_ROUTE
+    assert decided["crossed_route"] == findings.CROSSED_ROUTE
+    assert decided["crossed_end_to_end"] is True

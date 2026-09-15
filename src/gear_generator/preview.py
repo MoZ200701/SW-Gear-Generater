@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
-from .gears import pair as pairs
+from .gears import bevel, pair as pairs
 from .gears.equations import literal
 
 # The panel body is the strip less the panel border and its own padding; the
@@ -68,6 +68,10 @@ class Layout:
     gears: Tuple[Placed, ...]
     centre_distance: float        # mm; 0 for a single gear
     dimension: Dimension
+    # Drawn instead of each gear's own outline when given: canvas-pixel polylines
+    # (a bevel gear's axial section), and faint reference lines (its pitch cone).
+    polylines: Tuple[Tuple[Tuple[float, float], ...], ...] = ()
+    guides: Tuple[Tuple[Tuple[float, float], ...], ...] = ()
 
 
 def mesh_rotation(teeth: int) -> float:
@@ -82,17 +86,32 @@ def mesh_rotation(teeth: int) -> float:
     return math.pi + math.radians(pairs.mesh_angle(teeth))
 
 
+def _is_bevel(g) -> bool:
+    return type(g).__name__ == "BevelDerived"
+
+
+def _is_ring(g) -> bool:
+    return type(g).__name__ == "InternalDerived"
+
+
 def layout(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
-           labels: Sequence[str] = ("A", "B")) -> Layout:
+           labels: Sequence[str] = ("A", "B"), note: str = "") -> Layout:
     """Place one or two gears — ``SpurDerived``s — on a canvas that size.
 
     Two gears are placed at ``m (N_A + N_B) / 2`` apart, the distance their
     teeth make and the one the assembly is mated at, and the scale is whatever
     lets both of them and the gap between them fit; one gear fills the height.
+    A ring and its pinion go to :func:`layout_internal`, bevel gears to
+    :func:`layout_bevel`. ``note`` follows the dimension's text (a crossed
+    pair's ``Σ 90°``).
     """
     if not gears or len(gears) > 2:
         raise ValueError(f"The preview draws one gear or two, not {len(gears)}.")
-    tips = [g.ra for g in gears]
+    if any(_is_bevel(g) for g in gears):
+        return layout_bevel(gears, width, height, labels)
+    if len(gears) == 2 and _is_ring(gears[1]):
+        return layout_internal(gears[0], gears[1], width, height, labels)
+    tips = [g.rim / 2.0 if _is_ring(g) else g.ra for g in gears]
     centre_distance = (gears[0].d + gears[1].d) / 2.0 if len(gears) == 2 else 0.0
     extent = tips[0] + centre_distance + tips[-1] if centre_distance else 2 * tips[0]
     gear_height = height - DIM_ZONE - TOP
@@ -107,8 +126,9 @@ def layout(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
             label=labels[index] if len(gears) > 1 else "",
             x=x, y=y,
             rotation=mesh_rotation(g.teeth) if index else 0.0,
-            tip_radius=g.ra, pitch_radius=g.rp,
-            bore_radius=g.bore / 2.0 if g.bore > 0 else 0.0,
+            tip_radius=tips[index], pitch_radius=g.rp,
+            # A ring's rim is drawn where a bore would be: one plain circle.
+            bore_radius=g.rim / 2.0 if _is_ring(g) else (g.bore / 2.0 if g.bore > 0 else 0.0),
         ))
 
     y_dim = y + max(tips) * scale + DIM_DROP
@@ -116,7 +136,7 @@ def layout(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
         # Centre to centre: the extension lines start clear of the centre marks.
         x0, x1 = placed[0].x, placed[1].x
         top = y + 6
-        text = f"C {_n(centre_distance)} mm"
+        text = f"C {_n(centre_distance)} mm" + (f" · {note}" if note else "")
     else:
         # The pitch diameter, which is what module × teeth comes to.
         x0 = placed[0].x - placed[0].pitch_radius * scale
@@ -130,6 +150,114 @@ def layout(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
     )
     return Layout(width=width, height=height, scale=scale, gears=tuple(placed),
                   centre_distance=centre_distance, dimension=dimension)
+
+
+def layout_internal(pinion, ring, width: int = WIDTH, height: int = HEIGHT,
+                    labels: Sequence[str] = ("A", "B")) -> Layout:
+    """A pinion inside its ring: the ring centred, the pinion ``m (N₂ − N₁) / 2`` to its right.
+
+    The pinion is turned half its tooth pitch, as the assembly mates it
+    (:func:`gears.pair.internal_mesh_angle`), so its tooth sits in the ring's
+    space on +X; the ring is not turned.
+    """
+    centre_distance = (ring.d - pinion.d) / 2.0
+    rim = ring.rim / 2.0
+    gear_height = height - DIM_ZONE - TOP
+    scale = min((width - 2 * PAD) / (2 * rim), gear_height / (2 * rim))
+    y = TOP + gear_height / 2.0
+    x_ring = width / 2.0
+    placed = (
+        Placed(label=labels[0], x=x_ring + centre_distance * scale, y=y,
+               rotation=math.radians(pairs.internal_mesh_angle(pinion.teeth)), tip_radius=pinion.ra,
+               pitch_radius=pinion.rp, bore_radius=pinion.bore / 2.0 if pinion.bore > 0 else 0.0),
+        Placed(label=labels[1], x=x_ring, y=y, rotation=0.0, tip_radius=rim, pitch_radius=ring.rp,
+               bore_radius=rim),
+    )
+    y_dim = y + rim * scale + DIM_DROP
+    x0, x1 = placed[1].x, placed[0].x
+    dimension = Dimension(
+        x0=x0, x1=x1, y=y_dim,
+        extensions=((x0, y + 6, y_dim + DIM_OVERRUN), (x1, y + 6, y_dim + DIM_OVERRUN)),
+        text=f"C {_n(centre_distance)} mm", text_x=(x0 + x1) / 2.0, text_y=y_dim - LABEL_LIFT,
+    )
+    return Layout(width=width, height=height, scale=scale, gears=placed, centre_distance=centre_distance,
+                  dimension=dimension)
+
+
+def bevel_section(g) -> List[List[Tuple[float, float]]]:
+    """A bevel gear's axial section in its own frame, mm: ``(x, z)``, the apex at the origin and the axis +z.
+
+    Both halves of the revolved blank, each a closed loop, and the right half's
+    pitch cone line from the apex to the heel.
+    """
+    right = [tuple(p) for p in bevel.outline(g)]
+    left = [(-x, z) for x, z in right]
+    return [right, left]
+
+
+def _turned(points, angle_deg: float):
+    """About the y axis by ``angle``, seen from +y: ``(x, z)`` → ``(x cos + z sin, −x sin + z cos)``."""
+    c, s = math.cos(math.radians(angle_deg)), math.sin(math.radians(angle_deg))
+    return [(x * c + z * s, -x * s + z * c) for x, z in points]
+
+
+def layout_bevel(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
+                 labels: Sequence[str] = ("A", "B")) -> Layout:
+    """One bevel gear's axial section, or two meeting at their pitch apex with their axes Σ apart.
+
+    Drawn in the assembly's XZ plane seen from +Y: gear A's axis up the canvas,
+    gear B's turned Σ about the apex towards +X, so the two pitch cones lie
+    along one line — the same frame :func:`gears.pair.bevel_assembly_plan`
+    places gear B in.
+    """
+    loops: List[List[Tuple[float, float]]] = []
+    guides: List[List[Tuple[float, float]]] = []
+    for index, g in enumerate(gears):
+        turn = g.shaft_angle if index else 0.0
+        for loop in bevel_section(g):
+            loops.append(_turned(loop, turn))
+        # Gear B meets gear A along its own −X side, where the assembly turns a tooth to.
+        side = -1.0 if index else 1.0
+        pitch = (side * g.cone_distance * math.sin(math.radians(g.delta)),
+                 g.cone_distance * math.cos(math.radians(g.delta)))
+        guides.append(_turned([(0.0, 0.0), pitch], turn))
+        guides.append(_turned([(0.0, 0.0), (0.0, g.crown_to_apex + g.face_width)], turn))
+    xs = [x for loop in loops for x, _ in loop] + [0.0]
+    zs = [z for loop in loops for _, z in loop] + [0.0]
+    gear_height = height - DIM_ZONE - TOP
+    span_x, span_z = max(xs) - min(xs), max(zs) - min(zs)
+    scale = min((width - 2 * PAD) / span_x, gear_height / span_z)
+    left = (width - span_x * scale) / 2.0
+    top = TOP + (gear_height - span_z * scale) / 2.0
+
+    def canvas(points) -> Tuple[Tuple[float, float], ...]:
+        return tuple((left + (x - min(xs)) * scale, top + (max(zs) - z) * scale) for x, z in points)
+
+    apex = canvas([(0.0, 0.0)])[0]
+    placed = tuple(
+        Placed(label=labels[index] if len(gears) > 1 else "", x=apex[0], y=apex[1],
+               rotation=math.radians(g.shaft_angle if index else 0.0), tip_radius=g.da / 2.0, pitch_radius=0.0,
+               bore_radius=0.0)
+        for index, g in enumerate(gears)
+    )
+    first = gears[0]
+    y_dim = top + span_z * scale + DIM_DROP
+    if len(gears) == 2:
+        pitch_x = apex[0] + first.cone_distance * math.sin(math.radians(first.delta)) * scale
+        x0, x1 = apex[0], pitch_x
+        text = f"R {_n(first.cone_distance)} mm · Σ {_n(first.shaft_angle, 2)}°"
+    else:
+        x0, x1 = apex[0] - first.da / 2.0 * scale, apex[0] + first.da / 2.0 * scale
+        text = f"OD {_n(first.da)} mm"
+    y_dim = min(y_dim, height - DIM_OVERRUN - 1)
+    dimension = Dimension(
+        x0=x0, x1=x1, y=y_dim,
+        extensions=((x0, apex[1], y_dim + DIM_OVERRUN), (x1, apex[1], y_dim + DIM_OVERRUN)),
+        text=text, text_x=(x0 + x1) / 2.0, text_y=y_dim - LABEL_LIFT,
+    )
+    return Layout(width=width, height=height, scale=scale, gears=placed,
+                  centre_distance=first.cone_distance if len(gears) == 2 else 0.0, dimension=dimension,
+                  polylines=tuple(canvas(loop) for loop in loops), guides=tuple(canvas(g) for g in guides))
 
 
 def points_on(outline: Sequence[Tuple[float, float]], placed: Placed,

@@ -283,7 +283,9 @@ def contact_ratio(module: float, teeth_1: int, teeth_2: int, pressure_angle_deg:
 
 def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: float, bore: float,
             backlash: float, fillet: float, backlash_typed: bool = False, fillet_typed: bool = False,
-            transverse_module: Optional[float] = None, transverse_backlash: Optional[float] = None) -> SpurDerived:
+            transverse_module: Optional[float] = None, transverse_backlash: Optional[float] = None,
+            addendum: Optional[float] = None, whole_depth: Optional[float] = None,
+            space_change: float = 0.0) -> SpurDerived:
     """Every size of one tooth space's section, the one sketch every kind of gear cuts.
 
     A spur gear's section is its only section. A helical gear's is the
@@ -291,6 +293,11 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
     transverse pressure angle; ``module`` stays the normal module, because the
     tooth's height — the addendum, the depth, the tip cap and the fillet — is
     measured in the normal module whatever the helix does.
+
+    ``addendum`` and ``whole_depth`` default to the module and the user's
+    depth IIF; ``space_change`` is added to the space at the pitch circle. A
+    Gleason bevel gear's section passes all three: its addendum is not the
+    module, and the tooth is thickened or thinned to match.
     """
     m = module
     mt = module if transverse_module is None else transverse_module
@@ -300,12 +307,12 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
     rho = fillet
 
     d = n * mt
-    da = d + 2.0 * m
-    h = tooth_depth(m)
+    da = d + 2.0 * (m if addendum is None else addendum)
+    h = tooth_depth(m) if whole_depth is None else whole_depth
     df = da - 2.0 * h
     db = d * math.cos(alpha)
     p = math.pi * mt
-    space = mt * math.pi / 2.0 + j_t
+    space = mt * math.pi / 2.0 + j_t + space_change
     s = mt * math.pi - space
     psi_s = space / d
     inv_alpha = math.tan(alpha) - alpha
@@ -728,34 +735,115 @@ def section_diagnostics(g: SpurDerived, recipe: str, undercut_limit: Optional[in
     return out
 
 
-def space_ops(g: SpurDerived, recipe: str, plane: Union[int, str] = 1) -> List[Op]:
-    """The tooth-space sketch of either recipe, opened on ``plane``, closed and linked."""
+@dataclass(frozen=True)
+class SectionFrame:
+    """Where a tooth-space section sits in its sketch, when not on the origin at full size.
+
+    The section's own centre is ``centre_x`` mm along the sketch's x from the
+    origin (a construction line ``Centre`` holds it there, its length linked to
+    ``centre_global``), and everything is ``scale`` times its size, every
+    length linked through ``scale_global``. ``prefix`` keeps two sections'
+    entity ids apart in one plan.
+    """
+
+    centre_x: float
+    centre_global: str
+    scale: float
+    scale_global: str
+    sketch_id: str
+    sketch_name: str
+    prefix: str
+    x_sign: int = 1          # -1 when the plane's sketch x runs the other way from the section's outward radial
+
+
+def space_ops(g: SpurDerived, recipe: str, plane: Union[int, str] = 1, frame: Optional[SectionFrame] = None) -> List[Op]:
+    """The tooth-space sketch of either recipe, opened on ``plane``, closed and linked.
+
+    With a ``frame`` the section is moved along x and scaled, its sketch and
+    entities renamed, and every length it links multiplied by the scale.
+    """
     ops = _space_ops_involute(g) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g)
     if plane != 1:
         ops[0] = OpenSketch("space", plane)
+    if frame is not None:
+        ops = _framed(ops, frame, plane)
     return ops
 
 
-def profile_variables(pressure_angle: str = PRESSURE_ANGLE, circular_module: str = MODULE) -> List[GlobalVariable]:
+def _framed(ops: List[Op], frame: SectionFrame, plane: Union[int, str]) -> List[Op]:
+    k, cx, p, sx = frame.scale, frame.centre_x, frame.prefix, frame.x_sign
+    scale = _q(frame.scale_global)
+    centre = f"{p}Centre.end"
+
+    def at(point: Point2) -> Point2:
+        return (cx + sx * k * point[0], k * point[1])
+
+    def ref(text: str) -> str:
+        if text == ORIGIN:
+            return centre
+        return p + text
+
+    units: Dict[str, str] = {}
+    out: List[Op] = []
+    for op in ops:
+        if isinstance(op, OpenSketch):
+            out.append(OpenSketch(frame.sketch_id, plane))
+            out.append(Line(f"{p}Centre", (0.0, 0.0), (cx, 0.0), construction=True))
+            out.append(Relation("coincident", (f"{p}Centre.start", ORIGIN)))
+            out.append(Relation("horizontal", (f"{p}Centre",)))
+        elif isinstance(op, EquationCurve):
+            x = f"{scale} * {op.x}" if sx > 0 else f"0 - {scale} * {op.x}"
+            out.append(EquationCurve(p + op.id, f"{x} - {_q(frame.centre_global)}" if cx < 0
+                                     else f"{x} + {_q(frame.centre_global)}",
+                                     f"{scale} * {op.y}", op.t1, op.t2, at(op.start), at(op.end)))
+        elif isinstance(op, Circle):
+            out.append(Circle(p + op.id, at(op.centre), k * op.radius, op.construction))
+        elif isinstance(op, Arc):
+            out.append(Arc(p + op.id, at(op.centre), at(op.start), at(op.end), op.direction, op.construction))
+        elif isinstance(op, Line):
+            out.append(Line(p + op.id, at(op.start), at(op.end), op.construction))
+        elif isinstance(op, Relation):
+            out.append(Relation(op.kind, tuple(ref(r) for r in op.refs)))
+        elif isinstance(op, Dimension):
+            units[op.name] = op.unit
+            out.append(Dimension(op.name, tuple(ref(r) for r in op.refs), at(op.at),
+                                 op.value * k if op.unit == "mm" else op.value, op.unit))
+        elif isinstance(op, CloseSketch):
+            out.append(Dimension("Centre", (f"{p}Centre",), (cx / 2.0, -abs(cx) * 0.1), abs(cx)))
+            out.append(CloseSketch(frame.sketch_id, frame.sketch_name))
+            out.append(LinkDimension(f"Centre@{frame.sketch_name}", _q(frame.centre_global)))
+        elif isinstance(op, LinkDimension):
+            name = op.dimension.split("@", 1)[0]
+            expression = f"( {op.expression} ) * {scale}" if units.get(name) == "mm" else op.expression
+            out.append(LinkDimension(f"{name}@{frame.sketch_name}", expression))
+        else:
+            out.append(op)
+    return out
+
+
+def profile_variables(pressure_angle: str = PRESSURE_ANGLE, circular_module: str = MODULE, pitch: str = PITCH,
+                      outer: str = OUTER, depth: str = DEPTH, arc_length: str = ARC_LENGTH) -> List[GlobalVariable]:
     """The globals the tooth-space sketch reads, from ``"Root Diameter"`` on, in order.
 
     ``pressure_angle`` names the global holding the section's pressure angle in
     degrees and ``circular_module`` the one whose π multiple is the circular
     pitch: ``"Pressure Angle"`` and ``"Module"`` for a spur gear, the transverse
     ones for a helical gear. Everything measured up the tooth stays on
-    ``"Module"``.
+    ``"Module"``. ``pitch``, ``outer``, ``depth`` and ``arc_length`` name the
+    section's pitch and tip diameters, tooth depth and space width: a bevel
+    gear's section is its back cone's, which has globals of its own.
     """
     deg_pa, rad_pa = _deg_arg(pressure_angle)
     return [
-        GlobalVariable(ROOT, f"{_q(OUTER)} - 2 * {_q(DEPTH)}"),
-        GlobalVariable(BASE, f"{_q(PITCH)} * cos ( {deg_pa} )", f"{_q(PITCH)} * cos ( {rad_pa} )"),
+        GlobalVariable(ROOT, f"{_q(outer)} - 2 * {_q(depth)}"),
+        GlobalVariable(BASE, f"{_q(pitch)} * cos ( {deg_pa} )", f"{_q(pitch)} * cos ( {rad_pa} )"),
         GlobalVariable(BASE_RADIUS, f"{_q(BASE)} / 2"),
-        GlobalVariable(THICKNESS, f"{_q(circular_module)} * pi - {_q(ARC_LENGTH)}"),
-        GlobalVariable(HALF_SPACE, f"( {_q(ARC_LENGTH)} / {_q(PITCH)} ) * 180 / pi"),
+        GlobalVariable(THICKNESS, f"{_q(circular_module)} * pi - {_q(arc_length)}"),
+        GlobalVariable(HALF_SPACE, f"( {_q(arc_length)} / {_q(pitch)} ) * 180 / pi"),
         GlobalVariable(INVOLUTE_FN, f"tan ( {deg_pa} ) - {_q(pressure_angle)} * pi / 180",
                        f"tan ( {rad_pa} ) - {_q(pressure_angle)} * pi / 180"),
-        GlobalVariable(FLANK_OFFSET, f"{_q(ARC_LENGTH)} / {_q(PITCH)} - {_q(INVOLUTE_FN)}"),
-        GlobalVariable(TIP_CAP, f"{_q(OUTER)} + 2 * {_q(MODULE)}"),
+        GlobalVariable(FLANK_OFFSET, f"{_q(arc_length)} / {_q(pitch)} - {_q(INVOLUTE_FN)}"),
+        GlobalVariable(TIP_CAP, f"{_q(outer)} + 2 * {_q(MODULE)}"),
         # Both sides of the comparison are bracketed: SolidWorks 2026 read
         # "a >= b + c" as "( a >= b ) + c", which is always true.
         GlobalVariable(FLANK_START, (
@@ -767,8 +855,8 @@ def profile_variables(pressure_angle: str = PRESSURE_ANGLE, circular_module: str
         # abs() keeps a rounding error below zero from doing the same.
         GlobalVariable(T1, f"( abs ( ( {_q(FLANK_START)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
         GlobalVariable(T2, f"( abs ( ( {_q(TIP_CAP)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
-        GlobalVariable(FLANK_ARC, f"( {_q(PITCH)} / 2 ) * sin ( {deg_pa} )",
-                       f"( {_q(PITCH)} / 2 ) * sin ( {rad_pa} )"),
+        GlobalVariable(FLANK_ARC, f"( {_q(pitch)} / 2 ) * sin ( {deg_pa} )",
+                       f"( {_q(pitch)} / 2 ) * sin ( {rad_pa} )"),
         GlobalVariable(FLANK_CENTRE, f"{_q(HALF_SPACE)} + {_q(pressure_angle)}"),
     ]
 

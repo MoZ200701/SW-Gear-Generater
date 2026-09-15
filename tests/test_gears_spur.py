@@ -303,8 +303,8 @@ def test_the_dry_run_log_counts_manual_steps_and_lists_globals_first():
 
 
 def test_later_kinds_are_named_so_the_window_can_grey_them():
-    assert PLANNED_KINDS == ("bevel",)
-    assert set(KINDS) == {"spur", "helical", "herringbone"}
+    assert PLANNED_KINDS == ()
+    assert set(KINDS) == {"spur", "helical", "herringbone", "bevel"}
 
 
 def test_the_material_step_names_the_file_the_plan_saves():

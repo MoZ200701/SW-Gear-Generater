@@ -123,6 +123,30 @@ def _equation_add_call(records: Records) -> Optional[str]:
     return "Add2" if form == "Add2" else form
 
 
+def _revolve_axis_mark(records: Records) -> Optional[int]:
+    routes = _fact(records, "revolve", "revolve_routes") or []
+    marked = [r for r in routes if "mark" in r]
+    return int(marked[-1].rsplit(" ", 1)[-1]) if marked else None
+
+
+def _bevel_section_x_sign(records: Records) -> Optional[int]:
+    signs = _fact(records, "ref_plane_normal", "ref_plane_normal_signs")
+    return None if not signs else int(signs["x_along_outward"])
+
+
+def bevel_mate_route(records: Records) -> Optional[str]:
+    """``mates`` when a placed component held a bevel frame under its mates; otherwise nothing is decided."""
+    error = _fact(records, "nonparallel_mates", "bevel_frame_error")
+    if error is None:
+        return None
+    return "mates" if error["rotation"] < 1e-6 and error["origin_mm"] < 1e-6 else None
+
+
+def crossed_route(records: Records) -> Optional[str]:
+    """``mates`` when the crossed frame held under its mates; nothing is decided off a failed probe."""
+    return "mates" if _passed(records, "nonparallel_mates") else None
+
+
 def decide(records: Records) -> Dict[str, Any]:
     recipe = flank_recipe(records)
     units = _fact(records, "document_units", "default_template_is_mm")
@@ -160,5 +184,16 @@ def decide(records: Records) -> Dict[str, Any]:
         "annulus_extrudes": _passed(records, "annulus_extrude") or None,
         "interference_route": _fact(records, "interference", "interference_route"),
         "internal_end_to_end": _passed(records, "internal_end_to_end"),
+        "revolve_axis_mark": _revolve_axis_mark(records),
+        "bevel_section_x_sign": _bevel_section_x_sign(records),
+        "loft_cut_route": _fact(records, "loft_cut_sections", "loft_cut_route"),
+        "loft_cut_type": _fact(records, "loft_cut_sections", "loft_cut_type"),
+        "place_route": _fact(records, "nonparallel_mates", "place_route"),
+        "transform_array_order": _fact(records, "nonparallel_mates", "transform_array_order"),
+        "origin_select_route": _fact(records, "nonparallel_mates", "origin_select_route"),
+        "bevel_mate_route": bevel_mate_route(records),
+        "crossed_route": crossed_route(records),
+        "bevel_end_to_end": _passed(records, "bevel_end_to_end"),
+        "crossed_end_to_end": _passed(records, "crossed_end_to_end"),
         "manual_steps": manual_steps(records, recipe),
     }

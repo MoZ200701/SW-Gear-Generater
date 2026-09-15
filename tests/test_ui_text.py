@@ -130,6 +130,14 @@ WORKED = {
     "series": "Series 1 → 18 modules from 1 to 50 (ISO 54)",
     "teeth_range": "17 to 200 → 64 candidates at C 60, i 3 · 3 exact",
     "assembly_name": r"Pair_m1.5_20T_60T.SLDASM in D:\Gears",
+    "teeth_side": "external → teeth point outward, tips at 33 mm",
+    "rim": "only a ring has a rim",
+    "shaft_angle": "only a bevel gear has a shaft angle",
+    "mate_teeth": "only a bevel gear has a mate count",
+    "cone_distance": "check the fields",
+    "mesh": "external → the gears sit side by side, C = m (z₁ + z₂) / 2",
+    "shafts": "parallel → both gears the same helix angle, opposite hands",
+    "pair_shaft_angle": "Σ 90°",
 }
 
 
@@ -138,12 +146,13 @@ def test_every_field_works_its_own_value_out(field):
     name, symbol, what, worked = ui_text.explainer(field, DERIVED_A, pair_stems(PAIR)[0], PAIR, FOLDER)
     assert name and what.endswith(".")
     assert worked == WORKED[field]
-    assert (symbol == "") == (field in ("bore", "name", "series", "assembly_name"))
+    assert (symbol == "") == (field in ("bore", "name", "series", "assembly_name", "teeth_side", "rim", "mesh",
+                                        "shafts"))
 
 
 def test_every_field_on_the_form_has_a_card():
     assert set(ui_text.EXPLAINER_FIELDS) == set(WORKED)
-    assert len(ui_text.GEAR_EXPLAINERS) == 8 and len(ui_text.PAIR_EXPLAINERS) == 6
+    assert len(ui_text.GEAR_EXPLAINERS) == 12 and len(ui_text.PAIR_EXPLAINERS) == 10
 
 
 def test_a_typed_backlash_and_fillet_drop_the_word_blank():

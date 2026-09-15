@@ -13,6 +13,9 @@ then the larger module, which is the stronger tooth.
 Profile shift, which would close a small centre-distance gap, is reserved for a
 later version; a gap is reported rather than hidden.
 
+A **bevel** pair is solved from its cone distance, ``R = (m / 2) √(N1² + N2² +
+2 N1 N2 cos Σ) / sin Σ``, in place of a centre distance.
+
 An **internal** pair is a pinion inside a ring: the tooth *difference* is
 ``2C / m``, the pinion ``S / (i − 1)``, and a row whose teeth would clash as they
 mesh is ranked after the clean ones, as an undercut row is.
@@ -27,6 +30,7 @@ from typing import List, Optional, Tuple
 
 from .. import findings
 from ..spec import (
+    KIND_BEVEL,
     HAND_LEFT,
     HAND_RIGHT,
     HELICAL_KINDS,
@@ -38,7 +42,7 @@ from ..spec import (
     InputError,
     PairSpec,
 )
-from . import crossed, equations, helical, internal, standards
+from . import bevel, crossed, equations, helical, internal, standards
 from .base import (
     AddComponent,
     AddGlobal,
@@ -79,11 +83,12 @@ class Candidate:
     mesh: str = MESH_EXTERNAL
     clash: float = 0.0        # mm the teeth of an internal pair run into each other; 0 when they clear
     helix_angle_b: float = 0.0  # a crossed pair's second helix angle, degrees; 0 otherwise
-    shaft_angle: float = 0.0    # a crossed pair's shaft angle, degrees; 0 for parallel shafts
+    shaft_angle: float = 0.0    # a crossed or bevel pair's shaft angle, degrees; 0 for parallel shafts
+    cone: bool = False          # a bevel pair: centre_distance is the cone distance
 
     @property
     def crossed(self) -> bool:
-        return self.shaft_angle > 0.0
+        return self.shaft_angle > 0.0 and not self.cone
 
     @property
     def exact(self) -> bool:
@@ -187,6 +192,8 @@ def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Opt
     ``mesh`` internal makes the driven gear a ring round the driver: the ratio
     must then be more than one.
     """
+    if kind == KIND_BEVEL:
+        return _solve_bevel(centre, ratio, shaft_angle, pressure_angle, module, series, min_teeth, max_teeth, limit)
     if mesh == MESH_INTERNAL:
         return _solve_internal(centre, ratio, pressure_angle, module, series, min_teeth, max_teeth, limit,
                                kind, helix_angle, helix_range, face_width)
@@ -444,9 +451,106 @@ def _solve_crossed(centre: float, ratio: float, shaft: float, pressure_angle: fl
     return ranked[:limit]
 
 
+def bevel_candidate(module: float, n1: int, n2: int, shaft: float, pressure_angle: float = 20.0,
+                    cone_distance: Optional[float] = None, ratio: Optional[float] = None,
+                    standard: bool = True) -> Optional[Candidate]:
+    """A bevel pair's row: its cone distance, whether either gear undercuts on its back cone, and εα.
+
+    None when either gear would be a crown or internal bevel, which is not built.
+    """
+    delta_1 = bevel.pitch_cone_angle(n1, n2, shaft)
+    delta_2 = shaft - delta_1
+    if max(delta_1, delta_2) >= bevel.CROWN_LIMIT or min(delta_1, delta_2) <= 0.0:
+        return None
+    radius = bevel.cone_distance(module, n1, n2, shaft)
+    ha_1, ha_2 = bevel.addenda(module, n1, n2, delta_1, delta_2)
+    alpha = math.radians(pressure_angle)
+    undercut = False
+    total = 0.0
+    radii = 0.0
+    for n, delta, ha in ((n1, delta_1, ha_1), (n2, delta_2, ha_2)):
+        cos_delta = math.cos(math.radians(delta))
+        undercut |= n / cos_delta < bevel.undercut_limit(pressure_angle, (ha - module) / module)
+        rv = module * n / (2.0 * cos_delta)
+        total += math.sqrt((rv + ha) ** 2 - (rv * math.cos(alpha)) ** 2)
+        radii += rv
+    epsilon = (total - radii * math.sin(alpha)) / (math.pi * module * math.cos(alpha))
+    wanted_ratio = n2 / n1 if ratio is None else ratio
+    return Candidate(
+        module=module, teeth_driver=n1, teeth_driven=n2, standard=standard, ratio=n2 / n1,
+        centre_distance=radius, ratio_error=abs(n2 / n1 - wanted_ratio) / wanted_ratio,
+        centre_error=radius - (radius if cone_distance is None else cone_distance), undercut=undercut,
+        contact_ratio=epsilon, shaft_angle=shaft, cone=True,
+    )
+
+
+def _solve_bevel(cone_distance: float, ratio: float, shaft: float, pressure_angle: float, module: Optional[float],
+                 series: str, min_teeth: int, max_teeth: int, limit: int) -> List[Candidate]:
+    """Straight bevel gears on shafts ``shaft`` degrees apart, from the cone distance and the ratio.
+
+    For each module the pinion is ``K / √(1 + i² + 2 i cos Σ)`` with ``K = 2 R sin Σ / m``,
+    tried at the whole numbers either side and one beyond; then, for exact-ratio
+    tooth pairs, the module that lands on the cone distance exactly.
+    """
+    if cone_distance <= 0:
+        raise InputError("Cone distance must be more than zero.")
+    if ratio <= 0:
+        raise InputError("Ratio must be more than zero.")
+    if not bevel.SHAFT_MIN <= shaft <= bevel.SHAFT_MAX:
+        raise InputError(f"The shaft angle must be between {bevel.SHAFT_MIN:g}° and {bevel.SHAFT_MAX:g}° "
+                         f"(got {shaft:g}°).")
+    floor = floor_teeth(min_teeth)
+    if max_teeth < floor:
+        raise InputError(f"Max teeth ({max_teeth}) is below the smallest gear the solver offers ({floor}).")
+    allowed = (float(module),) if module is not None else standards.modules(series)
+    s = math.radians(shaft)
+    spread = math.sqrt(1.0 + ratio ** 2 + 2.0 * ratio * math.cos(s))
+    found = {}
+
+    def offer(m: float, n1: int, n2: int, standard: bool) -> None:
+        if not (floor <= n1 <= max_teeth and floor <= n2 <= max_teeth):
+            return
+        key = (round(m, 9), n1, n2)
+        if key not in found:
+            row = bevel_candidate(m, n1, n2, shaft, pressure_angle, cone_distance, ratio, standard)
+            if row is not None:
+                found[key] = row
+
+    for m in allowed:
+        middle = 2.0 * cone_distance * math.sin(s) / m / spread
+        for n1 in range(int(math.floor(middle)) - 1, int(math.ceil(middle)) + 2):
+            if n1 >= 1:
+                offer(m, n1, int(math.floor(ratio * n1 + 0.5)), module is None or standards.is_standard(m))
+    if module is None:
+        exact = Fraction(ratio).limit_denominator(max_teeth)
+        p, q = exact.numerator, exact.denominator
+        k = 1
+        while k * max(p, q) <= max_teeth:
+            n1, n2 = k * q, k * p
+            m_star = 2.0 * cone_distance * math.sin(s) / math.sqrt(n1 ** 2 + n2 ** 2 + 2.0 * n1 * n2 * math.cos(s))
+            if not any(abs(m_star - m) <= TOLERANCE for m in allowed):
+                offer(m_star, n1, n2, False)
+            k += 1
+
+    ranked = sorted(found.values(), key=Candidate.rank)
+    return ranked[:limit]
+
+
 def solve_spec(pair: PairSpec) -> List[Candidate]:
     kind = pair.gear_a.kind
     mesh = pair.mesh_value()
+    if kind == KIND_BEVEL:
+        return solve(
+            centre=pair.cone_distance_mm(),
+            ratio=pair.ratio_value(),
+            pressure_angle=pair.gear_a.pressure_angle_deg(),
+            module=pair.module_mm(),
+            series=pair.series or standards.SERIES_1,
+            min_teeth=pair.min_teeth_count(),
+            max_teeth=pair.max_teeth_count(),
+            kind=kind,
+            shaft_angle=pair.shaft_angle_deg(),
+        )
     if kind in HELICAL_KINDS and pair.shafts_value() == "crossed":
         return solve(
             centre=pair.centre_distance_mm(),
@@ -512,10 +616,16 @@ def solve_spec(pair: PairSpec) -> List[Candidate]:
 
 def apply(candidate: Candidate, gear_a: GearSpec, gear_b: GearSpec) -> Tuple[GearSpec, GearSpec]:
     """Write module and teeth into both gears — and for a helical pair the helix angle, and
-    gear B the other hand from gear A (the same hand, round a ring) — and touch nothing else."""
+    gear B the other hand from gear A (the same hand, round a ring); for a bevel pair each
+    gear's mate teeth and the shaft angle — and touch nothing else."""
     module = equations.literal(round(candidate.module, 6))
     a = gear_a.with_values(module=module, teeth=str(candidate.teeth_driver))
     b = gear_b.with_values(module=module, teeth=str(candidate.teeth_driven))
+    if candidate.cone:
+        shaft = equations.literal(round(candidate.shaft_angle, 6))
+        a = a.with_values(mate_teeth=str(candidate.teeth_driven), shaft_angle=shaft)
+        b = b.with_values(mate_teeth=str(candidate.teeth_driver), shaft_angle=shaft)
+        return a, b
     if candidate.crossed:
         a = a.with_values(helix_angle=equations.literal(round(candidate.helix_angle, 6)))
         b = b.with_values(helix_angle=equations.literal(round(candidate.helix_angle_b, 6)), hand=gear_a.hand)
@@ -590,6 +700,8 @@ HELIX_ANGLE_1 = "Helix Angle 1"
 HELIX_ANGLE_2 = "Helix Angle 2"
 OFFSET_Y = "Offset Y"
 OFFSET_Z = "Offset Z"
+CONE_DISTANCE = "Cone Distance"
+IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 ROUTE_MATES = "mates"
 ROUTE_FIXED = "fixed"
 
@@ -650,6 +762,10 @@ def crossed_assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_
           if route == ROUTE_MATES else ()),
         AddComponent("gear1", path_a, (0.0, 0.0, 0.0)),
         AddComponent("gear2", path_b, placed.origin),
+        # AddComponent5 puts a part's middle at the point, not its origin (probe
+        # nonparallel_mates): gear 1 is set on the assembly's frame first, so
+        # gear 2's frame is where the mates would take it.
+        Place("gear1", IDENTITY, (0.0, 0.0, 0.0)),
         Place("gear2", rotation, placed.origin),
         Fix("gear1"),
     ]
@@ -664,12 +780,14 @@ def crossed_assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_
             Mate("shaft", "axis angle", f"gear2:{AXIS_NAME}", f"gear1:{AXIS_NAME}", shaft_angle, SHAFT_ANGLE),
             LinkDimension(f"D1@{SHAFT_ANGLE}", f'"{SHAFT_ANGLE}"'),
         ])
-        for identifier, plane, value, name in (("offset_y", "gear1:plane2", offset_y, OFFSET_Y),
-                                               ("offset_z", "gear1:plane1", offset_z, OFFSET_Z)):
+        for identifier, plane, signed, name in (("offset_y", "gear1:plane2", placed.origin[1], OFFSET_Y),
+                                                ("offset_z", "gear1:plane1", placed.origin[2], OFFSET_Z)):
+            value = abs(signed)
             if value < 1e-6:
                 ops.append(Mate(identifier, "point", "gear2:origin", plane))
             else:
-                ops.append(Mate(identifier, "point distance", "gear2:origin", plane, value, name))
+                # Signed: a point on the plane's negative side is mated with the distance flipped.
+                ops.append(Mate(identifier, "point distance", "gear2:origin", plane, signed, name))
                 ops.append(LinkDimension(f"D1@{name}", f'"{name}"'))
         ops.extend([
             Mate("mesh", "angle", "gear2:plane2", "gear1:plane3", spin_angle, MESH_ANGLE),
@@ -678,6 +796,58 @@ def crossed_assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_
         notes = ()
     ops.extend([Rebuild(), SaveAs(path)])
     return BuildPlan(kind=PAIR_KIND, recipe="", ops=tuple(ops), path=path, notes=notes)
+
+
+def bevel_assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, template: str,
+                        path: str) -> BuildPlan:
+    """Two bevel gears with their pitch apexes together and their axes at the shaft angle.
+
+    Gear 1 is fixed on the assembly's frame. Gear 2 is set turned ``Σ`` about Y —
+    so the pitch cones touch along gear 1's +X side and gear 2's −X side — spun
+    about its own axis to put a tooth in gear 1's space, and then mated there:
+    origins coincident, its axis in gear 1's top plane, the angle between the two
+    axes driven by ``"Shaft Angle"``, and the angle between the top planes by
+    ``"Mesh Angle"``.
+    """
+    for gear in (gear_a, gear_b):
+        if gear.kind != KIND_BEVEL:
+            raise InputError(f"Both gears of a bevel pair must be bevel gears (got {gear_a.kind} and {gear_b.kind}).")
+    module = gear_a.module_mm()
+    if abs(gear_b.module_mm() - module) > 1e-9:
+        raise InputError(f"Two gears only mesh with the same module (got {gear_a.module.strip()} and "
+                         f"{gear_b.module.strip()}).")
+    n1, n2 = gear_a.teeth_count(), gear_b.teeth_count()
+    if gear_a.mate_teeth_count() != n2 or gear_b.mate_teeth_count() != n1:
+        raise InputError(f"Each bevel gear's mate teeth must be the other gear's teeth (got {n1} with mate "
+                         f"{gear_a.mate_teeth_count()}, and {n2} with mate {gear_b.mate_teeth_count()}).")
+    shaft = gear_a.shaft_angle_deg()
+    if abs(gear_b.shaft_angle_deg() - shaft) > 1e-9:
+        raise InputError(f"Both bevel gears must be cut for the same shaft angle (got {gear_a.shaft_angle.strip()}° "
+                         f"and {gear_b.shaft_angle.strip()}°).")
+    radius = bevel.cone_distance(module, n1, n2, shaft)
+    angle = mate_angle(n2)
+    rotation = crossed.multiply(crossed.rot_y(shaft), crossed.rot_z(angle))
+    ops = (
+        NewAssembly(template),
+        AddGlobal(CONE_DISTANCE, equations.literal(round(radius, 9))),
+        AddGlobal(SHAFT_ANGLE, equations.literal(round(shaft, 9))),
+        AddGlobal(RATIO, equations.literal(round(n2 / n1, 9))),
+        AddGlobal(MESH_ANGLE, equations.literal(round(angle, 9))),
+        AddComponent("gear1", path_a, (0.0, 0.0, 0.0)),
+        AddComponent("gear2", path_b, (0.0, 0.0, 0.0)),
+        Place("gear1", IDENTITY, (0.0, 0.0, 0.0)),
+        Place("gear2", tuple(value for row in rotation for value in row), (0.0, 0.0, 0.0)),
+        Fix("gear1"),
+        Mate("apex", "point", "gear2:origin", "gear1:origin"),
+        Mate("axis", "coincident", f"gear2:{AXIS_NAME}", "gear1:plane2"),
+        Mate("shaft", "axis angle", f"gear2:{AXIS_NAME}", f"gear1:{AXIS_NAME}", shaft, SHAFT_ANGLE),
+        LinkDimension(f"D1@{SHAFT_ANGLE}", f'"{SHAFT_ANGLE}"'),
+        Mate("mesh", "angle", "gear2:plane2", "gear1:plane2", angle, MESH_ANGLE),
+        LinkDimension(f"D1@{MESH_ANGLE}", f'"{MESH_ANGLE}"'),
+        Rebuild(),
+        SaveAs(path),
+    )
+    return BuildPlan(kind=PAIR_KIND, recipe="", ops=ops, path=path)
 
 
 def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, template: str,
@@ -691,6 +861,8 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
     plane, a distance from gear 1's right plane, and an angle between the top
     planes that turns a tooth of gear 2 into gear 1's space.
     """
+    if gear_a.kind == KIND_BEVEL or gear_b.kind == KIND_BEVEL:
+        return bevel_assembly_plan(gear_a, gear_b, path_a, path_b, template, path)
     if shafts == "crossed":
         return crossed_assembly_plan(gear_a, gear_b, path_a, path_b, template, path, shaft_angle)
     module = gear_a.module_mm()
@@ -744,7 +916,7 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
 
 
 __all__ = [
-    "Candidate", "apply", "assembly_plan", "crossed_assembly_plan", "describe", "describe_crossed", "floor_teeth", "internal_mesh_angle", "mate_angle", "mesh_angle",
+    "Candidate", "apply", "assembly_plan", "bevel_assembly_plan", "bevel_candidate", "crossed_assembly_plan", "describe", "describe_crossed", "floor_teeth", "internal_mesh_angle", "mate_angle", "mesh_angle",
     "solve",
     "solve_spec", "undercut_minimum",
 ]

@@ -1,10 +1,11 @@
 """Gear kinds: the maths of each, and the SolidWorks recipe that builds it."""
 
+from .bevel import BevelGear
 from .helical import HelicalGear, HerringboneGear
 from .internal import InternalHelicalGear, InternalHerringboneGear, InternalSpurGear
 from .spur import SpurGear
 
-KINDS = {"spur": SpurGear(), "helical": HelicalGear(), "herringbone": HerringboneGear()}
+KINDS = {"spur": SpurGear(), "helical": HelicalGear(), "herringbone": HerringboneGear(), "bevel": BevelGear()}
 
 # A ring of each kind that can have one. Internal is not a kind of its own: it
 # is which side of the rim a spur, helical or herringbone gear's teeth are on.
@@ -12,7 +13,7 @@ INTERNAL_KINDS = {"spur": InternalSpurGear(), "helical": InternalHelicalGear(),
                   "herringbone": InternalHerringboneGear()}
 
 # Kinds the form shows, greyed, as coming in a later version.
-PLANNED_KINDS = ("bevel",)
+PLANNED_KINDS: tuple = ()
 
 
 def kind_for(spec):

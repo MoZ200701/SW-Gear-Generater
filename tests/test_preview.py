@@ -105,3 +105,41 @@ def _inside(point, polygon):
 def test_a_preview_of_no_gear_or_three_is_refused_in_a_sentence():
     with pytest.raises(ValueError, match="one gear or two"):
         preview.layout([])
+
+
+# -- rings and bevel gears -------------------------------------------------------
+
+
+def test_a_pinion_is_drawn_inside_its_ring_turned_half_a_pitch():
+    from gear_generator.gears import kind_for
+
+    pinion_spec, ring_spec = GearSpec(module="2", teeth="20"), GearSpec(module="2", teeth="60", teeth_side="internal")
+    pinion, ring = SPUR.derive(pinion_spec), kind_for(ring_spec).derive(ring_spec)
+    made = preview.layout([pinion, ring])
+    first, second = made.gears
+    assert made.centre_distance == pytest.approx(40.0)
+    assert first.x - second.x == pytest.approx(40.0 * made.scale)
+    assert first.rotation == pytest.approx(math.pi / 20)
+    assert second.bore_radius == pytest.approx(ring.rim / 2.0)          # the rim circle
+    assert second.x + ring.rim / 2.0 * made.scale <= made.width - preview.PAD + 1e-9
+    assert made.dimension.text == "C 40 mm"
+
+
+def test_a_bevel_pair_meets_at_the_apex_with_the_pitch_cones_along_one_line():
+    from gear_generator.gears import KINDS as ALL
+
+    bevel = ALL["bevel"]
+    a = bevel.derive(GearSpec(kind="bevel", module="3", teeth="20", mate_teeth="40", face_width="20"))
+    b = bevel.derive(GearSpec(kind="bevel", module="3", teeth="40", mate_teeth="20", face_width="20"))
+    made = preview.layout([a, b])
+    assert made.gears[0].x == made.gears[1].x and made.gears[0].y == made.gears[1].y
+    assert len(made.polylines) == 4
+    (x0, y0), (x1, y1) = made.guides[0]
+    (u0, v0), (u1, v1) = made.guides[2]
+    assert math.atan2(x1 - x0, y0 - y1) == pytest.approx(math.atan2(u1 - u0, v0 - v1), abs=1e-9)
+    assert math.hypot(x1 - x0, y1 - y0) == pytest.approx(math.hypot(u1 - u0, v1 - v0), abs=1e-9)
+    for line in made.polylines:
+        assert all(-1e-9 <= x <= made.width + 1e-9 and -1e-9 <= y <= made.height + 1e-9 for x, y in line)
+    assert made.dimension.text == "R 67.082 mm · Σ 90°"
+    single = preview.layout([a])
+    assert single.dimension.text == "OD 67.218 mm" and len(single.polylines) == 2

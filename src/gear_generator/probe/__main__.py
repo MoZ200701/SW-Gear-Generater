@@ -31,8 +31,9 @@ EXIT_HUNG = 7
 
 def load_probes() -> None:
     """Import every probe module, which registers its probes in order."""
-    from . import p0_session, p1_equations, p1_sketch, p1_curves, p2_solid, p2_helical, p2_internal  # noqa: F401
-    from . import p3_files, p4_assembly, p4_interference, p5_end_to_end, p5_helical, p5_internal  # noqa: F401
+    from . import p0_session, p1_equations, p1_sketch, p1_curves, p2_solid, p2_helical, p2_internal, p2_bevel  # noqa: F401
+    from . import p3_files, p4_assembly, p4_interference, p4_nonparallel, p5_end_to_end, p5_helical  # noqa: F401
+    from . import p5_internal, p5_bevel  # noqa: F401
 
 
 def default_scratch() -> str:

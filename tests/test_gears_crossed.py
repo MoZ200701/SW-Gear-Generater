@@ -141,7 +141,7 @@ def test_both_routes_plan_soundly(route):
     a, b = gears()
     plan = pair.crossed_assembly_plan(a, b, r"C:\G\a.SLDPRT", r"C:\G\b.SLDPRT", "", r"C:\G\p.SLDASM", 90.0, route)
     assert plan.check() == []
-    place = next(op for op in plan.ops if isinstance(op, Place))
+    place = [op for op in plan.ops if isinstance(op, Place)][-1]
     assert place.component == "gear2" and place.at[0] == pytest.approx(84.852814, abs=1e-6)
     globals_ = {op.name: op.expression for op in plan.ops if isinstance(op, AddGlobal)}
     assert globals_["Shaft Angle"] == "90" and globals_["Helix Angle 2"] == "45"

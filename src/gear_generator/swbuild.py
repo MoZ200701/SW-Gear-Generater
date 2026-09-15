@@ -77,6 +77,9 @@ class SolidWorks(Protocol):
     def sweep_cut(self, handle: str, profile: str, path: str, name: str, twist: float, reverse: bool,
                   twist_dim: str) -> Tuple[str, str]: ...
     def mirror_body(self, handle: str, name: str, plane: str) -> str: ...
+    def ref_plane_normal(self, handle: str, name: str, line: str, point: str) -> str: ...
+    def revolve(self, handle: str, sketch: str, name: str, axis: str) -> str: ...
+    def loft_cut(self, handle: str, name: str, profiles: Sequence[str]) -> str: ...
     def add_component(self, handle: str, path: str, at) -> str: ...
     def fix_component(self, handle: str) -> None: ...
     def add_mate(self, handle: str, kind: str, a: str, b: str, value: float = 0.0,
@@ -290,6 +293,21 @@ def _mirror(sw, op: base.MirrorBody, result, trig):
     return f"mirror {op.name}"
 
 
+def _ref_plane_normal(sw, op: base.RefPlaneNormal, result, trig):
+    _kept(result, "plane", op.name, sw.ref_plane_normal(op.id, op.name, op.line, op.point))
+    return f"plane {op.name}"
+
+
+def _revolve(sw, op: base.Revolve, result, trig):
+    _kept(result, "revolve", op.name, sw.revolve(op.id, op.sketch, op.name, op.axis))
+    return f"revolve {op.name}"
+
+
+def _loft_cut(sw, op: base.LoftCut, result, trig):
+    _kept(result, "loft", op.name, sw.loft_cut(op.id, op.name, op.profiles))
+    return f"loft {op.name}"
+
+
 def _component(sw, op: base.AddComponent, result, trig):
     kept = sw.add_component(op.id, op.path, op.at)
     result.features.append(kept)
@@ -338,6 +356,9 @@ _RUNNERS: Mapping[type, Callable] = {
     base.RefPlane: _ref_plane,
     base.SweepCut: _sweep,
     base.MirrorBody: _mirror,
+    base.RefPlaneNormal: _ref_plane_normal,
+    base.Revolve: _revolve,
+    base.LoftCut: _loft_cut,
     base.AddComponent: _component,
     base.Fix: _fix,
     base.Place: _place,

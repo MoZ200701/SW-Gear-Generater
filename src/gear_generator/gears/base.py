@@ -277,6 +277,39 @@ class MirrorBody:
 
 
 @dataclass(frozen=True)
+class RefPlaneNormal:
+    """A plane square to a line of a closed sketch, through a point on it (``"G.end"``).
+
+    The plane has no dimension of its own: it follows the line, whose angle
+    and length the sketch's own dimensions drive.
+    """
+
+    id: str
+    name: str
+    line: str
+    point: str
+
+
+@dataclass(frozen=True)
+class Revolve:
+    """A closed sketch revolved a full turn about one of its own lines, merged. ``axis`` is that line's id."""
+
+    id: str
+    sketch: str
+    name: str
+    axis: str
+
+
+@dataclass(frozen=True)
+class LoftCut:
+    """A cut lofted through closed sketches, in order."""
+
+    id: str
+    name: str
+    profiles: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ManualStep:
     """Something the build cannot do and a person must, counted in every log."""
 
@@ -343,16 +376,17 @@ class Mate:
 Op = Union[
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
     EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
-    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
+    MirrorBody, RefPlaneNormal, Revolve, LoftCut, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
 ]
 OPS = (
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
     EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
-    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
+    MirrorBody, RefPlaneNormal, Revolve, LoftCut, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
 )
 SKETCH_ENTITIES = (Circle, Arc, Line, Point, EquationCurve)
 GEOMETRY = SKETCH_ENTITIES + (Axis, OpenSketch, Relation, Dimension, CloseSketch, Extrude, Cut,
-                              CircularPattern, RefPlane, SweepCut, MirrorBody, AddComponent, Fix, Place, Mate)
+                              CircularPattern, RefPlane, SweepCut, MirrorBody, RefPlaneNormal, Revolve, LoftCut,
+                              AddComponent, Fix, Place, Mate)
 
 
 def ref_id(ref: str) -> str:
@@ -443,6 +477,7 @@ class BuildPlan:
         feature_names: Dict[str, str] = {}     # feature id -> its name
         dimensions: Dict[str, List[str]] = {}  # sketch or feature id -> dimension names
         planes = set()                         # ids of RefPlanes made so far
+        entity_sketch: Dict[str, str] = {}     # entity id -> the sketch it was drawn in
         rebuilds = 0
 
         def use(ref: str, op: object) -> None:
@@ -470,6 +505,7 @@ class BuildPlan:
                 if open_sketch is None:
                     problems.append(f"{type(op).__name__} {op.id!r} is drawn with no sketch open.")
                 define(op.id, op)
+                entity_sketch[op.id] = open_sketch or ""
             elif isinstance(op, Relation):
                 if open_sketch is None:
                     problems.append(f"A {op.kind} relation is added with no sketch open.")
@@ -513,6 +549,35 @@ class BuildPlan:
                 define(op.id, op)
                 feature_names[op.id] = op.name
                 dimensions[op.id] = [op.twist_dim]
+            elif isinstance(op, (RefPlaneNormal, Revolve)):
+                line = op.line if isinstance(op, RefPlaneNormal) else op.axis
+                use(line, op)
+                if entity_sketch.get(line) not in sketch_names:
+                    problems.append(f"{type(op).__name__} {op.id!r} uses the line {line!r} of a sketch not yet closed.")
+                if isinstance(op, RefPlaneNormal):
+                    use(op.point, op)
+                    if open_sketch is not None:
+                        problems.append(f"Plane {op.id!r} is made while sketch {open_sketch!r} is open.")
+                    planes.add(op.id)
+                else:
+                    use(op.sketch, op)
+                    if op.sketch not in sketch_names:
+                        problems.append(f"Revolve {op.id!r} uses sketch {op.sketch!r} before it is closed.")
+                    if entity_sketch.get(line) != op.sketch:
+                        problems.append(f"Revolve {op.id!r} turns about {line!r}, which is not in {op.sketch!r}.")
+                define(op.id, op)
+                feature_names[op.id] = op.name
+                dimensions[op.id] = []
+            elif isinstance(op, LoftCut):
+                if len(op.profiles) < 2:
+                    problems.append(f"Loft {op.id!r} needs at least two profiles.")
+                for sketch in op.profiles:
+                    use(sketch, op)
+                    if sketch not in sketch_names:
+                        problems.append(f"Loft {op.id!r} uses sketch {sketch!r} before it is closed.")
+                define(op.id, op)
+                feature_names[op.id] = op.name
+                dimensions[op.id] = []
             elif isinstance(op, MirrorBody):
                 use(op.plane, op)
                 if op.plane not in planes:
@@ -616,6 +681,13 @@ def describe(op: Op, trig: str = DEGREES) -> str:
                 f"{equations.literal(round(op.twist, 6))}°{reverse} ({op.twist_dim})")
     if isinstance(op, MirrorBody):
         return f"mirror  {op.name!r} the body about {op.plane}"
+    if isinstance(op, RefPlaneNormal):
+        return f"plane   {op.name!r} square to {op.line} through {op.point}"
+    if isinstance(op, Revolve):
+        return f"revolve {op.name!r} from {op.sketch} about {op.axis}, a full turn"
+    if isinstance(op, LoftCut):
+        return f"loft    {op.name!r} cut through {' -> '.join(op.profiles)}"
+
     if isinstance(op, Extrude):
         return f"extrude {op.name!r} from {op.sketch}, depth {equations.literal(op.depth)} ({op.depth_dim})"
     if isinstance(op, Cut):

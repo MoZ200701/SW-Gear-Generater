@@ -33,7 +33,12 @@ from .p5_helical import TWIN_TOLERANCE, _Builds, _require_built, single_space, t
 RING_TEETH = 60
 PINION_TEETH = 20
 CHANGED_TEETH = 64
-SPUR_TOLERANCE = 1e-5       # relative; a ring of straight cuts is lines and arcs and an equation curve
+# Relative to the ring. On SolidWorks 2026 a single tooth space's cut weighed about 1e-3 of itself
+# more than a sixtieth of the patterned ring's (157.494 mm³ against 157.346), which sixty spaces
+# amplify to 2.8e-4 of the ring; the updated ring and a fresh build of it agreed to 1e-13. The
+# outline's own polygon shows the teeth 1.25 mm thick at their tips, so the spaces do not overlap:
+# it is the mass properties' resolution on a spline cut, and the twin tolerance covers it.
+SPUR_TOLERANCE = TWIN_TOLERANCE
 NAMES = {
     KIND_SPUR: ("Gear Axis", "Blank Sketch", "Blank", "Tooth Space Sketch", "Tooth Space", "Teeth"),
     KIND_HELICAL: ("Gear Axis", "Blank Sketch", "Blank", "Profile Plane", "Tooth Space Sketch", "Path Sketch",

@@ -159,6 +159,18 @@ class FakeSolidWorks:
         self._log("mirror_body", name, plane)
         return self.rename.get(name, name)
 
+    def ref_plane_normal(self, handle, name, line, point):
+        self._log("ref_plane_normal", name, line, point)
+        return self.rename.get(name, name)
+
+    def revolve(self, handle, sketch, name, axis):
+        self._log("revolve", name, axis)
+        return self.rename.get(name, name)
+
+    def loft_cut(self, handle, name, profiles):
+        self._log("loft_cut", name, *profiles)
+        return self.rename.get(name, name)
+
     def add_component(self, handle, path, at):
         self._log("add_component", handle, path)
         return f"{handle}-1"

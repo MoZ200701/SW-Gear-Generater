@@ -114,7 +114,9 @@ def draw_icon(canvas: tk.Canvas, name: str, color: str, size: int) -> None:
 DIAGRAM_SIZE = 56
 
 # Fields whose diagram is another field's.
-DIAGRAM_ALIASES = {"pair_module": "series", "teeth_range": "teeth", "assembly_name": "name"}
+DIAGRAM_ALIASES = {"pair_module": "series", "teeth_range": "teeth", "assembly_name": "name", "teeth_side": "teeth",
+                   "rim": "bore", "shaft_angle": "pressure_angle", "mate_teeth": "ratio", "mesh": "centre_distance",
+                   "shafts": "centre_distance", "pair_shaft_angle": "pressure_angle", "cone_distance": "centre_distance"}
 
 
 def _gear_teeth(cx: float, cy: float, r_out: float, r_in: float, teeth: int,

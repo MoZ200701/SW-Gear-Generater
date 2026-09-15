@@ -208,3 +208,61 @@ INTERFERENCE_OPTIONS = (
 # So a pair's assembly is checked for interference by the build, and a person
 # no longer has to look along the axis for clashing teeth.
 INTERFERENCE_CHECKED = True
+
+# -- bevel gears ------------------------------------------------------------
+
+# revolve: a square revolved by FeatureRevolve2 (20 arguments, a full turn in
+# radians) about a sketch centreline weighed 2 pi r A to 1e-4 with its centre of
+# mass on the centreline, along Z and tilted. With one centreline the sketch
+# alone was enough; with a second one in the sketch, the axis line had to be
+# selected too, at mark 16, by SelectByID2 "LineN@Sketch" EXTSKETCHSEGMENT.
+REVOLVE_CALL = "IFeatureManager.FeatureRevolve2"
+REVOLVE_AXIS_MARK = 16
+REVOLVE_TYPE = "Revolution"
+
+# ref_plane_normal: InsertRefPlane(2 perpendicular, 0, 4 coincident, 0, 0, 0)
+# with a sketch line at mark 0 and its end, selected by its model location
+# (EXTSKETCHPOINT), at mark 1 made a plane square to the line through its end.
+# Its sketch's origin was the line's end, its x the outward radial of a cone
+# whose axis is Z, its y +Y and its normal along the line; the plane kept that
+# frame when the line's linked angle and length changed.
+REF_PLANE_PERPENDICULAR = 2   # swRefPlaneReferenceConstraint_Perpendicular
+REF_PLANE_COINCIDENT = 4      # swRefPlaneReferenceConstraint_Coincident
+BEVEL_SECTION_X_SIGN = 1      # the section's outward radial is the plane's sketch +x
+
+# loft_cut_sections: InsertCutBlend (12 arguments) through two similar
+# rectangles on parallel planes, both at mark 1 in order, removed their frustum
+# L A (1 + k + k^2) / 3 to 1e-4 and left one body.
+LOFT_CUT_CALL = "IFeatureManager.InsertCutBlend"
+LOFT_PROFILE_MARK = 1
+LOFT_CUT_TYPE = "BlendCut"
+
+# axis_from_sketch_line: an angle dimension between two lines on the Top plane,
+# placed inside the angle at a point given in model coordinates, read the angle
+# (30°); placed at the same point's sketch coordinates it had read 150°.
+DIMENSION_PLACED_IN_MODEL_SPACE = True
+
+# move_body_rotate: InsertMoveCopyBody2 turned a body about Y as expected, but the
+# feature carried no dimension, so no equation can drive its turn. The bevel
+# recipe builds in its final frame instead.
+MOVE_BODY_TURN_IS_DIMENSION = False
+
+# -- non-parallel assemblies ------------------------------------------------
+
+# nonparallel_mates: IMathUtility.CreateTransform answered "member not found"
+# to late binding and made a transform when invoked as a method with a double
+# array; put on IComponent2.Transform2 with the rotation in columns it set the
+# frame to 1e-16. AddComponent5 put a part's middle, not its origin, at the
+# point given, so the first gear is set on the assembly frame too.
+PLACE_ROUTE = "Transform2 put"
+TRANSFORM_ARRAY_ORDER = "columns"
+# A component's origin selected by SelectByID2 "Point1@Origin@<component>@<assembly>"
+# as EXTSKETCHPOINT; two origins made a coincident mate.
+ORIGIN_POINT = "Point1"
+# Placed first and then mated — origins coincident, gear 2's axis in gear 1's
+# top plane, an angle mate between the axes and one between the top planes — a
+# bevel-style frame held to 1e-16 and 0 mm.
+BEVEL_MATE_ROUTE = "mates"
+# The crossed frame's mates held its rotation; a point's distance from a plane is
+# measured along the plane's normal, so a negative offset is mated flipped.
+CROSSED_ROUTE = "mates"
