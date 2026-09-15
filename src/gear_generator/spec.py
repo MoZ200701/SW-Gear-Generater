@@ -102,6 +102,16 @@ def _number_text(text: str) -> str:
     return "0" if text in ("", "-0") else text
 
 
+def _angle_text(text: str) -> str:
+    """A helix angle as it goes into a file name: two decimals at most, so a solved
+    ``18.194872`` names the file ``18.19``."""
+    try:
+        value = round(float(str(text).strip()), 2)
+    except ValueError:
+        return str(text).strip()
+    return _number_text(str(value)) if math.isfinite(value) else str(text).strip()
+
+
 @dataclass(frozen=True)
 class GearSpec:
     """Every setting of one gear, as typed."""
@@ -205,7 +215,7 @@ def default_stem(spec: GearSpec, prefix: str = "") -> str:
     stem = f"{prefix or words.get(spec.kind, 'Gear')}_m{_number_text(spec.module)}_N{_number_text(spec.teeth)}"
     if spec.kind in HELICAL_KINDS:
         hand = str(spec.hand).strip().lower()[:1].upper()
-        stem += f"_{_number_text(spec.helix_angle) if spec.helix_angle.strip() else 'H'}{hand}"
+        stem += f"_{_angle_text(spec.helix_angle) if spec.helix_angle.strip() else 'H'}{hand}"
     return sanitize_stem(stem)
 
 
@@ -299,7 +309,7 @@ def pair_stems(pair: PairSpec) -> Tuple[str, str, str]:
     if pair.assembly_name.strip():
         stem_pair = sanitize_stem(pair.assembly_name)
     else:
-        helix = f"_H{_number_text(a.helix_angle)}" if a.kind in HELICAL_KINDS and a.helix_angle.strip() else ""
+        helix = f"_H{_angle_text(a.helix_angle)}" if a.kind in HELICAL_KINDS and a.helix_angle.strip() else ""
         stem_pair = sanitize_stem(
             f"Pair_m{_number_text(a.module)}_{_number_text(a.teeth)}T_{_number_text(b.teeth)}T{helix}"
         )

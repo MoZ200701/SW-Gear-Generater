@@ -20,7 +20,12 @@ from .spec import MODE_PAIR, RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError,
 
 RECIPE_WORDS = {RECIPE_INVOLUTE: "involute curve", RECIPE_ARCS: "arc flanks"}
 RECIPE_LABELS = {RECIPE_INVOLUTE: "Involute", RECIPE_ARCS: "Arcs"}
-KIND_LABELS = {"spur": "Spur", "bevel": "Bevel", "helical": "Helical", "internal": "Internal"}
+KIND_LABELS = {"spur": "Spur", "helical": "Helical", "herringbone": "Herringbone", "bevel": "Bevel",
+               "internal": "Internal"}
+HAND_LABELS = {"right": "Right", "left": "Left"}
+# Five kinds share one segmented row, and "Herringbone" does not fit its share;
+# the Gear panel's readout still says the whole word.
+KIND_BUTTON_LABELS = {**KIND_LABELS, "herringbone": "Double"}
 SERIES_LABELS = {standards.SERIES_1: "Series 1", standards.SERIES_1_2: "1 + 2", standards.SERIES_ALL: "+ fine"}
 
 # What a readout says when the gear it stands for does not work out yet.
@@ -40,13 +45,25 @@ def kind_readout(kind: str, recipe: str) -> str:
 
 
 def gear_readout(spec: GearSpec) -> str:
-    """``m1.5 · z25 · 20° · PD 37.5 mm``, or what is stopping it."""
+    """``m1.5 · z25 · 20° · PD 37.5 mm``, or what is stopping it.
+
+    A helical gear adds its helix, ``β15° R``, and its pitch diameter is the
+    transverse one, ``m z / cos β``.
+    """
     try:
         m = spec.module_mm()
         n = spec.teeth_count()
         alpha = spec.pressure_angle_deg()
+        if spec.is_helical():
+            beta = spec.helix_angle_deg()
+            hand = spec.hand_value()
+            if not 0.0 < beta < 90.0:
+                return CHECK_THE_FIELDS
     except InputError:
         return CHECK_THE_FIELDS
+    if spec.is_helical():
+        return (f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · β{_n(beta, 2)}° {hand[0].upper()} · "
+                f"PD {_n(m * n / math.cos(math.radians(beta)))} mm")
     return f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · PD {_n(m * n)} mm"
 
 
@@ -63,7 +80,17 @@ def derived_rows(g) -> List[Tuple[str, str]]:
     Short on purpose: in pair mode two columns of these share the width the
     preview leaves.
     """
-    return [
+    helix = []
+    if hasattr(g, "helix_angle_deg"):
+        helix = [
+            ("Helix", f"{_n(g.helix_angle_deg, 4)}° · {HAND_LABELS.get(g.hand, g.hand).lower()}"),
+            ("Transverse m", _n(g.transverse_module, 4)),
+            ("Transverse α", f"{_n(g.pressure_angle_deg, 3)}°"),
+            ("Lead", _n(g.lead, 2)),
+            ("Twist on face", f"{_n(g.face_twist_deg, 2)}°"),
+            ("Overlap εβ", _n(g.overlap, 3)),
+        ]
+    return helix + [
         ("Pitch diameter", _n(g.d)),
         ("Outer diameter", _n(g.da)),
         ("Root diameter", _n(g.df)),
@@ -131,6 +158,8 @@ def candidate_row(candidate: "pairs.Candidate") -> Tuple[str, str, str, str]:
     if candidate.undercut:
         errors.append("undercut")
     text = " · ".join(errors) if errors else "exact"
+    if candidate.helix_angle:
+        text = f"β{_n(candidate.helix_angle, 2)}° · {text}"
     return module, teeth, text, "exact" if candidate.exact else "near"
 
 

@@ -39,16 +39,21 @@ solve, and a greyed panel is only clutter.
 
 ### Gear — readout `Spur · involute curve`
 
-Three segmented rows: **Kind** (Spur; Bevel, Helical and Internal greyed, with
-the hint *later*), **Flank** (`Involute` · `Arcs`), and **Make**
-(`Single gear` · `Gear pair`).
+Three segmented rows: **Kind** (`Spur` · `Helical` · `Double`, with Bevel and
+Internal greyed and the hint *later*), **Flank** (`Involute` · `Arcs`), and
+**Make** (`Single gear` · `Gear pair`). `Double` is the herringbone: five kinds
+share the row and the whole word does not fit its share, so the readout says it
+(`Herringbone · involute curve`). Choosing a kind shows or hides the helix rows
+below, which only the helical kinds have.
 
 ### Pair — readout `C 60 mm · i 3 · m1.5 20:60`, and **Candidates** beside it
 
 Centre distance, Ratio (hint *3, or 1:3 for driven over driver*), Module
 (placeholder *any*, hint *blank tries every standard one*), Series (`Series 1` ·
-`1 + 2` · `+ fine`), Teeth *min* to *max* (hint *under min is undercut*),
-Assembly name, and **Solve** with its summary, `64 candidates · 3 exact · m1.5
+`1 + 2` · `+ fine`), Teeth *min* to *max* (hint *under min is undercut*), for a
+helical kind Helix angle (placeholder *any*, hint *blank solves it in the
+range*) and Helix range *min* to *max* (placeholders the kind's range, 8–25° or
+20–40°), Assembly name, and **Solve** with its summary, `64 candidates · 3 exact · m1.5
 20 : 60 chosen` — the last part once a candidate has been clicked, so the strip
 says what was picked with the flyout closed. The readout's last part appears
 then too.
@@ -62,8 +67,12 @@ gear closes the flyout, since the button that would hide it goes with the panel.
 Module (every ISO 54 module in a dropdown beside it, hint *ISO 54*), Teeth,
 Pressure angle (14.5, 20 and 25 in a dropdown), Face width, Bore (placeholder
 *none*), Backlash (placeholder *0.3 × module*, hint *ISO: 0.02–0.05 × m*), Fillet
-(placeholder *0.38 × module*), and Name (placeholder: the stem the part will be
-saved as, `Gear_m1.5_N25`). A dropdown writes its value into the field and lets
+(placeholder *0.38 × module*), for a helical kind Helix angle (10–30 in a
+dropdown, hint *normal module, α*) and Hand (`Right` · `Left`), and Name
+(placeholder: the stem the part will be saved as, `Gear_m1.5_N25`, or
+`Helical_m2_N20_15R` with the helix angle to two decimals). For a helical gear
+Module and Pressure angle are the normal ones, and the readout adds the helix:
+`m2 · z20 · 20° · β15° R · PD 41.411 mm`. A dropdown writes its value into the field and lets
 go, so the field stays the one source. A half-typed gear reads out *check the
 fields*. At the foot of the panel, the explainer card.
 
@@ -117,11 +126,16 @@ with no tkinter in it, so `tests/test_preview.py` can check the scale, the
 centres, the turn and the dimension without a display; `_draw_preview` only
 turns those into the screen's pixels and strokes them.
 
+A helical gear is drawn as its transverse section, the one its sketch cuts.
 Under the picture in pair mode, three rows for the pair — Centre distance
-`60 mm`, Ratio `3 · 20 : 60`, Contact ratio `1.671`, all from `pairs.describe` —
+`60 mm`, Ratio `3 · 20 : 60`, Contact ratio `1.671` (the transverse one for a
+helical pair), all from `pairs.describe` —
 then a 1 px rule, then the table: captions `A · mm` and `B · mm`, the label
 column 104 px, value columns 96 px. Values carry no unit; one `mm` caption heads
-each column. Where a value came from a default it says so (`0.45 · 0.3m`).
+each column. Where a value came from a default it says so (`0.45 · 0.3m`). A
+helical gear's column starts with six more: Helix `15° · right`, Transverse m,
+Transverse α, Lead, Twist on face (face to apex for a herringbone), and
+Overlap εβ.
 Errors come first, then warnings, each once, in `theme.ERROR`. The form is
 worked out again **120 ms** after the last keystroke. An error disables
 **Build**.
@@ -150,11 +164,13 @@ the form differs from what that part holds.
 
 `PAIR CANDIDATES` with **Hide**; the solve summary; a table `MODULE · TEETH ·
 ERROR` — a non-standard module marked ` *`, the error column reading *exact* or
-what is off (*C +0.5 mm · i 1.2 % · undercut*), exact rows in `theme.OK`; and a
+what is off (*C +0.5 mm · i 1.2 % · undercut*), and for a helical pair starting
+with the row's helix angle (*β18.19° · exact*), exact rows in `theme.OK`; and a
 card for the chosen row: module and teeth, the centre distance and ratio they
 make, the contact ratio, and whether the module is non-standard or the pinion
 undercut. Clicking a row writes its
-module and teeth onto both gears and changes nothing else on the form.
+module and teeth onto both gears — and for a helical pair the helix angle, and
+gear B the other hand from gear A — and changes nothing else on the form.
 
 ## 4. The build flow
 
@@ -216,6 +232,10 @@ All in `ui_text.py`, tested without a window:
 - A sketch that comes out under-defined is reported (*Check: …*) rather than
   failing the build: the part is still the right gear, and the sentence says
   what to look at.
+
+- The helix rows have no explainer card yet: putting the caret in Helix angle
+  leaves the card on the field it was last on. Gear B's Hand can still be set
+  to A's; the assembly then refuses the pair with a sentence at Build.
 
 And where the window differs from the artboards, because Tk would not do it:
 

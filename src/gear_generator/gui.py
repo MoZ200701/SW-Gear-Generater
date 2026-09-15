@@ -9,10 +9,13 @@ from tkinter import filedialog, font as tkfont, ttk
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import __version__, findings, preview, store, swbuild, swcom, theme, ui_text, widgets
-from .gears import KINDS, PLANNED_KINDS, pair as pairs, standards
+from .gears import KINDS, PLANNED_KINDS, helical as helix, pair as pairs, standards
 from .gears.base import Diagnostic, GeometryError, Point2
 from .gears.equations import literal
 from .spec import (
+    HAND_LEFT,
+    HANDS,
+    HELICAL_KINDS,
     MODE_PAIR,
     MODE_SINGLE,
     RECIPE_ARCS,
@@ -132,6 +135,10 @@ class GearApp(ttk.Frame):
             for side in SIDES
         }
         self.gear_vars["b"]["teeth"].set("50")
+        # A helical pair needs a helix and opposite hands before anything is solved.
+        for side in SIDES:
+            self.gear_vars[side]["helix_angle"].set("15")
+        self.gear_vars["b"]["hand"].set(HAND_LEFT)
 
         pair_defaults = PairSpec()
         self.centre_distance = tk.StringVar(value=pair_defaults.centre_distance)
@@ -167,6 +174,8 @@ class GearApp(ttk.Frame):
         # The explainer card follows the caret: one card at the foot of the
         # panel that has it, and which field it is showing.
         self.cards: Dict[str, widgets.Explainer] = {}
+        # The rows only a helical gear has, per panel, so a spur gear's panels do not show them.
+        self.helix_rows: Dict[str, Tuple[tk.Widget, ...]] = {}
         self._card_panel = "a"
         self._card_field = "module"
 
@@ -197,6 +206,7 @@ class GearApp(ttk.Frame):
         self._quiet_ticks = 0
 
         self._build()
+        self._show_helix_rows()
         self._watch_form()
         self._show_card("a", "module")
         self._on_mode_changed()
@@ -345,7 +355,7 @@ class GearApp(ttk.Frame):
         kinds = self._cell(body, 0, sticky="ew")
         kinds.columnconfigure(0, weight=1)
         self.kind_seg = widgets.Segmented(
-            kinds, self.kind, KIND_VALUES, labels=ui_text.KIND_LABELS, command=self._schedule_derive,
+            kinds, self.kind, KIND_VALUES, labels=ui_text.KIND_BUTTON_LABELS, command=self._on_kind_changed,
         )
         self.kind_seg.grid(row=0, column=0, sticky="ew")
         for planned in PLANNED_KINDS:
@@ -419,8 +429,23 @@ class GearApp(ttk.Frame):
         fields["fillet"] = widgets.Field(cell, v["fillet"], width=150, unit="mm", placeholder="0.38 × module")
         fields["fillet"].grid(row=0, column=0)
 
-        self._row_label(body, 7, "Name")
-        cell = self._cell(body, 7, sticky="ew", pady=0)
+        helix_label = self._row_label(body, 7, "Helix angle")
+        helix_cell = self._cell(body, 7)
+        fields["helix_angle"] = widgets.Field(helix_cell, v["helix_angle"], width=84, unit="°")
+        fields["helix_angle"].grid(row=0, column=0)
+        helix_pick = tk.StringVar(value="")
+        holder, box = self._combo(helix_cell, helix_pick, ("10", "15", "20", "25", "30"), 72)
+        holder.grid(row=0, column=1, padx=(theme.px(8), 0))
+        box.bind("<<ComboboxSelected>>", lambda _e, s=side, p=helix_pick: self._pick_value(s, "helix_angle", p))
+        self._hint(helix_cell, "normal module, α").grid(row=0, column=2, padx=(theme.px(8), 0))
+        hand_label = self._row_label(body, 8, "Hand")
+        hand = widgets.Segmented(body, v["hand"], HANDS, labels=ui_text.HAND_LABELS,
+                                 command=self._schedule_derive, width=160)
+        hand.grid(row=8, column=1, sticky="w", pady=(0, theme.px(6)))
+        self.helix_rows[side] = (helix_label, helix_cell, hand_label, hand)
+
+        self._row_label(body, 9, "Name")
+        cell = self._cell(body, 9, sticky="ew", pady=0)
         cell.columnconfigure(0, weight=1)
         fields["name"] = widgets.Field(cell, v["name"], grow=True, placeholder="")
         fields["name"].grid(row=0, column=0, sticky="ew")
@@ -429,10 +454,11 @@ class GearApp(ttk.Frame):
         # this panel, so the strip reflows when the caret crosses to the other
         # gear rather than two cards of the same sentences standing open.
         card = widgets.Explainer(body, EXPLAINER_TEXT_WIDTH)
-        card.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
+        card.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
         self.cards[side] = card
         for name, field in fields.items():
-            self._explains(field, side, name)
+            if name in ui_text.GEAR_EXPLAINERS:
+                self._explains(field, side, name)
 
         if side == "a":
             self.fields_a = fields
@@ -566,11 +592,25 @@ class GearApp(ttk.Frame):
         for made in (low, high):
             self._explains(made, "pair", "teeth_range")
 
-        cell, _ = field(5, "Assembly name", self.assembly_name, "assembly_name", width=220, placeholder="")
+        cell, _ = field(5, "Helix angle", self.pair_helix_angle, width=84, unit="°", placeholder="any")
+        self._hint(cell, "blank solves it in the range").grid(row=0, column=1, padx=(theme.px(8), 0))
+        helix_label, helix_cell = body.grid_slaves(row=5, column=0)[0], cell
+        self._row_label(body, 6, "Helix range")
+        range_cell = self._cell(body, 6)
+        self.helix_min_field = widgets.Field(range_cell, self.helix_min, width=60, unit="°", placeholder="8")
+        self.helix_min_field.grid(row=0, column=0)
+        tk.Label(range_cell, text="to", bg=theme.WHITE, fg=theme.LABEL, font=self.fonts.label).grid(
+            row=0, column=1, padx=theme.px(8))
+        self.helix_max_field = widgets.Field(range_cell, self.helix_max, width=60, unit="°", placeholder="25")
+        self.helix_max_field.grid(row=0, column=2)
+        self.pair_fields.extend((self.helix_min_field, self.helix_max_field))
+        self.helix_rows["pair"] = (helix_label, helix_cell, body.grid_slaves(row=6, column=0)[0], range_cell)
+
+        cell, _ = field(7, "Assembly name", self.assembly_name, "assembly_name", width=220, placeholder="")
         self.assembly_field = self.pair_fields[-1]
 
         solve = tk.Frame(body, bg=theme.WHITE)
-        solve.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(theme.px(2), 0))
+        solve.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(theme.px(2), 0))
         solve.columnconfigure(1, weight=1)
         self.solve_button = widgets.Button(solve, "Solve", command=self._solve, icon="refresh")
         self.solve_button.grid(row=0, column=0, sticky="w")
@@ -578,7 +618,7 @@ class GearApp(ttk.Frame):
                  font=self.fonts.hint, anchor="w").grid(row=0, column=1, sticky="w", padx=(theme.px(8), 0))
 
         card = widgets.Explainer(body, EXPLAINER_TEXT_WIDTH)
-        card.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
+        card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
         self.cards["pair"] = card
         return panel
 
@@ -755,6 +795,23 @@ class GearApp(ttk.Frame):
                     self.helix_max, self.assembly_name, self.out_folder):
             var.trace_add("write", lambda *_: self._schedule_derive())
 
+    def _on_kind_changed(self) -> None:
+        self._show_helix_rows()
+        self._schedule_derive()
+
+    def _show_helix_rows(self) -> None:
+        """Helix angle and hand are rows of a helical gear's panels; a spur gear's do not have them."""
+        kind = self.kind.get()
+        helical = kind in HELICAL_KINDS
+        for row in self.helix_rows.values():
+            for widget in row:
+                widget.grid() if helical else widget.grid_remove()
+        if helical:
+            low, high = helix.DEFAULT_RANGE[kind]
+            self.helix_min_field.set_placeholder(ui_text._n(low))
+            self.helix_max_field.set_placeholder(ui_text._n(high))
+        self._relayout()
+
     def _on_mode_changed(self) -> None:
         pair_mode = self.mode.get() == MODE_PAIR
         self._set_title(self.side_panels["a"], "Gear A" if pair_mode else "Gear")
@@ -859,7 +916,8 @@ class GearApp(ttk.Frame):
         a, b = self._derived["a"], self._derived["b"]
         if self.mode.get() != MODE_PAIR or a is None or b is None:
             return None
-        return pairs.describe(a.module, a.teeth, b.teeth, a.pressure_angle_deg)
+        return pairs.describe(a.module, a.teeth, b.teeth, getattr(a, "normal_pressure_angle_deg", a.pressure_angle_deg),
+                              getattr(a, "helix_angle_deg", 0.0))
 
     def _show_derived(self) -> None:
         for widget in self._derived_widgets + self._warning_widgets + self._pair_row_widgets:
@@ -1014,12 +1072,15 @@ class GearApp(ttk.Frame):
             for side, spec in (("a", spec_a), ("b", spec_b)):
                 self.gear_vars[side]["module"].set(spec.module)
                 self.gear_vars[side]["teeth"].set(spec.teeth)
+                self.gear_vars[side]["helix_angle"].set(spec.helix_angle)
+                self.gear_vars[side]["hand"].set(spec.hand)
         finally:
             self._applying = False
         self._chosen = candidate
         self.solve_summary.set(ui_text.solve_summary(self._candidates, candidate))
         centre, ratio, epsilon = pairs.describe(candidate.module, candidate.teeth_driver,
-                                                candidate.teeth_driven, spec_a.pressure_angle_deg())
+                                                candidate.teeth_driven, spec_a.pressure_angle_deg(),
+                                                candidate.helix_angle)
         self.card_title.set(f"m{ui_text._n(candidate.module, 4)} · {candidate.teeth_driver} : {candidate.teeth_driven}")
         self.card_detail.set(
             f"C {ui_text._n(centre)} mm · i {ui_text._n(ratio, 4)} · contact ratio "

@@ -75,6 +75,35 @@ Every sketch is fully defined. The build measures whether the part's Equation
 Manager works in degrees or radians before writing a single global, and after
 the rebuild reads every global's value back and compares it with the maths.
 
+## Helical and herringbone gears
+
+Choose **Helical** or **Double** (herringbone) as the Kind, and two rows appear on
+each gear: **Helix angle** and **Hand**. Module and pressure angle are then the
+*normal* ones — what a hob is sold by — and the tool works out the transverse
+module `m / cos β`, the transverse pressure angle, the pitch diameter they make,
+the lead, how far a tooth turns across the face, and the overlap ratio εβ, which
+it warns about below one.
+
+In SolidWorks the part carries the same ten globals as a spur gear, with
+`"Helix Angle"`, `"Transverse Module"` and `"Transverse Pressure Angle"` ahead of
+the ones that now depend on them, and `"Lead"`, `"Overrun"`, `"Path Length"` and
+`"Twist Angle"` after. The tooth space is the spur sketch drawn in the transverse
+plane on a **Profile Plane** one module in front of the part, swept as a cut
+along a **Path Sketch** on the axis to one module past the far face, turning at a
+constant rate, then patterned. A herringbone is half a gear so built from a **Mid
+Plane**, patterned, and its body **Mirror**ed about that plane, so its apex is
+exactly the section drawn. Change `"Helix Angle"` or `"Face Width"` in SolidWorks
+and the teeth re-twist; the hand is structural, and changing it means building a
+new part.
+
+In **Gear pair** mode the two gears must share module, helix angle and kind, and
+have opposite hands. Leave the Pair panel's **Helix angle** blank and **Solve**
+finds, for every standard module, each tooth sum whose helix angle falls within
+**Helix range**, so every exact-ratio row meets the centre distance exactly
+(*β18.19° · exact*). Choosing a row writes the helix angle into both gears and
+makes gear B the other hand. The assembly is mated at the transverse centre
+distance, with a herringbone pair's mid-planes coincident so the apexes line up.
+
 ## Solving a pair
 
 In **Gear pair** mode the **Pair** panel sits above the two gears, since solving

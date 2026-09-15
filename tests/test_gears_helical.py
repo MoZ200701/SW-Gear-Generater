@@ -173,6 +173,8 @@ def test_stems_carry_the_helix():
     assert spec(kind="herringbone", helix_angle="30", hand="left").stem() == "Herringbone_m2_N20_30L"
     pair = PairSpec(mode="pair", gear_a=spec(), gear_b=spec(teeth="40", hand="left"))
     assert pair_stems(pair) == ("Pinion_m2_N20_15R", "Gear_m2_N40_15L", "Pair_m2_20T_40T_H15")
+    solved = spec(helix_angle="18.194872")
+    assert solved.stem() == "Helical_m2_N20_18.19R"
 
 
 def test_a_helical_build_runs_plane_sweep_and_pattern_in_order_against_the_fake():
@@ -199,3 +201,15 @@ def test_a_sweep_that_fails_stops_the_build_before_the_pattern():
 def test_hand_is_structural():
     assert "hand" in swbuild.structural_change({"kind": "helical", "recipe": "A", "hand": "right"},
                                                {"kind": "helical", "recipe": "A", "hand": "left"})
+
+
+def test_readouts_and_candidate_rows_say_the_helix():
+    from gear_generator import ui_text
+    from gear_generator.gears.pair import solve
+
+    assert ui_text.gear_readout(spec()) == "m2 · z20 · 20° · β15° R · PD 41.411 mm"
+    rows = dict(ui_text.derived_rows(HELICAL.derive(spec())))
+    assert rows["Helix"] == "15° · right" and rows["Overlap εβ"] == "0.824"
+    module, teeth, error, tag = ui_text.candidate_row(solve(60.0, 2.0, kind="helical", helix_range=(8.0, 25.0))[1])
+    assert (module, teeth, error, tag) == ("2", "19 : 38", "β18.19° · exact", "exact")
+    assert ui_text.KIND_BUTTON_LABELS["herringbone"] == "Double" and ui_text.KIND_LABELS["herringbone"] == "Herringbone"

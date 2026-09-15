@@ -1153,7 +1153,8 @@ class Session:
             planes = self._planes(call(component, "GetModelDoc2"))
             name, kind = str(call(planes[int(target[5:]) - 1], "Name")), "PLANE"
         else:
-            name, kind = target, "AXIS"
+            # The tool names its axis "Gear Axis" and its planes "Mid Plane" and "Profile Plane".
+            name, kind = target, "AXIS" if target.endswith("Axis") else "PLANE"
         doc = self._doc()
         if not append:
             call(doc, "ClearSelection2", True)

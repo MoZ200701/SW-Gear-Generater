@@ -136,7 +136,6 @@ def _run_kind(px: Px, builds: _Builds, kind: str, folder: str) -> None:
     volume = session.volume_mm3()
     bodies = session.solid_body_count()
     px.check(bodies == 1, f"{kind}: one solid body ({bodies})")
-    main_title = result.document
 
     twin_path = os.path.join(folder, f"{stem} twin.SLDPRT")
     twin_result = builds.build(twin(plan, twin_path))
@@ -158,7 +157,8 @@ def _run_kind(px: Px, builds: _Builds, kind: str, folder: str) -> None:
         px.check(abs(centre[1]) > 1e-3 and math.copysign(1, centre[1]) == want,
                  f"{kind} {hand}: one space pulls the centre of mass to {'+' if want > 0 else '-'}y: {centre}")
 
-    session.activate(main_title)
+    # Saved, the part's title is its file name, not the PartN it was built as.
+    session.activate(os.path.basename(path))
     wanted = spec.with_values(helix_angle=str(int(HELIX[kind]) + 5), face_width="12")
     changed = gear.derive(wanted)
     update = swbuild.update_variables(session, gear.variables(wanted, changed), path)
