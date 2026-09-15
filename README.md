@@ -119,7 +119,63 @@ the Solve line then reads `64 candidates · 3 exact · m1.5 20 : 60 chosen`.
 **Build** then makes both parts and an assembly, `Pair_m1.5_20T_60T.SLDASM`. The
 second gear is mated at the centre distance its teeth make, turned so a tooth
 meets the first gear's space, and the distance is driven by the assembly global
-`"Centre Distance"`. Checking the mesh by eye is counted as a step to do by hand.
+`"Centre Distance"`. Once the assembly is built the tool runs SolidWorks'
+interference detection on it: no interference is reported as done, and any is
+a check with the count and volume, telling you where to look.
+
+## Internal gears
+
+On a spur, helical or double gear, **Teeth side** `Internal` makes a ring: the
+teeth point inward from a solid rim. **Rim** takes the place of Bore (blank
+leaves three modules outside the root circle), the default fillet is 0.15 ×
+module so it stays clear of a pinion's tips, and the part's globals carry
+`"Inner Diameter"` and `"Rim Diameter"` in place of the outer and bore
+diameters. A ring is cut the way its external kind is — straight through, or
+swept and mirrored — from an annular blank.
+
+In **Gear pair** mode choose **Mesh** `Internal`: gear B becomes the ring round
+gear A, turning the same way, at C = m (z₂ − z₁) / 2. The ratio must be more
+than one. Solve ranks a row whose pinion would clash with the ring's tips as it
+turns after the clean ones and marks it *clash 0.14 mm*. A helical ring meshes
+with a pinion of the **same** hand. The assembly fixes the ring at the origin
+and mates the pinion inside it, half a pinion tooth round.
+
+## Crossed-axis helical pairs
+
+For a helical pair choose **Shafts** `Crossed` and a **Shaft angle**: the two
+gears are the same hand, and their helix angles add up to the shaft angle,
+C = (mₙ / 2)(z₁ / cos β₁ + z₂ / cos β₂). Leave Helix angle blank and Solve
+finds, for each module and tooth pair, the β₁ that meets the centre distance
+exactly nearest half the shaft angle (*β45°/45° · exact*); type it and the rows
+are ranked by how near they come. The parts are ordinary helical gears. The
+assembly places gear 2 across gear 1 at the contact point, then mates it there
+— its axis at `"Centre Distance"` from gear 1's right plane, at `"Shaft Angle"`
+to gear 1's axis, and turned by `"Mesh Angle"` — and checks interference.
+
+## Bevel gears
+
+**Bevel** makes a straight bevel gear on the Gleason system: **Mate teeth** is
+the tooth count of the gear it meshes with and **Shaft angle** the angle between
+the two shafts (90° for a right-angle drive). From them come the pitch cone δ,
+the cone distance R, the unequal addendum and dedendum, face and root angles,
+the outside diameter and the crown's distance from the apex, and the Tredgold
+virtual tooth count the section is drawn for. The form warns when the face is
+wider than a third of the cone distance or ten modules, and refuses a crown or
+internal bevel gear (δ of 89° or more).
+
+In SolidWorks the pitch apex is at the part origin and the axis along +Z. The
+**Blank Sketch**'s half section is revolved into the **Blank**; the **Cone
+Sketch** holds the pitch cone line, and **Heel Plane** and **Toe Plane** stand
+square to it one module past each end of the face. The tooth space is the spur
+section drawn for the virtual gear on the heel plane and scaled onto the toe
+plane, and **Tooth Space** is a cut lofted between them, patterned as **Teeth**.
+Every dimension is linked, so changing `"No. of Teeth"`, `"Mate Teeth"` or
+`"Shaft Angle"` rebuilds the cone, the planes and the teeth.
+
+In **Gear pair** mode a bevel pair is solved from **Cone distance** and Ratio,
+each gear's mate teeth being the other's. The assembly sets the two apexes
+together, gear 2's axis in gear 1's top plane at `"Shaft Angle"` to gear 1's,
+and turns gear 2 by `"Mesh Angle"` so a tooth meets gear 1's space.
 
 ## Driving SolidWorks
 
@@ -155,7 +211,7 @@ pip install pyinstaller pywin32
 build.bat
 ```
 
-makes `dist\Gear Generator v0.2.exe`.
+makes `dist\Gear Generator v0.3.exe`.
 
 ## Development
 

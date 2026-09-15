@@ -5,7 +5,14 @@
     python -m gear_generator.gears --spec m=1.5,z=25 --recipe A
 
 The spec keys are ``m`` (module), ``z`` (teeth), ``pa`` (pressure angle),
-``b`` (face width), ``bore``, ``j`` (backlash), ``rho`` (fillet) and ``name``.
+``b`` (face width), ``bore``, ``j`` (backlash), ``rho`` (fillet) and ``name``;
+``kind`` (spur, helical, herringbone, bevel), ``beta`` and ``hand`` for the
+helical kinds, ``side`` (external or internal) and ``rim`` for a ring, and
+``mate`` and ``shaft`` for a bevel gear::
+
+    python -m gear_generator.gears --spec kind=bevel,m=3,z=20,mate=40,b=20,bore=10
+    python -m gear_generator.gears --spec side=internal,m=2,z=60
+
 The output is the ordered op log the build would run, globals first, with every
 step a person has to do by hand counted as ``MANUAL``.
 """
@@ -18,13 +25,15 @@ from typing import Dict, List, Optional, Sequence
 
 from .. import findings
 from ..spec import GearSpec, InputError
-from . import KINDS
+from . import kind_for
 from .base import GeometryError
 from .equations import TRIG_MODES
 
 KEYS = {
     "m": "module", "z": "teeth", "pa": "pressure_angle", "b": "face_width",
     "bore": "bore", "j": "backlash", "rho": "fillet", "name": "name",
+    "kind": "kind", "beta": "helix_angle", "hand": "hand", "side": "teeth_side", "rim": "rim",
+    "mate": "mate_teeth", "shaft": "shaft_angle",
 }
 
 
@@ -53,7 +62,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         spec = parse_spec(args.spec)
         if args.recipe:
             spec = spec.with_values(recipe=args.recipe)
-        kind = KINDS[spec.kind]
+        kind = kind_for(spec)
+        if kind is None:
+            raise InputError(f"There is no gear kind {spec.kind!r} with {spec.teeth_side} teeth.")
         recipe = spec.recipe_or(kind.default_recipe)
     except (InputError, KeyError) as exc:
         print(f"FAIL    {exc}")

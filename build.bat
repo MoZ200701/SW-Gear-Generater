@@ -1,5 +1,5 @@
 @echo off
-REM Build a single double-clickable "Gear Generator v0.2.exe" into dist\.
+REM Build a single double-clickable "Gear Generator v0.3.exe" into dist\.
 REM Requires: pip install pyinstaller pywin32
 REM
 REM PyInstaller is run as a module of the Python on PATH rather than as the
@@ -16,7 +16,7 @@ REM The bundled faces (Libre Franklin, JetBrains Mono) are registered privately
 REM at launch. The folder is carried whether or not the .ttf files are in it: a
 REM build without them falls back to Segoe UI and Consolas, which is a design
 REM the window is meant to survive, not a failure.
-python -m PyInstaller --onefile --windowed --name "Gear Generator v0.2" ^
+python -m PyInstaller --onefile --windowed --name "Gear Generator v0.3" ^
     --paths src ^
     --add-data "src\gear_generator\assets\fonts;assets/fonts" ^
     --hidden-import pythoncom ^

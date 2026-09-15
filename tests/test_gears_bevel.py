@@ -226,3 +226,14 @@ def test_the_bevel_assembly_mates_apexes_and_drives_the_shaft_angle():
     assert axis == pytest.approx((1.0, 0.0, 0.0), abs=1e-12)
     with pytest.raises(Exception, match="mate teeth"):
         pair.assembly_plan(a, spec("40", "21"), r"C:\p.SLDPRT", r"C:\g.SLDPRT", "", r"C:\a.SLDASM")
+
+
+def test_the_dry_run_prints_a_bevel_gear_and_a_ring(capsys):
+    from gear_generator.gears.__main__ import main
+
+    assert main(["--spec", "kind=bevel,m=3,z=20,mate=40,b=20,bore=10"]) == 0
+    printed = capsys.readouterr().out
+    assert "plan    bevel · recipe A" in printed and "Bevel_m3_N20_M40.SLDPRT" in printed
+    assert main(["--spec", "side=internal,m=2,z=60"]) == 0
+    assert "Ring_m2_N60.SLDPRT" in capsys.readouterr().out
+    assert main(["--spec", "kind=bevel,side=internal,m=3,z=20,mate=40"]) == 1

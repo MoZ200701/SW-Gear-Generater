@@ -39,12 +39,32 @@ solve, and a greyed panel is only clutter.
 
 ### Gear — readout `Spur · involute curve`
 
-Three segmented rows: **Kind** (`Spur` · `Helical` · `Double`, with Bevel and
-Internal greyed and the hint *later*), **Flank** (`Involute` · `Arcs`), and
-**Make** (`Single gear` · `Gear pair`). `Double` is the herringbone: five kinds
-share the row and the whole word does not fit its share, so the readout says it
-(`Herringbone · involute curve`). Choosing a kind shows or hides the helix rows
-below, which only the helical kinds have.
+Three segmented rows: **Kind** (`Spur` · `Helical` · `Double` · `Bevel`),
+**Flank** (`Involute` · `Arcs`), and **Make** (`Single gear` · `Gear pair`).
+`Double` is the herringbone: the whole word does not fit its share of the row,
+so the readout says it (`Herringbone · involute curve`). Internal is not a kind:
+it is the gear panel's **Teeth side**. Choosing a kind shows or hides the rows
+below that only some kinds have — `_show_helix_rows` decides all of them (§2,
+*Rows by kind*).
+
+### Rows by kind
+
+| Row | Panel | Shown for |
+|---|---|---|
+| Helix angle, Hand | Gear A/B | helical, double |
+| Teeth side (`External` · `Internal`) | Gear | spur, helical, double in single mode; in a pair the Pair panel's Mesh decides |
+| Rim (placeholder *root + 6 × module*) | Gear A/B | a ring — and Bore is hidden for it |
+| Shaft angle, Mate teeth | Gear | bevel in single mode; in a pair they come from the Pair panel's shaft angle and the other gear's teeth |
+| Cone distance (in Centre distance's place, hint *apex to heel*) | Pair | bevel |
+| Mesh (`External` · `Internal`) | Pair | every kind but bevel; Internal makes gear B the ring |
+| Shafts (`Parallel` · `Crossed`) | Pair | helical and double, external mesh |
+| Shaft angle | Pair | bevel, and crossed pairs |
+| Helix range | Pair | helical pairs on parallel shafts |
+
+Each new field has an explainer card; its diagram is, for now, an existing
+field's (`widgets.DIAGRAM_ALIASES`): Teeth side and Mate teeth draw the teeth
+and ratio glyphs, Rim the bore, both shaft angles the pressure angle, and Mesh,
+Shafts and Cone distance the centre distance.
 
 ### Pair — readout `C 60 mm · i 3 · m1.5 20:60`, and **Candidates** beside it
 
@@ -256,3 +276,20 @@ And where the window differs from the artboards, because Tk would not do it:
 - Going back to Single gear closes the candidates flyout: **Hide candidates** is
   in the Pair panel's header now, and the flyout would otherwise be left open
   with nothing to close it.
+
+## 8. Rings, crossed pairs and bevel gears (v0.3)
+
+- **Derived** for a ring lists its rim first and calls the tip *Inner tip*; its
+  fillet note is *0.15m*. A bevel gear's rows are its own: pitch cone δ, cone
+  distance, pitch and outer diameters, apex to crown, addendum, dedendum, face
+  and root angles, virtual teeth, toe scale, tooth at pitch and backlash. The
+  readout reads `δ 26.565° · R 67.082 · OD 67.218 · X 58.195`.
+- **Pair readout and rows** say `R` and *Cone distance* for a bevel pair.
+- **Candidates**: a bevel row's error is *R +0.03 mm*, an internal row adds
+  *clash 0.14 mm*, a crossed row starts *β45°/45°*.
+- **Preview** (`preview.layout_internal`, `preview.layout_bevel`): a pinion is
+  drawn inside its ring, the rim a plain circle, the pinion turned half its
+  pitch; a bevel gear is its axial section, both halves, with the pitch cone and
+  axis dashed, and a bevel pair is the two sections meeting at the apex with
+  gear B turned Σ, dimensioned `R 67.082 mm · Σ 90°`. A crossed pair is drawn as
+  a parallel one with `· Σ 90°` after the centre distance.
