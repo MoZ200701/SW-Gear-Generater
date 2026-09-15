@@ -444,7 +444,7 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
 # -- changing values in a built part ----------------------------------------
 
 
-STRUCTURAL = ("kind", "recipe", "hand")
+STRUCTURAL = ("kind", "recipe", "hand", "teeth_side")
 
 
 def structural_change(built: Mapping[str, str], wanted: Mapping[str, str]) -> str:
@@ -455,7 +455,9 @@ def structural_change(built: Mapping[str, str], wanted: Mapping[str, str]) -> st
     is not there.
     """
     for key in STRUCTURAL:
-        if str(built.get(key, "")) != str(wanted.get(key, "")):
+        # A record written before a key existed held its default: external teeth.
+        default = "external" if key == "teeth_side" else ""
+        if str(built.get(key, default) or default) != str(wanted.get(key, default) or default):
             return (f"The {key} changed from {built.get(key)!r} to {wanted.get(key)!r}; "
                     "build it again as a new part.")
 

@@ -57,6 +57,10 @@ GEAR_VARS = (
     ("fillet", "fillet"),
     ("helix_angle", "helix_angle"),
     ("hand", "hand"),
+    ("teeth_side", "teeth_side"),
+    ("rim", "rim"),
+    ("shaft_angle", "shaft_angle"),
+    ("mate_teeth", "mate_teeth"),
     ("name", "name"),
 )
 # Shared by both gears, or fixed in this version.
@@ -74,6 +78,10 @@ PAIR_VARS = (
     ("helix_angle", "pair_helix_angle"),
     ("helix_min", "helix_min"),
     ("helix_max", "helix_max"),
+    ("mesh", "mesh"),
+    ("shafts", "shafts"),
+    ("shaft_angle", "pair_shaft_angle"),
+    ("cone_distance", "cone_distance"),
     ("assembly_name", "assembly_name"),
 )
 PAIR_COMPOUND = ("gear_a", "gear_b")
@@ -150,6 +158,10 @@ class GearApp(ttk.Frame):
         self.pair_helix_angle = tk.StringVar(value=pair_defaults.helix_angle)
         self.helix_min = tk.StringVar(value=pair_defaults.helix_min)
         self.helix_max = tk.StringVar(value=pair_defaults.helix_max)
+        self.mesh = tk.StringVar(value=pair_defaults.mesh)
+        self.shafts = tk.StringVar(value=pair_defaults.shafts)
+        self.pair_shaft_angle = tk.StringVar(value=pair_defaults.shaft_angle)
+        self.cone_distance = tk.StringVar(value=pair_defaults.cone_distance)
         self.assembly_name = tk.StringVar(value=pair_defaults.assembly_name)
 
         self.out_folder = tk.StringVar(value=self.recent.folder)

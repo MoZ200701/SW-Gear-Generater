@@ -12,6 +12,10 @@ then the larger module, which is the stronger tooth.
 
 Profile shift, which would close a small centre-distance gap, is reserved for a
 later version; a gap is reported rather than hidden.
+
+An **internal** pair is a pinion inside a ring: the tooth *difference* is
+``2C / m``, the pinion ``S / (i − 1)``, and a row whose teeth would clash as they
+mesh is ranked after the clean ones, as an undercut row is.
 """
 
 from __future__ import annotations
@@ -21,8 +25,19 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import List, Optional, Tuple
 
-from ..spec import HAND_LEFT, HAND_RIGHT, HELICAL_KINDS, KIND_HERRINGBONE, KIND_SPUR, GearSpec, InputError, PairSpec
-from . import equations, helical, standards
+from ..spec import (
+    HAND_LEFT,
+    HAND_RIGHT,
+    HELICAL_KINDS,
+    KIND_HERRINGBONE,
+    KIND_SPUR,
+    MESH_EXTERNAL,
+    MESH_INTERNAL,
+    GearSpec,
+    InputError,
+    PairSpec,
+)
+from . import equations, helical, internal, standards
 from .base import AddComponent, AddGlobal, BuildPlan, Fix, LinkDimension, ManualStep, Mate, NewAssembly, Rebuild, SaveAs
 from .spur import AXIS_NAME, contact_ratio, undercut_minimum
 
@@ -48,16 +63,23 @@ class Candidate:
     contact_ratio: float
     helix_angle: float = 0.0  # degrees; 0 for a spur pair
     overlap: float = 0.0      # εβ, from gear A's face width; nan when it cannot be read
+    mesh: str = MESH_EXTERNAL
+    clash: float = 0.0        # mm the teeth of an internal pair run into each other; 0 when they clear
 
     @property
     def exact(self) -> bool:
         return abs(self.centre_error) <= TOLERANCE and self.ratio_error <= TOLERANCE
 
-    def rank(self) -> Tuple[bool, bool, bool, float, float, float, int]:
+    @property
+    def clashes(self) -> bool:
+        return self.clash > internal.CLASH_TOLERANCE
+
+    def rank(self) -> Tuple[bool, bool, bool, bool, float, float, float, int]:
         return (
             abs(self.centre_error) > TOLERANCE,
             not self.standard,
             self.undercut,
+            self.clashes,
             round(self.ratio_error, 12),
             -self.module,
             round(self.helix_angle, 9),   # the smaller helix, the less axial thrust
@@ -70,30 +92,40 @@ def floor_teeth(min_teeth: int) -> int:
 
 
 def describe(module: float, teeth_driver: int, teeth_driven: int,
-             pressure_angle: float = 20.0, helix_angle: float = 0.0) -> Tuple[float, float, float]:
+             pressure_angle: float = 20.0, helix_angle: float = 0.0,
+             mesh: str = MESH_EXTERNAL) -> Tuple[float, float, float]:
     """The other direction: ``(centre distance, ratio, contact ratio)`` of a pair.
 
     For a helical pair ``module`` and ``pressure_angle`` are the normal ones,
     the centre distance is ``mt (N1 + N2) / 2`` and the contact ratio is the
     transverse one, εα; the overlap εβ depends on the face width and is
-    :func:`helical.overlap_ratio`.
+    :func:`helical.overlap_ratio`. An internal pair's driven gear is the ring,
+    and its centre distance is ``mt (N2 − N1) / 2``.
     """
     mt = module / math.cos(math.radians(helix_angle))
-    centre = mt * (teeth_driver + teeth_driven) / 2.0
     alpha = helical.transverse_pressure_angle(pressure_angle, helix_angle) if helix_angle else pressure_angle
-    epsilon = contact_ratio(module, teeth_driver, teeth_driven, alpha, centre, transverse_module=mt)
+    if mesh == MESH_INTERNAL:
+        centre = mt * (teeth_driven - teeth_driver) / 2.0
+        epsilon = internal.contact_ratio(module, teeth_driver, teeth_driven, alpha, centre, transverse_module=mt)
+    else:
+        centre = mt * (teeth_driver + teeth_driven) / 2.0
+        epsilon = contact_ratio(module, teeth_driver, teeth_driven, alpha, centre, transverse_module=mt)
     return centre, teeth_driven / teeth_driver, epsilon
 
 
 def _candidate(module: float, n1: int, n2: int, centre: float, ratio: float, pressure_angle: float,
                min_teeth: int, standard: bool, helix_angle: float = 0.0,
-               face_width: Optional[float] = None) -> Candidate:
-    actual_centre, actual_ratio, epsilon = describe(module, n1, n2, pressure_angle, helix_angle)
+               face_width: Optional[float] = None, mesh: str = MESH_EXTERNAL) -> Candidate:
+    actual_centre, actual_ratio, epsilon = describe(module, n1, n2, pressure_angle, helix_angle, mesh)
     if helix_angle:
         limit = int(math.floor(helical.undercut_minimum(pressure_angle, helix_angle) + 0.5))
         overlap = helical.overlap_ratio(module, helix_angle, face_width) if face_width else math.nan
     else:
         limit, overlap = min_teeth, 0.0
+    clash = 0.0
+    if mesh == MESH_INTERNAL and n2 - n1 < internal.CLASH_CHECK_BELOW:
+        alpha = helical.transverse_pressure_angle(pressure_angle, helix_angle) if helix_angle else pressure_angle
+        clash = internal.tip_clash(module / math.cos(math.radians(helix_angle)), n1, n2, alpha)
     return Candidate(
         module=module,
         teeth_driver=n1,
@@ -103,10 +135,13 @@ def _candidate(module: float, n1: int, n2: int, centre: float, ratio: float, pre
         centre_distance=actual_centre,
         ratio_error=abs(actual_ratio - ratio) / ratio,
         centre_error=actual_centre - centre,
-        undercut=min(n1, n2) < limit,
+        # A ring is not generated by a rack: only its pinion can undercut.
+        undercut=(n1 if mesh == MESH_INTERNAL else min(n1, n2)) < limit,
         contact_ratio=epsilon,
         helix_angle=helix_angle,
         overlap=overlap,
+        mesh=mesh,
+        clash=clash,
     )
 
 
@@ -114,7 +149,7 @@ def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Opt
           series: str = standards.SERIES_1, min_teeth: int = 17, max_teeth: int = 200,
           limit: int = DEFAULT_LIMIT, kind: str = KIND_SPUR, helix_angle: Optional[float] = None,
           helix_range: Tuple[float, float] = helical.DEFAULT_RANGE[helical.KIND_HELICAL],
-          face_width: Optional[float] = None) -> List[Candidate]:
+          face_width: Optional[float] = None, mesh: str = MESH_EXTERNAL) -> List[Candidate]:
     """Every candidate worth listing, best first.
 
     For the helical kinds ``module`` and ``pressure_angle`` are normal, and
@@ -123,7 +158,13 @@ def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Opt
     place of ``2C``. Left ``None``, every whole tooth sum whose helix angle
     lands inside ``helix_range`` is tried, and each such row meets the centre
     distance exactly: the helix angle is what takes up the difference.
+
+    ``mesh`` internal makes the driven gear a ring round the driver: the ratio
+    must then be more than one.
     """
+    if mesh == MESH_INTERNAL:
+        return _solve_internal(centre, ratio, pressure_angle, module, series, min_teeth, max_teeth, limit,
+                               kind, helix_angle, helix_range, face_width)
     if kind in HELICAL_KINDS:
         return _solve_helical(centre, ratio, pressure_angle, module, series, min_teeth, max_teeth, limit,
                               helix_angle, helix_range, face_width)
@@ -229,8 +270,96 @@ def _solve_helical(centre: float, ratio: float, pressure_angle: float, module: O
     return ranked[:limit]
 
 
+def _solve_internal(centre: float, ratio: float, pressure_angle: float, module: Optional[float], series: str,
+                    min_teeth: int, max_teeth: int, limit: int, kind: str, helix_angle: Optional[float],
+                    helix_range: Tuple[float, float], face_width: Optional[float]) -> List[Candidate]:
+    """A pinion inside a ring: every whole tooth difference ``S`` near ``2C cos β / m``, the pinion at ``S / (i − 1)``."""
+    if centre <= 0:
+        raise InputError("Centre distance must be more than zero.")
+    if ratio <= 1.0:
+        raise InputError(f"An internal pair's ring is the bigger gear, so the ratio must be more than one "
+                         f"(got {ratio:g}); type it as 3, or 3:1.")
+    helical_kind = kind in HELICAL_KINDS
+    if helical_kind and helix_angle is not None and not 0.0 < helix_angle <= helical.HELIX_MAX:
+        raise InputError(f"Helix angle must be more than 0° and at most {helical.HELIX_MAX:g}° (got {helix_angle:g}°).")
+    floor = floor_teeth(min_teeth)
+    if max_teeth < floor:
+        raise InputError(f"Max teeth ({max_teeth}) is below the smallest gear the solver offers ({floor}).")
+    allowed = (float(module),) if module is not None else standards.modules(series)
+    found = {}
+
+    def offer(m: float, n1: int, n2: int, standard: bool, beta: float) -> None:
+        if not (floor <= n1 and n1 < n2 <= max_teeth):
+            return
+        key = (round(m, 9), n1, n2, round(beta, 9))
+        if key not in found:
+            found[key] = _candidate(m, n1, n2, centre, ratio, pressure_angle, min_teeth, standard, beta, face_width,
+                                    MESH_INTERNAL)
+
+    def splits(difference: int):
+        middle = int(math.floor(difference / (ratio - 1.0) + 0.5))
+        return ((n1, n1 + difference) for n1 in (middle - 1, middle, middle + 1))
+
+    if not helical_kind or helix_angle is not None:
+        beta = helix_angle if helical_kind else 0.0
+        cos_beta = math.cos(math.radians(beta))
+        for m in allowed:
+            total = 2.0 * centre * cos_beta / m
+            for s in sorted({int(math.floor(total + TOLERANCE)), int(math.ceil(total - TOLERANCE))}):
+                if s < 1:
+                    continue
+                for n1, n2 in splits(s):
+                    offer(m, n1, n2, module is None or standards.is_standard(m), beta)
+        if module is None:
+            exact = Fraction(ratio).limit_denominator(max_teeth)
+            p, q = exact.numerator, exact.denominator
+            k = 1
+            while k * p <= max_teeth:
+                n1, n2 = k * q, k * p
+                m_star = 2.0 * centre * cos_beta / (n2 - n1)
+                if not any(abs(m_star - m) <= TOLERANCE for m in allowed):
+                    offer(m_star, n1, n2, False, beta)
+                k += 1
+    else:
+        low, high = helix_range
+        if not 0.0 < low <= high <= helical.HELIX_MAX:
+            raise InputError(f"The helix range must run upward from above 0° to at most {helical.HELIX_MAX:g}° "
+                             f"(got {low:g} to {high:g}).")
+        for m in allowed:
+            first = int(math.ceil(2.0 * centre * math.cos(math.radians(high)) / m - TOLERANCE))
+            last = int(math.floor(2.0 * centre * math.cos(math.radians(low)) / m + TOLERANCE))
+            for s in range(max(first, 1), last + 1):
+                beta = math.degrees(math.acos(min(1.0, m * s / (2.0 * centre))))
+                for n1, n2 in splits(s):
+                    offer(m, n1, n2, module is None or standards.is_standard(m), beta)
+
+    ranked = sorted(found.values(), key=Candidate.rank)
+    return ranked[:limit]
+
+
 def solve_spec(pair: PairSpec) -> List[Candidate]:
     kind = pair.gear_a.kind
+    mesh = pair.mesh_value()
+    if mesh == MESH_INTERNAL:
+        try:
+            width: Optional[float] = pair.gear_a.face_width_mm()
+        except InputError:
+            width = None
+        helical_kind = kind in HELICAL_KINDS
+        return solve(
+            centre=pair.centre_distance_mm(),
+            ratio=pair.ratio_value(),
+            pressure_angle=pair.gear_a.pressure_angle_deg(),
+            module=pair.module_mm(),
+            series=pair.series or standards.SERIES_1,
+            min_teeth=pair.min_teeth_count(),
+            max_teeth=pair.max_teeth_count(),
+            kind=kind,
+            helix_angle=pair.helix_angle_deg() if helical_kind else None,
+            helix_range=pair.helix_range(helical.DEFAULT_RANGE[kind]) if helical_kind else (8.0, 25.0),
+            face_width=width,
+            mesh=MESH_INTERNAL,
+        )
     if kind in HELICAL_KINDS:
         try:
             width: Optional[float] = pair.gear_a.face_width_mm()
@@ -262,13 +391,14 @@ def solve_spec(pair: PairSpec) -> List[Candidate]:
 
 def apply(candidate: Candidate, gear_a: GearSpec, gear_b: GearSpec) -> Tuple[GearSpec, GearSpec]:
     """Write module and teeth into both gears — and for a helical pair the helix angle, and
-    gear B the other hand from gear A — and touch nothing else."""
+    gear B the other hand from gear A (the same hand, round a ring) — and touch nothing else."""
     module = equations.literal(round(candidate.module, 6))
     a = gear_a.with_values(module=module, teeth=str(candidate.teeth_driver))
     b = gear_b.with_values(module=module, teeth=str(candidate.teeth_driven))
     if candidate.helix_angle:
         beta = equations.literal(round(candidate.helix_angle, 6))
-        other = HAND_LEFT if str(gear_a.hand).strip().lower() == HAND_RIGHT else HAND_RIGHT
+        same = str(gear_a.hand).strip().lower()
+        other = same if candidate.mesh == MESH_INTERNAL else (HAND_LEFT if same == HAND_RIGHT else HAND_RIGHT)
         a = a.with_values(helix_angle=beta)
         b = b.with_values(helix_angle=beta, hand=other)
     return a, b
@@ -295,8 +425,21 @@ def mate_angle(teeth_driven: int) -> float:
     return mesh_angle(teeth_driven) or 360.0 / teeth_driven
 
 
-def _helix_for_pair(gear_a: GearSpec, gear_b: GearSpec) -> float:
-    """The pair's helix angle, 0 for spur, refusing gears that would not mesh on parallel shafts."""
+def internal_mesh_angle(pinion_teeth: int) -> float:
+    """How far a pinion inside a ring turns so a tooth faces the ring's space, in degrees.
+
+    The ring sits at the origin with a tooth space centred on +X, and the pinion
+    at +X inside it meshes on its own +X side, where it too was built with a
+    space: half a tooth pitch turns a tooth there, whatever its count.
+    """
+    return 180.0 / pinion_teeth
+
+
+def _helix_for_pair(gear_a: GearSpec, gear_b: GearSpec, same_hand: bool = False) -> float:
+    """The pair's helix angle, 0 for spur, refusing gears that would not mesh on parallel shafts.
+
+    Round a ring (``same_hand``) the two hands are the same; outside, opposite.
+    """
     if gear_a.kind != gear_b.kind:
         raise InputError(f"Both gears of a pair must be the same kind (got {gear_a.kind} and {gear_b.kind}).")
     if gear_a.kind not in HELICAL_KINDS:
@@ -305,7 +448,10 @@ def _helix_for_pair(gear_a: GearSpec, gear_b: GearSpec) -> float:
     if abs(beta_a - beta_b) > 1e-9:
         raise InputError(f"Helical gears on parallel shafts mesh only with the same helix angle "
                          f"(got {beta_a:g}° and {beta_b:g}°).")
-    if gear_a.hand_value() == gear_b.hand_value():
+    if same_hand and gear_a.hand_value() != gear_b.hand_value():
+        raise InputError(f"A helical pinion meshes inside a ring only with the same hand "
+                         f"(got {gear_a.hand_value()} and {gear_b.hand_value()}).")
+    if not same_hand and gear_a.hand_value() == gear_b.hand_value():
         raise InputError(f"Helical gears on parallel shafts mesh only with opposite hands; both are {gear_a.hand_value()}.")
     return beta_a
 
@@ -331,11 +477,23 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
     if abs(gear_b.module_mm() - module) > 1e-9:
         raise InputError(f"Two gears only mesh with the same module (got {gear_a.module.strip()} and "
                          f"{gear_b.module.strip()}).")
+    if gear_a.is_internal():
+        raise InputError("Gear A is the pinion of a pair, so its teeth must be external; make gear B the ring.")
+    ring = gear_b.is_internal()
     n1, n2 = gear_a.teeth_count(), gear_b.teeth_count()
-    beta = _helix_for_pair(gear_a, gear_b)
-    # From the helix angle the parts hold, so the mate is where their teeth are.
-    centre = module / math.cos(math.radians(beta)) * (n1 + n2) / 2.0
-    angle = mate_angle(n2)
+    beta = _helix_for_pair(gear_a, gear_b, same_hand=ring)
+    mt = module / math.cos(math.radians(beta))
+    if ring:
+        if n2 <= n1:
+            raise InputError(f"A ring must have more teeth than the pinion inside it (got {n2} round {n1}).")
+        # The ring is fixed at the origin and the pinion goes inside it on +X.
+        centre = mt * (n2 - n1) / 2.0
+        angle = internal_mesh_angle(n1)
+        path_a, path_b = path_b, path_a
+    else:
+        # From the helix angle the parts hold, so the mate is where their teeth are.
+        centre = mt * (n1 + n2) / 2.0
+        angle = mate_angle(n2)
     name = f'"{CENTRE_DISTANCE}"'
     # A herringbone's apexes must line up whatever the two face widths are, so
     # its mid-planes are mated; a helical pair's sections both sit one (shared)
@@ -364,6 +522,7 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
 
 
 __all__ = [
-    "Candidate", "apply", "assembly_plan", "describe", "floor_teeth", "mate_angle", "mesh_angle", "solve",
+    "Candidate", "apply", "assembly_plan", "describe", "floor_teeth", "internal_mesh_angle", "mate_angle", "mesh_angle",
+    "solve",
     "solve_spec", "undercut_minimum",
 ]

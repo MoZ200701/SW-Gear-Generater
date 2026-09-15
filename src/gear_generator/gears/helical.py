@@ -218,6 +218,10 @@ def overlap_ratio(module: float, helix_deg: float, face_width: float) -> float:
 class HelicalGear:
     kind = KIND_HELICAL
     recipes = spur.RECIPES
+    # What an internal gear of the same kind changes, in :mod:`gears.internal`.
+    internal = False
+    fillet_factor = FILLET_FACTOR
+    has_bore_global = True
 
     @property
     def default_recipe(self) -> str:
@@ -227,7 +231,7 @@ class HelicalGear:
         return spec.recipe_or(self.default_recipe)
 
     def _errors(self, spec: GearSpec) -> List[Diagnostic]:
-        out = spur.field_errors(spec, self.kind)
+        out = spur.field_errors(spec, self.kind, internal=self.internal)
         try:
             beta = spec.helix_angle_deg()
         except InputError as exc:
@@ -258,9 +262,9 @@ class HelicalGear:
         typed_fillet = spec.fillet_mm()
         j = BACKLASH_FACTOR * mn if typed_backlash is None else typed_backlash
         width = spec.face_width_mm()
-        section = spur.profile(
-            spec.teeth_count(), mn, transverse_pressure_angle(normal, beta), width, spec.bore_mm(), j,
-            FILLET_FACTOR * mn if typed_fillet is None else typed_fillet,
+        section = self._section(
+            spec, spec.teeth_count(), mn, transverse_pressure_angle(normal, beta), width, j,
+            self.fillet_factor * mn if typed_fillet is None else typed_fillet,
             backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
             transverse_module=mt, transverse_backlash=j / cos_beta,
         )
@@ -270,8 +274,55 @@ class HelicalGear:
             section=section, kind=self.kind, helix_angle_deg=beta, hand=spec.hand_value(),
             normal_pressure_angle_deg=normal, transverse_module=mt, lead=lead, overrun=mn,
             path_length=path, twist_deg=path * 360.0 / lead,
-            overlap=overlap_ratio(mn, beta, width), n_min=undercut_minimum(normal, beta),
+            overlap=overlap_ratio(mn, beta, width), n_min=self._n_min(normal, beta),
         )
+
+    # -- what an internal gear overrides ----------------------------------
+
+    def _section(self, spec: GearSpec, teeth: int, module: float, pressure_angle: float, width: float,
+                 backlash: float, fillet: float, **extra: Any) -> SpurDerived:
+        return spur.profile(teeth, module, pressure_angle, width, spec.bore_mm(), backlash, fillet, **extra)
+
+    def _n_min(self, normal: float, beta: float) -> float:
+        return undercut_minimum(normal, beta)
+
+    def _section_diagnostics(self, section: Any, recipe: str, undercut_limit: int) -> List[Diagnostic]:
+        return spur.section_diagnostics(section, recipe, undercut_limit)
+
+    def _section_variables(self, spec: GearSpec, g: "HelicalDerived", beta_rad: str) -> List[GlobalVariable]:
+        """From ``"Outer Diameter"`` to the end of the section's globals."""
+        s = g.section
+        beta = _q(HELIX_ANGLE)
+        backlash = equations.literal(s.backlash) if s.backlash_typed else f"{BACKLASH_FACTOR} * {_q(MODULE)}"
+        fillet = equations.literal(s.fillet) if s.fillet_typed else f"{FILLET_FACTOR} * {_q(MODULE)}"
+        tm = _q(TRANSVERSE_MODULE)
+        return [
+            GlobalVariable(OUTER, f"{_q(TEETH)} * {tm} + 2 * {_q(MODULE)}"),
+            GlobalVariable(PITCH, f"{_q(TEETH)} * {tm}"),
+            GlobalVariable(BACKLASH, backlash),
+            GlobalVariable(ARC_LENGTH, f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta} ) )",
+                           f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta_rad} ) )"),
+            GlobalVariable(FILLET, fillet),
+            GlobalVariable(DEPTH, f"IIF ( {_q(MODULE)} <= 1.25 , {_q(MODULE)} * 2.4 , {_q(MODULE)} * 2.25 )"),
+            GlobalVariable(FACE_WIDTH, equations.literal(s.face_width)),
+            *spur.profile_variables(TRANSVERSE_PRESSURE_ANGLE, TRANSVERSE_MODULE),
+        ]
+
+    def _section_outline(self, spec: GearSpec, section: Any, recipe: str) -> List[Point2]:
+        return spur.SpurGear().outline(spec, section, recipe)
+
+    def _blank_ops(self, section: Any) -> List[Op]:
+        return spur._blank_ops(section)  # noqa: SLF001
+
+    def _space_ops(self, section: Any, recipe: str, plane: str) -> List[Op]:
+        return spur.space_ops(section, recipe, plane=plane)
+
+    def _bore_ops(self, spec: GearSpec, section: Any) -> List[Op]:
+        return spur._bore_ops(section) if spec.has_bore() else []  # noqa: SLF001
+
+    @property
+    def plan_kind(self) -> str:
+        return self.kind
 
     # -- checking --------------------------------------------------------
 
@@ -284,7 +335,7 @@ class HelicalGear:
         except InputError as exc:
             return [Diagnostic(ERROR, str(exc), "recipe")]
         g = derived if derived is not None else self.derive(spec)
-        out = spur.section_diagnostics(g.section, recipe, g.undercut_limit)
+        out = self._section_diagnostics(g.section, recipe, g.undercut_limit)
         if any(d.is_error for d in out):
             return out
         low, high = USUAL_RANGE[self.kind]
@@ -315,28 +366,17 @@ class HelicalGear:
         beta, beta_rad = f"{_q(HELIX_ANGLE)}", f"{_q(HELIX_ANGLE)} * pi / 180"
         alpha, alpha_rad = f"{_q(PRESSURE_ANGLE)}", f"{_q(PRESSURE_ANGLE)} * pi / 180"
         atn = findings.INVERSE_TANGENT
-        backlash = equations.literal(s.backlash) if s.backlash_typed else f"{BACKLASH_FACTOR} * {_q(MODULE)}"
-        fillet = equations.literal(s.fillet) if s.fillet_typed else f"{FILLET_FACTOR} * {_q(MODULE)}"
-        tm = _q(TRANSVERSE_MODULE)
         out = [
             GlobalVariable(TEETH, equations.literal(s.teeth)),
             GlobalVariable(MODULE, equations.literal(s.module)),
-            GlobalVariable(BORE, equations.literal(s.bore)),
+            *([GlobalVariable(BORE, equations.literal(s.bore))] if self.has_bore_global else []),
             GlobalVariable(PRESSURE_ANGLE, equations.literal(g.normal_pressure_angle_deg)),
             GlobalVariable(HELIX_ANGLE, equations.literal(g.helix_angle_deg)),
             GlobalVariable(TRANSVERSE_MODULE, f"{_q(MODULE)} / cos ( {beta} )", f"{_q(MODULE)} / cos ( {beta_rad} )"),
             # atn answers in the document's angle unit; the radian form turns it back into degrees.
             GlobalVariable(TRANSVERSE_PRESSURE_ANGLE, f"{atn} ( tan ( {alpha} ) / cos ( {beta} ) )",
                            f"{atn} ( tan ( {alpha_rad} ) / cos ( {beta_rad} ) ) * 180 / pi"),
-            GlobalVariable(OUTER, f"{_q(TEETH)} * {tm} + 2 * {_q(MODULE)}"),
-            GlobalVariable(PITCH, f"{_q(TEETH)} * {tm}"),
-            GlobalVariable(BACKLASH, backlash),
-            GlobalVariable(ARC_LENGTH, f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta} ) )",
-                           f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta_rad} ) )"),
-            GlobalVariable(FILLET, fillet),
-            GlobalVariable(DEPTH, f"IIF ( {_q(MODULE)} <= 1.25 , {_q(MODULE)} * 2.4 , {_q(MODULE)} * 2.25 )"),
-            GlobalVariable(FACE_WIDTH, equations.literal(s.face_width)),
-            *spur.profile_variables(TRANSVERSE_PRESSURE_ANGLE, TRANSVERSE_MODULE),
+            *self._section_variables(spec, g, beta_rad),
             GlobalVariable(LEAD, f"pi * {_q(PITCH)} / tan ( {beta} )", f"pi * {_q(PITCH)} / tan ( {beta_rad} )"),
             GlobalVariable(OVERRUN, _q(MODULE)),
         ]
@@ -355,7 +395,7 @@ class HelicalGear:
 
     def outline(self, spec: GearSpec, derived: HelicalDerived, recipe: str = "") -> List[Point2]:
         """The transverse section's outline, closed and counter-clockwise, in mm."""
-        return spur.SpurGear().outline(spec, derived.section, recipe or self.recipe_for(spec))
+        return self._section_outline(spec, derived.section, recipe or self.recipe_for(spec))
 
     # -- building --------------------------------------------------------
 
@@ -371,7 +411,7 @@ class HelicalGear:
         ops.extend(AddGlobal(v.name, v.expression, v.radian_expression) for v in self.variables(spec, g))
         ops.append(Axis("axis", AXIS_NAME, (2, 3)))
 
-        blank = spur._blank_ops(s)  # noqa: SLF001 - the same blank, half as deep for a herringbone
+        blank = self._blank_ops(s)  # the same blank, half as deep for a herringbone
         if herringbone:
             blank = [
                 replace(op, depth=width / 2.0) if isinstance(op, Extrude)
@@ -392,7 +432,7 @@ class HelicalGear:
             ops.append(LinkDimension(f"Offset@{PROFILE_PLANE}", _q(OVERRUN)))
             lead_in, lead_global = "Lead In", OVERRUN
 
-        ops.extend(spur.space_ops(s, recipe, plane="plane"))
+        ops.extend(self._space_ops(s, recipe, "plane"))
         ops.extend(_path_ops(z_section, z_end, lead_in, lead_global))
         ops.append(SweepCut("space_cut", "space", "path", SPACE, g.twist_deg,
                             reverse=_reverse_for(g.hand_sign, z_end > z_section)))
@@ -401,13 +441,12 @@ class HelicalGear:
         ops.append(LinkDimension(f"Count@{TEETH_PATTERN}", _q(TEETH)))
         if herringbone:
             ops.append(MirrorBody("mirror", MIRROR, "plane"))
-        if spec.has_bore():
-            ops.extend(spur._bore_ops(s))  # noqa: SLF001
+        ops.extend(self._bore_ops(spec, s))
         part = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0] if path else spec.stem()
         ops.append(ManualStep("material", f"Assign a material to {part}; the build leaves it unset."))
         ops.append(Rebuild())
         ops.append(SaveAs(path))
-        return BuildPlan(kind=self.kind, recipe=recipe, ops=tuple(ops), path=path)
+        return BuildPlan(kind=self.plan_kind, recipe=recipe, ops=tuple(ops), path=path)
 
 
 class HerringboneGear(HelicalGear):

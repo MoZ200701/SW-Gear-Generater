@@ -773,8 +773,12 @@ def profile_variables(pressure_angle: str = PRESSURE_ANGLE, circular_module: str
     ]
 
 
-def field_errors(spec: GearSpec, kind: str = KIND) -> List[Diagnostic]:
-    """The fields every kind shares that stop a gear being worked out at all."""
+def field_errors(spec: GearSpec, kind: str = KIND, internal: bool = False) -> List[Diagnostic]:
+    """The fields every kind shares that stop a gear being worked out at all.
+
+    ``internal`` says which side of the rim the calculation puts the teeth; a
+    form saying the other is refused, so a ring is never worked out as a pinion.
+    """
     out: List[Diagnostic] = []
 
     def read(field: str, reader):
@@ -786,6 +790,11 @@ def field_errors(spec: GearSpec, kind: str = KIND) -> List[Diagnostic]:
 
     if spec.kind != kind:
         out.append(Diagnostic(ERROR, f"This is a {kind} gear's calculation, and the form says {spec.kind!r}.", "kind"))
+    side = read("teeth_side", spec.teeth_side_value)
+    if side is not None and (side == "internal") != internal:
+        out.append(Diagnostic(ERROR, (
+            f"This is an {'internal' if internal else 'external'} gear's calculation, and the form says "
+            f"its teeth are {side}."), "teeth_side"))
     m = read("module", spec.module_mm)
     if m is not None and m <= 0:
         out.append(Diagnostic(ERROR, f"Module must be more than zero (got {spec.module.strip()!r}).", "module"))
