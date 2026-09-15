@@ -11,16 +11,20 @@ Nothing here touches tkinter, and nothing here holds state.
 from __future__ import annotations
 
 import math
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .gears import pair as pairs
+from .gears import pair as pairs, standards
 from .gears.base import Diagnostic
 from .gears.equations import literal
-from .spec import MODE_PAIR, RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError
+from .spec import MODE_PAIR, RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError, PairSpec, pair_stems
 
 RECIPE_WORDS = {RECIPE_INVOLUTE: "involute curve", RECIPE_ARCS: "arc flanks"}
 RECIPE_LABELS = {RECIPE_INVOLUTE: "Involute", RECIPE_ARCS: "Arcs"}
 KIND_LABELS = {"spur": "Spur", "bevel": "Bevel", "helical": "Helical", "internal": "Internal"}
+SERIES_LABELS = {standards.SERIES_1: "Series 1", standards.SERIES_1_2: "1 + 2", standards.SERIES_ALL: "+ fine"}
+
+# What a readout says when the gear it stands for does not work out yet.
+CHECK_THE_FIELDS = "check the fields"
 
 
 def _n(value: float, places: int = 3) -> str:
@@ -42,7 +46,7 @@ def gear_readout(spec: GearSpec) -> str:
         n = spec.teeth_count()
         alpha = spec.pressure_angle_deg()
     except InputError:
-        return "check the fields"
+        return CHECK_THE_FIELDS
     return f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · PD {_n(m * n)} mm"
 
 
@@ -92,6 +96,26 @@ def pair_readout(centre: str, ratio: str, chosen: Optional["pairs.Candidate"] = 
     return " · ".join(parts) or "centre distance and ratio"
 
 
+def pair_derived_readout(centre: float, ratio: float, epsilon: float) -> str:
+    """``C 60 mm · i 3 · contact ratio 1.671`` — the Derived panel's readout in pair mode.
+
+    The three numbers are the pair's own, from :func:`pairs.describe`: the
+    centre distance the teeth make, the ratio they turn at, and how many teeth
+    are in contact on average. The per-gear sizes are in the table below it.
+    """
+    return f"C {_n(centre)} mm · i {_n(ratio)} · contact ratio {contact_ratio_text(epsilon)}"
+
+
+def pair_derived_rows(centre: float, ratio: float, epsilon: float,
+                      teeth_driver: int, teeth_driven: int) -> List[Tuple[str, str]]:
+    """The three rows above the per-gear columns in Derived."""
+    return [
+        ("Centre distance", f"{_n(centre)} mm"),
+        ("Ratio", f"{_n(ratio)} · {teeth_driver} : {teeth_driven}"),
+        ("Contact ratio", contact_ratio_text(epsilon)),
+    ]
+
+
 def candidate_row(candidate: "pairs.Candidate") -> Tuple[str, str, str, str]:
     """``(MODULE, TEETH, ERROR, tag)`` for one row of the candidate list.
 
@@ -110,13 +134,22 @@ def candidate_row(candidate: "pairs.Candidate") -> Tuple[str, str, str, str]:
     return module, teeth, text, "exact" if candidate.exact else "near"
 
 
-def solve_summary(candidates: Sequence["pairs.Candidate"]) -> str:
-    """``12 candidates · 3 exact``."""
+def solve_summary(candidates: Sequence["pairs.Candidate"],
+                  chosen: Optional["pairs.Candidate"] = None) -> str:
+    """``64 candidates · 3 exact``, and the chosen row once there is one.
+
+    ``64 candidates · 3 exact · m1.5 20 : 60 chosen``. The Pair panel and the
+    flyout show the same line, so the strip still says what was picked with the
+    candidates hidden.
+    """
     if not candidates:
         return "No pair of whole tooth counts fits; widen the series or Min teeth."
     exact = sum(1 for c in candidates if c.exact and c.standard and not c.undercut)
     noun = "candidate" if len(candidates) == 1 else "candidates"
-    return f"{len(candidates)} {noun} · {exact} exact"
+    text = f"{len(candidates)} {noun} · {exact} exact"
+    if chosen is not None:
+        text += f" · m{_n(chosen.module, 4)} {chosen.teeth_driver} : {chosen.teeth_driven} chosen"
+    return text
 
 
 def output_readout(folder: str, limit: int = 38) -> str:
@@ -167,6 +200,180 @@ def manual_steps_line(steps: Iterable[str]) -> str:
         return ""
     noun = "thing" if len(listed) == 1 else "things"
     return f"{len(listed)} {noun} to do by hand: " + "; ".join(s.rstrip(".") for s in listed) + "."
+
+
+# ------------------------------------------- what the number being typed means
+#
+# One card at the foot of the panel holding the caret. The name, the symbol and
+# the sentences are fixed copy; the worked line is derived text like every
+# readout, so it changes as the form does.
+
+# The fields with a card, in the order they are on the form.
+GEAR_EXPLAINERS = ("module", "teeth", "pressure_angle", "face_width", "bore", "backlash", "fillet", "name")
+PAIR_EXPLAINERS = ("centre_distance", "ratio", "pair_module", "series", "teeth_range", "assembly_name")
+EXPLAINER_FIELDS = GEAR_EXPLAINERS + PAIR_EXPLAINERS
+
+# (name, symbol, what it is). The symbol is what the diagram beside it marks.
+_EXPLAINER_COPY: Dict[str, Tuple[str, str, str]] = {
+    "module": ("Module", "m",
+               "Tooth size, in mm: the pitch diameter divided by the number of teeth. A bigger module means "
+               "bigger, stronger teeth and fewer of them for the same diameter. Two gears mesh only if their "
+               "modules match."),
+    "teeth": ("Teeth", "z",
+              "How many teeth go round the gear. With the module it sets the size, PD = m × z, and the ratio "
+              "between two gears is the ratio of their tooth counts. Fewer than 17 undercuts the root at 20°."),
+    "pressure_angle": ("Pressure angle", "α",
+                       "The slant of the flank: the angle between the line along which the teeth push on each "
+                       "other and the tangent to the pitch circle. 20° is the standard; 14.5° runs quieter but "
+                       "undercuts sooner, 25° is stronger but loads the bearings more. Meshing gears must "
+                       "share it."),
+    "face_width": ("Face width", "b",
+                   "How thick the gear is along its axis: the depth it is extruded. Wider carries more load; "
+                   "6 to 12 × module is usual for a spur gear."),
+    "bore": ("Bore", "",
+             "The hole through the centre for the shaft. Blank makes a solid disc. Leave a rim between the "
+             "bore and the root circle: the form warns under one module, and two to three is usual."),
+    "backlash": ("Backlash", "j",
+                 "How much each tooth is thinned at the pitch circle so the pair does not bind: the space "
+                 "grows by this and the tooth shrinks by it, on both gears, so the play in the mesh is twice "
+                 "the number. Blank uses 0.3 × module, the default the equations carry; ISO asks 0.02–0.05 × m "
+                 "for a precise pair."),
+    "fillet": ("Fillet", "ρ",
+               "The radius where each flank meets the root circle. It rounds off the sharp inside corner where "
+               "a tooth would otherwise crack. Blank uses 0.38 × module."),
+    "name": ("Name", "",
+             "The file the part is saved as, without .SLDPRT. Blank uses the name shown, built from module and "
+             "teeth; in a pair the smaller gear is the pinion."),
+    "centre_distance": ("Centre distance", "C",
+                        "Shaft to shaft, centre to centre. Standard gears sit at C = m (z₁ + z₂) / 2, their "
+                        "pitch circles touching, so C fixes how many teeth the pair has between them once a "
+                        "module is chosen."),
+    "ratio": ("Ratio", "i",
+              "Turns of the driver for one turn of the driven gear, z₂ / z₁. 3 or 3:1 makes the second gear "
+              "three times the first; 1:3 makes it a third."),
+    "pair_module": ("Module", "m",
+                    "Pin the module the solver may use, or leave it blank to try every standard one in the "
+                    "chosen series."),
+    "series": ("Series", "",
+               "Which standard modules the solver tries. Series 1 is the preferred set (1, 1.25, 1.5, 2, "
+               "2.5 …); 1 + 2 adds the in-between sizes (1.125, 1.375 …); + fine adds 0.5, 0.6, 0.7, 0.8 and "
+               "0.9 for small gears."),
+    "teeth_range": ("Teeth", "min to max",
+                    "The tooth counts the solver may give either gear. Below 17 a 20° pinion undercuts; the "
+                    "maximum keeps the list short."),
+    "assembly_name": ("Assembly name", "",
+                      "The file the assembly is saved as, without .SLDASM. Blank uses the name shown, built "
+                      "from the module and both tooth counts."),
+}
+
+
+def explainer(field: str, derived, stem: str = "", pair: Optional[PairSpec] = None,
+              folder: str = "") -> Tuple[str, str, str, str]:
+    """``(name, symbol, what it is, the worked line)`` for one field of the form.
+
+    ``derived`` is the :class:`spur.SpurDerived` of the gear the caret is in and
+    ``pair`` the :class:`PairSpec` the solver's own fields are worked out from;
+    ``stem`` is the name the part would be saved as and ``folder`` the output
+    folder, both of which the Name lines quote. A gear that does not work out —
+    ``derived`` ``None``, or a solver field the form cannot yet be read for —
+    says ``check the fields``, exactly as the gear readout does, rather than
+    showing a number that is about to change.
+
+    The sentences are fixed copy; the worked line is derived text, so the card
+    is filled in again on every re-derive and not only when the caret moves.
+    """
+    try:
+        name, symbol, what = _EXPLAINER_COPY[field]
+    except KeyError:
+        raise ValueError(
+            f"There is no explainer for a field called {field!r}; the fields with one are "
+            f"{', '.join(EXPLAINER_FIELDS)}."
+        ) from None
+    return name, symbol, what, _worked_line(field, derived, stem, pair, folder)
+
+
+def _in(folder: str) -> str:
+    """`` in D:\\Gears`` — nothing at all until a folder is chosen."""
+    return f" in {folder.strip()}" if folder.strip() else ""
+
+
+def _worked_line(field: str, derived, stem: str, pair: Optional[PairSpec], folder: str) -> str:
+    if derived is None:
+        return CHECK_THE_FIELDS
+    try:
+        if field in PAIR_EXPLAINERS:
+            if pair is None:
+                return CHECK_THE_FIELDS
+            return _pair_worked(field, derived, pair, folder)
+        return _gear_worked(field, derived, stem, folder)
+    except (InputError, ValueError, ZeroDivisionError):
+        return CHECK_THE_FIELDS
+
+
+def _gear_worked(field: str, g, stem: str, folder: str) -> str:
+    if field == "module":
+        return (f"m {_n(g.module)} × z {g.teeth} = PD {_n(g.d)} mm · tooth depth {_n(g.h)} · "
+                f"circular pitch {_n(g.p)}")
+    if field == "teeth":
+        undercut = "undercut" if g.undercut else f"no undercut ({g.undercut_limit} or more)"
+        return f"z {g.teeth} → PD {_n(g.d)} mm · OD {_n(g.da)} mm · {undercut}"
+    if field == "pressure_angle":
+        return (f"{_n(g.pressure_angle_deg, 2)}° → base diameter {_n(g.db)} mm · "
+                f"undercut below {g.undercut_limit} teeth")
+    if field == "face_width":
+        return f"{_n(g.face_width)} mm = {_n(g.face_width / g.module, 1)} × module"
+    if field == "bore":
+        if g.bore <= 0:
+            return "blank → a solid disc, no bore feature"
+        return f"{_n(g.bore)} mm → rim {_n((g.df - g.bore) / 2)} mm to the root circle"
+    if field == "backlash":
+        # The equations thin the tooth by j and widen the space by j on both
+        # gears, so what a mesh actually has to play with is 2 j.
+        blank = "" if g.backlash_typed else "blank → "
+        default = "" if g.backlash_typed else " (0.3 m)"
+        return (f"{blank}{_n(g.backlash)} mm{default} · tooth {_n(g.s)} · space {_n(g.space)} · "
+                f"play in the mesh {_n(2 * g.backlash)}")
+    if field == "fillet":
+        blank = "" if g.fillet_typed else "blank → "
+        default = "" if g.fillet_typed else " (0.38 m)"
+        return f"{blank}{_n(g.fillet)} mm{default}"
+    if field == "name":
+        return f"{stem}.SLDPRT{_in(folder)}"
+    raise ValueError(f"There is no worked line for a gear field called {field!r}.")
+
+
+def _pair_worked(field: str, g, pair: PairSpec, folder: str) -> str:
+    if field == "centre_distance":
+        centre = pair.centre_distance_mm()
+        # The gear's own module first, then the two standard ones below it: the
+        # same centre distance buys more teeth as the module comes down.
+        smaller = [m for m in standards.modules(pair.series or standards.SERIES_1) if m < g.module - 1e-9]
+        tried = [g.module] + sorted(smaller, reverse=True)[:2]
+        sums = " · ".join(f"{int(round(2 * centre / m))} at m {_n(m)}" for m in tried)
+        return f"{_n(centre)} mm → z₁ + z₂ = {sums}"
+    if field == "ratio":
+        wanted = pair.ratio.strip() or _n(pair.ratio_value())
+        return f"{wanted} → {pair.gear_a.teeth_count()} : {pair.gear_b.teeth_count()}"
+    if field == "pair_module":
+        pinned = pair.module_mm()
+        if pinned is not None:
+            return f"m {_n(pinned)} → the solver tries only this module"
+        allowed = standards.modules(pair.series or standards.SERIES_1)
+        listed = " · ".join(_n(m) for m in allowed[:7])
+        return f"blank → {listed} … from {SERIES_LABELS.get(pair.series, pair.series)}"
+    if field == "series":
+        allowed = standards.modules(pair.series or standards.SERIES_1)
+        label = SERIES_LABELS.get(pair.series, pair.series)
+        return f"{label} → {len(allowed)} modules from {_n(allowed[0])} to {_n(allowed[-1])} (ISO 54)"
+    if field == "teeth_range":
+        candidates = pairs.solve_spec(pair)
+        exact = sum(1 for c in candidates if c.exact and c.standard and not c.undercut)
+        noun = "candidate" if len(candidates) == 1 else "candidates"
+        return (f"{pair.min_teeth_count()} to {pair.max_teeth_count()} → {len(candidates)} {noun} at "
+                f"C {_n(pair.centre_distance_mm())}, i {pair.ratio.strip()} · {exact} exact")
+    if field == "assembly_name":
+        return f"{pair_stems(pair)[2]}.SLDASM{_in(folder)}"
+    raise ValueError(f"There is no worked line for a solver field called {field!r}.")
 
 
 def angle_text(degrees: float) -> str:

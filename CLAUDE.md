@@ -1,7 +1,8 @@
 # Gear Generator
 
-A SolidWorks spur-gear builder, sibling of `/home/m0obot/Airfoil-Converter`. Nothing is
-built yet.
+A SolidWorks spur-gear builder, sibling of `/home/m0obot/Airfoil-Converter`. The app is
+built: `src/gear_generator/` is the tool, and `design/UI-DESIGN.md` describes the window
+as it stands and is the place to start on anything the user sees.
 
 **Start with `docs/PLAN.md`.** It is the approved plan: the user's decisions, the domain
 maths, the SolidWorks build recipe, the probe phase that verifies the API before the tool

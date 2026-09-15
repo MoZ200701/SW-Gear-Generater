@@ -1,0 +1,54 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Gear pair · new order",
+      "x": 0,
+      "y": 0,
+      "w": 484,
+      "h": 2160
+    },
+    {
+      "file": "SingleGear.dc.html",
+      "title": "Single gear · new order",
+      "x": 564,
+      "y": 0,
+      "w": 484,
+      "h": 1380
+    },
+    {
+      "file": "FieldGuide.dc.html",
+      "title": "Field explainers · all states",
+      "x": 1128,
+      "y": 0,
+      "w": 484,
+      "h": 1900
+    }
+  ],
+  "annotations": [
+    {
+      "id": "note-order",
+      "x": 0,
+      "y": -250,
+      "w": 484,
+      "text": "Order, top to bottom, follows the work\nGear (what kind, one or two) · Pair (solve it: this fills the gears, so it comes before them; its Candidates button moves up here from the SolidWorks bar) · Gear A and Gear B (type or adjust) · Derived (what that comes to) · Output · SolidWorks · Build.\nToday Pair sits under Derived, so a pair is solved by going down, then back up, then down again."
+    },
+    {
+      "id": "note-explainer",
+      "x": 564,
+      "y": -250,
+      "w": 484,
+      "text": "What the numbers mean, as you type\nOne card at the foot of the gear panel follows the caret: the field's name and symbol, two sentences on what it is, and the typed value worked out — m 1.5 × z 20 = PD 30 mm. The Tk field already knows when it has focus; the card swaps its text on that.\nThe third artboard has every card's copy and diagram."
+    },
+    {
+      "id": "note-derived",
+      "x": 0,
+      "y": 2260,
+      "w": 484,
+      "text": "Derived, in pair mode\nBoth gears drawn at one scale, meshed at the centre distance their teeth make, the pitch circles dashed and touching at the pitch point. The centre distance is dimensioned below; a single gear gets its pitch diameter the same way. The values sit under it in two columns, with the pair's own three above them."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

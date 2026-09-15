@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import math
 import os
 import sys
 import tkinter as tk
 from tkinter import filedialog, font as tkfont, ttk
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import __version__, findings, store, swbuild, swcom, theme, ui_text, widgets
+from . import __version__, findings, preview, store, swbuild, swcom, theme, ui_text, widgets
 from .gears import KINDS, PLANNED_KINDS, pair as pairs, standards
 from .gears.base import Diagnostic, GeometryError, Point2
 from .gears.equations import literal
@@ -35,7 +34,10 @@ FLYOUT_WIDTH = 360
 # Typing is re-derived this long after the last keystroke, so a field being
 # typed into does not redraw the preview once per character.
 DEBOUNCE_MS = 120
-PREVIEW_SIZE = 120
+
+# The explainer card's text column: the panel body, less the card's own border
+# and padding and the 56 px diagram beside it.
+EXPLAINER_TEXT_WIDTH = STRIP_WIDTH - 114
 
 SIDES = ("a", "b")
 
@@ -71,7 +73,7 @@ PAIR_COMPOUND = ("gear_a", "gear_b")
 KIND_VALUES = ("spur",) + tuple(PLANNED_KINDS)
 MODE_VALUES = (MODE_SINGLE, MODE_PAIR)
 MODE_LABELS = {MODE_SINGLE: "Single gear", MODE_PAIR: "Gear pair"}
-SERIES_LABELS = {standards.SERIES_1: "Series 1", standards.SERIES_1_2: "1 + 2", standards.SERIES_ALL: "+ fine"}
+SERIES_LABELS = ui_text.SERIES_LABELS
 
 # Tabbing or arrowing through a field is not an edit.
 NAVIGATION_KEYS = frozenset(
@@ -154,8 +156,15 @@ class GearApp(ttk.Frame):
         self.card_title = tk.StringVar(value="No candidate chosen")
         self.card_detail = tk.StringVar(value="")
 
+        # The explainer card follows the caret: one card at the foot of the
+        # panel that has it, and which field it is showing.
+        self.cards: Dict[str, widgets.Explainer] = {}
+        self._card_panel = "a"
+        self._card_field = "module"
+
         # Worked out from the form, for the build and the preview.
         self._derived: Dict[str, Any] = {side: None for side in SIDES}
+        self._side_stems: Dict[str, str] = {side: "" for side in SIDES}
         self._outlines: Dict[str, List[Point2]] = {side: [] for side in SIDES}
         self._diagnostics: Dict[str, List[Diagnostic]] = {side: [] for side in SIDES}
         self._derive_after: Optional[str] = None
@@ -181,6 +190,7 @@ class GearApp(ttk.Frame):
 
         self._build()
         self._watch_form()
+        self._show_card("a", "module")
         self._on_mode_changed()
         self._refresh_link_labels()
         self._derive_now()
@@ -264,13 +274,18 @@ class GearApp(ttk.Frame):
         body.columnconfigure(0, weight=1, minsize=theme.px(STRIP_WIDTH))
 
         self.gear_panel = self._build_gear_kind(body)
+        self.pair_panel = self._build_pair(body)
         self.side_panels = {side: self._build_side(body, side) for side in SIDES}
         self.derived_panel = self._build_derived(body)
-        self.pair_panel = self._build_pair(body)
         self.output_panel = self._build_output(body)
         self.sw_panel = self._build_sw_bar(body)
-        order = [self.gear_panel, self.side_panels["a"], self.side_panels["b"], self.derived_panel,
-                 self.pair_panel, self.output_panel, self.sw_panel]
+        # Top to bottom, the order of the work: what kind of gear, the solver
+        # that fills the gears in, the gears themselves, what they come to,
+        # where they go, and SolidWorks. The Pair panel is not here at all in
+        # single mode, so the strip is the shorter list rather than a greyed
+        # one.
+        order = [self.gear_panel, self.pair_panel, self.side_panels["a"], self.side_panels["b"],
+                 self.derived_panel, self.output_panel, self.sw_panel]
         for row, panel in enumerate(order):
             panel.grid(row=row, column=0, sticky="ew", pady=(0, theme.px(8)))
 
@@ -402,6 +417,15 @@ class GearApp(ttk.Frame):
         fields["name"] = widgets.Field(cell, v["name"], grow=True, placeholder="")
         fields["name"].grid(row=0, column=0, sticky="ew")
 
+        # The card for whichever of these fields has the caret. It is a row of
+        # this panel, so the strip reflows when the caret crosses to the other
+        # gear rather than two cards of the same sentences standing open.
+        card = widgets.Explainer(body, EXPLAINER_TEXT_WIDTH)
+        card.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
+        self.cards[side] = card
+        for name, field in fields.items():
+            self._explains(field, side, name)
+
         if side == "a":
             self.fields_a = fields
         else:
@@ -410,6 +434,33 @@ class GearApp(ttk.Frame):
 
     def _side_fields(self, side: str) -> Dict[str, widgets.Field]:
         return self.fields_a if side == "a" else self.fields_b
+
+    # -- the explainer card
+    #
+    # One card, at the foot of the panel whose field has the caret; the other
+    # panels' cards are taken out of the grid, so the strip is no taller for
+    # them. What it says is ui_text's, worked out again on every derive.
+
+    def _explains(self, field: widgets.Field, panel: str, name: str) -> None:
+        """Putting the caret in this field brings up that card."""
+        field.entry.bind("<FocusIn>", lambda _e: self._show_card(panel, name), add="+")
+
+    def _show_card(self, panel: str, field: str) -> None:
+        self._card_panel, self._card_field = panel, field
+        for key, card in self.cards.items():
+            card.grid() if key == panel else card.grid_remove()
+        self._refresh_card()
+        self._relayout()
+
+    def _refresh_card(self) -> None:
+        """Fill the card in from the form as it stands."""
+        card = self.cards.get(self._card_panel)
+        if card is None:
+            return
+        side = "a" if self._card_panel == "pair" else self._card_panel
+        pair = self._pair_spec() if self.mode.get() == MODE_PAIR else None
+        card.show(self._card_field, *ui_text.explainer(
+            self._card_field, self._derived[side], self._side_stems[side], pair, self.out_folder.get()))
 
     def _pick_value(self, side: str, attr: str, picked: tk.StringVar) -> None:
         """A dropdown beside a field writes into the field, and then lets go."""
@@ -422,24 +473,33 @@ class GearApp(ttk.Frame):
     def _build_derived(self, parent: tk.Misc) -> widgets.Panel:
         panel = widgets.Panel(parent, "Derived", self.derived_readout)
         body = panel.body
-        body.columnconfigure(1, weight=1)
+        body.columnconfigure(0, weight=1)
 
-        previews = tk.Frame(body, bg=theme.WHITE)
-        previews.grid(row=0, column=0, sticky="nw", padx=(0, theme.px(12)))
-        self.previews = {}
-        for index, side in enumerate(SIDES):
-            canvas = tk.Canvas(previews, width=theme.px(PREVIEW_SIZE), height=theme.px(PREVIEW_SIZE),
-                               bg=theme.WHITE, highlightthickness=0, bd=0)
-            canvas.grid(row=index, column=0, pady=(0, theme.px(6)))
-            self.previews[side] = canvas
+        # One picture for the whole panel, the body's full width: in pair mode
+        # the two gears meshed, in single mode the one gear, dimensioned.
+        self.preview = tk.Canvas(body, width=theme.px(preview.WIDTH), height=theme.px(preview.HEIGHT),
+                                 bg=theme.WHITE, highlightthickness=0, bd=0)
+        self.preview.grid(row=0, column=0, sticky="w", pady=(0, theme.px(6)))
+
+        # The pair's own three values, above the per-gear columns and ruled off
+        # from them: they belong to neither gear.
+        self.pair_rows = tk.Frame(body, bg=theme.WHITE)
+        self.pair_rows.grid(row=1, column=0, sticky="ew")
+        self.pair_rows.columnconfigure(0, minsize=theme.px(104))
+        self.pair_rows.columnconfigure(1, minsize=theme.px(96))
+        self._pair_row_widgets: List[tk.Widget] = []
+        self.pair_rule = widgets.Rule(body, color=theme.TRACK)
+        self.pair_rule.grid(row=2, column=0, sticky="ew", pady=theme.px(4))
 
         self.derived_rows = tk.Frame(body, bg=theme.WHITE)
-        self.derived_rows.grid(row=0, column=1, sticky="nw")
+        self.derived_rows.grid(row=3, column=0, sticky="nw")
         self.derived_rows.columnconfigure(0, minsize=theme.px(104))
+        for column in (1, 2):
+            self.derived_rows.columnconfigure(column, minsize=theme.px(96))
         self._derived_widgets: List[tk.Widget] = []
 
         self.warning_frame = tk.Frame(body, bg=theme.WHITE)
-        self.warning_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(theme.px(4), 0))
+        self.warning_frame.grid(row=4, column=0, sticky="ew", pady=(theme.px(4), 0))
         self._warning_widgets: List[tk.Widget] = []
         return panel
 
@@ -447,32 +507,45 @@ class GearApp(ttk.Frame):
 
     def _build_pair(self, parent: tk.Misc) -> widgets.Panel:
         panel = widgets.Panel(parent, "Pair", self.pair_readout)
+        slot = panel.header_slot()
+        # The candidates belong to the solver, so the button that shows them
+        # sits in its header rather than in the SolidWorks bar's.
+        self.candidates_button = widgets.Button(slot, "Candidates", command=self._toggle_flyout,
+                                                icon="sidebar", height=20, bg=theme.HEADER_BG)
+        self.candidates_button.grid(row=0, column=0)
+
         body = panel.body
         body.columnconfigure(0, minsize=theme.px(118))
         body.columnconfigure(1, weight=1)
         self.pair_fields: List[widgets.Field] = []
-        self.pair_labels: List[tk.Label] = []
 
-        def field(row: int, label: str, variable: tk.StringVar, **options) -> Tuple[tk.Frame, widgets.Field]:
-            self.pair_labels.append(self._row_label(body, row, label))
+        def field(row: int, label: str, variable: tk.StringVar, explains: str = "",
+                  **options) -> Tuple[tk.Frame, widgets.Field]:
+            self._row_label(body, row, label)
             cell = self._cell(body, row)
             made = widgets.Field(cell, variable, **options)
             made.grid(row=0, column=0)
             self.pair_fields.append(made)
+            if explains:
+                self._explains(made, "pair", explains)
             return cell, made
 
-        field(0, "Centre distance", self.centre_distance, width=84, unit="mm")
-        cell, _ = field(1, "Ratio", self.ratio, width=84)
+        field(0, "Centre distance", self.centre_distance, "centre_distance", width=84, unit="mm")
+        cell, _ = field(1, "Ratio", self.ratio, "ratio", width=84)
         self._hint(cell, "3, or 1:3 for driven over driver").grid(row=0, column=1, padx=(theme.px(8), 0))
-        cell, _ = field(2, "Module", self.pair_module, width=84, unit="mm", placeholder="any")
+        cell, _ = field(2, "Module", self.pair_module, "pair_module", width=84, unit="mm", placeholder="any")
         self._hint(cell, "blank tries every standard one").grid(row=0, column=1, padx=(theme.px(8), 0))
 
-        self.pair_labels.append(self._row_label(body, 3, "Series"))
-        self.series_seg = widgets.Segmented(body, self.series, standards.SERIES, labels=SERIES_LABELS,
-                                            width=220, command=self._schedule_derive)
+        self._row_label(body, 3, "Series")
+        # A segmented row takes no caret, so choosing a series is what shows its
+        # card — the nearest thing to putting the caret in it.
+        self.series_seg = widgets.Segmented(
+            body, self.series, standards.SERIES, labels=SERIES_LABELS, width=220,
+            command=lambda: (self._show_card("pair", "series"), self._schedule_derive()),
+        )
         self.series_seg.grid(row=3, column=1, sticky="w", pady=(0, theme.px(6)))
 
-        self.pair_labels.append(self._row_label(body, 4, "Teeth"))
+        self._row_label(body, 4, "Teeth")
         cell = self._cell(body, 4)
         low = widgets.Field(cell, self.min_teeth, width=60)
         low.grid(row=0, column=0)
@@ -482,8 +555,10 @@ class GearApp(ttk.Frame):
         high.grid(row=0, column=2)
         self._hint(cell, "under min is undercut").grid(row=0, column=3, padx=(theme.px(8), 0))
         self.pair_fields.extend((low, high))
+        for made in (low, high):
+            self._explains(made, "pair", "teeth_range")
 
-        cell, _ = field(5, "Assembly name", self.assembly_name, width=220, placeholder="")
+        cell, _ = field(5, "Assembly name", self.assembly_name, "assembly_name", width=220, placeholder="")
         self.assembly_field = self.pair_fields[-1]
 
         solve = tk.Frame(body, bg=theme.WHITE)
@@ -493,6 +568,10 @@ class GearApp(ttk.Frame):
         self.solve_button.grid(row=0, column=0, sticky="w")
         tk.Label(solve, textvariable=self.solve_summary, bg=theme.WHITE, fg=theme.MUTED,
                  font=self.fonts.hint, anchor="w").grid(row=0, column=1, sticky="w", padx=(theme.px(8), 0))
+
+        card = widgets.Explainer(body, EXPLAINER_TEXT_WIDTH)
+        card.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
+        self.cards["pair"] = card
         return panel
 
     # -- Output: where the parts go, and what they are made from
@@ -545,9 +624,6 @@ class GearApp(ttk.Frame):
         self.sw_dot.grid(row=0, column=0, padx=(0, theme.px(6)))
         tk.Label(slot, textvariable=self.sw_headline, bg=theme.HEADER_BG, fg=theme.READOUT,
                  font=self.fonts.readout).grid(row=0, column=1)
-        self.candidates_button = widgets.Button(slot, "Candidates", command=self._toggle_flyout,
-                                                icon="sidebar", height=20, bg=theme.HEADER_BG)
-        self.candidates_button.grid(row=0, column=2, padx=(theme.px(8), 0))
 
         body = panel.body
         body.columnconfigure(1, weight=1)
@@ -674,20 +750,22 @@ class GearApp(ttk.Frame):
         pair_mode = self.mode.get() == MODE_PAIR
         self._set_title(self.side_panels["a"], "Gear A" if pair_mode else "Gear")
         if pair_mode:
+            self.pair_panel.grid()
             self.side_panels["b"].grid()
             self.asm_label.grid()
             self.asm_cell.grid()
         else:
+            # The solver is not disabled in single mode, it is not there: one
+            # gear has no pair to solve, and a greyed panel is only clutter.
+            self.pair_panel.grid_remove()
             self.side_panels["b"].grid_remove()
             self.asm_label.grid_remove()
             self.asm_cell.grid_remove()
-        for field in self.pair_fields:
-            field.set_enabled(pair_mode)
-        for label in self.pair_labels:
-            label.configure(fg=theme.LABEL if pair_mode else theme.FAINT)
-        self.series_seg.set_enabled(pair_mode)
+            # Hide came with the Pair panel, so the candidates go with it.
+            self._toggle_flyout(False)
+            if self._card_panel != "a":
+                self._show_card("a", "module")
         self.solve_button.configure(state="normal" if pair_mode else "disabled")
-        self.previews["b"].grid() if pair_mode else self.previews["b"].grid_remove()
         self._derive_now()
         self._relayout()
 
@@ -730,7 +808,8 @@ class GearApp(ttk.Frame):
         for side in SIDES:
             spec = self._gear_spec(side)
             self.gear_readouts[side].set(ui_text.gear_readout(spec))
-            self._side_fields(side)["name"].set_placeholder(stems.get(side) or spec.default_stem())
+            self._side_stems[side] = stems.get(side) or spec.default_stem()
+            self._side_fields(side)["name"].set_placeholder(self._side_stems[side])
             self._derived[side], self._outlines[side], self._diagnostics[side] = None, [], []
             if kind is None:
                 self._diagnostics[side] = [Diagnostic("error", "That kind of gear comes in a later version.")]
@@ -748,8 +827,9 @@ class GearApp(ttk.Frame):
                 self._derived[side] = None
 
         self._show_derived()
-        self._draw_previews()
+        self._draw_preview()
         self._refresh_pair_readout()
+        self._refresh_card()
         self.output_readout.set(ui_text.output_readout(self.out_folder.get()))
         try:
             self.mode_note.set(ui_text.mode_note(self.mode.get(), self._stems(), *self._update_target()))
@@ -761,15 +841,48 @@ class GearApp(ttk.Frame):
         self._show_update_button()
         self._relayout()
 
+    def _pair_values(self) -> Optional[Tuple[float, float, float]]:
+        """``(centre distance, ratio, contact ratio)`` of the pair on the form.
+
+        ``None`` unless both gears work out, which is also when the Derived
+        panel has a pair to say anything about.
+        """
+        a, b = self._derived["a"], self._derived["b"]
+        if self.mode.get() != MODE_PAIR or a is None or b is None:
+            return None
+        return pairs.describe(a.module, a.teeth, b.teeth, a.pressure_angle_deg)
+
     def _show_derived(self) -> None:
-        for widget in self._derived_widgets + self._warning_widgets:
+        for widget in self._derived_widgets + self._warning_widgets + self._pair_row_widgets:
             widget.destroy()
-        self._derived_widgets, self._warning_widgets = [], []
+        self._derived_widgets, self._warning_widgets, self._pair_row_widgets = [], [], []
 
         sides = self._active_sides()
         shown = [side for side in sides if self._derived[side] is not None]
         first = self._derived[shown[0]] if shown else None
-        self.derived_readout.set(ui_text.derived_line(first) if first is not None else "")
+        pair = self._pair_values()
+        if pair is not None:
+            self.derived_readout.set(ui_text.pair_derived_readout(*pair))
+        else:
+            self.derived_readout.set(ui_text.derived_line(first) if first is not None else "")
+
+        # The pair's own values, above the two columns and ruled off from them.
+        if pair is not None:
+            rows = ui_text.pair_derived_rows(*pair, self._derived["a"].teeth, self._derived["b"].teeth)
+            for row, (label, value) in enumerate(rows):
+                name = tk.Label(self.pair_rows, text=label, bg=theme.WHITE, fg=theme.LABEL,
+                                font=self.fonts.hint, anchor="w")
+                name.grid(row=row, column=0, sticky="w")
+                text = tk.Label(self.pair_rows, text=value, bg=theme.WHITE, fg=theme.INK,
+                                font=self.fonts.mono_tiny, anchor="w")
+                text.grid(row=row, column=1, sticky="w", padx=(theme.px(8), 0))
+                self._pair_row_widgets.extend((name, text))
+            self.pair_rows.grid()
+            self.pair_rule.grid()
+        else:
+            self.pair_rows.grid_remove()
+            self.pair_rule.grid_remove()
+
         if shown:
             columns = [dict(ui_text.derived_rows(self._derived[side])) for side in shown]
             labels = [label for label, _ in ui_text.derived_rows(first)]
@@ -803,29 +916,57 @@ class GearApp(ttk.Frame):
             label.grid(row=row, column=0, sticky="w")
             self._warning_widgets.append(label)
 
-    def _draw_previews(self) -> None:
-        """Each gear's outline, at one scale for both so a pair reads true."""
+    def _draw_preview(self) -> None:
+        """The gears themselves: in pair mode meshed, at one scale, dimensioned.
+
+        Where everything goes is :mod:`preview`'s, in design pixels; this turns
+        those into the screen's pixels and strokes them. Nothing is drawn until
+        every gear in the mode works out, because half a pair drawn alone would
+        be at a scale the other half is about to change.
+        """
+        canvas = self.preview
+        canvas.delete("all")
+        width, height = theme.px(preview.WIDTH), theme.px(preview.HEIGHT)
         sides = self._active_sides()
-        radii = [max(math.hypot(*p) for p in self._outlines[s]) for s in sides if self._outlines[s]]
-        size = theme.px(PREVIEW_SIZE)
-        scale = (size - theme.px(8)) / (2.0 * max(radii)) if radii else 1.0
-        for side in SIDES:
-            canvas = self.previews[side]
-            canvas.delete("all")
-            points = self._outlines[side] if side in sides else []
-            if not points:
-                if side in sides:
-                    canvas.create_text(size / 2, size / 2, text="no gear", fill=theme.FAINT, font=self.fonts.hint)
-                continue
-            flat: List[float] = []
-            for x, y in points:
-                flat.extend((size / 2 + x * scale, size / 2 - y * scale))
-            canvas.create_line(*flat, fill=theme.HEADER_TEXT, width=max(1, theme.px(1)))
-            derived = self._derived[side]
-            if derived is not None and derived.bore > 0:
-                r = derived.bore / 2 * scale
-                canvas.create_oval(size / 2 - r, size / 2 - r, size / 2 + r, size / 2 + r,
-                                   outline=theme.HEADER_TEXT, width=max(1, theme.px(1)))
+        if any(not self._outlines[side] for side in sides):
+            canvas.create_text(width / 2, height / 2, text="no gear", fill=theme.FAINT,
+                               font=self.fonts.hint)
+            return
+
+        k = width / float(preview.WIDTH)          # design pixels to this screen's
+        line = max(1, theme.px(1))
+        made = preview.layout([self._derived[side] for side in sides],
+                              labels=[side.upper() for side in sides])
+        scale = made.scale * k
+        # The pitch circles first and faintest: the two touching at the pitch
+        # point is what says the pair is meshed.
+        for placed in made.gears:
+            x, y, r = placed.x * k, placed.y * k, placed.pitch_radius * scale
+            canvas.create_oval(x - r, y - r, x + r, y + r, outline=theme.BORDER_SOFT,
+                               width=line, dash=(3, 3))
+        for side, placed in zip(sides, made.gears):
+            flat = [value * k for point in preview.points_on(self._outlines[side], placed, made.scale)
+                    for value in point]
+            canvas.create_line(*flat, fill=theme.HEADER_TEXT, width=line)
+            x, y = placed.x * k, placed.y * k
+            if placed.bore_radius > 0:
+                r = placed.bore_radius * scale
+                canvas.create_oval(x - r, y - r, x + r, y + r, outline=theme.HEADER_TEXT, width=line)
+            arm = theme.px(5)
+            canvas.create_line(x - arm, y, x + arm, y, fill=theme.READOUT, width=line)
+            canvas.create_line(x, y - arm, x, y + arm, fill=theme.READOUT, width=line)
+            if placed.label:
+                canvas.create_text(x + theme.px(8), y - theme.px(8), text=placed.label, anchor="sw",
+                                   fill=theme.READOUT, font=self.fonts.tiny)
+
+        dimension = made.dimension
+        for x, top, bottom in dimension.extensions:
+            canvas.create_line(x * k, top * k, x * k, bottom * k, fill=theme.BORDER, width=line)
+        canvas.create_line(dimension.x0 * k, dimension.y * k, dimension.x1 * k, dimension.y * k,
+                           fill=theme.HEADER_TEXT, width=line, arrow="both",
+                           arrowshape=(theme.px(7), theme.px(7), theme.px(3)))
+        canvas.create_text(dimension.text_x * k, dimension.text_y * k, text=dimension.text,
+                           anchor="s", fill=theme.INK, font=self.fonts.mono_tiny)
 
     def _refresh_pair_readout(self) -> None:
         self.pair_readout.set(ui_text.pair_readout(self.centre_distance.get(), self.ratio.get(), self._chosen))
@@ -867,6 +1008,7 @@ class GearApp(ttk.Frame):
         finally:
             self._applying = False
         self._chosen = candidate
+        self.solve_summary.set(ui_text.solve_summary(self._candidates, candidate))
         centre, ratio, epsilon = pairs.describe(candidate.module, candidate.teeth_driver,
                                                 candidate.teeth_driven, spec_a.pressure_angle_deg())
         self.card_title.set(f"m{ui_text._n(candidate.module, 4)} · {candidate.teeth_driver} : {candidate.teeth_driven}")

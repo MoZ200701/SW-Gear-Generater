@@ -12,6 +12,7 @@ Three of them — :class:`Check`, :class:`Button` and :class:`Segmented` — ans
 
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -97,6 +98,224 @@ def draw_icon(canvas: tk.Canvas, name: str, color: str, size: int) -> None:
             canvas.create_arc(*_scaled(box, size), start=start, extent=180,
                               style="arc", outline=color, width=width, tags="icon")
         line([(5.6, 8), (10.4, 8)])
+
+
+# ------------------------------------------------------- explainer diagrams
+#
+# The same idea as the icons above, four times the size: stroke drawings on a
+# 56 px grid, one per field of the form, drawn straight onto a canvas rather
+# than loaded from a file. They are ``design/canvas/gen.py``'s ``DIAGRAMS``
+# translated from SVG paths, so a change to one belongs in both places.
+#
+# Three strokes: the drawing itself in #505050, the one dimension the field is
+# about in #2b2b2b and a little thicker, and anything that is only there for
+# reference — a pitch line, an axis — dashed in #c6c6c6.
+
+DIAGRAM_SIZE = 56
+
+# Fields whose diagram is another field's.
+DIAGRAM_ALIASES = {"pair_module": "series", "teeth_range": "teeth", "assembly_name": "name"}
+
+
+def _gear_teeth(cx: float, cy: float, r_out: float, r_in: float, teeth: int,
+                first: int = 0, span: int = 0) -> List[Tuple[float, float]]:
+    """A toothed circle on the 56 grid, or — with ``span`` — one tooth of it.
+
+    Four points a tooth: up at the root, along the tip, and back down. Coarse
+    on purpose; at 56 px a real involute and this are the same picture.
+    """
+    corners = ((0.0, r_in), (0.18, r_out), (0.5, r_out), (0.68, r_in))
+    step = 2 * math.pi / teeth
+    points = []
+    for index in range(first, first + (span or teeth)):
+        for fraction, radius in corners:
+            angle = index * step + fraction * step
+            points.append((cx + radius * math.cos(angle), cy - radius * math.sin(angle)))
+    return points
+
+
+def draw_diagram(canvas: tk.Canvas, name: str, size: int = DIAGRAM_SIZE) -> None:
+    """Draw one explainer diagram at the canvas's own size."""
+    canvas.delete("diagram")
+    key = DIAGRAM_ALIASES.get(name, name)
+    k = size / float(DIAGRAM_SIZE)
+    mono = theme.fonts().mono_family
+
+    def width_of(design: float) -> int:
+        return max(1, int(round(design * k)))
+
+    def line(points, color: str = theme.HEADER_TEXT, w: float = 1.2, dash=None,
+             smooth: bool = False, closed: bool = False) -> None:
+        pts = list(points) + ([points[0]] if closed else [])
+        flat = [value * k for point in pts for value in point]
+        canvas.create_line(*flat, fill=color, width=width_of(w), dash=dash, smooth=smooth,
+                           capstyle="round", joinstyle="round", tags="diagram")
+
+    def circle(cx: float, cy: float, r: float, color: str = theme.HEADER_TEXT,
+               w: float = 1.2, fill: str = "") -> None:
+        canvas.create_oval((cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k,
+                           outline=color, width=width_of(w), fill=fill, tags="diagram")
+
+    def arc(cx: float, cy: float, r: float, start: float, extent: float,
+            color: str = theme.HEADER_TEXT, w: float = 1.2, dash=None) -> None:
+        canvas.create_arc((cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k,
+                          start=start, extent=extent, style="arc", outline=color,
+                          width=width_of(w), dash=dash, tags="diagram")
+
+    def label(x: float, y: float, text: str, color: str = theme.ACCENT, size_px: float = 10,
+              anchor: str = "sw") -> None:
+        canvas.create_text(x * k, y * k, text=text, fill=color, anchor=anchor,
+                           font=(mono, -max(6, int(round(size_px * k)))), tags="diagram")
+
+    def ticks(x0: float, x1: float, y: float, reach: float = 3) -> None:
+        """The two short bars that cap a dimension."""
+        for x in (x0, x1):
+            line([(x, y - reach), (x, y + reach)], theme.ACCENT)
+
+    def quad(start, control, end, steps: int = 10):
+        """A quadratic curve as points, since a Tk line is straight or a spline through all of it."""
+        out = []
+        for step in range(steps + 1):
+            t = step / steps
+            u = 1 - t
+            out.append((u * u * start[0] + 2 * u * t * control[0] + t * t * end[0],
+                        u * u * start[1] + 2 * u * t * control[1] + t * t * end[1]))
+        return out
+
+    dashed = (3, 2)
+    if key == "module":
+        # a tooth on its pitch line, one module of addendum dimensioned
+        line([(4, 44), (12, 44), (18, 16), (30, 16), (36, 44), (52, 44)])
+        line([(4, 30), (52, 30)], theme.BORDER, dash=dashed)
+        line([(45, 16), (45, 30)], theme.ACCENT, 1.8)
+        line([(42, 16), (48, 16)], theme.ACCENT)
+        line([(42, 30), (48, 30)], theme.ACCENT)
+        label(49, 27, "m")
+    elif key == "teeth":
+        line(_gear_teeth(28, 28, 22, 16, 12), closed=True)
+        line(_gear_teeth(28, 28, 22, 16, 12, first=2, span=1), theme.ACCENT, 1.8)
+    elif key == "pressure_angle":
+        # the pitch point: the tangent, the pitch circle under it, and the line
+        # of action leaning α off the tangent
+        arc(28, 66, 40, 56.6, 66.8, theme.BORDER, dash=dashed)
+        line([(4, 26), (52, 26)])
+        line([(8, 33.3), (48, 18.7)], theme.ACCENT, 1.8)
+        arc(28, 26, 14, 0, 20, theme.ACCENT)
+        circle(28, 26, 1.6, theme.HEADER_TEXT, 1, fill=theme.HEADER_TEXT)
+        label(45, 39, "α")
+    elif key == "face_width":
+        # the gear from the side, its width dimensioned
+        line([(21, 8), (35, 8), (35, 44), (21, 44)], closed=True)
+        line([(12, 26), (44, 26)], theme.BORDER, dash=dashed)
+        line([(21, 51), (35, 51)], theme.ACCENT, 1.8)
+        ticks(21, 35, 51)
+        label(40, 55, "b")
+    elif key == "bore":
+        line(_gear_teeth(28, 28, 22, 17, 14), closed=True)
+        circle(28, 28, 7, theme.ACCENT, 1.8)
+    elif key == "backlash":
+        # a tooth sitting in the other gear's space, the gap at the pitch line
+        line([(6, 8), (15, 48), (41, 48), (50, 8)])
+        line([(14, 8), (21, 44), (35, 44), (42, 8)])
+        line([(4, 30), (52, 30)], theme.BORDER, dash=dashed)
+        line([(11, 30), (18.5, 30)], theme.ACCENT, 1.8)
+        label(4, 25, "j")
+    elif key == "fillet":
+        # a flank meeting the root circle round a radius
+        fillet = quad((30, 46), (22, 46), (20, 38))
+        line([(52, 46)] + fillet + [(14, 8)])
+        line([(4, 46), (12, 46)])
+        line(fillet, theme.ACCENT, 1.8)
+        label(30, 39, "ρ")
+    elif key == "name":
+        # a document
+        line([(15, 6), (33, 6), (42, 15), (42, 50), (15, 50)], closed=True)
+        line([(33, 6), (33, 15), (42, 15)])
+        for y in (26, 32):
+            line([(21, y), (36, y)], theme.BORDER)
+        line([(21, 38), (31, 38)], theme.BORDER)
+    elif key == "centre_distance":
+        # two pitch circles touching, the distance between centres dimensioned
+        circle(11, 26, 8)
+        circle(36, 26, 17)
+        for cx in (11, 36):
+            line([(cx - 3, 26), (cx + 3, 26)], theme.READOUT)
+            line([(cx, 23), (cx, 29)], theme.READOUT)
+        line([(11, 50), (36, 50)], theme.ACCENT, 1.8)
+        ticks(11, 36, 50)
+        label(41, 54, "C")
+    elif key == "ratio":
+        # a pinion and its wheel: three turns against one
+        circle(14, 28, 8, theme.ACCENT, 1.8)
+        circle(38, 28, 16)
+        label(14, 28, "3", theme.ACCENT, 9, anchor="center")
+        label(38, 28, "1", theme.HEADER_TEXT, 9, anchor="center")
+    elif key == "series":
+        # the standard modules as a scale: tall ticks series 1, short series 2
+        line([(4, 34), (52, 34)])
+        for x in (6, 14, 22, 30, 38, 46):
+            line([(x, 34), (x, 22)], theme.ACCENT, 1.8)
+        for x in (10, 18, 26, 34, 42, 50):
+            line([(x, 34), (x, 28)], theme.READOUT)
+        for x, text in ((6, "1"), (20, "1.5"), (38, "2.5")):
+            label(x, 47, text, theme.HEADER_TEXT, 8)
+
+
+class Explainer(tk.Frame):
+    """The card at the foot of a panel: what the field with the caret means.
+
+    A diagram at the left and three lines at the right — the field's name and
+    symbol, what the number is, and what the typed value comes to. The words
+    are :func:`ui_text.explainer`'s; this only lays them out, so a card that
+    says the wrong thing is a bug in the text, not in the window.
+    """
+
+    def __init__(self, parent: tk.Misc, text_width: int, bg: str = theme.TRACKER_BG,
+                 border: str = theme.TRACKER_BORDER) -> None:
+        super().__init__(parent, bg=bg, bd=0, highlightthickness=max(1, px(1)),
+                         highlightbackground=border, highlightcolor=border)
+        f = theme.fonts()
+        self._bg = bg
+        self._field = ""
+        self.columnconfigure(1, weight=1)
+
+        side = px(DIAGRAM_SIZE)
+        self.diagram = tk.Canvas(self, width=side, height=side, bg=bg,
+                                 highlightthickness=0, bd=0)
+        self.diagram.grid(row=0, column=0, rowspan=3, sticky="nw",
+                          padx=(px(10), px(10)), pady=px(8))
+
+        head = tk.Frame(self, bg=bg)
+        head.grid(row=0, column=1, sticky="w", padx=(0, px(10)), pady=(px(8), 0))
+        self.name = tk.Label(head, text="", bg=bg, fg=theme.INK, font=f.label_bold)
+        self.name.grid(row=0, column=0, sticky="w")
+        self.symbol = tk.Label(head, text="", bg=bg, fg=theme.MUTED, font=f.mono_small)
+        self.symbol.grid(row=0, column=1, sticky="w")
+
+        self.what = tk.Label(self, text="", bg=bg, fg=theme.HEADER_TEXT, font=f.hint,
+                             anchor="w", justify="left", wraplength=px(text_width))
+        self.what.grid(row=1, column=1, sticky="w", padx=(0, px(10)), pady=(px(4), 0))
+
+        worked = tk.Frame(self, bg=bg)
+        worked.grid(row=2, column=1, sticky="w", padx=(0, px(10)), pady=(px(4), px(8)))
+        tk.Label(worked, text="here", bg=bg, fg=theme.READOUT, font=f.readout).grid(
+            row=0, column=0, sticky="nw")
+        self.worked = tk.Label(worked, text="", bg=bg, fg=theme.INK, font=f.mono_tiny,
+                               anchor="w", justify="left", wraplength=px(text_width - 32))
+        self.worked.grid(row=0, column=1, sticky="w", padx=(px(6), 0))
+
+    @property
+    def field(self) -> str:
+        """Which field the card is showing, or ``""`` before the first one."""
+        return self._field
+
+    def show(self, field: str, name: str, symbol: str, what: str, worked: str) -> None:
+        self._field = field
+        draw_diagram(self.diagram, field, px(DIAGRAM_SIZE))
+        self.name.configure(text=name)
+        self.symbol.configure(text=f" · {symbol}" if symbol else "")
+        self.what.configure(text=what)
+        self.worked.configure(text=worked)
 
 
 class Icon(tk.Canvas):

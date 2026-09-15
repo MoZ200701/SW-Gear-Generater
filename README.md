@@ -32,13 +32,17 @@ the window still works out, checks and draws gears and solves pairs; only
 2. Type the gear: module, number of teeth, pressure angle, face width, and bore
    (blank for none). Backlash and fillet radius default to 0.3 × and 0.38 ×
    module; type a value to override either.
-3. The **Derived** panel shows every size the gear comes to, a preview of the
-   outline, and anything worth knowing — an undercut tooth count, a thin tip or
-   rim. Errors, such as a bore bigger than the root circle, disable **Build** and
-   say which field to change.
-4. Choose an output **Folder**. The part is saved there as `Gear_m1.5_N25.SLDPRT`
+3. A card at the foot of the panel says what the field you are typing in means
+   and what your value comes to: *Module · m … here m 1.5 × z 20 = PD 30 mm ·
+   tooth depth 3.375*. It follows the caret.
+4. The **Derived** panel draws the gear — in **Gear pair** mode both gears
+   meshed, at one scale, with the centre distance dimensioned under them — and
+   lists every size it comes to, with anything worth knowing: an undercut tooth
+   count, a thin tip or rim. Errors, such as a bore bigger than the root circle,
+   disable **Build** and say which field to change.
+5. Choose an output **Folder**. The part is saved there as `Gear_m1.5_N25.SLDPRT`
    (or the name you type), with a `Gear_m1.5_N25.gear.json` record beside it.
-5. With SolidWorks open, **Build**. The status line says what was built, or
+6. With SolidWorks open, **Build**. The status line says what was built, or
    exactly where the build stopped and what SolidWorks said. A build never
    overwrites a file: an existing name is refused before anything is made.
 
@@ -73,13 +77,15 @@ the rebuild reads every global's value back and compares it with the maths.
 
 ## Solving a pair
 
-In **Gear pair** mode, type the **Centre distance** and the **Ratio**, driven
+In **Gear pair** mode the **Pair** panel sits above the two gears, since solving
+is what fills them in. Type the **Centre distance** and the **Ratio**, driven
 over driver: `3` (or `3:1`) makes the second gear three times the first, and
 `1:3` makes it a third. Choose a module series and **Solve**. The candidates
-open beside the form, best first: hitting the centre distance exactly, a
-standard module, no undercut, the smallest ratio error, then the larger module.
-Click one to put its module and tooth counts on both gears; nothing else on the
-form changes.
+open beside the form — **Candidates**, in the Pair panel's own header, shows and
+hides them — best first: hitting the centre distance exactly, a standard module,
+no undercut, the smallest ratio error, then the larger module. Click one to put
+its module and tooth counts on both gears; nothing else on the form changes, and
+the Solve line then reads `64 candidates · 3 exact · m1.5 20 : 60 chosen`.
 
 **Build** then makes both parts and an assembly, `Pair_m1.5_20T_60T.SLDASM`. The
 second gear is mated at the centre distance its teeth make, turned so a tooth

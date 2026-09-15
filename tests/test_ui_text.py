@@ -1,9 +1,11 @@
 """The window's derived text, tested without a window."""
 
+import pytest
+
 from gear_generator import ui_text
 from gear_generator.gears import KINDS, pair
 from gear_generator.gears.base import Diagnostic
-from gear_generator.spec import GearSpec
+from gear_generator.spec import GearSpec, PairSpec, pair_stems
 
 SPUR = KINDS["spur"]
 
@@ -77,6 +79,100 @@ def test_the_solve_summary_counts():
     found = pair.solve(60, 3)
     assert ui_text.solve_summary(found).endswith("· 3 exact")
     assert "No pair" in ui_text.solve_summary([])
+
+
+def test_the_solve_summary_names_the_chosen_candidate():
+    """With the flyout closed, the strip still says which pair was picked."""
+    found = pair.solve(60, 3)
+    assert ui_text.solve_summary(found, found[0]) == "64 candidates · 3 exact · m1.5 20 : 60 chosen"
+
+
+# -- Derived, in pair mode -----------------------------------------------------
+
+
+def test_the_derived_panel_reads_out_the_pair():
+    centre, ratio, epsilon = pair.describe(1.5, 20, 60, 20.0)
+    assert ui_text.pair_derived_readout(centre, ratio, epsilon) == "C 60 mm · i 3 · contact ratio 1.671"
+
+
+def test_the_pair_rows_above_the_table():
+    centre, ratio, epsilon = pair.describe(1.5, 20, 60, 20.0)
+    assert ui_text.pair_derived_rows(centre, ratio, epsilon, 20, 60) == [
+        ("Centre distance", "60 mm"),
+        ("Ratio", "3 · 20 : 60"),
+        ("Contact ratio", "1.671"),
+    ]
+
+
+# -- the explainer card --------------------------------------------------------
+#
+# The worked lines are design/UI-DESIGN.md §2's table: Gear A of the pair the
+# docs use throughout — m 1.5, 20 teeth, 20°, bore 10, at C 60 and i 3.
+
+GEAR_A = GearSpec(teeth="20")
+GEAR_B = GearSpec(teeth="60")
+PAIR = PairSpec(mode="pair", centre_distance="60", ratio="3", gear_a=GEAR_A, gear_b=GEAR_B)
+DERIVED_A = SPUR.derive(GEAR_A)
+FOLDER = r"D:\Gears"
+
+WORKED = {
+    "module": "m 1.5 × z 20 = PD 30 mm · tooth depth 3.375 · circular pitch 4.712",
+    "teeth": "z 20 → PD 30 mm · OD 33 mm · no undercut (17 or more)",
+    "pressure_angle": "20° → base diameter 28.191 mm · undercut below 17 teeth",
+    "face_width": "10 mm = 6.7 × module",
+    "bore": "10 mm → rim 8.125 mm to the root circle",
+    "backlash": "blank → 0.45 mm (0.3 m) · tooth 1.906 · space 2.806 · play in the mesh 0.9",
+    "fillet": "blank → 0.57 mm (0.38 m)",
+    "name": r"Pinion_m1.5_N20.SLDPRT in D:\Gears",
+    "centre_distance": "60 mm → z₁ + z₂ = 80 at m 1.5 · 96 at m 1.25 · 120 at m 1",
+    "ratio": "3 → 20 : 60",
+    "pair_module": "blank → 1 · 1.25 · 1.5 · 2 · 2.5 · 3 · 4 … from Series 1",
+    "series": "Series 1 → 18 modules from 1 to 50 (ISO 54)",
+    "teeth_range": "17 to 200 → 64 candidates at C 60, i 3 · 3 exact",
+    "assembly_name": r"Pair_m1.5_20T_60T.SLDASM in D:\Gears",
+}
+
+
+@pytest.mark.parametrize("field", ui_text.EXPLAINER_FIELDS)
+def test_every_field_works_its_own_value_out(field):
+    name, symbol, what, worked = ui_text.explainer(field, DERIVED_A, pair_stems(PAIR)[0], PAIR, FOLDER)
+    assert name and what.endswith(".")
+    assert worked == WORKED[field]
+    assert (symbol == "") == (field in ("bore", "name", "series", "assembly_name"))
+
+
+def test_every_field_on_the_form_has_a_card():
+    assert set(ui_text.EXPLAINER_FIELDS) == set(WORKED)
+    assert len(ui_text.GEAR_EXPLAINERS) == 8 and len(ui_text.PAIR_EXPLAINERS) == 6
+
+
+def test_a_typed_backlash_and_fillet_drop_the_word_blank():
+    typed = SPUR.derive(GearSpec(teeth="20", backlash="0.05", fillet="0.4"))
+    assert ui_text.explainer("backlash", typed, "", PAIR)[3].startswith("0.05 mm · tooth")
+    assert ui_text.explainer("fillet", typed, "", PAIR)[3] == "0.4 mm"
+
+
+def test_a_blank_bore_says_what_blank_means():
+    solid = SPUR.derive(GearSpec(teeth="20", bore=""))
+    assert ui_text.explainer("bore", solid, "")[3] == "blank → a solid disc, no bore feature"
+
+
+def test_a_gear_that_does_not_work_out_says_check_the_fields():
+    for field in ui_text.EXPLAINER_FIELDS:
+        assert ui_text.explainer(field, None, "", PAIR, FOLDER)[3] == "check the fields"
+    # …and so does a solver field with nothing to solve.
+    empty = PairSpec(mode="pair", gear_a=GEAR_A, gear_b=GEAR_B)
+    assert ui_text.explainer("centre_distance", DERIVED_A, "", empty)[3] == "check the fields"
+    assert ui_text.explainer("ratio", DERIVED_A, "", None)[3] == "check the fields"
+
+
+def test_the_name_line_drops_the_folder_until_one_is_chosen():
+    assert ui_text.explainer("name", DERIVED_A, "Gear_m1.5_N20")[3] == "Gear_m1.5_N20.SLDPRT"
+
+
+def test_an_unknown_field_is_refused_in_a_sentence():
+    with pytest.raises(ValueError, match="no explainer for a field called 'kind'"):
+        ui_text.explainer("kind", DERIVED_A, "")
 
 
 def test_the_output_readout_keeps_the_end_of_a_long_path():
