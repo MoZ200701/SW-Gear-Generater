@@ -418,3 +418,48 @@ the memory notes: a unique title, PowerShell capture, never the user's own exe.
 - **Tip clash** uses a flank-only model: a warning, never a refusal.
 - Reserved: spiral/zerol bevels, crown and internal bevels, opposite-hand crossed pairs, profile shift
   for spur and helical, and the SolidWorks gear mate.
+
+## As executed (2026-09-15)
+
+Where the build differs from the plan above, and what was observed on SolidWorks 2026 (revision 34.0.0):
+
+- **Internal gears** built as planned. `internal_end_to_end` built a spur and a helical β15° R ring with their
+  pinions through `swbuild.build_pair`: every sketch fully defined, one body, no interference as mated and
+  interference with the pinion half a pitch round, and after `"No. of Teeth"` 60 → 64 each ring weighed what a fresh
+  build did. The spur ring's volume against *blank − 60 × one space* agreed to 2.8e-4, not 1e-5: one space's cut
+  weighs about 1e-3 of itself more alone than patterned, which is mass-property resolution on a spline cut, so the
+  twin tolerance (5e-4) is used.
+- **Interference is checked by every pair build** (`INTERFERENCE_CHECKED`), so the manual mesh step is gone for
+  every kind.
+- **A helix limit of 80°** (`helical.HELIX_LIMIT`) replaces the 45° refusal for a single gear: crossed pairs need
+  helix angles past 45°. The parallel solver still searches up to 45°.
+- **Bevel build route.** The plan's move-body idea was dropped when `move_body_rotate` showed a Move/Copy Body
+  feature records no dimension a global could drive. The blank's half section is drawn on the Top plane in the
+  final frame and revolved about its centreline, selected at mark 16 because the Cone Sketch's second centreline
+  otherwise confuses the revolve. `ref_plane_normal` measured the perpendicular plane's sketch frame — origin at the
+  line's end, x the cone's outward radial, y +Y — and it kept that frame when the line's angle and length changed,
+  so each section is the spur section translated by the virtual radius and scaled (`spur.SectionFrame`), with no
+  sign flip. `loft_cut_sections` lofted heel then toe at mark 1 as a `BlendCut` that removed its frustum to 1e-4.
+- **Dimensions on the Top plane** are placed in model coordinates: an angle dimension placed at a sketch point read
+  the supplement, because that plane's sketch y is −Z. `Session.dimension` converts through
+  `ModelToSketchTransform`.
+- **Component frames.** `IMathUtility.CreateTransform` answered "member not found" to late binding and worked
+  invoked as a method with a double array; put on `Transform2` with the rotation in columns it set a frame to
+  1e-16. `AddComponent5` places a component's middle, not its origin, at the point given, so both assembly plans
+  now set gear 1 on the identity frame before placing and mating gear 2.
+- **Bevel mates** (origins coincident, gear 2's axis in gear 1's top plane, angle between the axes, angle between the
+  top planes) held a placed frame to 1e-16 and 0 mm.
+- **Crossed mates.** A point-to-plane distance mate is measured along the plane's normal: an origin 8 mm below Top
+  moved to 8 mm above it. The crossed plan passes the offset signed and `Session.add_mate` flips a negative one.
+- **Explainer diagrams for the new fields** reuse existing ones (`widgets.DIAGRAM_ALIASES`); new artboards and
+  renders in `design/` were not made.
+- **Gleason pinion tips.** With K = 0 the m3 20-tooth pinion's tip is 0.722 mm thick, under the 0.3 × module the
+  form warns at; the warning stands.
+- **Bevel end to end** (`probe/p5_bevel.py`, m3 20:40, Σ 90°, face 20, bore 10, recipe A): pinion, gear and
+  assembly built with every sketch fully defined and no interference; with gear 2 half a pitch round, 4
+  interferences (482.4 mm³). The pinion's `"Outer Diameter"` read 67.218027 and every global matched `derive()`;
+  after `"No. of Teeth"` 20 → 21 through `update_variables` all four sketches stayed fully defined and the pinion
+  weighed 43638.719830 mm³, what a fresh 21-tooth build weighs to 1e-14. The apex loft and `pattern_loft` probes
+  were not needed.
+- **Crossed end to end** (mn 2, 20:40, β 45°/45° R, Σ 90°): built by the mates route with no interference, and 3
+  interferences (102.6 mm³) with gear 2's mesh angle half a pitch round.
