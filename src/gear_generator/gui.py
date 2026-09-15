@@ -479,7 +479,7 @@ class GearApp(ttk.Frame):
 
         label = self._row_label(body, 10, "Rim")
         cell = self._cell(body, 10)
-        fields["rim"] = widgets.Field(cell, v["rim"], width=150, unit="mm", placeholder="root + 6 × module")
+        fields["rim"] = widgets.Field(cell, v["rim"], width=190, unit="mm", placeholder="root + 6 × module")
         fields["rim"].grid(row=0, column=0)
         rows["rim"] = (label, cell)
 
@@ -916,6 +916,8 @@ class GearApp(ttk.Frame):
             if not rows:
                 continue
             internal = self._gear_spec(side).is_internal()
+            # A ring's default fillet is smaller, to stay clear of its pinion's tips.
+            self._side_fields(side)["fillet"].set_placeholder("0.15 × module" if internal else "0.38 × module")
             show(rows["teeth_side"], not bevel and not pair_mode)
             show(rows["rim"], internal)
             show(rows["bore"], not internal)
