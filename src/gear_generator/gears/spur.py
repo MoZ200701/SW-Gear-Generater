@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from .. import findings
 from ..spec import RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError
@@ -260,18 +260,78 @@ def involute_polar(g: SpurDerived, r: float) -> float:
 
 
 def contact_ratio(module: float, teeth_1: int, teeth_2: int, pressure_angle_deg: float,
-                  centre_distance: Optional[float] = None) -> float:
-    """``[√(ra1²−rb1²) + √(ra2²−rb2²) − C·sin α] / (π·m·cos α)``, standard teeth."""
+                  centre_distance: Optional[float] = None, transverse_module: Optional[float] = None) -> float:
+    """``[√(ra1²−rb1²) + √(ra2²−rb2²) − C·sin α] / (π·mt·cos α)``, standard teeth.
+
+    ``module`` sets the addendum; ``transverse_module`` (the module itself for a
+    spur gear) and the pressure angle, which is then the transverse one, set the
+    pitch and base circles. A helical pair passes both, and this is its
+    transverse contact ratio εα.
+    """
     alpha = math.radians(pressure_angle_deg)
+    mt = module if transverse_module is None else transverse_module
     if centre_distance is None:
-        centre_distance = module * (teeth_1 + teeth_2) / 2.0
+        centre_distance = mt * (teeth_1 + teeth_2) / 2.0
     total = 0.0
     for teeth in (teeth_1, teeth_2):
-        ra = (teeth + 2) * module / 2.0
-        rb = teeth * module * math.cos(alpha) / 2.0
+        ra = teeth * mt / 2.0 + module
+        rb = teeth * mt * math.cos(alpha) / 2.0
         total += math.sqrt(max(0.0, ra * ra - rb * rb))
     total -= centre_distance * math.sin(alpha)
-    return total / (math.pi * module * math.cos(alpha))
+    return total / (math.pi * mt * math.cos(alpha))
+
+
+def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: float, bore: float,
+            backlash: float, fillet: float, backlash_typed: bool = False, fillet_typed: bool = False,
+            transverse_module: Optional[float] = None, transverse_backlash: Optional[float] = None) -> SpurDerived:
+    """Every size of one tooth space's section, the one sketch every kind of gear cuts.
+
+    A spur gear's section is its only section. A helical gear's is the
+    transverse one, and it passes the transverse module and backlash with the
+    transverse pressure angle; ``module`` stays the normal module, because the
+    tooth's height — the addendum, the depth, the tip cap and the fillet — is
+    measured in the normal module whatever the helix does.
+    """
+    m = module
+    mt = module if transverse_module is None else transverse_module
+    j_t = backlash if transverse_backlash is None else transverse_backlash
+    n = teeth
+    alpha = math.radians(pressure_angle_deg)
+    rho = fillet
+
+    d = n * mt
+    da = d + 2.0 * m
+    h = tooth_depth(m)
+    df = da - 2.0 * h
+    db = d * math.cos(alpha)
+    p = math.pi * mt
+    space = mt * math.pi / 2.0 + j_t
+    s = mt * math.pi - space
+    psi_s = space / d
+    inv_alpha = math.tan(alpha) - alpha
+    phi = psi_s - inv_alpha
+    tip_cap_d = da + 2.0 * m
+    floor = df + FLANK_START_FILLETS * rho
+    flank_start_d = db if db >= floor else floor
+    rp = d / 2.0
+    reach = rp * math.sin(alpha) - m / math.sin(alpha)
+    rb = db / 2.0
+    form_d = 2.0 * math.sqrt(rb * rb + max(0.0, reach) ** 2)
+
+    t_tip = math.sqrt((da / db) ** 2 - 1.0)
+    tip_angle = phi + t_tip - math.atan(t_tip)
+    return SpurDerived(
+        teeth=n, module=m, pressure_angle_deg=pressure_angle_deg, face_width=face_width,
+        bore=bore, backlash=backlash, fillet=rho,
+        backlash_typed=backlash_typed, fillet_typed=fillet_typed,
+        alpha=alpha, d=d, da=da, h=h, df=df, db=db, p=p, space=space, s=s,
+        psi_s=psi_s, psi_t=s / d, inv_alpha=inv_alpha, phi=phi, t_max=t_tip,
+        n_min=undercut_minimum(pressure_angle_deg), tip_cap_d=tip_cap_d, flank_start_d=flank_start_d,
+        t1=math.sqrt((flank_start_d / db) ** 2 - 1.0),
+        t2=math.sqrt((tip_cap_d / db) ** 2 - 1.0),
+        form_d=form_d, flank_arc_radius=rp * math.sin(alpha),
+        tip_thickness=2.0 * (da / 2.0) * (math.pi / n - tip_angle),
+    )
 
 
 # -- point helpers ----------------------------------------------------------
@@ -505,57 +565,24 @@ class SpurGear:
 
     def derive(self, spec: GearSpec) -> SpurDerived:
         """Every size of the gear. Raises :class:`GeometryError` on a field that makes none."""
-        for problem in _field_errors(spec):
+        for problem in field_errors(spec):
             raise GeometryError(problem.message)
 
         m = spec.module_mm()
-        n = spec.teeth_count()
-        alpha_deg = spec.pressure_angle_deg()
-        alpha = math.radians(alpha_deg)
         typed_backlash = spec.backlash_mm()
         typed_fillet = spec.fillet_mm()
-        j = BACKLASH_FACTOR * m if typed_backlash is None else typed_backlash
-        rho = FILLET_FACTOR * m if typed_fillet is None else typed_fillet
-
-        d = n * m
-        da = (n + 2) * m
-        h = tooth_depth(m)
-        df = da - 2.0 * h
-        db = d * math.cos(alpha)
-        p = math.pi * m
-        space = m * math.pi / 2.0 + j
-        s = m * math.pi - space
-        psi_s = space / d
-        inv_alpha = math.tan(alpha) - alpha
-        phi = psi_s - inv_alpha
-        tip_cap_d = da + 2.0 * m
-        floor = df + FLANK_START_FILLETS * rho
-        flank_start_d = db if db >= floor else floor
-        rp = d / 2.0
-        reach = rp * math.sin(alpha) - m / math.sin(alpha)
-        rb = db / 2.0
-        form_d = 2.0 * math.sqrt(rb * rb + max(0.0, reach) ** 2)
-
-        t_tip = math.sqrt((da / db) ** 2 - 1.0)
-        tip_angle = phi + t_tip - math.atan(t_tip)
-        return SpurDerived(
-            teeth=n, module=m, pressure_angle_deg=alpha_deg, face_width=spec.face_width_mm(),
-            bore=spec.bore_mm(), backlash=j, fillet=rho,
+        return profile(
+            spec.teeth_count(), m, spec.pressure_angle_deg(), spec.face_width_mm(), spec.bore_mm(),
+            BACKLASH_FACTOR * m if typed_backlash is None else typed_backlash,
+            FILLET_FACTOR * m if typed_fillet is None else typed_fillet,
             backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
-            alpha=alpha, d=d, da=da, h=h, df=df, db=db, p=p, space=space, s=s,
-            psi_s=psi_s, psi_t=s / d, inv_alpha=inv_alpha, phi=phi, t_max=t_tip,
-            n_min=undercut_minimum(alpha_deg), tip_cap_d=tip_cap_d, flank_start_d=flank_start_d,
-            t1=math.sqrt((flank_start_d / db) ** 2 - 1.0),
-            t2=math.sqrt((tip_cap_d / db) ** 2 - 1.0),
-            form_d=form_d, flank_arc_radius=rp * math.sin(alpha),
-            tip_thickness=2.0 * (da / 2.0) * (math.pi / n - tip_angle),
         )
 
     # -- checking --------------------------------------------------------
 
     def validate(self, spec: GearSpec, derived: Optional[SpurDerived] = None) -> List[Diagnostic]:
         """Everything wrong with the gear, and everything worth knowing, as sentences."""
-        problems = _field_errors(spec)
+        problems = field_errors(spec)
         if problems:
             return problems
         try:
@@ -630,8 +657,7 @@ class SpurGear:
         wherever trig makes the two differ.
         """
         g = derived
-        deg_pa, rad_pa = _deg_arg(PRESSURE_ANGLE)
-        backlash = equations.literal(g.backlash) if g.backlash_typed else f"{BACKLASH_FACTOR} * {_q(MODULE)}"
+        backlash =equations.literal(g.backlash) if g.backlash_typed else f"{BACKLASH_FACTOR} * {_q(MODULE)}"
         fillet = equations.literal(g.fillet) if g.fillet_typed else f"{FILLET_FACTOR} * {_q(MODULE)}"
         return [
             GlobalVariable(TEETH, equations.literal(g.teeth)),
@@ -645,29 +671,7 @@ class SpurGear:
             GlobalVariable(FILLET, fillet),
             GlobalVariable(DEPTH, f"IIF ( {_q(MODULE)} <= 1.25 , {_q(MODULE)} * 2.4 , {_q(MODULE)} * 2.25 )"),
             GlobalVariable(FACE_WIDTH, equations.literal(g.face_width)),
-            GlobalVariable(ROOT, f"{_q(OUTER)} - 2 * {_q(DEPTH)}"),
-            GlobalVariable(BASE, f"{_q(PITCH)} * cos ( {deg_pa} )", f"{_q(PITCH)} * cos ( {rad_pa} )"),
-            GlobalVariable(BASE_RADIUS, f"{_q(BASE)} / 2"),
-            GlobalVariable(THICKNESS, f"{_q(MODULE)} * pi - {_q(ARC_LENGTH)}"),
-            GlobalVariable(HALF_SPACE, f"( {_q(ARC_LENGTH)} / {_q(PITCH)} ) * 180 / pi"),
-            GlobalVariable(INVOLUTE_FN, f"tan ( {deg_pa} ) - {_q(PRESSURE_ANGLE)} * pi / 180",
-                           f"tan ( {rad_pa} ) - {_q(PRESSURE_ANGLE)} * pi / 180"),
-            GlobalVariable(FLANK_OFFSET, f"{_q(ARC_LENGTH)} / {_q(PITCH)} - {_q(INVOLUTE_FN)}"),
-            GlobalVariable(TIP_CAP, f"{_q(OUTER)} + 2 * {_q(MODULE)}"),
-            # Both sides of the comparison are bracketed: SolidWorks 2026 read
-            # "a >= b + c" as "( a >= b ) + c", which is always true.
-            GlobalVariable(FLANK_START, (
-                f"IIF ( {_q(BASE)} >= ( {_q(ROOT)} + 3 * {_q(FILLET)} ) , {_q(BASE)} , "
-                f"{_q(ROOT)} + 3 * {_q(FILLET)} )")),
-            # When the involute starts on the base circle the ratio is exactly 1.
-            # SolidWorks 2026 refuses sqr ( 0 ) outright, and IIF does not save
-            # it because both branches are evaluated; ^ 0.5 of zero is accepted.
-            # abs() keeps a rounding error below zero from doing the same.
-            GlobalVariable(T1, f"( abs ( ( {_q(FLANK_START)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
-            GlobalVariable(T2, f"( abs ( ( {_q(TIP_CAP)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
-            GlobalVariable(FLANK_ARC, f"( {_q(PITCH)} / 2 ) * sin ( {deg_pa} )",
-                           f"( {_q(PITCH)} / 2 ) * sin ( {rad_pa} )"),
-            GlobalVariable(FLANK_CENTRE, f"{_q(HALF_SPACE)} + {_q(PRESSURE_ANGLE)}"),
+            *profile_variables(),
         ]
 
     def equation_lines(self, spec: GearSpec, derived: SpurDerived, trig: str) -> List[str]:
@@ -700,7 +704,7 @@ class SpurGear:
 
         ops.append(Axis("axis", AXIS_NAME, (2, 3)))
         ops.extend(_blank_ops(g))
-        ops.extend(_space_ops_involute(g) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g))
+        ops.extend(space_ops(g, recipe))
         ops.append(Cut("space_cut", "space", SPACE))
         ops.append(CircularPattern("teeth", TEETH_PATTERN, "axis", "space_cut", g.teeth, "Count"))
         ops.append(LinkDimension(f"Count@{TEETH_PATTERN}", _q(TEETH)))
@@ -713,8 +717,53 @@ class SpurGear:
         return BuildPlan(kind=KIND, recipe=recipe, ops=tuple(ops), path=path)
 
 
-def _field_errors(spec: GearSpec) -> List[Diagnostic]:
-    """The fields that stop a gear being worked out at all."""
+def space_ops(g: SpurDerived, recipe: str, plane: Union[int, str] = 1) -> List[Op]:
+    """The tooth-space sketch of either recipe, opened on ``plane``, closed and linked."""
+    ops = _space_ops_involute(g) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g)
+    if plane != 1:
+        ops[0] = OpenSketch("space", plane)
+    return ops
+
+
+def profile_variables(pressure_angle: str = PRESSURE_ANGLE, circular_module: str = MODULE) -> List[GlobalVariable]:
+    """The globals the tooth-space sketch reads, from ``"Root Diameter"`` on, in order.
+
+    ``pressure_angle`` names the global holding the section's pressure angle in
+    degrees and ``circular_module`` the one whose π multiple is the circular
+    pitch: ``"Pressure Angle"`` and ``"Module"`` for a spur gear, the transverse
+    ones for a helical gear. Everything measured up the tooth stays on
+    ``"Module"``.
+    """
+    deg_pa, rad_pa = _deg_arg(pressure_angle)
+    return [
+        GlobalVariable(ROOT, f"{_q(OUTER)} - 2 * {_q(DEPTH)}"),
+        GlobalVariable(BASE, f"{_q(PITCH)} * cos ( {deg_pa} )", f"{_q(PITCH)} * cos ( {rad_pa} )"),
+        GlobalVariable(BASE_RADIUS, f"{_q(BASE)} / 2"),
+        GlobalVariable(THICKNESS, f"{_q(circular_module)} * pi - {_q(ARC_LENGTH)}"),
+        GlobalVariable(HALF_SPACE, f"( {_q(ARC_LENGTH)} / {_q(PITCH)} ) * 180 / pi"),
+        GlobalVariable(INVOLUTE_FN, f"tan ( {deg_pa} ) - {_q(pressure_angle)} * pi / 180",
+                       f"tan ( {rad_pa} ) - {_q(pressure_angle)} * pi / 180"),
+        GlobalVariable(FLANK_OFFSET, f"{_q(ARC_LENGTH)} / {_q(PITCH)} - {_q(INVOLUTE_FN)}"),
+        GlobalVariable(TIP_CAP, f"{_q(OUTER)} + 2 * {_q(MODULE)}"),
+        # Both sides of the comparison are bracketed: SolidWorks 2026 read
+        # "a >= b + c" as "( a >= b ) + c", which is always true.
+        GlobalVariable(FLANK_START, (
+            f"IIF ( {_q(BASE)} >= ( {_q(ROOT)} + 3 * {_q(FILLET)} ) , {_q(BASE)} , "
+            f"{_q(ROOT)} + 3 * {_q(FILLET)} )")),
+        # When the involute starts on the base circle the ratio is exactly 1.
+        # SolidWorks 2026 refuses sqr ( 0 ) outright, and IIF does not save
+        # it because both branches are evaluated; ^ 0.5 of zero is accepted.
+        # abs() keeps a rounding error below zero from doing the same.
+        GlobalVariable(T1, f"( abs ( ( {_q(FLANK_START)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
+        GlobalVariable(T2, f"( abs ( ( {_q(TIP_CAP)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
+        GlobalVariable(FLANK_ARC, f"( {_q(PITCH)} / 2 ) * sin ( {deg_pa} )",
+                       f"( {_q(PITCH)} / 2 ) * sin ( {rad_pa} )"),
+        GlobalVariable(FLANK_CENTRE, f"{_q(HALF_SPACE)} + {_q(pressure_angle)}"),
+    ]
+
+
+def field_errors(spec: GearSpec, kind: str = KIND) -> List[Diagnostic]:
+    """The fields every kind shares that stop a gear being worked out at all."""
     out: List[Diagnostic] = []
 
     def read(field: str, reader):
@@ -724,8 +773,8 @@ def _field_errors(spec: GearSpec) -> List[Diagnostic]:
             out.append(Diagnostic(ERROR, str(exc), field))
             return None
 
-    if spec.kind != KIND:
-        out.append(Diagnostic(ERROR, f"Only spur gears can be built so far (got {spec.kind!r}).", "kind"))
+    if spec.kind != kind:
+        out.append(Diagnostic(ERROR, f"This is a {kind} gear's calculation, and the form says {spec.kind!r}.", "kind"))
     m = read("module", spec.module_mm)
     if m is not None and m <= 0:
         out.append(Diagnostic(ERROR, f"Module must be more than zero (got {spec.module.strip()!r}).", "module"))

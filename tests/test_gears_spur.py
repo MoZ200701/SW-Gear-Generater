@@ -157,7 +157,7 @@ def test_recipe_b_is_close_to_the_involute_at_this_size():
         ({"bore": "34"}, "bore", "reaches the root diameter"),
         ({"fillet": "3"}, "fillet", "Fillet smaller"),
         ({"profile_shift": "0.2"}, "profile_shift", "reserved"),
-        ({"kind": "bevel"}, "kind", "Only spur gears"),
+        ({"kind": "bevel"}, "kind", "form says"),
         ({"backlash": "-0.1"}, "backlash", "must not be negative"),
     ],
 )
