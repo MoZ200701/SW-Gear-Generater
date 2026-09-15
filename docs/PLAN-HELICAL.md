@@ -326,3 +326,30 @@ API-LEDGER rows via `--ledger`, manifest rebuilt. Failures recorded as findings.
 - **Path on the axis** must be held by relations, not coordinates, or the teeth wobble.
 - **Crossed-axis helical** (shaft angle Σ = β1 ± β2, same hands at 90°): the parts are §3's; only the assembly differs (non-parallel axis mates, C from each gear's own mt). Deferred to the bevel phase, which needs non-parallel axis mates too; add a line to `PLAN.md` §9.
 - Herringbone centre groove, profile shift, SolidWorks gear mate: reserved.
+
+---
+
+## As executed (2026-09-15)
+
+Where the build differs from the plan above, and what was observed on SolidWorks 2026 (revision 34.0.0):
+
+- **Pinned solver case corrected.** With β typed at 15° and the centre distance m2 20:40 makes, m2.5 16:32 ranks
+  first and m2 20:40 second: both are exact, and the larger module wins. §4.1's "m2 20/40 first" was wrong.
+- **Herringbone pair file names carry `HB`** (`Pinion_m2.5_N15_HB20.36R`, `Pair_m2.5_15T_30T_HB20.36`): the solver
+  gave a helical and a herringbone pair at C 60, i 2 the same module, teeth and angle, and the second build was
+  refused for a name the first had taken. A single gear's `Herringbone_` prefix already says it.
+- **Kind button reads `Double`** for herringbone; five labels do not fit the row. The readout says `Herringbone`.
+- **Helix rows have no explainer card yet**, and gear B's hand is not locked opposite A's in the window; the
+  assembly refuses same-hand gears with a sentence at Build.
+- **Twist direction** needed no per-path flag: an unreversed constant-twist sweep turned counter-clockwise about +Z
+  as z increased for a path toward +Z and toward −Z alike. A negative twist angle is ignored;
+  `D1ReverseTwistDir` through `ModifyDefinition` is the other hand.
+- **Interference was checked by a script, not a probe** (`IAssemblyDoc.InterferenceDetectionManager`, reached
+  through `swcom.call`, since late binding reads `GetInterferences` as a property). A helical m2.5 15:30 pair at
+  β 20.3641° and a herringbone one, each built by `swbuild.build_pair`: 0 interferences, gear 2 at 60.000 mm; the
+  same assemblies with gear 2 turned half a pitch: 3 and 4 interferences. `build_pair` does not run the check yet,
+  so the manual mesh step stays.
+- **End to end** (`probe/p5_helical.py`): m2 z13 helical β20° and herringbone β30° build with every sketch fully
+  defined, one body, volume within 3e-5 of a straight-cut twin, the hand on the predicted side of a single space's
+  centre of mass for both hands, and after `"Helix Angle"` and `"Face Width"` change through `update_variables`,
+  every global and a fresh twin's volume agree again.

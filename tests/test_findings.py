@@ -99,3 +99,20 @@ def test_mates(evidence):
 def test_save_as_returns_a_plain_flag(evidence):
     _, records, _ = evidence
     assert facts(records, "save_as")["save_as3_result_is_tuple"] is False
+
+
+def test_helical_decisions(evidence):
+    _, records, decided = evidence
+    assert decided["helix_route"] == "twist"
+    assert decided["herringbone_route"] == "mirror"
+    assert decided["inverse_tangent"] == findings.INVERSE_TANGENT
+    assert decided["extrude_z_sign"] == findings.EXTRUDE_Z_SIGN
+    assert decided["top_sketch_y_is_minus_z"] is findings.TOP_SKETCH_Y_IS_MINUS_Z
+    assert decided["ref_plane_unflipped_is_plus_z"] is findings.REF_PLANE_UNFLIPPED_IS_PLUS_Z
+    assert decided["twist_turn"] == findings.TWIST_TURN
+    assert decided["twist_reverse_flips"] is True
+    assert decided["mirror_body_route"] == (f"body mark {findings.MIRROR_BODY_MARK}, "
+                                            f"plane mark {findings.MIRROR_PLANE_MARK}")
+    assert decided["helical_end_to_end"] is True
+    assert "overrun " + findings.SWEEP_CUT_CALL.split(".")[-1] in facts(records, "sweep_cut_ends")["sweep_cut_routes"]
+    assert facts(records, "equation_inverse_trig")["inverse_trig_accepted"]["atn"] == findings.INVERSE_TRIG_UNITS

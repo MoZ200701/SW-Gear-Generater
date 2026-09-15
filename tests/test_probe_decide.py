@@ -71,5 +71,26 @@ def test_every_decision_key_is_present_even_with_nothing_run():
     for key in ("trig_default", "equation_add_call", "equation_set_route", "plane_select_route", "equal_constraint",
                 "circle_dimension", "arc_dimension", "curve_trig", "curves_are_fixed", "shared_ends_are_one_point",
                 "cut_end_condition",
-                "pattern_count_dim_index", "save_as_overwrites", "first_component_fixed"):
+                "pattern_count_dim_index", "save_as_overwrites", "first_component_fixed", "inverse_tangent",
+                "extrude_z_sign", "top_sketch_y_is_minus_z", "ref_plane_unflipped_is_plus_z", "twist_turn",
+                "twist_reverse_flips", "mirror_body_route"):
         assert key in decided and decided[key] is None, key
+
+
+HELIX = ("equation_inverse_trig", "sweep_twist", "sweep_twist_link", "sweep_cut_ends")
+
+
+def test_the_helix_is_a_twisted_sweep_when_the_twist_links_and_cuts_exactly():
+    assert decide.helix_route(records(HELIX)) == "twist"
+    assert decide.herringbone_route(records(HELIX + ("mirror_body_merge",))) == "mirror"
+
+
+def test_an_unlinkable_twist_falls_back_to_a_helix_guide_and_nothing_else():
+    unlinked = HELIX[:2] + HELIX[3:]
+    assert decide.helix_route(records(unlinked + ("helix_guide",), failing=("sweep_twist_link",))) == "guide"
+    assert decide.helix_route(records(unlinked, failing=("sweep_twist_link",))) == "STOP"
+
+
+def test_no_atn_or_no_mirror_stops_rather_than_guessing():
+    assert decide.helix_route(records(HELIX[1:], failing=("equation_inverse_trig",))) == "STOP"
+    assert decide.herringbone_route(records(HELIX, failing=("mirror_body_merge",))) == "STOP"

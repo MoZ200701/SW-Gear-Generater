@@ -209,13 +209,16 @@ def default_stem(spec: GearSpec, prefix: str = "") -> str:
     """``Gear_m1.5_N25``; ``Helical_m2_N20_15R`` and ``Herringbone_m2_N20_30L`` for the helical kinds.
 
     A pair's ``Pinion`` and ``Gear`` prefixes keep the helix suffix, since two
-    gears differing only in hand would otherwise share a name.
+    gears differing only in hand would otherwise share a name, and a
+    herringbone's is marked ``HB`` (``Pinion_m2.5_N15_HB20.36R``): the solver can
+    give a helical and a herringbone pair the same module, teeth and angle.
     """
     words = {KIND_HELICAL: "Helical", KIND_HERRINGBONE: "Herringbone"}
     stem = f"{prefix or words.get(spec.kind, 'Gear')}_m{_number_text(spec.module)}_N{_number_text(spec.teeth)}"
     if spec.kind in HELICAL_KINDS:
         hand = str(spec.hand).strip().lower()[:1].upper()
-        stem += f"_{_angle_text(spec.helix_angle) if spec.helix_angle.strip() else 'H'}{hand}"
+        mark = "HB" if prefix and spec.kind == KIND_HERRINGBONE else ""
+        stem += f"_{mark}{_angle_text(spec.helix_angle) if spec.helix_angle.strip() else 'H'}{hand}"
     return sanitize_stem(stem)
 
 
@@ -309,7 +312,8 @@ def pair_stems(pair: PairSpec) -> Tuple[str, str, str]:
     if pair.assembly_name.strip():
         stem_pair = sanitize_stem(pair.assembly_name)
     else:
-        helix = f"_H{_angle_text(a.helix_angle)}" if a.kind in HELICAL_KINDS and a.helix_angle.strip() else ""
+        mark = "HB" if a.kind == KIND_HERRINGBONE else "H"
+        helix = f"_{mark}{_angle_text(a.helix_angle)}" if a.kind in HELICAL_KINDS and a.helix_angle.strip() else ""
         stem_pair = sanitize_stem(
             f"Pair_m{_number_text(a.module)}_{_number_text(a.teeth)}T_{_number_text(b.teeth)}T{helix}"
         )

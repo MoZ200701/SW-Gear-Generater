@@ -173,6 +173,8 @@ def test_stems_carry_the_helix():
     assert spec(kind="herringbone", helix_angle="30", hand="left").stem() == "Herringbone_m2_N20_30L"
     pair = PairSpec(mode="pair", gear_a=spec(), gear_b=spec(teeth="40", hand="left"))
     assert pair_stems(pair) == ("Pinion_m2_N20_15R", "Gear_m2_N40_15L", "Pair_m2_20T_40T_H15")
+    double = PairSpec(mode="pair", gear_a=spec(kind="herringbone"), gear_b=spec(kind="herringbone", teeth="40", hand="left"))
+    assert pair_stems(double) == ("Pinion_m2_N20_HB15R", "Gear_m2_N40_HB15L", "Pair_m2_20T_40T_HB15")
     solved = spec(helix_angle="18.194872")
     assert solved.stem() == "Helical_m2_N20_18.19R"
 
