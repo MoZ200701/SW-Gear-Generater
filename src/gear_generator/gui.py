@@ -52,6 +52,8 @@ GEAR_VARS = (
     ("bore", "bore"),
     ("backlash", "backlash"),
     ("fillet", "fillet"),
+    ("helix_angle", "helix_angle"),
+    ("hand", "hand"),
     ("name", "name"),
 )
 # Shared by both gears, or fixed in this version.
@@ -66,11 +68,14 @@ PAIR_VARS = (
     ("series", "series"),
     ("min_teeth", "min_teeth"),
     ("max_teeth", "max_teeth"),
+    ("helix_angle", "pair_helix_angle"),
+    ("helix_min", "helix_min"),
+    ("helix_max", "helix_max"),
     ("assembly_name", "assembly_name"),
 )
 PAIR_COMPOUND = ("gear_a", "gear_b")
 
-KIND_VALUES = ("spur",) + tuple(PLANNED_KINDS)
+KIND_VALUES = tuple(KINDS) + tuple(PLANNED_KINDS)
 MODE_VALUES = (MODE_SINGLE, MODE_PAIR)
 MODE_LABELS = {MODE_SINGLE: "Single gear", MODE_PAIR: "Gear pair"}
 SERIES_LABELS = ui_text.SERIES_LABELS
@@ -135,6 +140,9 @@ class GearApp(ttk.Frame):
         self.series = tk.StringVar(value=pair_defaults.series)
         self.min_teeth = tk.StringVar(value=pair_defaults.min_teeth)
         self.max_teeth = tk.StringVar(value=pair_defaults.max_teeth)
+        self.pair_helix_angle = tk.StringVar(value=pair_defaults.helix_angle)
+        self.helix_min = tk.StringVar(value=pair_defaults.helix_min)
+        self.helix_max = tk.StringVar(value=pair_defaults.helix_max)
         self.assembly_name = tk.StringVar(value=pair_defaults.assembly_name)
 
         self.out_folder = tk.StringVar(value=self.recent.folder)
@@ -743,7 +751,8 @@ class GearApp(ttk.Frame):
             for var in self.gear_vars[side].values():
                 var.trace_add("write", lambda *_: self._schedule_derive())
         for var in (self.kind, self.recipe, self.centre_distance, self.ratio, self.pair_module,
-                    self.series, self.min_teeth, self.max_teeth, self.assembly_name, self.out_folder):
+                    self.series, self.min_teeth, self.max_teeth, self.pair_helix_angle, self.helix_min,
+                    self.helix_max, self.assembly_name, self.out_folder):
             var.trace_add("write", lambda *_: self._schedule_derive())
 
     def _on_mode_changed(self) -> None:

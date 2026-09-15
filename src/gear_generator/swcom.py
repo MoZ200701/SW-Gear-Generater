@@ -716,10 +716,17 @@ class Session:
         self._handles[handle] = kept
         return kept
 
-    def open_sketch(self, handle: str, plane: int) -> None:
+    def open_sketch(self, handle: str, plane: "int | str") -> None:
+        """On the Nth reference plane in tree order, or on a plane this build made, by its handle."""
         doc = self._doc()
         before = self._top_names()
-        self.select_plane_by_order(plane)
+        if isinstance(plane, str):
+            name = self._handles.get(plane)
+            if not isinstance(name, str):
+                raise SolidWorksError(f"The plane {plane!r} has not been made in this build.")
+            self._select_feature(self._by_name(name))
+        else:
+            self.select_plane_by_order(plane)
         manager = call(doc, "SketchManager")
         manager.AddToDB = True
         manager.DisplayWhenAdded = False
@@ -995,6 +1002,105 @@ class Session:
         dim = self._name_dimension_by_value(made, float(count), count_dim, "count")
         self._handles[handle] = {"feature": kept}
         return kept, dim
+
+    def ref_plane(self, handle: str, name: str, plane: int, offset: float, flip: bool,
+                  offset_dim: str) -> Tuple[str, str]:
+        """``InsertRefPlane(8 | flip 256, d, 0, 0, 0, 0)`` on the Nth plane; returns ``(name, offset dimension)``.
+
+        Probe ref_plane_offset, SolidWorks 2026: from the Front plane the
+        unflipped plane was at +d on Z and the flipped one at -d, both facing +Z;
+        the offset was the plane's only dimension, D1, and followed a global.
+        """
+        doc = self._doc()
+        before = self._top_names()
+        self.select_plane_by_order(plane)
+        m = offset / MM_PER_METRE
+        constraint = findings.REF_PLANE_DISTANCE | (findings.REF_PLANE_FLIP if flip else 0)
+        made = call(call(doc, "FeatureManager"), "InsertRefPlane", constraint, m, 0, 0.0, 0, 0.0)
+        call(doc, "ClearSelection2", True)
+        if made is None:
+            raise SolidWorksError(f"InsertRefPlane would not make {name} {offset:g} mm from plane {plane}.")
+        feature = self._made_since(before, "RefPlane", "InsertRefPlane")
+        kept = self._rename(feature, name)
+        dim = self._name_dimension_by_value(feature, m, offset_dim, "offset")
+        self._handles[handle] = kept
+        return kept, dim
+
+    def sweep_cut(self, handle: str, profile: str, path: str, name: str, twist: float, reverse: bool,
+                  twist_dim: str) -> Tuple[str, str]:
+        """A cut of one sketch along another with a constant twist; returns ``(name, twist dimension)``.
+
+        Probes sweep_twist and sweep_cut_ends, SolidWorks 2026: profile at mark
+        1, path at mark 4, ``InsertCutSwept5`` with twist control 8 and the twist
+        in radians. A negative twist turned the same way as a positive one, so
+        the other hand is ``D1ReverseTwistDir`` set through the feature's
+        definition. The twist was the sweep's one dimension; it is named before
+        the definition is touched.
+        """
+        doc = self._doc()
+        self._select_feature(self._sketch_feature(profile), mark=findings.SWEEP_PROFILE_MARK)
+        self._select_feature(self._sketch_feature(path), append=True, mark=findings.SWEEP_PATH_MARK)
+        angle = math.radians(twist)
+        before = self._top_names()
+        made = call(call(doc, "FeatureManager"), "InsertCutSwept5", False, False, findings.TWIST_CONSTANT_ALONG_PATH,
+                    False, False, 0, 0, False, 0.0, 0.0, 0, 0, True, True, angle, True, False, False, False, False,
+                    0.0, findings.SWEEP_DIRECTION)
+        call(doc, "ClearSelection2", True)
+        if made is None:
+            raise SolidWorksError(f"InsertCutSwept5 would not sweep {profile} along {path} as {name}.")
+        feature = self._made_since(before, "SweepCut", "InsertCutSwept5")
+        kept = self._rename(feature, name)
+        dim = self._name_dimension_by_value(feature, angle, twist_dim, "twist")
+        if reverse:
+            data = call(feature, "GetDefinition")
+            if data is None or not call(data, "AccessSelections", doc, _null_dispatch()):
+                raise SolidWorksError(f"The definition of {kept} ({_type_name(feature)}) could not be opened to "
+                                      "reverse its twist.")
+            data.D1ReverseTwistDir = True
+            if not call(feature, "ModifyDefinition", data, doc, _null_dispatch()):
+                raise SolidWorksError(f"ModifyDefinition would not reverse the twist of {kept} ({_type_name(feature)}).")
+        self._handles[handle] = {"feature": kept}
+        return kept, dim
+
+    def mirror_body(self, handle: str, name: str, plane: str) -> str:
+        """The part's body mirrored about a plane this build made, merged into one.
+
+        Probe mirror_body_merge, SolidWorks 2026: the plane at mark 2 and the
+        body at mark 256, ``InsertMirrorFeature2(True, False, True, False, 0)``,
+        made one body of twice the volume; the body at mark 1 mirrored nothing.
+        """
+        doc = self._doc()
+        plane_name = self._handles.get(plane)
+        if not isinstance(plane_name, str):
+            raise SolidWorksError(f"The mirror {name} needs the plane {plane} first.")
+        bodies = call(doc, "GetBodies2", 0, True)
+        if not bodies or len(bodies) != 1:
+            raise SolidWorksError(f"The mirror {name} needs exactly one solid body; the part has {len(bodies or ())}.")
+        self._select_feature(self._by_name(plane_name), mark=findings.MIRROR_PLANE_MARK)
+        data = call(call(doc, "SelectionManager"), "CreateSelectData")
+        data.Mark = findings.MIRROR_BODY_MARK
+        before_count = self._selected()
+        if not call(bodies[0], "Select2", True, data) or self._selected() <= before_count:
+            raise SolidWorksError(f"The body could not be selected to mirror {self._selection_context()}.")
+        before = self._top_names()
+        made = call(call(doc, "FeatureManager"), "InsertMirrorFeature2", True, False, True, False, 0)
+        call(doc, "ClearSelection2", True)
+        if made is None:
+            raise SolidWorksError(f"InsertMirrorFeature2 would not mirror the body about {plane_name}.")
+        kept = self._rename(self._made_since(before, "MirrorSolid", "InsertMirrorFeature2"), name)
+        self._handles[handle] = {"feature": kept}
+        return kept
+
+    def center_of_mass_mm(self) -> Tuple[float, float, float]:
+        """The build document's centre of mass in mm (probe center_of_mass: metres, a three-element array)."""
+        centre = call(call(call(self._doc(), "Extension"), "CreateMassProperty"), "CenterOfMass")
+        if centre is None or len(centre) < 3:
+            raise SolidWorksError(f"CenterOfMass returned {centre!r} for {call(self._doc(), 'GetTitle')}.")
+        return (float(centre[0]) * MM_PER_METRE, float(centre[1]) * MM_PER_METRE, float(centre[2]) * MM_PER_METRE)
+
+    def solid_body_count(self) -> int:
+        bodies = call(self._doc(), "GetBodies2", 0, True)
+        return len(bodies) if bodies else 0
 
     def volume_mm3(self) -> float:
         props = call(call(self._doc(), "Extension"), "CreateMassProperty")

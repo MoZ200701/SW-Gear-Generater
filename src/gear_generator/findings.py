@@ -70,6 +70,8 @@ RELATIONS = {
     "horizontal": "sgHORIZONTAL2D",
     "fixed": "sgFIXED",
     "equal": "sgSAMELENGTH",
+    # path_sketch_relations: vertical on both path lines left the sketch fully defined.
+    "vertical": "sgVERTICAL2D",
 }
 
 # dimensions: a circle's AddDimension2 measures its diameter, an arc's its
@@ -120,3 +122,60 @@ MATE_ANGLE = 6
 MATE_ALIGN_CLOSEST = 2       # swMateAlign_e
 FIRST_COMPONENT_FIXED = True
 MATE_DISTANCE_DIM_NAME = "D1"
+
+# -- helical and herringbone ------------------------------------------------
+
+# equation_inverse_trig: atn ( 1 ) read 45 in a degree document, arcsin and
+# arccos answered in degrees too, arctan was refused; atn of the transverse
+# pressure angle read back equal to the maths.
+INVERSE_TANGENT = "atn"
+INVERSE_TRIG_UNITS = "degrees"
+
+# center_of_mass: a boss extruded from the Front plane has its centre of mass
+# at z = +w/2, so a blank goes toward +Z. The Top plane's sketch x is model +X
+# and its sketch y is model -Z, so a line along the axis is sketch-vertical.
+EXTRUDE_Z_SIGN = 1
+TOP_SKETCH_Y_IS_MINUS_Z = True
+
+# ref_plane_offset: InsertRefPlane(8, d, 0, 0, 0, 0) on the Front plane put the
+# plane at z = +d, and with the flip bit 256 at z = -d; both planes' sketches
+# face +Z like the Front plane's. The offset is the plane's only dimension, D1.
+REF_PLANE_CALL = "IFeatureManager.InsertRefPlane"
+REF_PLANE_DISTANCE = 8       # swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Distance
+REF_PLANE_FLIP = 256         # swRefPlaneReferenceConstraint_OptionFlip
+REF_PLANE_UNFLIPPED_IS_PLUS_Z = True
+
+# mirror_body_merge: with the body selected at mark 256 and the plane at mark 2,
+# InsertMirrorFeature2(True, False, True, False, 0) made one body of twice the
+# volume centred on the plane; marks 1/2 and 1/1 mirrored nothing.
+MIRROR_CALL = "IFeatureManager.InsertMirrorFeature2"
+MIRROR_BODY_MARK = 256
+MIRROR_PLANE_MARK = 2
+
+# sweep_twist: selected as profile at mark 1 and path at mark 4, a sweep with
+# swTwistControlConstantTwistAlongPath (8) and a twist of pi/2 turned a circle
+# at r 12 a uniform quarter turn (centroid within 3e-4 mm of r0 sin θ/θ), its
+# volume A·L to 3e-4. The twist argument is radians; a negative one turned the
+# same way as a positive one. Unreversed, the section turned counter-clockwise
+# about +Z as z increased for a path toward +Z and for one toward -Z alike — a
+# right-hand helix both ways. D1ReverseTwistDir, set through GetDefinition,
+# AccessSelections(doc, null) and ModifyDefinition(data, doc, null), turned it
+# the other way. Its one dimension is the twist, in radians, D4 by default.
+TWIST_CONSTANT_ALONG_PATH = 8   # swTwistControlType_e.swTwistControlConstantTwistAlongPath
+SWEEP_DIRECTION = 0            # swSweepDirection_e.swSweepDirection1
+SWEEP_PROFILE_MARK = 1
+SWEEP_PATH_MARK = 4
+TWIST_TURN = {"plus z": 1, "minus z": 1}
+TWIST_REVERSE_ROUTE = "ISweepFeatureData.D1ReverseTwistDir through ModifyDefinition"
+
+# sweep_twist_link: renamed Twist and linked to a global of 45, the dimension
+# read pi/4: a linked twist is in degrees, and the sweep followed it.
+# sweep_cut_ends: InsertCutSwept5 (22 arguments) removed A·w from a blank to
+# 1e-7 with the section 2 mm ahead of the face and the path 2 mm past the far
+# one, and to 1.5e-4 with the section on the face itself; one body either way.
+SWEEP_CUT_CALL = "IFeatureManager.InsertCutSwept5"
+SWEEP_ENDS = "overrun"
+
+# pattern_sweep: FeatureCircularPattern5 of a twisted cut left N·A·w removed and
+# one body; 24 of them rebuilt in 0.37 s, 0.20 s as a geometry pattern.
+PATTERN_OF_SWEEPS_SECONDS_24 = 0.373

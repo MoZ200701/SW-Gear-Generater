@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import List, Optional, Tuple
 
-from ..spec import GearSpec, InputError, PairSpec
-from . import equations, standards
+from ..spec import HAND_LEFT, HAND_RIGHT, HELICAL_KINDS, KIND_HERRINGBONE, KIND_SPUR, GearSpec, InputError, PairSpec
+from . import equations, helical, standards
 from .base import AddComponent, AddGlobal, BuildPlan, Fix, LinkDimension, ManualStep, Mate, NewAssembly, Rebuild, SaveAs
 from .spur import AXIS_NAME, contact_ratio, undercut_minimum
 
@@ -46,18 +46,21 @@ class Candidate:
     centre_error: float       # mm, actual − wanted
     undercut: bool
     contact_ratio: float
+    helix_angle: float = 0.0  # degrees; 0 for a spur pair
+    overlap: float = 0.0      # εβ, from gear A's face width; nan when it cannot be read
 
     @property
     def exact(self) -> bool:
         return abs(self.centre_error) <= TOLERANCE and self.ratio_error <= TOLERANCE
 
-    def rank(self) -> Tuple[bool, bool, bool, float, float, int]:
+    def rank(self) -> Tuple[bool, bool, bool, float, float, float, int]:
         return (
             abs(self.centre_error) > TOLERANCE,
             not self.standard,
             self.undercut,
             round(self.ratio_error, 12),
             -self.module,
+            round(self.helix_angle, 9),   # the smaller helix, the less axial thrust
             self.teeth_driver,
         )
 
@@ -67,15 +70,30 @@ def floor_teeth(min_teeth: int) -> int:
 
 
 def describe(module: float, teeth_driver: int, teeth_driven: int,
-             pressure_angle: float = 20.0) -> Tuple[float, float, float]:
-    """The other direction: ``(centre distance, ratio, contact ratio)`` of a pair."""
-    centre = module * (teeth_driver + teeth_driven) / 2.0
-    return centre, teeth_driven / teeth_driver, contact_ratio(module, teeth_driver, teeth_driven, pressure_angle, centre)
+             pressure_angle: float = 20.0, helix_angle: float = 0.0) -> Tuple[float, float, float]:
+    """The other direction: ``(centre distance, ratio, contact ratio)`` of a pair.
+
+    For a helical pair ``module`` and ``pressure_angle`` are the normal ones,
+    the centre distance is ``mt (N1 + N2) / 2`` and the contact ratio is the
+    transverse one, εα; the overlap εβ depends on the face width and is
+    :func:`helical.overlap_ratio`.
+    """
+    mt = module / math.cos(math.radians(helix_angle))
+    centre = mt * (teeth_driver + teeth_driven) / 2.0
+    alpha = helical.transverse_pressure_angle(pressure_angle, helix_angle) if helix_angle else pressure_angle
+    epsilon = contact_ratio(module, teeth_driver, teeth_driven, alpha, centre, transverse_module=mt)
+    return centre, teeth_driven / teeth_driver, epsilon
 
 
 def _candidate(module: float, n1: int, n2: int, centre: float, ratio: float, pressure_angle: float,
-               min_teeth: int, standard: bool) -> Candidate:
-    actual_centre, actual_ratio, epsilon = describe(module, n1, n2, pressure_angle)
+               min_teeth: int, standard: bool, helix_angle: float = 0.0,
+               face_width: Optional[float] = None) -> Candidate:
+    actual_centre, actual_ratio, epsilon = describe(module, n1, n2, pressure_angle, helix_angle)
+    if helix_angle:
+        limit = int(math.floor(helical.undercut_minimum(pressure_angle, helix_angle) + 0.5))
+        overlap = helical.overlap_ratio(module, helix_angle, face_width) if face_width else math.nan
+    else:
+        limit, overlap = min_teeth, 0.0
     return Candidate(
         module=module,
         teeth_driver=n1,
@@ -85,15 +103,30 @@ def _candidate(module: float, n1: int, n2: int, centre: float, ratio: float, pre
         centre_distance=actual_centre,
         ratio_error=abs(actual_ratio - ratio) / ratio,
         centre_error=actual_centre - centre,
-        undercut=min(n1, n2) < min_teeth,
+        undercut=min(n1, n2) < limit,
         contact_ratio=epsilon,
+        helix_angle=helix_angle,
+        overlap=overlap,
     )
 
 
 def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Optional[float] = None,
           series: str = standards.SERIES_1, min_teeth: int = 17, max_teeth: int = 200,
-          limit: int = DEFAULT_LIMIT) -> List[Candidate]:
-    """Every candidate worth listing, best first."""
+          limit: int = DEFAULT_LIMIT, kind: str = KIND_SPUR, helix_angle: Optional[float] = None,
+          helix_range: Tuple[float, float] = helical.DEFAULT_RANGE[helical.KIND_HELICAL],
+          face_width: Optional[float] = None) -> List[Candidate]:
+    """Every candidate worth listing, best first.
+
+    For the helical kinds ``module`` and ``pressure_angle`` are normal, and
+    the pair's centre distance is ``mn (N1 + N2) / (2 cos β)``. A typed
+    ``helix_angle`` is held, and the search is spur's with ``2C cos β`` in
+    place of ``2C``. Left ``None``, every whole tooth sum whose helix angle
+    lands inside ``helix_range`` is tried, and each such row meets the centre
+    distance exactly: the helix angle is what takes up the difference.
+    """
+    if kind in HELICAL_KINDS:
+        return _solve_helical(centre, ratio, pressure_angle, module, series, min_teeth, max_teeth, limit,
+                              helix_angle, helix_range, face_width)
     if centre <= 0:
         raise InputError("Centre distance must be more than zero.")
     if ratio <= 0:
@@ -135,7 +168,87 @@ def solve(centre: float, ratio: float, pressure_angle: float = 20.0, module: Opt
     return ranked[:limit]
 
 
+def _solve_helical(centre: float, ratio: float, pressure_angle: float, module: Optional[float], series: str,
+                   min_teeth: int, max_teeth: int, limit: int, helix_angle: Optional[float],
+                   helix_range: Tuple[float, float], face_width: Optional[float]) -> List[Candidate]:
+    if centre <= 0:
+        raise InputError("Centre distance must be more than zero.")
+    if ratio <= 0:
+        raise InputError("Ratio must be more than zero.")
+    if helix_angle is not None and not 0.0 < helix_angle <= helical.HELIX_MAX:
+        raise InputError(f"Helix angle must be more than 0° and at most {helical.HELIX_MAX:g}° (got {helix_angle:g}°).")
+    floor = floor_teeth(min_teeth)
+    if max_teeth < floor:
+        raise InputError(f"Max teeth ({max_teeth}) is below the smallest gear the solver offers ({floor}).")
+    allowed = (float(module),) if module is not None else standards.modules(series)
+    found = {}
+
+    def offer(m: float, n1: int, n2: int, standard: bool, beta: float) -> None:
+        if not (floor <= n1 <= max_teeth and floor <= n2 <= max_teeth):
+            return
+        key = (round(m, 9), n1, n2, round(beta, 9))
+        if key not in found:
+            found[key] = _candidate(m, n1, n2, centre, ratio, pressure_angle, min_teeth, standard, beta, face_width)
+
+    def splits(total: int):
+        middle = int(math.floor(total / (1.0 + ratio) + 0.5))
+        return ((n1, total - n1) for n1 in (middle - 1, middle, middle + 1))
+
+    if helix_angle is not None:
+        cos_beta = math.cos(math.radians(helix_angle))
+        for m in allowed:
+            total = 2.0 * centre * cos_beta / m
+            for s in sorted({int(math.floor(total + TOLERANCE)), int(math.ceil(total - TOLERANCE))}):
+                for n1, n2 in splits(s):
+                    offer(m, n1, n2, module is None or standards.is_standard(m), helix_angle)
+        if module is None:
+            exact = Fraction(ratio).limit_denominator(max_teeth)
+            p, q = exact.numerator, exact.denominator
+            k = 1
+            while k * max(p, q) <= max_teeth:
+                n1, n2 = k * q, k * p
+                m_star = 2.0 * centre * cos_beta / (n1 + n2)
+                if not any(abs(m_star - m) <= TOLERANCE for m in allowed):
+                    offer(m_star, n1, n2, False, helix_angle)
+                k += 1
+    else:
+        low, high = helix_range
+        if not 0.0 < low <= high <= helical.HELIX_MAX:
+            raise InputError(f"The helix range must run upward from above 0° to at most {helical.HELIX_MAX:g}° "
+                             f"(got {low:g} to {high:g}).")
+        for m in allowed:
+            first = int(math.ceil(2.0 * centre * math.cos(math.radians(high)) / m - TOLERANCE))
+            last = int(math.floor(2.0 * centre * math.cos(math.radians(low)) / m + TOLERANCE))
+            for s in range(max(first, 2 * floor), last + 1):
+                cosine = min(1.0, m * s / (2.0 * centre))
+                beta = math.degrees(math.acos(cosine))
+                for n1, n2 in splits(s):
+                    offer(m, n1, n2, module is None or standards.is_standard(m), beta)
+
+    ranked = sorted(found.values(), key=Candidate.rank)
+    return ranked[:limit]
+
+
 def solve_spec(pair: PairSpec) -> List[Candidate]:
+    kind = pair.gear_a.kind
+    if kind in HELICAL_KINDS:
+        try:
+            width: Optional[float] = pair.gear_a.face_width_mm()
+        except InputError:
+            width = None
+        return solve(
+            centre=pair.centre_distance_mm(),
+            ratio=pair.ratio_value(),
+            pressure_angle=pair.gear_a.pressure_angle_deg(),
+            module=pair.module_mm(),
+            series=pair.series or standards.SERIES_1,
+            min_teeth=pair.min_teeth_count(),
+            max_teeth=pair.max_teeth_count(),
+            kind=kind,
+            helix_angle=pair.helix_angle_deg(),
+            helix_range=pair.helix_range(helical.DEFAULT_RANGE[kind]),
+            face_width=width,
+        )
     return solve(
         centre=pair.centre_distance_mm(),
         ratio=pair.ratio_value(),
@@ -148,12 +261,17 @@ def solve_spec(pair: PairSpec) -> List[Candidate]:
 
 
 def apply(candidate: Candidate, gear_a: GearSpec, gear_b: GearSpec) -> Tuple[GearSpec, GearSpec]:
-    """Write module and teeth into both gears, and touch nothing else."""
+    """Write module and teeth into both gears — and for a helical pair the helix angle, and
+    gear B the other hand from gear A — and touch nothing else."""
     module = equations.literal(round(candidate.module, 6))
-    return (
-        gear_a.with_values(module=module, teeth=str(candidate.teeth_driver)),
-        gear_b.with_values(module=module, teeth=str(candidate.teeth_driven)),
-    )
+    a = gear_a.with_values(module=module, teeth=str(candidate.teeth_driver))
+    b = gear_b.with_values(module=module, teeth=str(candidate.teeth_driven))
+    if candidate.helix_angle:
+        beta = equations.literal(round(candidate.helix_angle, 6))
+        other = HAND_LEFT if str(gear_a.hand).strip().lower() == HAND_RIGHT else HAND_RIGHT
+        a = a.with_values(helix_angle=beta)
+        b = b.with_values(helix_angle=beta, hand=other)
+    return a, b
 
 
 def mesh_angle(teeth_driven: int) -> float:
@@ -175,6 +293,21 @@ def mate_angle(teeth_driven: int) -> float:
     a zero a value a dimension can be told apart by.
     """
     return mesh_angle(teeth_driven) or 360.0 / teeth_driven
+
+
+def _helix_for_pair(gear_a: GearSpec, gear_b: GearSpec) -> float:
+    """The pair's helix angle, 0 for spur, refusing gears that would not mesh on parallel shafts."""
+    if gear_a.kind != gear_b.kind:
+        raise InputError(f"Both gears of a pair must be the same kind (got {gear_a.kind} and {gear_b.kind}).")
+    if gear_a.kind not in HELICAL_KINDS:
+        return 0.0
+    beta_a, beta_b = gear_a.helix_angle_deg(), gear_b.helix_angle_deg()
+    if abs(beta_a - beta_b) > 1e-9:
+        raise InputError(f"Helical gears on parallel shafts mesh only with the same helix angle "
+                         f"(got {beta_a:g}° and {beta_b:g}°).")
+    if gear_a.hand_value() == gear_b.hand_value():
+        raise InputError(f"Helical gears on parallel shafts mesh only with opposite hands; both are {gear_a.hand_value()}.")
+    return beta_a
 
 
 PAIR_KIND = "pair"
@@ -199,18 +332,25 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
         raise InputError(f"Two gears only mesh with the same module (got {gear_a.module.strip()} and "
                          f"{gear_b.module.strip()}).")
     n1, n2 = gear_a.teeth_count(), gear_b.teeth_count()
-    centre = module * (n1 + n2) / 2.0
+    beta = _helix_for_pair(gear_a, gear_b)
+    # From the helix angle the parts hold, so the mate is where their teeth are.
+    centre = module / math.cos(math.radians(beta)) * (n1 + n2) / 2.0
     angle = mate_angle(n2)
     name = f'"{CENTRE_DISTANCE}"'
+    # A herringbone's apexes must line up whatever the two face widths are, so
+    # its mid-planes are mated; a helical pair's sections both sit one (shared)
+    # module ahead of their Front planes, so those planes do.
+    faces = f"{helical.MID_PLANE}" if gear_a.kind == KIND_HERRINGBONE else "plane1"
     ops = (
         NewAssembly(template),
         AddGlobal(CENTRE_DISTANCE, equations.literal(round(centre, 9))),
         AddGlobal(RATIO, equations.literal(round(n2 / n1, 9))),
         AddGlobal(MESH_ANGLE, equations.literal(round(angle, 9))),
+        *((AddGlobal(helical.HELIX_ANGLE, equations.literal(beta)),) if beta else ()),
         AddComponent("gear1", path_a, (0.0, 0.0, 0.0)),
         AddComponent("gear2", path_b, (centre, 0.0, 0.0)),
         Fix("gear1"),
-        Mate("faces", "coincident", "gear2:plane1", "gear1:plane1"),
+        Mate("faces", "coincident", f"gear2:{faces}", f"gear1:{faces}"),
         Mate("axis", "coincident", f"gear2:{AXIS_NAME}", "gear1:plane2"),
         Mate("centre", "distance", f"gear2:{AXIS_NAME}", "gear1:plane3", centre, CENTRE_DISTANCE),
         LinkDimension(f"D1@{CENTRE_DISTANCE}", name),

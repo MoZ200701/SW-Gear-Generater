@@ -155,3 +155,88 @@ def test_gears_of_different_modules_do_not_make_an_assembly():
     from gear_generator.spec import InputError
     with pytest.raises(InputError, match="same module"):
         pair.assembly_plan(GearSpec(module="1.5"), GearSpec(module="2"), "a", "b", "", "c")
+
+
+# -- helical pairs ----------------------------------------------------------
+
+
+def _rows(candidates, n):
+    return [(c.module, c.teeth_driver, c.teeth_driven, round(c.helix_angle, 4)) for c in candidates[:n]]
+
+
+def test_a_blank_helix_angle_is_solved_so_every_exact_ratio_row_meets_the_centre_distance():
+    from gear_generator.gears.pair import solve
+
+    rows = solve(60.0, 2.0, kind="helical", helix_range=(8.0, 25.0))
+    assert _rows(rows, 9) == [
+        (2.5, 15, 30, 20.3641), (2.0, 19, 38, 18.1949), (1.5, 26, 52, 12.8386), (1.5, 25, 50, 20.3641),
+        (1.25, 31, 62, 14.3615), (1.25, 30, 60, 20.3641), (1.0, 39, 78, 12.8386), (1.0, 38, 76, 18.1949),
+        (1.0, 37, 74, 22.3316),
+    ]
+    assert all(abs(c.centre_error) < 1e-9 for c in rows)
+    undercut = next(c for c in rows if (c.module, c.teeth_driver) == (3.0, 13))
+    assert undercut.undercut and rows.index(undercut) > 8
+
+
+def test_a_typed_helix_angle_is_held():
+    from gear_generator.gears.pair import solve
+
+    from gear_generator.gears.pair import describe
+
+    centre = describe(2.0, 20, 40, 20.0, 15.0)[0]      # 62.116571…, exactly what m2 20:40 at 15° makes
+    rows = solve(centre, 2.0, kind="helical", helix_angle=15.0)
+    assert _rows(rows, 2) == [(2.5, 16, 32, 15.0), (2.0, 20, 40, 15.0)]
+    assert all(abs(c.centre_error) < 1e-9 for c in rows[:2])
+
+
+def test_describe_a_helical_pair_gives_the_transverse_contact_ratio():
+    from gear_generator.gears.pair import describe
+
+    centre, ratio, epsilon = describe(2.0, 20, 40, 20.0, 15.0)
+    assert (round(centre, 6), ratio, round(epsilon, 4)) == (62.116571, 2.0, 1.5609)
+
+
+def test_apply_writes_the_helix_and_gives_gear_b_the_other_hand():
+    from gear_generator.gears.pair import apply, solve
+
+    a = GearSpec(kind="helical", hand="right", face_width="20")
+    b = GearSpec(kind="helical", hand="right", face_width="20", bore="12")
+    chosen = solve(60.0, 2.0, kind="helical", helix_range=(8.0, 25.0))[1]
+    new_a, new_b = apply(chosen, a, b)
+    assert (new_a.module, new_a.teeth, new_a.helix_angle, new_a.hand) == ("2", "19", "18.194872", "right")
+    assert (new_b.teeth, new_b.helix_angle, new_b.hand, new_b.bore) == ("38", "18.194872", "left", "12")
+
+
+def test_a_helical_assembly_is_mated_at_the_transverse_centre_distance():
+    from gear_generator.gears.base import Mate
+    from gear_generator.gears.pair import assembly_plan
+
+    a = GearSpec(kind="helical", module="2", teeth="20", helix_angle="15", hand="right")
+    b = a.with_values(teeth="40", hand="left")
+    plan = assembly_plan(a, b, r"C:\G\a.SLDPRT", r"C:\G\b.SLDPRT", "", r"C:\G\p.SLDASM")
+    assert plan.check() == []
+    centre = next(op for op in plan.ops if isinstance(op, Mate) and op.kind == "distance")
+    assert centre.value == pytest.approx(62.116571, abs=1e-6)
+    faces = next(op for op in plan.ops if isinstance(op, Mate) and op.id == "faces")
+    assert (faces.a, faces.b) == ("gear2:plane1", "gear1:plane1")
+
+    h = a.with_values(kind="herringbone", helix_angle="30")
+    plan = assembly_plan(h, h.with_values(teeth="40", hand="left"), r"C:\G\a.SLDPRT", r"C:\G\b.SLDPRT", "",
+                         r"C:\G\p.SLDASM")
+    faces = next(op for op in plan.ops if isinstance(op, Mate) and op.id == "faces")
+    assert (faces.a, faces.b) == ("gear2:Mid Plane", "gear1:Mid Plane")
+
+
+@pytest.mark.parametrize("change, words", [
+    ({"hand": "right"}, "opposite hands"),
+    ({"helix_angle": "20"}, "same helix angle"),
+    ({"kind": "spur"}, "same kind"),
+])
+def test_a_helical_assembly_refuses_gears_that_would_not_mesh(change, words):
+    from gear_generator.gears.pair import assembly_plan
+    from gear_generator.spec import InputError
+
+    a = GearSpec(kind="helical", module="2", teeth="20", helix_angle="15", hand="right")
+    b = a.with_values(**{"teeth": "40", "hand": "left", **change})
+    with pytest.raises(InputError, match=words):
+        assembly_plan(a, b, r"C:\G\a.SLDPRT", r"C:\G\b.SLDPRT", "", r"C:\G\p.SLDASM")

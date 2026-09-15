@@ -117,8 +117,10 @@ class Axis:
 
 @dataclass(frozen=True)
 class OpenSketch:
+    """A sketch on the Nth reference plane in tree order, or on a :class:`RefPlane` by its id."""
+
     id: str
-    plane: int = 1
+    plane: Union[int, str] = 1
 
 
 @dataclass(frozen=True)
@@ -231,6 +233,50 @@ class CircularPattern:
 
 
 @dataclass(frozen=True)
+class RefPlane:
+    """A plane parallel to the Nth reference plane, ``offset`` mm from it.
+
+    ``flip`` is SolidWorks' own flip of the distance, not a side: which side
+    each flip puts the plane on is a probe finding, and the kind that plans the
+    op turns the side it wants into the flag.
+    """
+
+    id: str
+    name: str
+    plane: int
+    offset: float
+    flip: bool = False
+    offset_dim: str = "Offset"
+
+
+@dataclass(frozen=True)
+class SweepCut:
+    """The ``profile`` sketch swept along the ``path`` sketch as a cut, turning uniformly.
+
+    ``twist`` is the whole turn over the path, in degrees. ``reverse`` is
+    SolidWorks' reverse-twist flag; which way either setting turns is a probe
+    finding, and the kind that plans the op turns a hand into the flag.
+    """
+
+    id: str
+    profile: str
+    path: str
+    name: str
+    twist: float
+    reverse: bool = False
+    twist_dim: str = "Twist"
+
+
+@dataclass(frozen=True)
+class MirrorBody:
+    """The part's body mirrored about a :class:`RefPlane` and merged into one."""
+
+    id: str
+    name: str
+    plane: str
+
+
+@dataclass(frozen=True)
 class ManualStep:
     """Something the build cannot do and a person must, counted in every log."""
 
@@ -274,17 +320,17 @@ class Mate:
 
 Op = Union[
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
-    EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, ManualStep,
-    Rebuild, SaveAs, AddComponent, Fix, Mate,
+    EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
+    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Mate,
 ]
 OPS = (
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
-    EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, ManualStep,
-    Rebuild, SaveAs, AddComponent, Fix, Mate,
+    EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
+    MirrorBody, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Mate,
 )
 SKETCH_ENTITIES = (Circle, Arc, Line, Point, EquationCurve)
 GEOMETRY = SKETCH_ENTITIES + (Axis, OpenSketch, Relation, Dimension, CloseSketch, Extrude, Cut,
-                              CircularPattern, AddComponent, Fix, Mate)
+                              CircularPattern, RefPlane, SweepCut, MirrorBody, AddComponent, Fix, Mate)
 
 
 def ref_id(ref: str) -> str:
@@ -374,6 +420,7 @@ class BuildPlan:
         sketch_names: Dict[str, str] = {}      # sketch id -> the name it was closed as
         feature_names: Dict[str, str] = {}     # feature id -> its name
         dimensions: Dict[str, List[str]] = {}  # sketch or feature id -> dimension names
+        planes = set()                         # ids of RefPlanes made so far
         rebuilds = 0
 
         def use(ref: str, op: object) -> None:
@@ -391,6 +438,9 @@ class BuildPlan:
             if isinstance(op, OpenSketch):
                 if open_sketch is not None:
                     problems.append(f"Sketch {op.id!r} is opened while {open_sketch!r} is still open.")
+                if isinstance(op.plane, str):
+                    if op.plane not in planes:
+                        problems.append(f"Sketch {op.id!r} is opened on {op.plane!r}, which is not a plane made earlier.")
                 define(op.id, op)
                 open_sketch = op.id
                 dimensions[op.id] = []
@@ -426,6 +476,27 @@ class BuildPlan:
                 define(op.id, op)
                 feature_names[op.id] = op.name
                 dimensions[op.id] = [op.count_dim]
+            elif isinstance(op, RefPlane):
+                if open_sketch is not None:
+                    problems.append(f"Plane {op.id!r} is made while sketch {open_sketch!r} is open.")
+                define(op.id, op)
+                planes.add(op.id)
+                feature_names[op.id] = op.name
+                dimensions[op.id] = [op.offset_dim]
+            elif isinstance(op, SweepCut):
+                for sketch in (op.profile, op.path):
+                    use(sketch, op)
+                    if sketch not in sketch_names:
+                        problems.append(f"Sweep {op.id!r} uses sketch {sketch!r} before it is closed.")
+                define(op.id, op)
+                feature_names[op.id] = op.name
+                dimensions[op.id] = [op.twist_dim]
+            elif isinstance(op, MirrorBody):
+                use(op.plane, op)
+                if op.plane not in planes:
+                    problems.append(f"Mirror {op.id!r} is about {op.plane!r}, which is not a plane.")
+                define(op.id, op)
+                feature_names[op.id] = op.name
             elif isinstance(op, Axis):
                 define(op.id, op)
             elif isinstance(op, AddComponent):
@@ -514,6 +585,15 @@ def describe(op: Op, trig: str = DEGREES) -> str:
         return f"close   {op.id} as {op.name!r}"
     if isinstance(op, Axis):
         return f"axis    {op.name!r} through planes {op.planes[0]} and {op.planes[1]}"
+    if isinstance(op, RefPlane):
+        flipped = ", flipped" if op.flip else ""
+        return f"plane   {op.name!r} {equations.literal(round(op.offset, 6))} mm from plane {op.plane}{flipped} ({op.offset_dim})"
+    if isinstance(op, SweepCut):
+        reverse = ", reversed" if op.reverse else ""
+        return (f"sweep   {op.name!r} of {op.profile} along {op.path}, twist "
+                f"{equations.literal(round(op.twist, 6))}°{reverse} ({op.twist_dim})")
+    if isinstance(op, MirrorBody):
+        return f"mirror  {op.name!r} the body about {op.plane}"
     if isinstance(op, Extrude):
         return f"extrude {op.name!r} from {op.sketch}, depth {equations.literal(op.depth)} ({op.depth_dim})"
     if isinstance(op, Cut):

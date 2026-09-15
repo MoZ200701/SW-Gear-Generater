@@ -31,7 +31,7 @@ def test_a_pair_round_trips_with_both_gears():
 
 def test_unknown_keys_from_a_later_version_are_ignored():
     raw = GearSpec().to_dict()
-    raw["helix_angle"] = "15"
+    raw["crown_radius"] = "15"
     assert GearSpec.from_dict(raw) == GearSpec()
     pair = PairSpec().to_dict()
     pair["invented_later"] = 1

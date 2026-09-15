@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
 
 from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
@@ -57,7 +57,7 @@ class SolidWorks(Protocol):
     def equations(self) -> List[Tuple[str, float]]: ...
     def equation_values(self) -> Dict[str, float]: ...
     def insert_axis(self, handle: str, name: str, planes: Tuple[int, int]) -> str: ...
-    def open_sketch(self, handle: str, plane: int) -> None: ...
+    def open_sketch(self, handle: str, plane: Union[int, str]) -> None: ...
     def close_sketch(self, handle: str, name: str) -> str: ...
     def sketch_status(self, name: str) -> int: ...
     def sketch_circle(self, handle: str, centre, radius: float, construction: bool = False) -> None: ...
@@ -71,6 +71,11 @@ class SolidWorks(Protocol):
     def cut_extrude(self, handle: str, sketch: str, name: str) -> str: ...
     def circular_pattern(self, handle: str, name: str, axis: str, feature: str, count: int,
                          count_dim: str) -> Tuple[str, str]: ...
+    def ref_plane(self, handle: str, name: str, plane: int, offset: float, flip: bool,
+                  offset_dim: str) -> Tuple[str, str]: ...
+    def sweep_cut(self, handle: str, profile: str, path: str, name: str, twist: float, reverse: bool,
+                  twist_dim: str) -> Tuple[str, str]: ...
+    def mirror_body(self, handle: str, name: str, plane: str) -> str: ...
     def add_component(self, handle: str, path: str, at) -> str: ...
     def fix_component(self, handle: str) -> None: ...
     def add_mate(self, handle: str, kind: str, a: str, b: str, value: float = 0.0,
@@ -259,6 +264,29 @@ def _pattern(sw, op: base.CircularPattern, result, trig):
     return f"pattern {op.name} × {op.count}"
 
 
+def _ref_plane(sw, op: base.RefPlane, result, trig):
+    kept, dim = sw.ref_plane(op.id, op.name, op.plane, op.offset, op.flip, op.offset_dim)
+    _kept(result, "plane", op.name, kept)
+    if dim != op.offset_dim:
+        raise SolidWorksError(f"The offset of {kept} kept the name {dim!r} instead of {op.offset_dim!r}.")
+    result.dimensions[f"{op.offset_dim}@{op.name}"] = f"{dim}@{kept}"
+    return f"plane {op.name}"
+
+
+def _sweep(sw, op: base.SweepCut, result, trig):
+    kept, dim = sw.sweep_cut(op.id, op.profile, op.path, op.name, op.twist, op.reverse, op.twist_dim)
+    _kept(result, "sweep", op.name, kept)
+    if dim != op.twist_dim:
+        raise SolidWorksError(f"The twist of {kept} kept the name {dim!r} instead of {op.twist_dim!r}.")
+    result.dimensions[f"{op.twist_dim}@{op.name}"] = f"{dim}@{kept}"
+    return f"sweep {op.name}, twist {op.twist:.4f}°" + (" reversed" if op.reverse else "")
+
+
+def _mirror(sw, op: base.MirrorBody, result, trig):
+    _kept(result, "mirror", op.name, sw.mirror_body(op.id, op.name, op.plane))
+    return f"mirror {op.name}"
+
+
 def _component(sw, op: base.AddComponent, result, trig):
     kept = sw.add_component(op.id, op.path, op.at)
     result.features.append(kept)
@@ -299,6 +327,9 @@ _RUNNERS: Mapping[type, Callable] = {
     base.Extrude: _extrude,
     base.Cut: _cut,
     base.CircularPattern: _pattern,
+    base.RefPlane: _ref_plane,
+    base.SweepCut: _sweep,
+    base.MirrorBody: _mirror,
     base.AddComponent: _component,
     base.Fix: _fix,
     base.Mate: _mate,
@@ -413,7 +444,7 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
 # -- changing values in a built part ----------------------------------------
 
 
-STRUCTURAL = ("kind", "recipe")
+STRUCTURAL = ("kind", "recipe", "hand")
 
 
 def structural_change(built: Mapping[str, str], wanted: Mapping[str, str]) -> str:

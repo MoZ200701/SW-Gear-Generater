@@ -145,6 +145,18 @@ class FakeSolidWorks:
         self._log("circular_pattern", name, count)
         return self.rename.get(name, name), count_dim
 
+    def ref_plane(self, handle, name, plane, offset, flip, offset_dim):
+        self._log("ref_plane", name, round(offset, 6), flip)
+        return self.rename.get(name, name), offset_dim
+
+    def sweep_cut(self, handle, profile, path, name, twist, reverse, twist_dim):
+        self._log("sweep_cut", name, round(twist, 6), reverse)
+        return self.rename.get(name, name), twist_dim
+
+    def mirror_body(self, handle, name, plane):
+        self._log("mirror_body", name, plane)
+        return self.rename.get(name, name)
+
     def add_component(self, handle, path, at):
         self._log("add_component", handle, path)
         return f"{handle}-1"

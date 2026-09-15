@@ -590,63 +590,7 @@ class SpurGear:
         except InputError as exc:
             return [Diagnostic(ERROR, str(exc), "recipe")]
         g = derived if derived is not None else self.derive(spec)
-        out: List[Diagnostic] = []
-
-        if g.backlash >= g.p / 2.0:
-            out.append(Diagnostic(ERROR, (
-                f"Backlash of {_num(g.backlash)} mm leaves no tooth: it must be less than half "
-                f"the circular pitch, {_num(g.p / 2.0)} mm."), "backlash"))
-            return out
-        if g.bore >= g.df:
-            out.append(Diagnostic(ERROR, (
-                f"Bore of {_num(g.bore)} mm reaches the root diameter of {_num(g.df)} mm; "
-                "it must be smaller."), "bore"))
-        if g.tip_thickness <= 0.0:
-            out.append(Diagnostic(ERROR, (
-                f"At {g.teeth} teeth and {_num(g.pressure_angle_deg)}° the teeth come to a point "
-                "below the outer diameter; reduce the backlash or add teeth."), "teeth"))
-            return out
-
-        try:
-            flank = involute_flank(g) if recipe == RECIPE_INVOLUTE else arc_flank(g)
-        except GeometryError as exc:
-            out.append(Diagnostic(ERROR, str(exc), "fillet" if "Fillet" in str(exc) else "recipe"))
-            return out
-        if _polar(flank.fillet_centre) <= 0.0:
-            out.append(Diagnostic(ERROR, (
-                f"The two {_num(g.fillet)} mm root fillets do not fit in the root of the tooth space; "
-                "make Fillet smaller."), "fillet"))
-        end = flank.end
-        if end[0] <= g.ra:
-            out.append(Diagnostic(ERROR, (
-                f"Recipe {recipe} cannot close the tooth space beyond the outer diameter at {g.teeth} "
-                f"teeth and {_num(g.pressure_angle_deg)}°: the flanks swing round too far"
-                + ("; use the involute recipe." if recipe == RECIPE_ARCS else "; add teeth.")),
-                "teeth"))
-
-        if g.undercut:
-            out.append(Diagnostic(WARNING, (
-                f"{g.teeth} teeth at {_num(g.pressure_angle_deg)}° is below the undercut limit of "
-                f"{g.undercut_limit}: a generated gear would lose the bottom of its flanks, which "
-                "this profile does not show."), "teeth"))
-        if g.bore > 0.0 and (g.df - g.bore) / 2.0 < g.module and g.bore < g.df:
-            out.append(Diagnostic(WARNING, (
-                f"The bore leaves {_num((g.df - g.bore) / 2.0)} mm of rim under the teeth, thinner "
-                f"than one module ({_num(g.module)} mm)."), "bore"))
-        if g.tip_thickness < TIP_THICKNESS_WARNING * g.module:
-            out.append(Diagnostic(WARNING, (
-                f"The tooth tip is {_num(g.tip_thickness)} mm thick, under 0.3 × module "
-                f"({_num(TIP_THICKNESS_WARNING * g.module)} mm)."), "teeth"))
-        if recipe == RECIPE_INVOLUTE and g.flank_start_d > g.form_d + 1e-9:
-            out.append(Diagnostic(WARNING, (
-                f"The involute starts at {_num(g.flank_start_d)} mm, above the form diameter of "
-                f"{_num(g.form_d)} mm, so the bottom of the working flank is a straight line."),
-                "fillet"))
-        if recipe == RECIPE_ARCS:
-            out.append(Diagnostic(WARNING, (
-                f"Arcs stand in for the involute on this gear to within "
-                f"{_num(flank_deviation(g) * 1000.0, 1)} µm."), "recipe"))
-        return out
+        return section_diagnostics(g, recipe)
 
     # -- the equations ---------------------------------------------------
 
@@ -715,6 +659,73 @@ class SpurGear:
         ops.append(Rebuild())
         ops.append(SaveAs(path))
         return BuildPlan(kind=KIND, recipe=recipe, ops=tuple(ops), path=path)
+
+
+def section_diagnostics(g: SpurDerived, recipe: str, undercut_limit: Optional[int] = None) -> List[Diagnostic]:
+    """What is wrong with one tooth-space section, and what is worth knowing, as sentences.
+
+    Every kind that cuts this section shares these. ``undercut_limit`` is the
+    kind's own tooth count below which the pinion undercuts, when it is not the
+    spur gear's ``2 / sin² α``.
+    """
+    out: List[Diagnostic] = []
+
+    if g.backlash >= g.p / 2.0:
+        out.append(Diagnostic(ERROR, (
+            f"Backlash of {_num(g.backlash)} mm leaves no tooth: it must be less than half "
+            f"the circular pitch, {_num(g.p / 2.0)} mm."), "backlash"))
+        return out
+    if g.bore >= g.df:
+        out.append(Diagnostic(ERROR, (
+            f"Bore of {_num(g.bore)} mm reaches the root diameter of {_num(g.df)} mm; "
+            "it must be smaller."), "bore"))
+    if g.tip_thickness <= 0.0:
+        out.append(Diagnostic(ERROR, (
+            f"At {g.teeth} teeth and {_num(g.pressure_angle_deg)}° the teeth come to a point "
+            "below the outer diameter; reduce the backlash or add teeth."), "teeth"))
+        return out
+
+    try:
+        flank = involute_flank(g) if recipe == RECIPE_INVOLUTE else arc_flank(g)
+    except GeometryError as exc:
+        out.append(Diagnostic(ERROR, str(exc), "fillet" if "Fillet" in str(exc) else "recipe"))
+        return out
+    if _polar(flank.fillet_centre) <= 0.0:
+        out.append(Diagnostic(ERROR, (
+            f"The two {_num(g.fillet)} mm root fillets do not fit in the root of the tooth space; "
+            "make Fillet smaller."), "fillet"))
+    end = flank.end
+    if end[0] <= g.ra:
+        out.append(Diagnostic(ERROR, (
+            f"Recipe {recipe} cannot close the tooth space beyond the outer diameter at {g.teeth} "
+            f"teeth and {_num(g.pressure_angle_deg)}°: the flanks swing round too far"
+            + ("; use the involute recipe." if recipe == RECIPE_ARCS else "; add teeth.")),
+            "teeth"))
+
+    limit = g.undercut_limit if undercut_limit is None else undercut_limit
+    if g.teeth < limit:
+        out.append(Diagnostic(WARNING, (
+            f"{g.teeth} teeth at {_num(g.pressure_angle_deg)}° is below the undercut limit of "
+            f"{limit}: a generated gear would lose the bottom of its flanks, which "
+            "this profile does not show."), "teeth"))
+    if g.bore > 0.0 and (g.df - g.bore) / 2.0 < g.module and g.bore < g.df:
+        out.append(Diagnostic(WARNING, (
+            f"The bore leaves {_num((g.df - g.bore) / 2.0)} mm of rim under the teeth, thinner "
+            f"than one module ({_num(g.module)} mm)."), "bore"))
+    if g.tip_thickness < TIP_THICKNESS_WARNING * g.module:
+        out.append(Diagnostic(WARNING, (
+            f"The tooth tip is {_num(g.tip_thickness)} mm thick, under 0.3 × module "
+            f"({_num(TIP_THICKNESS_WARNING * g.module)} mm)."), "teeth"))
+    if recipe == RECIPE_INVOLUTE and g.flank_start_d > g.form_d + 1e-9:
+        out.append(Diagnostic(WARNING, (
+            f"The involute starts at {_num(g.flank_start_d)} mm, above the form diameter of "
+            f"{_num(g.form_d)} mm, so the bottom of the working flank is a straight line."),
+            "fillet"))
+    if recipe == RECIPE_ARCS:
+        out.append(Diagnostic(WARNING, (
+            f"Arcs stand in for the involute on this gear to within "
+            f"{_num(flank_deviation(g) * 1000.0, 1)} µm."), "recipe"))
+    return out
 
 
 def space_ops(g: SpurDerived, recipe: str, plane: Union[int, str] = 1) -> List[Op]:

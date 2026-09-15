@@ -96,7 +96,7 @@ def test_an_unreadable_record_is_moved_aside_never_deleted(tmp_path):
 
 def test_unknown_keys_from_a_later_version_are_ignored():
     raw = json.loads(store.to_json(sidecar()))
-    raw["gear"]["helix_angle"] = 15
+    raw["gear"]["crown_radius"] = 15
     raw["invented"] = True
     assert store.from_json(json.dumps(raw)) == sidecar()
 

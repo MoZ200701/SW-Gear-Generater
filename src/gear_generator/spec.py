@@ -20,6 +20,12 @@ from typing import Any, Dict, Optional, Tuple
 
 
 KIND_SPUR = "spur"
+KIND_HELICAL = "helical"
+KIND_HERRINGBONE = "herringbone"
+HELICAL_KINDS = (KIND_HELICAL, KIND_HERRINGBONE)
+HAND_RIGHT = "right"
+HAND_LEFT = "left"
+HANDS = (HAND_RIGHT, HAND_LEFT)
 RECIPE_INVOLUTE = "A"
 RECIPE_ARCS = "B"
 RECIPES = (RECIPE_INVOLUTE, RECIPE_ARCS)
@@ -110,6 +116,8 @@ class GearSpec:
     backlash: str = ""            # "" = the 0.3 × Module equation; typed = a literal
     fillet: str = ""              # "" = the 0.38 × Module equation; typed = a literal
     profile_shift: str = "0"      # reserved; must be 0 in v1
+    helix_angle: str = ""         # degrees; helical kinds only
+    hand: str = HAND_RIGHT        # helical kinds only; a herringbone's names its half nearest the Front plane
     name: str = ""                # "" = default_stem()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -157,6 +165,18 @@ class GearSpec:
         text = self.profile_shift.strip()
         return parse_float(text, "Profile shift") if text else 0.0
 
+    def is_helical(self) -> bool:
+        return self.kind in HELICAL_KINDS
+
+    def helix_angle_deg(self) -> float:
+        return parse_float(self.helix_angle, "Helix angle")
+
+    def hand_value(self) -> str:
+        hand = str(self.hand).strip().lower()
+        if hand not in HANDS:
+            raise InputError(f"Hand must be {' or '.join(HANDS)} (got {self.hand.strip()!r}).")
+        return hand
+
     def recipe_or(self, default: str) -> str:
         recipe = self.recipe.strip() or default
         if recipe not in RECIPES:
@@ -175,9 +195,18 @@ class GearSpec:
         return GearSpec(**values)
 
 
-def default_stem(spec: GearSpec, prefix: str = "Gear") -> str:
-    """``Gear_m1.5_N25``."""
-    return sanitize_stem(f"{prefix}_m{_number_text(spec.module)}_N{_number_text(spec.teeth)}")
+def default_stem(spec: GearSpec, prefix: str = "") -> str:
+    """``Gear_m1.5_N25``; ``Helical_m2_N20_15R`` and ``Herringbone_m2_N20_30L`` for the helical kinds.
+
+    A pair's ``Pinion`` and ``Gear`` prefixes keep the helix suffix, since two
+    gears differing only in hand would otherwise share a name.
+    """
+    words = {KIND_HELICAL: "Helical", KIND_HERRINGBONE: "Herringbone"}
+    stem = f"{prefix or words.get(spec.kind, 'Gear')}_m{_number_text(spec.module)}_N{_number_text(spec.teeth)}"
+    if spec.kind in HELICAL_KINDS:
+        hand = str(spec.hand).strip().lower()[:1].upper()
+        stem += f"_{_number_text(spec.helix_angle) if spec.helix_angle.strip() else 'H'}{hand}"
+    return sanitize_stem(stem)
 
 
 @dataclass(frozen=True)
@@ -191,6 +220,9 @@ class PairSpec:
     series: str = "1"
     min_teeth: str = "17"
     max_teeth: str = "200"
+    helix_angle: str = ""         # "" = solved within helix_min..helix_max
+    helix_min: str = ""           # "" = the kind's default range
+    helix_max: str = ""
     gear_a: GearSpec = field(default_factory=GearSpec)
     gear_b: GearSpec = field(default_factory=GearSpec)
     assembly_name: str = ""
@@ -238,6 +270,18 @@ class PairSpec:
     def max_teeth_count(self) -> int:
         return parse_whole(self.max_teeth, "Max teeth")
 
+    def helix_angle_deg(self) -> Optional[float]:
+        """None when blank: the solver finds the angle."""
+        text = self.helix_angle.strip()
+        return parse_float(text, "Helix angle") if text else None
+
+    def helix_range(self, default: Tuple[float, float]) -> Tuple[float, float]:
+        low = parse_float(self.helix_min, "Helix min") if self.helix_min.strip() else default[0]
+        high = parse_float(self.helix_max, "Helix max") if self.helix_max.strip() else default[1]
+        if not 0.0 < low <= high < 90.0:
+            raise InputError(f"The helix range must run upward from above 0° to below 90° (got {low:g} to {high:g}).")
+        return low, high
+
 
 def pair_stems(pair: PairSpec) -> Tuple[str, str, str]:
     """``(Pinion_m1.5_N20, Gear_m1.5_N60, Pair_m1.5_20T_60T)``, typed names first.
@@ -255,7 +299,8 @@ def pair_stems(pair: PairSpec) -> Tuple[str, str, str]:
     if pair.assembly_name.strip():
         stem_pair = sanitize_stem(pair.assembly_name)
     else:
+        helix = f"_H{_number_text(a.helix_angle)}" if a.kind in HELICAL_KINDS and a.helix_angle.strip() else ""
         stem_pair = sanitize_stem(
-            f"Pair_m{_number_text(a.module)}_{_number_text(a.teeth)}T_{_number_text(b.teeth)}T"
+            f"Pair_m{_number_text(a.module)}_{_number_text(a.teeth)}T_{_number_text(b.teeth)}T{helix}"
         )
     return stem_a, stem_b, stem_pair
