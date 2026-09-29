@@ -588,3 +588,16 @@ Commits as prose with the why, ending with the `Co-Authored-By` / `Claude-Sessio
 - Plane names are locale-dependent: the tool selects planes by tree order, not by "Front Plane".
 - Profile shift, helical/bevel/internal kinds, gear mate, custom-property stamping: reserved,
   seams in place, not built in v1.
+- **Undercut is worth considering building (noted 2026-09-29).** Below the undercut limit
+  (2 / sin²α, 17 teeth at 20°) the part is still cut with a full involute flank, a radial line
+  and a fillet. `section_diagnostics` only warns that *a generated gear would lose the bottom of
+  its flanks, which this profile does not show*. So a low-tooth pinion in SolidWorks is
+  stronger, and meshes differently, than the one a hob would actually make. What building it
+  would take:
+  - model the trochoid that the rack or hob tip traces, as the root of the flank, probably as
+    a second equation-driven curve per flank in Recipe A;
+  - since a sketch cannot change topology on rebuild, give it the same single-topology answer
+    as the base-above-root regime of §3.4 did (a curve that degenerates harmlessly when
+    N ≥ N_min), rather than a sketch that exists only for small N;
+  - decide how it interacts with profile shift, which is the usual way to avoid undercut and is
+    the other half of the same question.
