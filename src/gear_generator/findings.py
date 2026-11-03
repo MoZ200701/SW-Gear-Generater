@@ -2,6 +2,8 @@
 
 Every value here is a finding, not a preference: each names the probe it came
 from, and every one of them was observed on SolidWorks 2026 (revision 34.0.0).
+SolidWorks 2024 (revision 32.5.0) reached the same decisions; its runs are in
+``probe/results/sw2024/``, where the README says what each one showed.
 ``tests/test_findings.py`` checks them against ``probe/results/latest.json``
 through :mod:`probe.decide`, so they cannot drift from the evidence. They are
 constants rather than runtime JSON because the exe must behave the same for

@@ -12,7 +12,7 @@ SolidWorks and the part rebuilds as a 40-tooth gear; nothing refers back to this
 app.
 
 No runtime dependencies beyond Python 3.9+ with tkinter. Building into
-SolidWorks needs Windows, SolidWorks 2026 or newer, and `pywin32`.
+SolidWorks needs Windows, SolidWorks 2024 or newer, and `pywin32`.
 
 ## Running
 
@@ -181,7 +181,10 @@ and turns gear 2 by `"Mesh Angle"` so a tooth meets gear 1's space.
 
 The app attaches to a SolidWorks that is already running — it never starts one
 — through the Running Object Table, so with several versions installed it uses
-the one on screen. It needs SolidWorks 2026 (revision 34) or newer.
+the one on screen. It needs SolidWorks 2024 (revision 32) or newer: every API
+call it makes, and every kind of gear end to end, was probed on SolidWorks 2024
+and 2026 (see `probe/results/sw2024/`). 2025 sits between them and was not
+probed.
 
 It only ever works in documents it made. Nothing you have open is touched.
 
