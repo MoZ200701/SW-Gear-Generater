@@ -97,6 +97,7 @@ class _Builds:
     def close(self) -> None:
         if self.px.options.get("keep"):
             return
+        sc.save_created_parts(self.px)
         for title in reversed(self.titles):
             try:
                 self.px.session.close_document(title)
