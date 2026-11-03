@@ -64,6 +64,7 @@ def end_to_end(px: Px) -> None:
         made = made or [t for t in sc.open_titles(px) if t not in before]
         px.shared.setdefault("created", []).extend(t for t in made if t not in px.shared["created"])
         if not px.options.get("keep"):
+            sc.save_created_parts(px)
             for title in made:
                 session.close_document(title)
 

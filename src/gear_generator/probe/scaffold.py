@@ -114,6 +114,30 @@ def new_document(px: Px, doc_type: int = SW_DOC_PART, path: str = "") -> Any:
     return doc
 
 
+def save_created_parts(px: Px) -> None:
+    """Save every modified part this probe made and already saved to disk.
+
+    On SolidWorks 2024 (32.5.0), CloseDoc on an assembly whose saved components
+    had changed opened a modal "Save Modified Documents" dialog, and the probe
+    hung on it; SolidWorks 2026 closed the same assembly without asking. Saving
+    the components first leaves nothing to ask about. Only the probe's own
+    documents with a path are touched: a never-saved part closes silently anyway.
+    """
+    created = set(px.shared.get("created", []))
+    doc = call(app(px), "GetFirstDocument")
+    guard = 0
+    while doc is not None and guard < 500:
+        guard += 1
+        title = str(call(doc, "GetTitle"))
+        path = str(call(doc, "GetPathName") or "")
+        if title in created and path and int(call(doc, "GetType")) == SW_DOC_PART and call(doc, "GetSaveFlag"):
+            try:
+                call(extension(doc), "SaveAs3", path, 0, 1, null(), null(), out_long(), out_long())
+            except Exception as exc:  # noqa: BLE001 - a part that will not save must not stop the cleanup
+                px.note(f"CLEANUP could not save {title} before closing its assembly: {exc}")
+        doc = call(doc, "GetNext")
+
+
 def close(px: Px, doc: Any) -> None:
     """Close a document this probe made. Never one it did not."""
     title = str(call(doc, "GetTitle"))
@@ -121,6 +145,8 @@ def close(px: Px, doc: Any) -> None:
         raise Require(f"Refusing to close {title}: the probe did not create it.")
     if px.options.get("keep"):
         return
+    if int(call(doc, "GetType")) == SW_DOC_ASSEMBLY:
+        save_created_parts(px)
     call(app(px), "CloseDoc", title)
 
 

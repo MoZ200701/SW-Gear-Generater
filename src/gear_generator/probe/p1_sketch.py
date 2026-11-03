@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from typing import Any, Dict, Optional, Tuple
 
-from ..swcom import call
+from ..swcom import call, release_year
 from . import scaffold as sc
 from .harness import Px, probe
 from .p1_equations import adder, delete_from
@@ -43,7 +44,13 @@ def document_units(px: Px) -> None:
     """
     candidates = [("default", sc.template(px))]
     fallback = sc.FALLBACK_TEMPLATES[sc.SW_DOC_PART]
-    if fallback.lower() != candidates[0][1].lower() and os.path.isfile(fallback):
+    # A template saved by a newer release will not open in an older one: on
+    # SolidWorks 2024, NewDocument returned nothing for the 2026 folder's.
+    folder_year = re.search(r"SOLIDWORKS (\d{4})", fallback, re.IGNORECASE)
+    too_new = bool(folder_year) and int(folder_year.group(1)) > release_year(px.session.revision[0])
+    if too_new:
+        px.note(f"{fallback} is from a newer release than this session; not tried")
+    elif fallback.lower() != candidates[0][1].lower() and os.path.isfile(fallback):
         candidates.append(("2026 folder", fallback))
     units: Dict[str, Dict[str, Any]] = {}
     set_works = False

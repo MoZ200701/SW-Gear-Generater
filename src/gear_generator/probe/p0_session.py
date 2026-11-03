@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from ..swcom import call
+from ..swcom import MINIMUM_MAJOR, call, release_year
 from . import scaffold as sc
 from .harness import Px, probe
 
@@ -21,7 +21,8 @@ def attach(px: Px) -> None:
     revision = str(call(app, "RevisionNumber"))
     px.fact("revision", revision)
     px.fact("version", px.session.label)
-    px.check(px.session.revision[0] >= 34, f"revision {revision} is SolidWorks 2026 or newer")
+    px.check(px.session.revision[0] >= MINIMUM_MAJOR,
+             f"revision {revision} is SolidWorks {release_year(MINIMUM_MAJOR)} or newer")
     px.fact("open_at_start", sc.open_titles(px))
 
 

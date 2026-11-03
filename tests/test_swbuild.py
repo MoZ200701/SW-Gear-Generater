@@ -317,8 +317,8 @@ def test_an_existing_file_is_refused_before_anything_is_made():
 
 def test_an_old_solidworks_is_refused():
     fake = FakeSolidWorks()
-    fake.revision = (33, 5, 0)
-    with pytest.raises(swbuild.BuildError, match="2026"):
+    fake.revision = (31, 5, 0)
+    with pytest.raises(swbuild.BuildError, match="2024"):
         swbuild.build(fake, plan(), never_exists)
 
 

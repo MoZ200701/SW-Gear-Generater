@@ -84,15 +84,17 @@ def test_nothing_running_says_so():
 
 def test_only_older_versions_are_refused_by_name():
     with pytest.raises(WrongVersion) as raised:
-        choose([session(32), session(33)])
+        choose([session(30), session(31)])
     message = str(raised.value)
-    assert "SolidWorks 2024" in message
-    assert "SolidWorks 2025" in message
-    assert "2026" in message
+    assert "SolidWorks 2022" in message
+    assert "SolidWorks 2023" in message
+    assert "2024" in message
 
 
-def test_the_supported_version_is_taken():
+def test_the_supported_versions_are_taken():
     assert choose([session(34)]).revision == (34, 0, 0)
+    assert choose([session(32)]).revision == (32, 0, 0)
+    assert choose([session(31), session(32)]).revision == (32, 0, 0)
 
 
 def test_an_older_session_alongside_a_supported_one_is_ignored():
@@ -126,7 +128,7 @@ def test_a_release_newer_than_tested_is_flagged_but_still_chosen():
     assert not swcom.is_newer_than_tested((34, 0, 0))
 
 
-@pytest.mark.parametrize("revision,ok", [((33, 9, 9), False), ((34, 0, 0), True), ((40, 0), True)])
+@pytest.mark.parametrize("revision,ok", [((31, 9, 9), False), ((32, 0, 0), True), ((34, 0, 0), True), ((40, 0), True)])
 def test_the_floor_is_a_floor(revision, ok):
     assert swcom.meets_minimum(revision) is ok
 

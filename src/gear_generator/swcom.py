@@ -55,7 +55,9 @@ except ImportError as exc:  # pragma: no cover - the Linux and no-pywin32 path
 T = TypeVar("T")
 
 # SolidWorks majors advance by one a year: 32 is 2024, 33 is 2025, 34 is 2026.
-MINIMUM_MAJOR = 34
+# The floor is 2024 because every probe, end-to-end builds included, passed on
+# 2024 (probe/results/sw2024). 2025 was never probed but sits between the two.
+MINIMUM_MAJOR = 32
 HIGHEST_TESTED_MAJOR = 34
 _YEAR_OFFSET = 1992
 

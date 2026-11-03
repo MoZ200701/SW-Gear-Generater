@@ -1,0 +1,2386 @@
+{
+  "decisions": {
+    "annulus_extrudes": null,
+    "arc_dimension": null,
+    "bevel_end_to_end": false,
+    "bevel_mate_route": null,
+    "bevel_section_x_sign": null,
+    "circle_dimension": null,
+    "crossed_end_to_end": false,
+    "crossed_route": null,
+    "curve_trig": null,
+    "curves_are_fixed": null,
+    "cut_end_condition": null,
+    "end_to_end": false,
+    "equal_constraint": null,
+    "equation_add_call": "Add2",
+    "equation_set_route": "indexed put Equation(i)",
+    "extrude_z_sign": null,
+    "first_component_fixed": null,
+    "flank_recipe": "STOP",
+    "helical_end_to_end": false,
+    "helix_route": "STOP",
+    "herringbone_route": "STOP",
+    "interference_route": null,
+    "internal_end_to_end": false,
+    "inverse_tangent": "atn",
+    "loft_cut_route": null,
+    "loft_cut_type": null,
+    "manual_steps": [
+      "material"
+    ],
+    "mirror_body_route": null,
+    "origin_select_route": null,
+    "pattern_count_dim_index": null,
+    "place_route": null,
+    "plane_select_route": null,
+    "ref_plane_unflipped_is_plus_z": null,
+    "revolve_axis_mark": null,
+    "save_as_overwrites": true,
+    "set_units_mmgs_after_new": null,
+    "shared_ends_are_one_point": null,
+    "top_sketch_y_is_minus_z": null,
+    "transform_array_order": null,
+    "trig_default": "degrees",
+    "twist_reverse_flips": null,
+    "twist_turn": null
+  },
+  "meta": {
+    "argv": [
+      "--out",
+      "\\\\wsl.localhost\\Ubuntu\\home\\m0obot\\Gear-Generator\\probe\\results"
+    ],
+    "exit_code": 1,
+    "revision": "32.5.0",
+    "stamp": "20261102-193119",
+    "version": "SolidWorks 2024 (revision 32.5.0)"
+  },
+  "records": [
+    {
+      "error": null,
+      "facts": {
+        "open_at_start": [
+          "<user document 1>",
+          "<user document 13>",
+          "<user document 12>",
+          "<user document 11>",
+          "<user document 16>",
+          "<user document 4>",
+          "<user document 2>",
+          "<user document 15>",
+          "<user document 6>",
+          "<user document 17>",
+          "Assem1",
+          "<user document 5>",
+          "<user document 3>",
+          "<user document 7>",
+          "<user document 10>",
+          "<user document 14>",
+          "<user document 9>",
+          "<user document 8>"
+        ],
+        "revision": "32.5.0",
+        "version": "SolidWorks 2024 (revision 32.5.0)"
+      },
+      "lines": [
+        {
+          "detail": "32.5.0",
+          "level": "fact",
+          "text": "revision = '32.5.0'"
+        },
+        {
+          "detail": "SolidWorks 2024 (revision 32.5.0)",
+          "level": "fact",
+          "text": "version = 'SolidWorks 2024 (revision 32.5.0)'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "revision 32.5.0 is SolidWorks 2024 or newer"
+        },
+        {
+          "detail": [
+            "<user document 1>",
+            "<user document 13>",
+            "<user document 12>",
+            "<user document 11>",
+            "<user document 16>",
+            "<user document 4>",
+            "<user document 2>",
+            "<user document 15>",
+            "<user document 6>",
+            "<user document 17>",
+            "Assem1",
+            "<user document 5>",
+            "<user document 3>",
+            "<user document 7>",
+            "<user document 10>",
+            "<user document 14>",
+            "<user document 9>",
+            "<user document 8>"
+          ],
+          "level": "fact",
+          "text": "open_at_start = ['<user document 1>', '<user document 13>', '<user document 12>', '<user document 11>', '<user document 16>', '<user document 4>', '<user document 2>', '<user document 15>', '<user document 6>', '<user document 17>', 'Assem1', '<user document 5>', '<user document 3>', '<user document 7>', '<user document 10>', '<user document 14>', '<user document 9>', '<user document 8>']"
+        }
+      ],
+      "members": [
+        "ISldWorks.RevisionNumber",
+        "ISldWorks.GetFirstDocument"
+      ],
+      "name": "attach",
+      "reason": "",
+      "seconds": 0.394,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "assembly_template": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot",
+        "assembly_template_route": "GetDocumentTemplate",
+        "attempt:GetDocumentTemplate(1, '', 0, 0, 0)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot"
+        },
+        "attempt:GetDocumentTemplate(2, '', 0, 0, 0)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot"
+        },
+        "attempt:GetUserPreferenceStringValue(8)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot"
+        },
+        "attempt:GetUserPreferenceStringValue(9)": {
+          "ok": true,
+          "value": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot"
+        },
+        "part_template": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot",
+        "part_template_route": "GetDocumentTemplate"
+      },
+      "lines": [
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot",
+          "level": "attempt",
+          "text": "GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.prtdot'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot",
+          "level": "attempt",
+          "text": "GetUserPreferenceStringValue(8): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.prtdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a part template exists on disk"
+        },
+        {
+          "detail": "GetDocumentTemplate",
+          "level": "fact",
+          "text": "part_template_route = 'GetDocumentTemplate'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot",
+          "level": "fact",
+          "text": "part_template = 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.prtdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the part template is a .prtdot file"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot",
+          "level": "attempt",
+          "text": "GetDocumentTemplate(2, '', 0, 0, 0): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.asmdot'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot",
+          "level": "attempt",
+          "text": "GetUserPreferenceStringValue(9): returned 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.asmdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a assembly template exists on disk"
+        },
+        {
+          "detail": "GetDocumentTemplate",
+          "level": "fact",
+          "text": "assembly_template_route = 'GetDocumentTemplate'"
+        },
+        {
+          "detail": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot",
+          "level": "fact",
+          "text": "assembly_template = 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.asmdot'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the assembly template is a .asmdot file"
+        }
+      ],
+      "members": [
+        "ISldWorks.GetUserPreferenceStringValue",
+        "ISldWorks.GetDocumentTemplate"
+      ],
+      "name": "templates",
+      "reason": "",
+      "seconds": 0.043,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "new_part_features": [
+          [
+            "Comments",
+            "CommentsFolder"
+          ],
+          [
+            "Favorites",
+            "FavoriteFolder"
+          ],
+          [
+            "History",
+            "HistoryFolder"
+          ],
+          [
+            "Selection Sets",
+            "SelectionSetFolder"
+          ],
+          [
+            "Sensors",
+            "SensorFolder"
+          ],
+          [
+            "Design Binder",
+            "DocsFolder"
+          ],
+          [
+            "Annotations",
+            "DetailCabinet"
+          ],
+          [
+            "Surface Bodies",
+            "SurfaceBodyFolder"
+          ],
+          [
+            "Solid Bodies",
+            "SolidBodyFolder"
+          ],
+          [
+            "Lights and Cameras",
+            "EnvFolder"
+          ],
+          [
+            "Markups",
+            "InkMarkupFolder"
+          ],
+          [
+            "Equations",
+            "EqnFolder"
+          ],
+          [
+            "Material <not specified>",
+            "MaterialFolder"
+          ],
+          [
+            "Front Plane",
+            "RefPlane"
+          ],
+          [
+            "Top Plane",
+            "RefPlane"
+          ],
+          [
+            "Right Plane",
+            "RefPlane"
+          ],
+          [
+            "Origin",
+            "OriginProfileFeature"
+          ]
+        ],
+        "new_part_path": "",
+        "new_part_title": "Part1",
+        "plane_names_in_tree_order": [
+          "Front Plane",
+          "Top Plane",
+          "Right Plane"
+        ]
+      },
+      "lines": [
+        {
+          "detail": "Part1",
+          "level": "fact",
+          "text": "new_part_title = 'Part1'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "NewDocument from the part template makes a part"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the new part is the active document"
+        },
+        {
+          "detail": [
+            "Front Plane",
+            "Top Plane",
+            "Right Plane"
+          ],
+          "level": "fact",
+          "text": "plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the part has exactly three reference planes"
+        },
+        {
+          "detail": [
+            [
+              "Comments",
+              "CommentsFolder"
+            ],
+            [
+              "Favorites",
+              "FavoriteFolder"
+            ],
+            [
+              "History",
+              "HistoryFolder"
+            ],
+            [
+              "Selection Sets",
+              "SelectionSetFolder"
+            ],
+            [
+              "Sensors",
+              "SensorFolder"
+            ],
+            [
+              "Design Binder",
+              "DocsFolder"
+            ],
+            [
+              "Annotations",
+              "DetailCabinet"
+            ],
+            [
+              "Surface Bodies",
+              "SurfaceBodyFolder"
+            ],
+            [
+              "Solid Bodies",
+              "SolidBodyFolder"
+            ],
+            [
+              "Lights and Cameras",
+              "EnvFolder"
+            ],
+            [
+              "Markups",
+              "InkMarkupFolder"
+            ],
+            [
+              "Equations",
+              "EqnFolder"
+            ],
+            [
+              "Material <not specified>",
+              "MaterialFolder"
+            ],
+            [
+              "Front Plane",
+              "RefPlane"
+            ],
+            [
+              "Top Plane",
+              "RefPlane"
+            ],
+            [
+              "Right Plane",
+              "RefPlane"
+            ],
+            [
+              "Origin",
+              "OriginProfileFeature"
+            ]
+          ],
+          "level": "fact",
+          "text": "new_part_features = [('Comments', 'CommentsFolder'), ('Favorites', 'FavoriteFolder'), ('History', 'HistoryFolder'), ('Selection Sets', 'SelectionSetFolder'), ('Sensors', 'SensorFolder'), ('Design Binder', 'DocsFolder'), ('Annotations', 'DetailCabinet'), ('Surface Bodies', 'SurfaceBodyFolder'), ('Solid Bodies', 'SolidBodyFolder'), ('Lights and Cameras', 'EnvFolder'), ('Markups', 'InkMarkupFolder'), ('Equations', 'EqnFolder'), ('Material <not specified>', 'MaterialFolder'), ('Front Plane', 'RefPlane'), ('Top Plane', 'RefPlane'), ('Right Plane', 'RefPlane'), ('Origin', 'OriginProfileFeature')]"
+        },
+        {
+          "detail": "",
+          "level": "fact",
+          "text": "new_part_path = ''"
+        }
+      ],
+      "members": [
+        "ISldWorks.NewDocument",
+        "IModelDoc2.GetTitle",
+        "IModelDoc2.GetType",
+        "ISldWorks.ActiveDoc",
+        "IFeature.GetTypeName2"
+      ],
+      "name": "new_document",
+      "reason": "",
+      "seconds": 3.351,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:CreatePoint(0.01, 0.01, 0)": {
+          "ok": true,
+          "value": "CDispatch"
+        },
+        "attempt:GetSaveFlag": {
+          "ok": true,
+          "value": true
+        },
+        "attempt:InsertSketch(True) to close": {
+          "ok": true,
+          "value": null
+        },
+        "attempt:InsertSketch(True) to open": {
+          "ok": true,
+          "value": null
+        },
+        "close_doc_returns": null,
+        "modified_before_close": true,
+        "select_routes_so_far": {
+          "Select2": 1
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the first reference plane selects by tree order"
+        },
+        {
+          "detail": {
+            "Select2": 1
+          },
+          "level": "fact",
+          "text": "select_routes_so_far = {'Select2': 1}"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "InsertSketch(True) to open: returned None"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "CreatePoint(0.01, 0.01, 0): returned 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "InsertSketch(True) to close: returned None"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "GetSaveFlag: returned True"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "modified_before_close = True"
+        },
+        {
+          "detail": null,
+          "level": "fact",
+          "text": "close_doc_returns = None"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "CloseDoc closed the modified part without a prompt"
+        }
+      ],
+      "members": [
+        "ISldWorks.CloseDoc",
+        "IModelDoc2.GetSaveFlag",
+        "ISketchManager.InsertSketch",
+        "ISketchManager.CreatePoint"
+      ],
+      "name": "close_document",
+      "reason": "",
+      "seconds": 3.662,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "activate_doc3_returns_shape": "CDispatch",
+        "attempt:ActivateDoc3(title, False, 0, out long)": {
+          "ok": true,
+          "value": "CDispatch"
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the second new part is active"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "attempt",
+          "text": "ActivateDoc3(title, False, 0, out long): returned 'CDispatch'"
+        },
+        {
+          "detail": "CDispatch",
+          "level": "fact",
+          "text": "activate_doc3_returns_shape = 'CDispatch'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "ActivateDoc3 made the first part active again"
+        }
+      ],
+      "members": [
+        "ISldWorks.ActivateDoc3"
+      ],
+      "name": "activate_document",
+      "reason": "",
+      "seconds": 5.243,
+      "status": "pass",
+      "tier": 0,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "add3_form": "Add2",
+        "add3_single_configuration_returns": -1,
+        "angular_equation_units_property": 1,
+        "attempt:Add2": {
+          "ok": true,
+          "value": 0
+        },
+        "attempt:Add3 on a one-configuration part, all configurations, None": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:AngularEquationUnits": {
+          "ok": true,
+          "value": 1
+        },
+        "delete_returns": 0,
+        "equation_text_readback": "\"Probe A\"= 2.5",
+        "equations_in_new_part": 0
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetEquationMgr returns an equation manager"
+        },
+        {
+          "detail": 1,
+          "level": "attempt",
+          "text": "AngularEquationUnits: returned 1"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "angular_equation_units_property = 1"
+        },
+        {
+          "detail": 0,
+          "level": "fact",
+          "text": "equations_in_new_part = 0"
+        },
+        {
+          "detail": 0,
+          "level": "attempt",
+          "text": "Add2: returned 0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "some documented way of adding a global works"
+        },
+        {
+          "detail": "Add2",
+          "level": "fact",
+          "text": "add3_form = 'Add2'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Add2 at index -1 appends, returning 0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetCount goes up by one"
+        },
+        {
+          "detail": "\"Probe A\"= 2.5",
+          "level": "fact",
+          "text": "equation_text_readback = '\"Probe A\"= 2.5'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Equation(i) reads back '\"Probe A\"= 2.5'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Value(i) reads back 2.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GlobalVariable(i) says it is a global"
+        },
+        {
+          "detail": 0,
+          "level": "fact",
+          "text": "delete_returns = 0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "Delete(i) removes it again"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Add3 on a one-configuration part, all configurations, None: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "add3_single_configuration_returns = -1"
+        }
+      ],
+      "members": [
+        "IModelDoc2.GetEquationMgr",
+        "IEquationMgr.Add2",
+        "IEquationMgr.Add3",
+        "IEquationMgr.GetCount",
+        "IEquationMgr.Equation",
+        "IEquationMgr.Value",
+        "IEquationMgr.GlobalVariable",
+        "IEquationMgr.Delete",
+        "IEquationMgr.AngularEquationUnits"
+      ],
+      "name": "equation_add",
+      "reason": "",
+      "seconds": 2.411,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "add3_bad_parse_returns": -1,
+        "add3_unknown_name_returns": -1,
+        "attempt:Add3 bad parse: \"Probe Bad\"= ( 1 +": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:Add3 unknown name: \"Probe Unknown\"= \"No Such Name\" * 2": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:Status after it": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:half power of a tiny number: \"Probe Half1\"= 0.0001 ^ 0.5": {
+          "ok": true,
+          "value": 14
+        },
+        "attempt:half power of zero: \"Probe Half0\"= 0 ^ 0.5": {
+          "ok": true,
+          "value": 13
+        },
+        "attempt:iif guarding an invalid sqr: \"Probe Lazy\"= IIF ( 1 > 1 , sqr ( -1 ) , 0 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:iif guarding sqr of zero: \"Probe Lazy0\"= IIF ( 1 > 1 , sqr ( 0 ) , 0 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:sqr of a ratio just above one: \"Probe Unit2\"= sqr ( ( 35.46 / 35.238473279 ) ^ 2 - 1 )": {
+          "ok": true,
+          "value": 16
+        },
+        "attempt:sqr of a ratio that is exactly one, no abs: \"Probe Unit Raw\"= sqr ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:sqr of a ratio that is exactly one, with abs: \"Probe Unit\"= sqr ( abs ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ) )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:sqr of one: \"Probe Sqr1\"= sqr ( 1 )": {
+          "ok": true,
+          "value": 15
+        },
+        "attempt:sqr of zero: \"Probe Sqr0\"= sqr ( 0 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:unary minus squared: \"Probe Neg\"= -2 ^ 2": {
+          "ok": true,
+          "value": 12
+        },
+        "attempt:unbracketed comparison: \"Probe Unbracketed\"= IIF ( 3 >= 1 + 5 , 1 , 0 )": {
+          "ok": true,
+          "value": 11
+        },
+        "half_power_of_a_tiny_number": {
+          "index": 14,
+          "value": 0.01
+        },
+        "half_power_of_zero": {
+          "index": 13,
+          "value": 0.0
+        },
+        "iif_guarding_an_invalid_sqr": {
+          "index": -1,
+          "value": null
+        },
+        "iif_guarding_sqr_of_zero": {
+          "index": -1,
+          "value": null
+        },
+        "sqr_of_a_ratio_just_above_one": {
+          "index": 16,
+          "value": 0.1123054913132504
+        },
+        "sqr_of_a_ratio_that_is_exactly_one_no_abs": {
+          "index": -1,
+          "value": null
+        },
+        "sqr_of_a_ratio_that_is_exactly_one_with_abs": {
+          "index": -1,
+          "value": null
+        },
+        "sqr_of_one": {
+          "index": 15,
+          "value": 1.0
+        },
+        "sqr_of_zero": {
+          "index": -1,
+          "value": null
+        },
+        "status_after_bad_parse": -1,
+        "status_after_unknown_name": -1,
+        "trig_units": "degrees",
+        "unary_minus_squared": {
+          "index": 12,
+          "value": -4.0
+        },
+        "unbracketed_comparison": {
+          "index": 11,
+          "value": 1.0
+        }
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "a sin() equation is accepted"
+        },
+        {
+          "detail": "degrees",
+          "level": "fact",
+          "text": "sin ( 90 ) = 1.0, so trig is in degrees"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "trig units are recognisable"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "pi: \"Probe Pi\"= pi is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "pi: evaluates to 3.141592653589793"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "power: \"Probe Pow\"= 2 ^ 3 is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "power: evaluates to 8.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sqr: \"Probe Sqr\"= sqr ( 16 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "sqr: evaluates to 4.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif: \"Probe Iif\"= IIF ( 1 <= 1.25 , 2.4 , 2.25 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif: evaluates to 2.4"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif greater-or-equal: \"Probe Iif2\"= IIF ( 1.5 >= 2 , 1 , 0 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "iif greater-or-equal: evaluates to 0.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "reference: \"Probe Ref\"= \"Probe Pi\" * 2 is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "reference: evaluates to 6.283185307179586"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "cos: \"Probe Cos\"= cos ( 60 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "cos: evaluates to 0.5000000000000001"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "tan: \"Probe Tan\"= tan ( 20 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "tan: evaluates to 0.36397023426620234"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "abs: \"Probe Abs\"= abs ( -2 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "abs: evaluates to 2.0"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "bracketed comparison: \"Probe Bracket\"= IIF ( 3 >= ( 1 + 5 ) , 1 , 0 ) is accepted"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "bracketed comparison: evaluates to 0.0"
+        },
+        {
+          "detail": 11,
+          "level": "attempt",
+          "text": "unbracketed comparison: \"Probe Unbracketed\"= IIF ( 3 >= 1 + 5 , 1 , 0 ): returned 11"
+        },
+        {
+          "detail": {
+            "index": 11,
+            "value": 1.0
+          },
+          "level": "fact",
+          "text": "unbracketed_comparison = {'index': 11, 'value': 1.0}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "sqr of a ratio that is exactly one, no abs: \"Probe Unit Raw\"= sqr ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "sqr_of_a_ratio_that_is_exactly_one_no_abs = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": 12,
+          "level": "attempt",
+          "text": "unary minus squared: \"Probe Neg\"= -2 ^ 2: returned 12"
+        },
+        {
+          "detail": {
+            "index": 12,
+            "value": -4.0
+          },
+          "level": "fact",
+          "text": "unary_minus_squared = {'index': 12, 'value': -4.0}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "sqr of a ratio that is exactly one, with abs: \"Probe Unit\"= sqr ( abs ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ) ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "sqr_of_a_ratio_that_is_exactly_one_with_abs = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "sqr of zero: \"Probe Sqr0\"= sqr ( 0 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "sqr_of_zero = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": 13,
+          "level": "attempt",
+          "text": "half power of zero: \"Probe Half0\"= 0 ^ 0.5: returned 13"
+        },
+        {
+          "detail": {
+            "index": 13,
+            "value": 0.0
+          },
+          "level": "fact",
+          "text": "half_power_of_zero = {'index': 13, 'value': 0.0}"
+        },
+        {
+          "detail": 14,
+          "level": "attempt",
+          "text": "half power of a tiny number: \"Probe Half1\"= 0.0001 ^ 0.5: returned 14"
+        },
+        {
+          "detail": {
+            "index": 14,
+            "value": 0.01
+          },
+          "level": "fact",
+          "text": "half_power_of_a_tiny_number = {'index': 14, 'value': 0.01}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "iif guarding an invalid sqr: \"Probe Lazy\"= IIF ( 1 > 1 , sqr ( -1 ) , 0 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "iif_guarding_an_invalid_sqr = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "iif guarding sqr of zero: \"Probe Lazy0\"= IIF ( 1 > 1 , sqr ( 0 ) , 0 ): returned -1"
+        },
+        {
+          "detail": {
+            "index": -1,
+            "value": null
+          },
+          "level": "fact",
+          "text": "iif_guarding_sqr_of_zero = {'index': -1, 'value': None}"
+        },
+        {
+          "detail": 15,
+          "level": "attempt",
+          "text": "sqr of one: \"Probe Sqr1\"= sqr ( 1 ): returned 15"
+        },
+        {
+          "detail": {
+            "index": 15,
+            "value": 1.0
+          },
+          "level": "fact",
+          "text": "sqr_of_one = {'index': 15, 'value': 1.0}"
+        },
+        {
+          "detail": 16,
+          "level": "attempt",
+          "text": "sqr of a ratio just above one: \"Probe Unit2\"= sqr ( ( 35.46 / 35.238473279 ) ^ 2 - 1 ): returned 16"
+        },
+        {
+          "detail": {
+            "index": 16,
+            "value": 0.1123054913132504
+          },
+          "level": "fact",
+          "text": "sqr_of_a_ratio_just_above_one = {'index': 16, 'value': 0.1123054913132504}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Add3 bad parse: \"Probe Bad\"= ( 1 +: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "add3_bad_parse_returns = -1"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Status after it: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "status_after_bad_parse = -1"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Add3 unknown name: \"Probe Unknown\"= \"No Such Name\" * 2: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "add3_unknown_name_returns = -1"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "Status after it: returned -1"
+        },
+        {
+          "detail": -1,
+          "level": "fact",
+          "text": "status_after_unknown_name = -1"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Value",
+        "IEquationMgr.Status"
+      ],
+      "name": "equation_syntax",
+      "reason": "",
+      "seconds": 3.981,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "equation_text_rewritten": {},
+        "globals_match_maths": true,
+        "globals_mismatched": []
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"No. of Teeth\"= 25"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Module\"= 1.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Bore Diameter\"= 10"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Pressure Angle\"= 20"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Outer Diameter\"= ( \"No. of Teeth\" + 2 ) * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Pitch Diameter\"= \"No. of Teeth\" * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Backlash\"= 0.3 * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Arc Length\"= ( ( \"Module\" * pi ) / 2 + \"Backlash\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Fillet Radius\"= 0.38 * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Tooth Depth\"= IIF ( \"Module\" <= 1.25 , \"Module\" * 2.4 , \"Module\" * 2.25 )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Face Width\"= 10"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Root Diameter\"= \"Outer Diameter\" - 2 * \"Tooth Depth\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Base Diameter\"= \"Pitch Diameter\" * cos ( \"Pressure Angle\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Base Radius\"= \"Base Diameter\" / 2"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Tooth Thickness\"= \"Module\" * pi - \"Arc Length\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Half Space Angle\"= ( \"Arc Length\" / \"Pitch Diameter\" ) * 180 / pi"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Involute Fn\"= tan ( \"Pressure Angle\" ) - \"Pressure Angle\" * pi / 180"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Offset\"= \"Arc Length\" / \"Pitch Diameter\" - \"Involute Fn\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Tip Cap Diameter\"= \"Outer Diameter\" + 2 * \"Module\""
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Start Diameter\"= IIF ( \"Base Diameter\" >= ( \"Root Diameter\" + 3 * \"Fillet Radius\" ) , \"Base Diameter\" , \"Root Diameter\" + 3 * \"Fillet Radius\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Involute t1\"= ( abs ( ( \"Flank Start Diameter\" / \"Base Diameter\" ) ^ 2 - 1 ) ) ^ 0.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Involute t2\"= ( abs ( ( \"Tip Cap Diameter\" / \"Base Diameter\" ) ^ 2 - 1 ) ) ^ 0.5"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Arc Radius\"= ( \"Pitch Diameter\" / 2 ) * sin ( \"Pressure Angle\" )"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Flank Centre Angle\"= \"Half Space Angle\" + \"Pressure Angle\""
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "globals_match_maths = True"
+        },
+        {
+          "detail": [],
+          "level": "fact",
+          "text": "globals_mismatched = []"
+        },
+        {
+          "detail": {},
+          "level": "fact",
+          "text": "0 equation(s) read back differently from how they were written"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Value",
+        "IEquationMgr.Equation"
+      ],
+      "name": "gear_globals",
+      "reason": "",
+      "seconds": 4.789,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:SetEquationAndConfigurationOption": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:indexed put Equation(i)": {
+          "ok": true,
+          "value": null
+        },
+        "equation_set_routes": [
+          "indexed put Equation(i)"
+        ]
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "two linked globals are added"
+        },
+        {
+          "detail": null,
+          "level": "attempt",
+          "text": "indexed put Equation(i): returned None"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "indexed put Equation(i): the dependent global follows to 10.0"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "SetEquationAndConfigurationOption: returned -1"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "SetEquationAndConfigurationOption: the dependent global reads 10.0 (does not follow)"
+        },
+        {
+          "detail": [
+            "indexed put Equation(i)"
+          ],
+          "level": "fact",
+          "text": "equation_set_routes = ['indexed put Equation(i)']"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "at least one way of changing a global's value works"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Equation",
+        "IEquationMgr.SetEquationAndConfigurationOption",
+        "IEquationMgr.EvaluateAll",
+        "IModelDoc2.ForceRebuild3"
+      ],
+      "name": "equation_set",
+      "reason": "",
+      "seconds": 2.238,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "units_default": {
+          "linear": 0,
+          "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot",
+          "system": 5
+        }
+      },
+      "lines": [
+        {
+          "detail": {
+            "linear": 0,
+            "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot",
+            "system": 5
+          },
+          "level": "fact",
+          "text": "units_default = {'path': 'C:\\\\ProgramData\\\\SolidWorks\\\\SOLIDWORKS 2024\\\\templates\\\\MMGS 8 Decimals.prtdot', 'linear': 0, 'system': 5}"
+        }
+      ],
+      "members": [
+        "IModelDocExtension.GetUserPreferenceInteger",
+        "IModelDocExtension.SetUserPreferenceInteger"
+      ],
+      "name": "document_units",
+      "reason": "NewDocument returned nothing for C:\\ProgramData\\SOLIDWORKS\\SOLIDWORKS 2026\\templates\\Part.PRTDOT.",
+      "seconds": 1.936,
+      "status": "fail",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeature.Select2",
+        "ISketchManager.InsertSketch",
+        "ISketchManager.ActiveSketch",
+        "ISketchManager.AddToDB",
+        "ISketchManager.CreateCircleByRadius",
+        "IFeature.Name",
+        "IModelDocExtension.SelectByID2"
+      ],
+      "name": "sketch_open_close",
+      "reason": "needs document_units (fail)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateCircle",
+        "ISketchManager.CreateArc",
+        "ISketchManager.Create3PointArc",
+        "ISketchManager.CreateLine",
+        "ISketchManager.CreateCenterLine",
+        "ISketchManager.CreatePoint",
+        "ISketchSegment.ConstructionGeometry",
+        "ISketchSegment.GetType",
+        "ISketchSegment.GetLength",
+        "ISketchArc.GetCenterPoint2",
+        "ISketchArc.GetRadius",
+        "ISketchLine.GetStartPoint2",
+        "ISketch.GetSketchSegments"
+      ],
+      "name": "sketch_entities",
+      "reason": "needs sketch_open_close (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IModelDoc2.SketchAddConstraints",
+        "ISketchSegment.Select4",
+        "ISketchPoint.Select4",
+        "ISketch.GetSketchPoints2"
+      ],
+      "name": "relations",
+      "reason": "needs sketch_entities (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IModelDoc2.AddDimension2",
+        "IDisplayDimension.GetDimension2",
+        "IDimension.Name",
+        "IDimension.FullName",
+        "IDimension.SystemValue",
+        "IFeature.GetFirstDisplayDimension",
+        "IFeature.GetNextDisplayDimension",
+        "ISldWorks.SetUserPreferenceToggle"
+      ],
+      "name": "dimensions",
+      "reason": "needs relations (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Equation",
+        "IDimension.SystemValue",
+        "IModelDoc2.ForceRebuild3"
+      ],
+      "name": "dimension_link",
+      "reason": "needs dimensions (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketch.GetConstrainedStatus"
+      ],
+      "name": "constrained_status",
+      "reason": "needs dimensions (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateEquationSpline2",
+        "ISketchSpline.GetPoints2",
+        "ISketchSegment.GetType"
+      ],
+      "name": "curve_literal",
+      "reason": "needs sketch_open_close (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateEquationSpline2"
+      ],
+      "name": "curve_globals",
+      "reason": "needs curve_literal (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateEquationSpline2",
+        "IModelDoc2.ForceRebuild3",
+        "ISketch.GetSketchSegments"
+      ],
+      "name": "curve_rebuild",
+      "reason": "needs curve_globals (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketch.GetSketchPoints2",
+        "IModelDoc2.SketchAddConstraints"
+      ],
+      "name": "curve_relations",
+      "reason": "needs curve_literal (skip), relations (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateEquationSpline2"
+      ],
+      "name": "curve_bad",
+      "reason": "needs curve_literal (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IModelDoc2.SketchAddConstraints",
+        "ISketch.GetConstrainedStatus"
+      ],
+      "name": "curve_fixed_rebuild",
+      "reason": "needs curve_rebuild (skip), relations (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketch.GetSketchPoints2",
+        "ISketchPoint.Select4",
+        "IModelDoc2.SketchAddConstraints"
+      ],
+      "name": "curve_end_points",
+      "reason": "needs curve_relations (skip), curve_fixed_rebuild (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.FeatureExtrusion3",
+        "IModelDocExtension.CreateMassProperty",
+        "IMassProperty.Volume",
+        "IFeature.GetFirstDisplayDimension"
+      ],
+      "name": "extrude",
+      "reason": "needs sketch_open_close (skip), dimensions (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.FeatureCut4",
+        "IFeatureManager.FeatureCut3"
+      ],
+      "name": "cut",
+      "reason": "needs extrude (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "axis_new_features": [
+          [
+            "Axis1",
+            "RefAxis"
+          ]
+        ],
+        "axis_type_name": "RefAxis",
+        "insert_axis2_returns": true
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "planes 2 and 3 select together"
+        },
+        {
+          "detail": true,
+          "level": "fact",
+          "text": "insert_axis2_returns = True"
+        },
+        {
+          "detail": [
+            [
+              "Axis1",
+              "RefAxis"
+            ]
+          ],
+          "level": "fact",
+          "text": "axis_new_features = [('Axis1', 'RefAxis')]"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "InsertAxis2 adds exactly one feature"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the axis renames and reads back"
+        },
+        {
+          "detail": "RefAxis",
+          "level": "fact",
+          "text": "axis_type_name = 'RefAxis'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the axis can be selected again"
+        }
+      ],
+      "members": [
+        "IModelDoc2.InsertAxis2"
+      ],
+      "name": "axis",
+      "reason": "",
+      "seconds": 2.458,
+      "status": "pass",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.FeatureCircularPattern5",
+        "IFeatureManager.FeatureCircularPattern4"
+      ],
+      "name": "pattern",
+      "reason": "needs cut (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IEquationMgr.Add2"
+      ],
+      "name": "pattern_count_link",
+      "reason": "needs pattern (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISldWorks.CommandInProgress"
+      ],
+      "name": "batched_under_command_in_progress",
+      "reason": "needs pattern (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "angular_equation_units": 1,
+        "attempt:AngularEquationUnits": {
+          "ok": true,
+          "value": 1
+        },
+        "attempt:arccos: \"Probe Arccos\"= arccos ( 0.5 )": {
+          "ok": true,
+          "value": 2
+        },
+        "attempt:arcsin: \"Probe Arcsin\"= arcsin ( 0.5 )": {
+          "ok": true,
+          "value": 1
+        },
+        "attempt:arctan: \"Probe Arctan\"= arctan ( 1 )": {
+          "ok": true,
+          "value": -1
+        },
+        "attempt:atn: \"Probe Atn\"= atn ( 1 )": {
+          "ok": true,
+          "value": 0
+        },
+        "inverse_arccos": {
+          "unit": "degrees",
+          "value": 60.00000000000001
+        },
+        "inverse_arcsin": {
+          "unit": "degrees",
+          "value": 30.000000000000004
+        },
+        "inverse_atn": {
+          "unit": "degrees",
+          "value": 45.0
+        },
+        "inverse_trig_accepted": {
+          "arccos": "degrees",
+          "arcsin": "degrees",
+          "atn": "degrees"
+        },
+        "inverse_trig_tangent": "atn",
+        "transverse_pressure_angle_value": 20.646896487046472
+      },
+      "lines": [
+        {
+          "detail": 0,
+          "level": "attempt",
+          "text": "atn: \"Probe Atn\"= atn ( 1 ): returned 0"
+        },
+        {
+          "detail": {
+            "unit": "degrees",
+            "value": 45.0
+          },
+          "level": "fact",
+          "text": "inverse_atn = {'value': 45.0, 'unit': 'degrees'}"
+        },
+        {
+          "detail": -1,
+          "level": "attempt",
+          "text": "arctan: \"Probe Arctan\"= arctan ( 1 ): returned -1"
+        },
+        {
+          "detail": null,
+          "level": "note",
+          "text": "arctan is not accepted"
+        },
+        {
+          "detail": 1,
+          "level": "attempt",
+          "text": "arcsin: \"Probe Arcsin\"= arcsin ( 0.5 ): returned 1"
+        },
+        {
+          "detail": {
+            "unit": "degrees",
+            "value": 30.000000000000004
+          },
+          "level": "fact",
+          "text": "inverse_arcsin = {'value': 30.000000000000004, 'unit': 'degrees'}"
+        },
+        {
+          "detail": 2,
+          "level": "attempt",
+          "text": "arccos: \"Probe Arccos\"= arccos ( 0.5 ): returned 2"
+        },
+        {
+          "detail": {
+            "unit": "degrees",
+            "value": 60.00000000000001
+          },
+          "level": "fact",
+          "text": "inverse_arccos = {'value': 60.00000000000001, 'unit': 'degrees'}"
+        },
+        {
+          "detail": {
+            "arccos": "degrees",
+            "arcsin": "degrees",
+            "atn": "degrees"
+          },
+          "level": "fact",
+          "text": "inverse_trig_accepted = {'atn': 'degrees', 'arcsin': 'degrees', 'arccos': 'degrees'}"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "some inverse trig function is accepted"
+        },
+        {
+          "detail": "atn",
+          "level": "fact",
+          "text": "inverse_trig_tangent = 'atn'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "helix and pressure angle globals are added"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "accepted: \"Probe TPA\"= atn ( tan ( \"Probe Alpha\" ) / cos ( \"Probe Beta\" ) )"
+        },
+        {
+          "detail": 20.646896487046472,
+          "level": "fact",
+          "text": "transverse_pressure_angle_value = 20.646896487046472"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the transverse pressure angle reads 20.646896487046472 (maths 20.64689648704647)"
+        },
+        {
+          "detail": 1,
+          "level": "attempt",
+          "text": "AngularEquationUnits: returned 1"
+        },
+        {
+          "detail": 1,
+          "level": "fact",
+          "text": "angular_equation_units = 1"
+        }
+      ],
+      "members": [
+        "IEquationMgr.Add2",
+        "IEquationMgr.Value",
+        "IEquationMgr.AngularEquationUnits"
+      ],
+      "name": "equation_inverse_trig",
+      "reason": "",
+      "seconds": 2.377,
+      "status": "pass",
+      "tier": 1,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IMassProperty.CenterOfMass",
+        "ISketch.ModelToSketchTransform",
+        "IMathTransform.Inverse"
+      ],
+      "name": "center_of_mass",
+      "reason": "needs extrude (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertRefPlane",
+        "IEquationMgr.Add2"
+      ],
+      "name": "ref_plane_offset",
+      "reason": "needs center_of_mass (skip), dimension_link (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateLine",
+        "IModelDoc2.SketchAddConstraints",
+        "IModelDoc2.AddDimension2",
+        "ISketch.GetConstrainedStatus"
+      ],
+      "name": "path_sketch_relations",
+      "reason": "needs center_of_mass (skip), relations (skip), dimensions (skip), constrained_status (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertProtrusionSwept4",
+        "IFeature.GetDefinition",
+        "ISweepFeatureData.D1ReverseTwistDir",
+        "IFeature.ModifyDefinition",
+        "IMassProperty.CenterOfMass"
+      ],
+      "name": "sweep_twist",
+      "reason": "needs center_of_mass (skip), ref_plane_offset (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IEquationMgr.Add2",
+        "IDimension.Name"
+      ],
+      "name": "sweep_twist_link",
+      "reason": "needs sweep_twist (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertCutSwept5",
+        "IFeatureManager.InsertCutSwept4",
+        "IPartDoc.GetBodies2"
+      ],
+      "name": "sweep_cut_ends",
+      "reason": "needs sweep_twist (skip), cut (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.FeatureCircularPattern5"
+      ],
+      "name": "pattern_sweep",
+      "reason": "needs sweep_cut_ends (skip), pattern (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertMirrorFeature2",
+        "ISelectionMgr.CreateSelectData",
+        "IBody2.Select2"
+      ],
+      "name": "mirror_body_merge",
+      "reason": "needs ref_plane_offset (skip), extrude (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateCircleByRadius",
+        "IFeatureManager.FeatureExtrusion3",
+        "IBody2.GetType"
+      ],
+      "name": "annulus_extrude",
+      "reason": "needs extrude (skip), dimension_link (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "ISketchManager.CreateCenterLine",
+        "IFeatureManager.FeatureRevolve2"
+      ],
+      "name": "revolve",
+      "reason": "needs extrude (skip), center_of_mass (skip), path_sketch_relations (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertCutBlend"
+      ],
+      "name": "loft_cut_sections",
+      "reason": "needs extrude (skip), ref_plane_offset (skip), cut (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertMoveCopyBody2",
+        "IBody2.Select2"
+      ],
+      "name": "move_body_rotate",
+      "reason": "needs extrude (skip), center_of_mass (skip), dimension_link (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IModelDoc2.InsertAxis2",
+        "IRefAxis.GetRefAxisParams",
+        "IModelDocExtension.SelectByID2"
+      ],
+      "name": "axis_from_sketch_line",
+      "reason": "needs path_sketch_relations (skip), dimensions (skip), dimension_link (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IFeatureManager.InsertRefPlane",
+        "ISketch.ModelToSketchTransform",
+        "IModelDocExtension.SelectByID2"
+      ],
+      "name": "ref_plane_normal",
+      "reason": "needs path_sketch_relations (skip), dimensions (skip), dimension_link (skip), ref_plane_offset (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 2,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {
+        "attempt:IModelDoc2.SaveAs3 on another new part": {
+          "ok": true,
+          "value": "dict"
+        },
+        "attempt:SaveAs3 onto the same path": {
+          "ok": true,
+          "value": true
+        },
+        "attempt:SaveAs3(path, current version, silent, null, null, out long, out long)": {
+          "ok": true,
+          "value": true
+        },
+        "imodeldoc2_save_as3": {
+          "on_disk": true,
+          "returned": 0
+        },
+        "path_after_save": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261102-193040\\Probe Save.SLDPRT",
+        "save_as3_onto_existing_file": {
+          "flag": true,
+          "size_after": 34102,
+          "size_before": 33461
+        },
+        "save_as3_result": "True",
+        "save_as3_result_is_tuple": false,
+        "title_after_save": "Probe Save.SLDPRT"
+      },
+      "lines": [
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the scratch folder is on a drive: 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20261102-193040'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261102-193040\\Probe Save.SLDPRT does not exist yet"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "SaveAs3(path, current version, silent, null, null, out long, out long): returned True"
+        },
+        {
+          "detail": "True",
+          "level": "fact",
+          "text": "save_as3_result = 'True'"
+        },
+        {
+          "detail": false,
+          "level": "fact",
+          "text": "save_as3_result_is_tuple = False"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "SaveAs3 says it saved"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "the file is on disk"
+        },
+        {
+          "detail": "Probe Save.SLDPRT",
+          "level": "fact",
+          "text": "title_after_save = 'Probe Save.SLDPRT'"
+        },
+        {
+          "detail": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261102-193040\\Probe Save.SLDPRT",
+          "level": "fact",
+          "text": "path_after_save = 'C:\\\\Users\\\\M0obo\\\\Documents\\\\GearGeneratorProbe\\\\20261102-193040\\\\Probe Save.SLDPRT'"
+        },
+        {
+          "detail": null,
+          "level": "ok",
+          "text": "GetPathName now names the new file"
+        },
+        {
+          "detail": true,
+          "level": "attempt",
+          "text": "SaveAs3 onto the same path: returned True"
+        },
+        {
+          "detail": {
+            "flag": true,
+            "size_after": 34102,
+            "size_before": 33461
+          },
+          "level": "fact",
+          "text": "save_as3_onto_existing_file = {'flag': True, 'size_before': 33461, 'size_after': 34102}"
+        },
+        {
+          "detail": "dict",
+          "level": "attempt",
+          "text": "IModelDoc2.SaveAs3 on another new part: returned 'dict'"
+        },
+        {
+          "detail": {
+            "on_disk": true,
+            "returned": 0
+          },
+          "level": "fact",
+          "text": "imodeldoc2_save_as3 = {'returned': 0, 'on_disk': True}"
+        }
+      ],
+      "members": [
+        "IModelDocExtension.SaveAs3",
+        "IModelDoc2.GetPathName",
+        "IModelDoc2.GetTitle"
+      ],
+      "name": "save_as",
+      "reason": "",
+      "seconds": 4.579,
+      "status": "pass",
+      "tier": 3,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IAssemblyDoc.AddComponent5",
+        "IComponent2.Name2",
+        "IComponent2.Transform2",
+        "IComponent2.IsFixed",
+        "IAssemblyDoc.FixComponent",
+        "IComponent2.FeatureByName",
+        "IAssemblyDoc.AddMate5"
+      ],
+      "name": "assembly_components_and_mates",
+      "reason": "needs extrude (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 4,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IEquationMgr.Add2",
+        "IFeature.GetFirstDisplayDimension"
+      ],
+      "name": "assembly_distance_link",
+      "reason": "needs assembly_components_and_mates (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 4,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IAssemblyDoc.InterferenceDetectionManager",
+        "IInterferenceDetectionMgr.GetInterferenceCount",
+        "IInterferenceDetectionMgr.GetInterferences",
+        "IInterference.Volume",
+        "IInterferenceDetectionMgr.Done"
+      ],
+      "name": "interference",
+      "reason": "needs assembly_components_and_mates (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 4,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "IMathUtility.CreateTransform",
+        "IComponent2.Transform2",
+        "IComponent2.GetCorresponding",
+        "IModelDocExtension.SelectByID2",
+        "IAssemblyDoc.AddMate5"
+      ],
+      "name": "nonparallel_mates",
+      "reason": "needs assembly_components_and_mates (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 4,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "swbuild.build",
+        "swbuild.update_variables"
+      ],
+      "name": "end_to_end",
+      "reason": "needs pattern_count_link (skip), curve_fixed_rebuild (skip), document_units (fail), cut (skip), dimension_link (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 5,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "swbuild.build",
+        "swbuild.update_variables",
+        "Session.ref_plane",
+        "Session.sweep_cut",
+        "Session.mirror_body"
+      ],
+      "name": "helical_end_to_end",
+      "reason": "needs sweep_cut_ends (skip), sweep_twist_link (skip), mirror_body_merge (skip), path_sketch_relations (skip), pattern_count_link (skip), curve_fixed_rebuild (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 5,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "swbuild.build_pair",
+        "Session.interference_count",
+        "swbuild.update_variables"
+      ],
+      "name": "internal_end_to_end",
+      "reason": "needs annulus_extrude (skip), interference (skip), end_to_end (skip), helical_end_to_end (skip), assembly_distance_link (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 5,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "swbuild.build_pair",
+        "Session.revolve",
+        "Session.ref_plane_normal",
+        "Session.loft_cut",
+        "Session.place_component",
+        "swbuild.update_variables"
+      ],
+      "name": "bevel_end_to_end",
+      "reason": "needs revolve (skip), ref_plane_normal (skip), loft_cut_sections (skip), nonparallel_mates (skip), interference (skip), end_to_end (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 5,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    },
+    {
+      "error": null,
+      "facts": {},
+      "lines": [],
+      "members": [
+        "swbuild.build_pair",
+        "Session.place_component",
+        "Session.add_mate"
+      ],
+      "name": "crossed_end_to_end",
+      "reason": "needs nonparallel_mates (skip), interference (skip), helical_end_to_end (skip)",
+      "seconds": 0.0,
+      "status": "skip",
+      "tier": 5,
+      "version": "SolidWorks 2024 (revision 32.5.0)"
+    }
+  ],
+  "schema": 1,
+  "summary": {
+    "fail": 1,
+    "pass": 12,
+    "skip": 41
+  }
+}

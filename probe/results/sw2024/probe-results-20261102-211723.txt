@@ -1,0 +1,659 @@
+attach  SolidWorks 2024 (revision 32.5.0), PID 63668
+scratch C:\Users\M0obo\Documents\GearGeneratorProbe\20261102-205812
+pass    attach  (0.2 s)
+  fact   revision = '32.5.0'
+  fact   version = 'SolidWorks 2024 (revision 32.5.0)'
+  ok     revision 32.5.0 is SolidWorks 2024 or newer
+  fact   open_at_start = ['<user document 1>', 'Part188', '<user document 13>', '<user document 12>', '<user document 11>', '<user document 16>', '<user document 4>', '<user document 2>', '<user document 15>', '<user document 6>', '<user document 17>', '<user document 5>']
+pass    templates  (0.0 s)
+  try    GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  try    GetUserPreferenceStringValue(8): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  ok     a part template exists on disk
+  fact   part_template_route = 'GetDocumentTemplate'
+  fact   part_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  ok     the part template is a .prtdot file
+  try    GetDocumentTemplate(2, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  try    GetUserPreferenceStringValue(9): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  ok     a assembly template exists on disk
+  fact   assembly_template_route = 'GetDocumentTemplate'
+  fact   assembly_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  ok     the assembly template is a .asmdot file
+pass    new_document  (3.4 s)
+  fact   new_part_title = 'Part189'
+  ok     NewDocument from the part template makes a part
+  ok     the new part is the active document
+  fact   plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']
+  ok     the part has exactly three reference planes
+  fact   new_part_features = [('Comments', 'CommentsFolder'), ('Favorites', 'FavoriteFolder'), ('History', 'HistoryFolder'), ('Selection Sets', 'SelectionSetFolder'), ('Sensors', 'SensorFolder'), ('Design Binder', 'DocsFolder'), ('Annotations', 'DetailCabinet'), ('Surface Bodies', 'SurfaceBodyFolder'), ('Solid Bodies', 'SolidBodyFolder'), ('Lights and Cameras', 'EnvFolder'), ('Markups', 'InkMarkupFolder'), ('Equations', 'EqnFolder'), ('Material <not specified>', 'MaterialFolder'), ('Front Plane', 'RefPlane'), ('Top Plane', 'RefPlane'), ('Right Plane', 'RefPlane'), ('Origin', 'OriginProfileFeature')]
+  fact   new_part_path = ''
+pass    equation_add  (2.4 s)
+  ok     GetEquationMgr returns an equation manager
+  try    AngularEquationUnits: returned 1
+  fact   angular_equation_units_property = 1
+  fact   equations_in_new_part = 0
+  try    Add2: returned 0
+  ok     some documented way of adding a global works
+  fact   add3_form = 'Add2'
+  ok     Add2 at index -1 appends, returning 0
+  ok     GetCount goes up by one
+  fact   equation_text_readback = '"Probe A"= 2.5'
+  ok     Equation(i) reads back '"Probe A"= 2.5'
+  ok     Value(i) reads back 2.5
+  ok     GlobalVariable(i) says it is a global
+  fact   delete_returns = 0
+  ok     Delete(i) removes it again
+  try    Add3 on a one-configuration part, all configurations, None: returned -1
+  fact   add3_single_configuration_returns = -1
+pass    equation_syntax  (4.1 s)
+  ok     a sin() equation is accepted
+  fact   sin ( 90 ) = 1.0, so trig is in degrees
+  ok     trig units are recognisable
+  ok     pi: "Probe Pi"= pi is accepted
+  ok     pi: evaluates to 3.141592653589793
+  ok     power: "Probe Pow"= 2 ^ 3 is accepted
+  ok     power: evaluates to 8.0
+  ok     sqr: "Probe Sqr"= sqr ( 16 ) is accepted
+  ok     sqr: evaluates to 4.0
+  ok     iif: "Probe Iif"= IIF ( 1 <= 1.25 , 2.4 , 2.25 ) is accepted
+  ok     iif: evaluates to 2.4
+  ok     iif greater-or-equal: "Probe Iif2"= IIF ( 1.5 >= 2 , 1 , 0 ) is accepted
+  ok     iif greater-or-equal: evaluates to 0.0
+  ok     reference: "Probe Ref"= "Probe Pi" * 2 is accepted
+  ok     reference: evaluates to 6.283185307179586
+  ok     cos: "Probe Cos"= cos ( 60 ) is accepted
+  ok     cos: evaluates to 0.5000000000000001
+  ok     tan: "Probe Tan"= tan ( 20 ) is accepted
+  ok     tan: evaluates to 0.36397023426620234
+  ok     abs: "Probe Abs"= abs ( -2 ) is accepted
+  ok     abs: evaluates to 2.0
+  ok     bracketed comparison: "Probe Bracket"= IIF ( 3 >= ( 1 + 5 ) , 1 , 0 ) is accepted
+  ok     bracketed comparison: evaluates to 0.0
+  try    unbracketed comparison: "Probe Unbracketed"= IIF ( 3 >= 1 + 5 , 1 , 0 ): returned 11
+  fact   unbracketed_comparison = {'index': 11, 'value': 1.0}
+  try    sqr of a ratio that is exactly one, no abs: "Probe Unit Raw"= sqr ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ): returned -1
+  fact   sqr_of_a_ratio_that_is_exactly_one_no_abs = {'index': -1, 'value': None}
+  try    unary minus squared: "Probe Neg"= -2 ^ 2: returned 12
+  fact   unary_minus_squared = {'index': 12, 'value': -4.0}
+  try    sqr of a ratio that is exactly one, with abs: "Probe Unit"= sqr ( abs ( ( 35.238473279 / 35.238473279 ) ^ 2 - 1 ) ): returned -1
+  fact   sqr_of_a_ratio_that_is_exactly_one_with_abs = {'index': -1, 'value': None}
+  try    sqr of zero: "Probe Sqr0"= sqr ( 0 ): returned -1
+  fact   sqr_of_zero = {'index': -1, 'value': None}
+  try    half power of zero: "Probe Half0"= 0 ^ 0.5: returned 13
+  fact   half_power_of_zero = {'index': 13, 'value': 0.0}
+  try    half power of a tiny number: "Probe Half1"= 0.0001 ^ 0.5: returned 14
+  fact   half_power_of_a_tiny_number = {'index': 14, 'value': 0.01}
+  try    iif guarding an invalid sqr: "Probe Lazy"= IIF ( 1 > 1 , sqr ( -1 ) , 0 ): returned -1
+  fact   iif_guarding_an_invalid_sqr = {'index': -1, 'value': None}
+  try    iif guarding sqr of zero: "Probe Lazy0"= IIF ( 1 > 1 , sqr ( 0 ) , 0 ): returned -1
+  fact   iif_guarding_sqr_of_zero = {'index': -1, 'value': None}
+  try    sqr of one: "Probe Sqr1"= sqr ( 1 ): returned 15
+  fact   sqr_of_one = {'index': 15, 'value': 1.0}
+  try    sqr of a ratio just above one: "Probe Unit2"= sqr ( ( 35.46 / 35.238473279 ) ^ 2 - 1 ): returned 16
+  fact   sqr_of_a_ratio_just_above_one = {'index': 16, 'value': 0.1123054913132504}
+  try    Add3 bad parse: "Probe Bad"= ( 1 +: returned -1
+  fact   add3_bad_parse_returns = -1
+  try    Status after it: returned -1
+  fact   status_after_bad_parse = -1
+  try    Add3 unknown name: "Probe Unknown"= "No Such Name" * 2: returned -1
+  fact   add3_unknown_name_returns = -1
+  try    Status after it: returned -1
+  fact   status_after_unknown_name = -1
+pass    equation_set  (2.5 s)
+  ok     two linked globals are added
+  try    indexed put Equation(i): returned None
+  ok     indexed put Equation(i): the dependent global follows to 10.0
+  try    SetEquationAndConfigurationOption: returned -1
+  note   SetEquationAndConfigurationOption: the dependent global reads 10.0 (does not follow)
+  fact   equation_set_routes = ['indexed put Equation(i)']
+  ok     at least one way of changing a global's value works
+pass    document_units  (1.9 s)
+  note   C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\Part.PRTDOT is from a newer release than this session; not tried
+  fact   units_default = {'path': 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot', 'linear': 0, 'system': 5}
+  fact   mm_templates = ['C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot']
+  fact   default_template_is_mm = True
+  fact   set_mmgs_works = False
+  ok     a new part can be had in millimetres
+pass    sketch_open_close  (6.0 s)
+  try    IFeature.Select2(False, 0) on the first RefPlane: returned True
+  fact   select2_plane = {'returned': True, 'selected': 1}
+  try    SelectByID2("Front Plane", "PLANE", ...) with the name read from the tree: returned True
+  fact   select_by_id2_plane_tree_name = {'returned': True, 'selected': 1}
+  ok     the first RefPlane in tree order can be selected by one of the two routes
+  fact   add_to_db_reads_back = True
+  ok     InsertSketch(True) opens a sketch
+  ok     CreateCircleByRadius returns the new segment
+  ok     a second InsertSketch(True) closes it
+  ok     the new sketch feature renames and reads back 'Probe Sketch'
+  fact   rename_onto_taken_name_reads_back = 'Sketch2'
+  ok     renaming onto a taken name does not take it, and read-back shows so
+  fact   select_routes_used = {'Select2': 2}
+pass    sketch_entities  (4.3 s)
+  ok     CreateCircleByRadius makes a circle
+  fact   circle_segment_type = 1
+  try    circle.GetCenterPoint2: returned 'CDispatch'
+  ok     a circle's centre reads back from the segment itself: (10.0, 20.0)
+  try    circle.GetRadius: returned 0.004999999999999999
+  ok     GetRadius reads the radius in metres
+  try    CreateCircle(centre, point).GetRadius: returned 0.005999999999999998
+  ok     CreateCircle takes a centre and a point on it
+  try    CreateArc direction +1.GetLength: returned 0.047123889803846894
+  fact   arc_direction_+1 = {'length_mm': 47.12388980384689, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction +1 runs counter-clockwise from its start
+  try    CreateArc direction -1.GetLength: returned 0.1413716694115407
+  fact   arc_direction_-1 = {'length_mm': 141.3716694115407, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction -1 runs clockwise from its start
+  try    three-point arc.GetCenterPoint2: returned 'CDispatch'
+  ok     Create3PointArc passes through its three points: centre (90.0, -5.204170427930421e-15)
+  ok     a line's ends read back: (1.0, 2.0), (31.0, 42.0)
+  ok     GetLength is in metres
+  fact   line_segment_type = 0
+  fact   centreline_is_construction = True
+  ok     ConstructionGeometry sets and reads back on a line
+  ok     CreatePoint puts a point where asked
+  fact   segments_after_close = 7
+  ok     all seven segments are still in the sketch once it is closed
+pass    relations  (5.8 s)
+  fact   origin_point_mm = (0.0, 0.0)
+  ok     sgCOINCIDENT pulls a line's start onto the origin: (0.0, 0.0)
+  ok     sgHORIZONTAL2D levels the line: (0.0, 0.0) (26.925824035672523, 0.0)
+  ok     the origin and a line made coincident put the origin on the line's extension: (25.0, 25.0) (45.00000000000001, 45.0)
+  ok     sgCOINCIDENT puts a point on a circle: (89.66234939601246, 2.576626505603322)
+  ok     sgTANGENT makes the line touch the arc: 10.0 vs 10.0
+  ok     sgSYMMETRIC mirrors two points about a centreline: (140.0, 20.0) (159.99999999999997, 20.0)
+  try    sgEQUAL on two circles: returned None
+  fact   after sgEQUAL the radii are (0.0040000000000000036, 0.007000000000000006)
+  fact   equal_radius_constraint = 'sgSAMELENGTH'
+  ok     some constant makes two radii equal: ['sgSAMELENGTH'] (0.0040000000000000036, 0.003999999999999992)
+  ok     an arc's centre point goes onto a circle: (60.0, 60.0)
+  fact   select_routes_so_far = {'Select2': 4, 'Select4': 18}
+pass    dimensions  (5.1 s)
+  ok     AddDimension2 makes the OD dimension
+  ok     the OD dimension renames and reads back
+  fact   a circle's dimension reads 0.02 m: its diameter
+  fact   full_name_while_open = 'OD@Sketch1@Part197.Part'
+  ok     setting SystemValue in metres drives the circle
+  ok     AddDimension2 makes the R dimension
+  ok     the R dimension renames and reads back
+  fact   an arc's dimension reads 0.009999999999999995 m: its radius
+  ok     AddDimension2 makes the HalfSpace dimension
+  ok     the HalfSpace dimension renames and reads back
+  fact   angle_dimension_system_value = 0.34906585039886595
+  ok     an angle dimension's SystemValue is radians: 0.34906585039886595
+  fact   dimension_names_after_close = ['OD', 'R', 'HalfSpace']
+  ok     names set while the sketch was open survive closing it
+  fact   full_name_after_close = 'OD@Probe Dims@Part197.Part'
+pass    dimension_link  (4.8 s)
+  try    link before the dimension exists: "OD@Probe Link"= 30: returned -1
+  fact   link_before_dimension_returns = -1
+  ok     the global is added
+  ok     the link "OD@Probe Link"= "Probe D" is accepted once the dimension exists
+  fact   link_text_reads_back = '"OD@Probe Link"= "Probe D"'
+  fact   a global of 30 drives the dimension to 0.03 m
+  ok     equations are in millimetres in this document
+  ok     changing the global and rebuilding moves the dimension to 0.04 m
+pass    constrained_status  (4.9 s)
+  fact   status_free_line = 2
+  fact   status_defined_line = 3
+  ok     a free line reads 2 (swUnderConstrained is 2)
+  ok     a line fixed at one end, level and dimensioned reads 3 (swFullyConstrained is 3)
+  fact   status_after_close = 3
+  ok     the closed sketch reports the same status through its feature
+pass    curve_literal  (17.9 s)
+  try    straight: CreateEquationSpline2("t", "2*t", "", "0", "10", False, 0, 0, 0, True, True): returned 'CDispatch'
+  ok     CreateEquationSpline2 makes a curve from literal expressions
+  fact   equation_curve_segment_type = 3
+  try    straight: GetPoints2 ends: returned 'tuple'
+  fact   straight_curve_ends_mm = ((0.0, 0.0), (10.0, 20.0))
+  fact   curve_expression_units = 'document units (mm)'
+  ok     expressions are in document units: t = 10 ends at (10.0, 20.0)
+  try    quarter: CreateEquationSpline2("10*cos(t)", "10*sin(t)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    quarter: GetPoints2 ends: returned 'tuple'
+  fact   quarter_circle_ends_mm = ((9.999999999999998, -1.0447908357606047e-10), (9.04655029100612e-11, 10.0))
+  fact   cos(t) from 0 to pi/2 ends at (9.04655029100612e-11, 10.0): trig is in radians
+  try    spaces: CreateEquationSpline2("10 * cos ( t )", "10 * sin ( t )", "", "0", "pi / 2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    spaces: GetPoints2 ends: returned 'tuple'
+  try    degree conversion, no spaces: CreateEquationSpline2("10*cos(t*180/pi)", "10*sin(t*180/pi)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned None
+  try    degree conversion, spaces: CreateEquationSpline2("10 * cos ( t * 180 / pi )", "10 * sin ( t * 180 / pi )", "", "0", "pi / 2", False, 0, 0, 0, True, True): returned None
+  try    bracketed t with conversion: CreateEquationSpline2("10*cos((t)*180/pi)", "10*sin((t)*180/pi)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned None
+  try    bracketed sum: CreateEquationSpline2("10*cos((t+0.1)-0.1)", "10*sin((t+0.1)-0.1)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    bracketed sum: GetPoints2 ends: returned 'tuple'
+  fact   curve_spellings = {'spaces': {'made': True, 'end': (9.04655029100612e-11, 10.0)}, 'degree conversion, no spaces': {'made': False, 'end': None}, 'degree conversion, spaces': {'made': False, 'end': None}, 'bracketed t with conversion': {'made': False, 'end': None}, 'bracketed sum': {'made': True, 'end': (9.046372457630488e-11, 10.0)}}
+  try    status: CreateEquationSpline2("10*cos(t)", "10*sin(t)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  fact   status_one_locked_curve = 2
+  try    sgFIXED on the curve: returned None
+  fact   status_one_fixed_curve = 3
+  try    unlocked: CreateEquationSpline2("t", "t*t", "", "0", "5", False, 0, 0, 0, False, False): returned 'CDispatch'
+  fact   status_with_one_unlocked_curve = 2
+pass    curve_globals  (3.6 s)
+  ok     the globals are added
+  try    name in expression: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", "pi / 2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    name in expression: GetPoints2 ends: returned 'tuple'
+  ok     name in expression: the curve is made and ends at (6.030940382740289e-11, 10.0)
+  try    name in range: CreateEquationSpline2("10 * cos ( t )", "10 * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    name in range: GetPoints2 ends: returned 'tuple'
+  ok     name in range: the curve is made and ends at (3.887515309664025e-12, 9.999999999996108)
+  try    names in both: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    names in both: GetPoints2 ends: returned 'tuple'
+  ok     names in both: the curve is made and ends at (3.403527459866496e-11, 10.000000000025963)
+  fact   curve_globals = {'name in expression': {'made': True, 'ends': ((9.999999999999996, -5.22395316238193e-11), (6.030940382740289e-11, 10.0))}, 'name in range': {'made': True, 'ends': ((10.000000000000005, 2.979929671076409e-13), (3.887515309664025e-12, 9.999999999996108))}, 'names in both': {'made': True, 'ends': ((10.0, 0.0), (3.403527459866496e-11, 10.000000000025963))}}
+pass    curve_rebuild  (4.2 s)
+  try    follows: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  ok     the curve over globals is made
+  ok     the rebuilt sketch still holds one curve (1)
+  try    after rebuild: GetPoints2 ends: returned 'tuple'
+  fact   ends_after_global_change_mm = ((19.99999999999999, -1.1060930801288713e-12), (-7.6571373978539e-15, 20.0))
+  ok     after R goes from 10 to 20 the curve ends at (-7.6571373978539e-15, 20.0)
+pass    curve_fixed_rebuild  (4.3 s)
+  try    fixed: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  ok     the curve over globals is made
+  fact   status_fixed_curve_over_globals = 3
+  ok     the rebuilt sketch still holds the curve
+  try    fixed after rebuild: GetPoints2 ends: returned 'tuple'
+  fact   after R 10 to 20 the fixed curve ends at (-7.6571373978539e-15, 20.0)
+  fact   status_fixed_curve_after_rebuild = 3
+  ok     the fixed curve's behaviour on a rebuild is recorded
+pass    extrude  (7.1 s)
+  fact   extrude_type_name = 'Extrusion'
+  ok     the extrusion renames and reads back
+  fact   blank_volume_mm3 = 12566.370614359175
+  ok     the blank's volume is 12566.371 mm³ (expected 12566.371)
+  fact   extrude_dimensions = [('D1', 0.01), ('OD', 0.04)]
+  ok     the depth dimension is found by its value
+  fact   depth_dimension_default_name = 'D1'
+  ok     the depth dimension renames to Width
+  fact   depth_full_name = 'Width@Blank@Part204.Part'
+  ok     a width global is added
+  ok     the link "Width@Blank"= "Probe W" is accepted
+  ok     linked to 12 mm the blank is 15079.645 mm³
+pass    cut  (40.0 s)
+  ok     the hole sketch selects
+  try    FeatureCut4 through all, default direction: returned None
+  fact   cut through all, default direction = {'made': False, 'removed_mm3': 0.0, 'type': None}
+  ok     the hole sketch selects
+  try    FeatureCut4 through all, direction flipped: returned 'CDispatch'
+  fact   cut through all, direction flipped = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}
+  ok     the hole sketch selects
+  try    FeatureCut4 through all both: returned 'CDispatch'
+  fact   cut through all both = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}
+  ok     the hole sketch selects
+  try    FeatureCut4 through all, both ends: returned 'CDispatch'
+  fact   cut through all, both ends = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}
+  fact   cut_routes_that_remove_the_hole = ['through all, direction flipped', 'through all both', 'through all, both ends']
+  ok     some FeatureCut4 form removes exactly the hole
+pass    axis  (3.3 s)
+  ok     planes 2 and 3 select together
+  fact   insert_axis2_returns = True
+  fact   axis_new_features = [('Axis1', 'RefAxis')]
+  ok     InsertAxis2 adds exactly one feature
+  ok     the axis renames and reads back
+  fact   axis_type_name = 'RefAxis'
+  ok     the axis can be selected again
+pass    pattern  (13.7 s)
+  ok     planes 2 and 3 select
+  ok     the hole sketch selects
+  ok     the seed cut is made
+  ok     the axis selects at mark 1
+  ok     the cut selects at mark 4
+  try    FeatureCircularPattern5 DName "NULL": returned 'CDispatch'
+  fact   pattern_call = 'FeatureCircularPattern5 DName "NULL"'
+  ok     a circular pattern is made
+  fact   pattern_type_name = 'CirPattern'
+  ok     the pattern renames and reads back
+  ok     six holes leave 10869.911 mm³ (expected 10869.911)
+  fact   pattern_dimensions = [('D3', 6.283185307179586), ('D1', 6.0)]
+  ok     exactly one pattern dimension has the count's value
+  fact   pattern_count_dim_index = 1
+  fact   pattern_count_dim_default_name = 'D1'
+  ok     the count dimension renames to Count
+pass    pattern_count_link  (13.7 s)
+  ok     the pattern is made
+  ok     the count dimension is found by value
+  ok     the count global is added
+  fact   count_link_index = 1
+  ok     the link "Count@Teeth"= "Probe N" is accepted
+  ok     linked to 8 the pattern leaves 10304.424 mm³
+pass    equation_inverse_trig  (2.5 s)
+  try    atn: "Probe Atn"= atn ( 1 ): returned 0
+  fact   inverse_atn = {'value': 45.0, 'unit': 'degrees'}
+  try    arctan: "Probe Arctan"= arctan ( 1 ): returned -1
+  note   arctan is not accepted
+  try    arcsin: "Probe Arcsin"= arcsin ( 0.5 ): returned 1
+  fact   inverse_arcsin = {'value': 30.000000000000004, 'unit': 'degrees'}
+  try    arccos: "Probe Arccos"= arccos ( 0.5 ): returned 2
+  fact   inverse_arccos = {'value': 60.00000000000001, 'unit': 'degrees'}
+  fact   inverse_trig_accepted = {'atn': 'degrees', 'arcsin': 'degrees', 'arccos': 'degrees'}
+  ok     some inverse trig function is accepted
+  fact   inverse_trig_tangent = 'atn'
+  ok     helix and pressure angle globals are added
+  ok     accepted: "Probe TPA"= atn ( tan ( "Probe Alpha" ) / cos ( "Probe Beta" ) )
+  fact   transverse_pressure_angle_value = 20.646896487046472
+  ok     the transverse pressure angle reads 20.646896487046472 (maths 20.64689648704647)
+  try    AngularEquationUnits: returned 1
+  fact   angular_equation_units = 1
+pass    center_of_mass  (6.6 s)
+  ok     the boss sketch selects
+  ok     the boss is extruded
+  fact   boss_centre_of_mass_mm = (12.0, 5.000000000000001, 5.000000000000001)
+  ok     x and y of the centre are the sketch's, in metres: (12.0, 5.000000000000001, 5.000000000000001)
+  ok     the centre is half the depth off the plane: 5.000000000000001
+  fact   a blank from the Front plane extrudes toward +Z
+  fact   top_sketch_axes_in_model = {'x': [1.0, 0.0, 0.0], 'y': [0.0, 0.0, -1.0]}
+  ok     one of the Top sketch's axes is the model's Z axis
+pass    ref_plane_offset  (10.0 s)
+  try    InsertRefPlane distance 5 mm, flip False: returned 'CDispatch'
+  fact   plane_flip_False = {'origin_z_mm': 5.0, 'normal': [0.0, 0.0, 1.0]}
+  try    InsertRefPlane distance 5 mm, flip True: returned 'CDispatch'
+  fact   plane_flip_True = {'origin_z_mm': -5.0, 'normal': [0.0, 0.0, 1.0]}
+  ok     both flips make a plane
+  ok     the two flips are 5 mm either side: {'False': 5.0, 'True': -5.0}
+  fact   flip False puts the plane on the +Z side
+  fact   ref_plane_on_extrude_side_flip = False
+  fact   ref_plane_type_name = 'RefPlane'
+  ok     the plane renames and reads back
+  fact   ref_plane_dimensions = [('D1', 0.005)]
+  ok     the offset dimension is found by its value
+  fact   ref_plane_offset_dim_default_name = 'D1'
+  ok     the offset dimension renames to Offset
+  ok     a global is added
+  ok     the link "Offset@Probe Plane"= "Probe Off" is accepted
+  ok     linked to 7 the plane moves to z 7.0
+pass    path_sketch_relations  (5.6 s)
+  ok     the lead-in and the path are drawn
+  fact   axis_is_sketch_vertical = True
+  try    sgVERTICAL2D on the lead-in: returned None
+  try    sgVERTICAL2D on the path: returned None
+  try    coincident lead-in start and origin: returned None
+  ok     AddDimension2 dimensions the Lead In line
+  ok     a line's dimension is its length: 0.002 m
+  ok     AddDimension2 dimensions the Length line
+  ok     a line's dimension is its length: 0.014 m
+  fact   path_sketch_status = 3
+  ok     the path sketch is fully defined (status 3)
+  ok     the lead-in length links to a global
+  fact   path_start_after_link_mm = (-1.2246467991473535e-16, 0.0, -3.0)
+  ok     the path now starts at z -3 on the axis: (-1.2246467991473535e-16, 0.0, -3.0)
+pass    sweep_twist  (30.7 s)
+  ok     the profile selects at mark 1 and the path at mark 4
+  try    Probe Sweep: InsertProtrusionSwept4(twist 1.570796): returned 'CDispatch'
+  fact   sweep_plus_z = {'volume_mm3': 565.6302, 'centre_mm': (7.6396655197851375, 7.640049472730133, 9.999796332411384), 'type': 'Sweep'}
+  ok     plus z: volume 565.6302 = A·L
+  ok     plus z: the centroid (7.6396655197851375, 7.640049472730133, 9.999796332411384) is a uniform quarter turn (7.6394, ±7.6394)
+  fact   sweep_dimensions = [('D4', 1.5707963267948966)]
+  fact   twist_dimension_found = True
+  fact   twist_dim_default_name = 'D4'
+  fact   sweep_definition_type = 'CDispatch'
+  try    D1ReverseTwistDir: returned False
+  fact   d1_reverse_twist_dir_default = False
+  fact   twist_control_type_read = 8
+  fact   twist_angle_read = 1.5707963267948966
+  try    ModifyDefinition with D1ReverseTwistDir True: returned True
+  fact   modify_definition_access = True
+  fact   centre_after_reverse_mm = (7.639557038359682, -7.640143904440734, 9.99973592335336)
+  ok     D1ReverseTwistDir turns the sweep the other way: (7.639557038359682, -7.640143904440734, 9.99973592335336)
+  fact   reverse_flag_flips = True
+  ok     the profile selects at mark 1 and the path at mark 4
+  try    Probe Sweep: InsertProtrusionSwept4(twist -1.570796): returned 'CDispatch'
+  fact   sweep_negative_angle = {'volume_mm3': 565.6302, 'centre_mm': (7.6396655197851375, 7.640049472730133, 9.999796332411384), 'type': 'Sweep'}
+  ok     negative angle: volume 565.6302 = A·L
+  ok     negative angle: the centroid (7.6396655197851375, 7.640049472730133, 9.999796332411384) is a uniform quarter turn (7.6394, ±7.6394)
+  ok     the profile selects at mark 1 and the path at mark 4
+  try    Probe Sweep: InsertProtrusionSwept4(twist 1.570796): returned 'CDispatch'
+  fact   sweep_minus_z = {'volume_mm3': 565.6292, 'centre_mm': (7.639677113760393, -7.640047373419246, 10.000214542182736), 'type': 'Sweep'}
+  ok     minus z: volume 565.6292 = A·L
+  ok     minus z: the centroid (7.639677113760393, -7.640047373419246, 10.000214542182736) is a uniform quarter turn (7.6394, ±7.6394)
+  fact   +1 is counter-clockwise about +Z, travelling toward +Z, i.e. a right-hand helix
+  ok     a positive twist along +Z has a measured sense
+pass    sweep_twist_link  (8.9 s)
+  ok     the profile selects at mark 1 and the path at mark 4
+  try    Probe Sweep: InsertProtrusionSwept4(twist 1.570796): returned 'CDispatch'
+  ok     the sweep is made
+  ok     the sweep renames and reads back
+  ok     exactly one dimension of the sweep has the twist's value
+  ok     the twist dimension renames to Twist
+  ok     a twist global is added
+  ok     the link "Twist@Probe Sweep"= "Probe T" is accepted
+  fact   centre_at_45_mm = (10.806295537686967, 4.474164561419678, 9.99874723794811)
+  fact   twist_system_value_after_link = 0.78539816339745
+  ok     a global of 45 is 45 degrees on the dimension: 0.78539816339745 rad
+  ok     the sweep follows the global to an eighth of a turn: (10.806295537686967, 4.474164561419678, 9.99874723794811) vs (10.8038, ±4.4751)
+pass    sweep_cut_ends  (33.3 s)
+  ok     profile and path select
+  try    flush: InsertCutSwept5: returned 'CDispatch'
+  fact   cut_flush_InsertCutSwept5 = {'removed_mm3': 282.7012, 'bodies': 1, 'type': 'SweepCut'}
+  ok     profile and path select
+  try    overrun: InsertCutSwept5: returned 'CDispatch'
+  fact   cut_overrun_InsertCutSwept5 = {'removed_mm3': 282.7428, 'bodies': 1, 'type': 'SweepCut'}
+  fact   sweep_cut_routes = ['flush InsertCutSwept5', 'overrun InsertCutSwept5']
+  ok     an overrun twisted cut removes exactly A·w
+pass    mirror_body_merge  (25.3 s)
+  ok     the half blank has a body
+  try    body mark 1, plane mark 2: InsertMirrorFeature2(True, False, True, False, 0): returned None
+  note   body mark 1, plane mark 2: nothing was mirrored
+  ok     the half blank has a body
+  try    body mark 256, plane mark 2: InsertMirrorFeature2(True, False, True, False, 0): returned 'CDispatch'
+  fact   mirror body mark 256, plane mark 2 = {'volume_mm3': 12566.3706, 'bodies': 1, 'centre_mm': (-1.0638645858380303e-15, 0.0, 4.999999999999999), 'type': 'MirrorSolid'}
+  ok     the half blank has a body
+  try    body mark 1, plane mark 1: InsertMirrorFeature2(True, False, True, False, 0): returned None
+  note   body mark 1, plane mark 1: nothing was mirrored
+  fact   mirror_body_routes = ['body mark 256, plane mark 2']
+  ok     some selection mirrors the half blank into one body of twice the volume
+pass    annulus_extrude  (6.7 s)
+  ok     both circles are made
+  ok     the rim's dimension renames to Rim
+  ok     the tip circle's dimension renames to Tip
+  ok     the ring sketch selects
+  ok     FeatureExtrusion3 extrudes the two circles
+  fact   annulus_volume_mm3 = {'volume': 8042.477193189872, 'expected': 8042.47719318987}
+  ok     the blank is a ring of 8042.4772 mm³ (expected 8042.4772), not a disc
+  fact   annulus_solid_bodies = 1
+  ok     one solid body
+  ok     a tip diameter global is added
+  ok     the link "Tip@Ring Sketch"= "Probe Tip" is accepted
+  fact   annulus_volume_linked_mm3 = {'volume': 9424.777960769381, 'expected': 9424.77796076938}
+  ok     linked to 20 mm the hole follows: 9424.7780 mm³ (expected 9424.7780)
+pass    revolve  (14.3 s)
+  ok     Revolve Z: the centreline is made
+  ok     Revolve Z: the sketch selects
+  try    Revolve Z: FeatureRevolve2 [sketch only]: returned 'CDispatch'
+  ok     Revolve Z: a revolve is made
+  fact   revolve_z_type = 'Revolution'
+  ok     Revolve Z: the ring weighs 1507.9645 mm³ (Pappus 1507.9645)
+  fact   revolve_z_centre_mm = (-1.2056305644163638e-16, -1.3619874161106644e-31, 20.000000000000014)
+  ok     Revolve Z: its centre of mass is on the centreline: (-1.2056305644163638e-16, -1.3619874161106644e-31, 20.000000000000014)
+  fact   revolve_z_dimensions = [('D1', 6.283185307179586)]
+  ok     Revolve Tilted: the centreline is made
+  ok     Revolve Tilted: the sketch selects
+  try    Revolve Tilted: FeatureRevolve2 [sketch only]: returned 'CDispatch'
+  ok     Revolve Tilted: a revolve is made
+  fact   revolve_tilted_type = 'Revolution'
+  ok     Revolve Tilted: the ring weighs 1507.9645 mm³ (Pappus 1507.9645)
+  fact   revolve_tilted_centre_mm = (-10.000000000000009, -1.361987416110665e-31, 17.32050807568879)
+  ok     Revolve Tilted: its centre of mass is on the centreline: (-10.000000000000009, -1.361987416110665e-31, 17.32050807568879)
+  fact   revolve_tilted_dimensions = [('D1', 6.283185307179586)]
+  ok     Revolve Selected: the centreline is made
+  ok     Revolve Selected: the second centreline is made
+  ok     Revolve Selected: the sketch selects
+  try    Revolve Selected: FeatureRevolve2 [sketch and its centreline at mark 16]: returned 'CDispatch'
+  ok     Revolve Selected: a revolve is made
+  fact   revolve_selected_type = 'Revolution'
+  ok     Revolve Selected: the ring weighs 1507.9645 mm³ (Pappus 1507.9645)
+  fact   revolve_selected_centre_mm = (-1.2056305644163638e-16, -1.3619874161106644e-31, 20.000000000000014)
+  ok     Revolve Selected: its centre of mass is on the centreline: (-1.2056305644163638e-16, -1.3619874161106644e-31, 20.000000000000014)
+  fact   revolve_selected_dimensions = [('D1', 6.283185307179586)]
+  fact   revolve_routes = ['sketch only', 'sketch only', 'sketch and its centreline at mark 16']
+pass    loft_cut_sections  (17.6 s)
+  ok     the blank sketch selects
+  ok     the loft blank is extruded
+  ok     heel then toe, mark 1: both sections select
+  try    InsertCutBlend [heel then toe, mark 1]: returned 'CDispatch'
+  fact   loft_cut_route = 'heel then toe, mark 1'
+  ok     a lofted cut is made
+  fact   loft_cut_type = 'BlendCut'
+  fact   loft_cut_removed_mm3 = {'removed': 374.40000000000873, 'frustum': 374.40000000000003}
+  ok     the loft removes 374.4000 mm³, the frustum's 374.4000
+  ok     one solid body
+  fact   loft_cut_dimensions = [('D1', 0.005), ('D1', 0.035)]
+pass    ref_plane_normal  (10.7 s)
+  ok     the axis and the generatrix are drawn
+  fact   cone_dimensions_deg_mm = (29.999999999999996, 40.0)
+  ok     Line2@Cone Sketch selects at mark 0
+  ok     the line's end selects at mark 1 by its location
+  ok     InsertRefPlane(perpendicular 2, coincident 4) makes one plane
+  fact   ref_plane_normal_dimensions = []
+  fact   ref_plane_normal_frame_30 = {'origin_mm': (19.999999999999996, 0.0, 34.641016151377556), 'x': (0.8660254037844386, 0.0, -0.5000000000000001), 'y': (0.0, 1.0, 0.0), 'normal': (0.5000000000000001, 0.0, 0.8660254037844386), 'x_along_outward': 1.0, 'y_along_plus_y': 1.0, 'normal_along_line': 1.0}
+  ok     30: the sketch origin is the line's end (19.999999999999996, 0.0, 34.64101615137755): (19.999999999999996, 0.0, 34.641016151377556)
+  ok     30: the sketch's x, y and normal are the outward radial, Y and the line, each one way or the other
+  ok     the cone globals are added
+  ok     the angle and the length link
+  fact   ref_plane_normal_frame_50 = {'origin_mm': (34.47199994035407, 0.0, 28.9254424358942), 'x': (0.6427876096865379, 0.0, -0.7660444431189793), 'y': (0.0, 1.0, 0.0), 'normal': (0.7660444431189793, 0.0, 0.6427876096865379), 'x_along_outward': 1.0, 'y_along_plus_y': 1.0, 'normal_along_line': 1.0}
+  ok     50: the sketch origin is the line's end (34.47199994035401, 0.0, 28.925442435894272): (34.47199994035407, 0.0, 28.9254424358942)
+  ok     50: the sketch's x, y and normal are the outward radial, Y and the line, each one way or the other
+  fact   ref_plane_normal_signs = {'x_along_outward': 1, 'y_along_plus_y': 1, 'normal_along_line': 1}
+  ok     the plane's sketch keeps the same frame when the line moves
+pass    save_as  (5.0 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261102-205812'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261102-205812\Probe Save.SLDPRT does not exist yet
+  try    SaveAs3(path, current version, silent, null, null, out long, out long): returned True
+  fact   save_as3_result = 'True'
+  fact   save_as3_result_is_tuple = False
+  ok     SaveAs3 says it saved
+  ok     the file is on disk
+  fact   title_after_save = 'Probe Save.SLDPRT'
+  fact   path_after_save = 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261102-205812\\Probe Save.SLDPRT'
+  ok     GetPathName now names the new file
+  try    SaveAs3 onto the same path: returned True
+  fact   save_as3_onto_existing_file = {'flag': True, 'size_before': 33583, 'size_after': 33787}
+  try    IModelDoc2.SaveAs3 on another new part: returned 'dict'
+  fact   imodeldoc2_save_as3 = {'returned': 0, 'on_disk': True}
+pass    assembly_components_and_mates  (220.1 s)
+  ok     there is a scratch folder to save parts in
+  fact   assembly_units_before_setting = 0
+  ok     NewDocument from the assembly template is an assembly
+  try    AddComponent5(part A at the origin): returned 'CDispatch'
+  try    AddComponent5(part B at 60 mm): returned 'CDispatch'
+  ok     both components are inserted
+  fact   component_names = ('Probe Add A-1', 'Probe Add B-1')
+  fact   component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)
+  try    IsFixed of the first component: returned True
+  fact   first_component_fixed_on_insert = True
+  ok     the first component selects
+  try    FixComponent() on the already fixed first component: returned None
+  ok     the first component is fixed
+  ok     the two front planes select
+  try    AddMate5 coincident fronts: returned 'CDispatch'
+  fact   mate coincident fronts = {'returned': 'CDispatch', 'status': None}
+  ok     coincident fronts: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 axis on top plane: returned 'CDispatch'
+  fact   mate axis on top plane = {'returned': 'CDispatch', 'status': None}
+  ok     axis on top plane: one mate appears under Mates
+  ok     B's axis and A's right plane select
+  try    AddMate5 distance axis to right plane: returned 'CDispatch'
+  fact   mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     distance axis to right plane: one mate appears under Mates
+  ok     the two top planes select
+  try    AddMate5 angle between top planes: returned 'CDispatch'
+  fact   mate angle between top planes = {'returned': 'CDispatch', 'status': None}
+  ok     angle between top planes: one mate appears under Mates
+  fact   component_b_translation_mm_mated = (60.0, 0.0, -5.0)
+  ok     B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)
+  ok     the distance mate is found in the tree
+  ok     the distance mate renames and reads back
+  fact   distance_mate_dimensions = [('D1', 0.06)]
+  fact   mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]
+  fact   second_component_fixed_before_fix_component = False
+  ok     the second component selects
+  try    FixComponent() on the free second component: returned None
+  fact   second_component_fixed_after_fix_component = True
+  ok     FixComponent() fixes the selected component
+HUNG    assembly_distance_link  (600.0 s) — no answer in 600 s; a dialog may be open in SolidWorks
+  ok     there is a scratch folder to save parts in
+  fact   assembly_units_before_setting = 0
+  ok     NewDocument from the assembly template is an assembly
+  try    AddComponent5(part A at the origin): returned 'CDispatch'
+  try    AddComponent5(part B at 60 mm): returned 'CDispatch'
+  ok     both components are inserted
+  fact   component_names = ('Probe Link A-1', 'Probe Link B-1')
+  fact   component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)
+  try    IsFixed of the first component: returned True
+  fact   first_component_fixed_on_insert = True
+  ok     the first component selects
+  try    FixComponent() on the already fixed first component: returned None
+  ok     the first component is fixed
+  ok     the two front planes select
+  try    AddMate5 coincident fronts: returned 'CDispatch'
+  fact   mate coincident fronts = {'returned': 'CDispatch', 'status': None}
+  ok     coincident fronts: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 axis on top plane: returned 'CDispatch'
+  fact   mate axis on top plane = {'returned': 'CDispatch', 'status': None}
+  ok     axis on top plane: one mate appears under Mates
+  ok     B's axis and A's right plane select
+  try    AddMate5 distance axis to right plane: returned 'CDispatch'
+  fact   mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     distance axis to right plane: one mate appears under Mates
+  ok     the two top planes select
+  try    AddMate5 angle between top planes: returned 'CDispatch'
+  fact   mate angle between top planes = {'returned': 'CDispatch', 'status': None}
+  ok     angle between top planes: one mate appears under Mates
+  fact   component_b_translation_mm_mated = (60.0, 0.0, -5.0)
+  ok     B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)
+  ok     the distance mate is found in the tree
+  ok     the distance mate renames and reads back
+  fact   distance_mate_dimensions = [('D1', 0.06)]
+  ok     the distance mate's dimension is found by value
+  ok     an assembly global is added
+  ok     the link "D1@Centre Distance"= "Centre Distance" is accepted
+  fact   component_b_translation_mm_after_global_70 = (70.0, 0.0, -5.0)
+  ok     changing the global moves B to 70 mm: (70.0, 0.0, -5.0)
+  fact   mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]
+NOT RUN interference — the worker is still stuck in an earlier probe
+NOT RUN nonparallel_mates — the worker is still stuck in an earlier probe
+NOT RUN end_to_end — the worker is still stuck in an earlier probe
+NOT RUN helical_end_to_end — the worker is still stuck in an earlier probe
+NOT RUN internal_end_to_end — the worker is still stuck in an earlier probe
+NOT RUN bevel_end_to_end — the worker is still stuck in an earlier probe
+NOT RUN crossed_end_to_end — the worker is still stuck in an earlier probe
+decide  flank_recipe = A
+decide  trig_default = degrees
+decide  equation_add_call = Add2
+decide  equation_set_route = indexed put Equation(i)
+decide  set_units_mmgs_after_new = False
+decide  plane_select_route = Select2 checked by count, then SelectByID2 by tree name
+decide  equal_constraint = sgSAMELENGTH
+decide  circle_dimension = diameter
+decide  arc_dimension = radius
+decide  curve_trig = radians
+decide  curves_are_fixed = True
+decide  shared_ends_are_one_point = None
+decide  cut_end_condition = 9
+decide  pattern_count_dim_index = 1
+decide  save_as_overwrites = True
+decide  first_component_fixed = True
+decide  end_to_end = False
+decide  helix_route = twist
+decide  herringbone_route = mirror
+decide  inverse_tangent = atn
+decide  extrude_z_sign = 1
+decide  top_sketch_y_is_minus_z = True
+decide  ref_plane_unflipped_is_plus_z = True
+decide  twist_turn = {'plus z': 1, 'minus z': 1}
+decide  twist_reverse_flips = True
+decide  mirror_body_route = body mark 256, plane mark 2
+decide  helical_end_to_end = False
+decide  annulus_extrudes = True
+decide  interference_route = None
+decide  internal_end_to_end = False
+decide  revolve_axis_mark = 16
+decide  bevel_section_x_sign = 1
+decide  loft_cut_route = heel then toe, mark 1
+decide  loft_cut_type = BlendCut
+decide  place_route = None
+decide  transform_array_order = None
+decide  origin_select_route = None
+decide  bevel_mate_route = None
+decide  crossed_route = None
+decide  bevel_end_to_end = False
+decide  crossed_end_to_end = False
+decide  manual_steps = ['material', 'link the centre distance mate in Equations']
+done    36 pass, 1 HUNG, 7 NOT RUN
