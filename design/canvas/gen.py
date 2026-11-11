@@ -1,21 +1,22 @@
-# Emits the artboards the window of design/UI-DESIGN.md §2 was designed on, from
-# the app's own maths and the design builders in ui.py (Airfoil Converter's,
-# unchanged). The copy and the diagrams here are now also in the app itself —
-# ui_text.explainer and widgets.draw_diagram — so a change belongs in both.
-# Run it with the venv:
+# Emits the artboards of design/UI-DESIGN.md, drawn from the app itself: every
+# word on a card is ui_text.explainer's, every readout and derived row
+# ui_text's, and every picture preview.layout's, so an artboard cannot say
+# something the window does not. What is only here is the HTML, and the SVG
+# diagrams (DIAGRAMS), which are widgets.draw_diagram's strokes as paths — a
+# change to one belongs in the other; which field borrows which diagram is read
+# out of widgets.py itself. Run it with the venv:
 #     .venv/bin/python design/canvas/gen.py
-# It writes Main, SingleGear and FieldGuide .dc.html and canvas.json beside itself.
-import json, math, os, sys
+# It writes the .dc.html artboards and canvas.json beside itself; render.py
+# turns them into design/renders/*.png.
+import ast, json, math, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)                                              # ui.py, beside this file
 sys.path.insert(0, os.path.join(HERE, "..", "..", "src"))             # the app's own maths
 from ui import *
-from gear_generator.gears import KINDS, spur, pair as pairs
+from gear_generator.gears import KINDS, kind_for, spur, pair as pairs
 from gear_generator.spec import GearSpec, PairSpec, pair_stems
-from gear_generator import ui_text
-
-K = KINDS["spur"]
+from gear_generator import findings, preview as layout_of, ui_text
 HEADER_TEXT, READOUT = "#505050", "#8f8f8f"
 CARD_BG, CARD_BORDER = "#fafafa", "#cfcfcf"
 
@@ -54,110 +55,7 @@ def section_caption(text):
 def rule(margin="2px 0"):
     return f'<div style="height: 1px; background: {TRACK}; margin: {margin};"></div>'
 
-# ------------------------------------------------------------ the gear maths
 
-def gear(z, module="1.5", angle="20", bore="10"):
-    spec = GearSpec(module=module, teeth=str(z), pressure_angle=angle, bore=bore)
-    derived = K.derive(spec)
-    return spec, derived, K.outline(spec, derived), K.validate(spec, derived)
-
-def n(v, places=3):
-    return ui_text._n(v, places)
-
-# ---------------------------------------------------------- the mesh preview
-
-def _path(points, cx, cy, scale, rot=0.0):
-    c, s = math.cos(rot), math.sin(rot)
-    parts, last = [], None
-    for x, y in points:
-        xr, yr = x * c - y * s, x * s + y * c
-        px, py = round(cx + xr * scale, 1), round(cy - yr * scale, 1)
-        if (px, py) == last:
-            continue
-        parts.append(f"{'M' if not parts else 'L'}{px} {py}")
-        last = (px, py)
-    return " ".join(parts) + " Z"
-
-def _arrow_line(x0, x1, y, color=HEADER_TEXT):
-    """A dimension line with filled arrowheads at both ends."""
-    return (f'<line x1="{x0}" y1="{y}" x2="{x1}" y2="{y}" stroke="{color}" stroke-width="1"></line>'
-            f'<path d="M{x0} {y} l7 -3 v6 z" fill="{color}"></path>'
-            f'<path d="M{x1} {y} l-7 -3 v6 z" fill="{color}"></path>')
-
-def preview(gears, width=436, height=210, labels=("A", "B")):
-    """Both gears meshed at the centre distance their teeth make, one scale, with the dimension that matters.
-
-    ``gears`` is one or two (derived, outline) pairs. Two gears: the second is turned so a tooth
-    points at the first's centre, and the centre distance is dimensioned below. One gear: the pitch
-    diameter is dimensioned, since that is what module × teeth comes to.
-    """
-    pad, dim_zone, top = 14, 46, 8
-    ras = [d.ra for d, _ in gears]
-    C = (gears[0][0].d + gears[1][0].d) / 2 if len(gears) == 2 else 0.0
-    extent = ras[0] + C + ras[-1] if C else 2 * ras[0]
-    gear_h = height - dim_zone - top
-    scale = min((width - 2 * pad) / extent, gear_h / (2 * max(ras)))
-    cy = top + gear_h / 2
-    left = (width - extent * scale) / 2
-    cxs = [left + ras[0] * scale]
-    if C:
-        cxs.append(cxs[0] + C * scale)
-    out = [f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" fill="none" style="display: block; flex-shrink: 0;">']
-    # pitch circles first, faint and dashed, so the two touching at the pitch point is what says "meshed"
-    for (d, _), cx in zip(gears, cxs):
-        out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{d.rp * scale:.1f}" stroke="{BORDER_SOFT}" stroke-width="1" stroke-dasharray="3 3"></circle>')
-    for index, ((d, o), cx) in enumerate(zip(gears, cxs)):
-        rot = 0.0 if index == 0 else math.pi + (math.pi / d.teeth if d.teeth % 2 == 0 else 0.0)
-        out.append(f'<path d="{_path(o, cx, cy, scale, rot)}" stroke="{HEADER_TEXT}" stroke-width="1" stroke-linejoin="round"></path>')
-        if d.bore > 0:
-            out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{d.bore / 2 * scale:.1f}" stroke="{HEADER_TEXT}" stroke-width="1"></circle>')
-        # centre mark and the gear's letter
-        out.append(f'<path d="M{cx - 5:.1f} {cy:.1f} h10 M{cx:.1f} {cy - 5:.1f} v10" stroke="{READOUT}" stroke-width="1"></path>')
-        if len(gears) > 1:
-            out.append(f'<text x="{cx + 8:.1f}" y="{cy - 8:.1f}" font-family="{SANS}" font-size="11" fill="{READOUT}">{labels[index]}</text>')
-    y_dim = cy + max(ras) * scale + 24
-    if C:
-        x0, x1 = cxs
-        for x in (x0, x1):
-            out.append(f'<line x1="{x:.1f}" y1="{cy + 6:.1f}" x2="{x:.1f}" y2="{y_dim + 4:.1f}" stroke="{BORDER}" stroke-width="1"></line>')
-        out.append(_arrow_line(f"{x0:.1f}", f"{x1:.1f}", f"{y_dim:.1f}"))
-        label = f"C {n(C)} mm"
-    else:
-        cx, d = cxs[0], gears[0][0]
-        x0, x1 = cx - d.rp * scale, cx + d.rp * scale
-        for x in (x0, x1):
-            out.append(f'<line x1="{x:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y_dim + 4:.1f}" stroke="{BORDER}" stroke-width="1"></line>')
-        out.append(_arrow_line(f"{x0:.1f}", f"{x1:.1f}", f"{y_dim:.1f}"))
-        label = f"PD {n(d.d)} mm"
-    out.append(f'<text x="{(x0 + x1) / 2:.1f}" y="{y_dim - 6:.1f}" text-anchor="middle" font-family="{MONO}" font-size="11.5" fill="{INK}">{label}</text>')
-    out.append('</svg>')
-    return "".join(out)
-
-# ------------------------------------------------------------ derived rows
-
-def value_row(label_text, values, widths=(104, 96)):
-    cells = f'<span style="width: {widths[0]}px; flex-shrink: 0; font-size: 12px; color: {LABEL};">{label_text}</span>'
-    for v in values:
-        cells += f'<span style="width: {widths[1]}px; flex-shrink: 0; font-family: {MONO}; font-size: 11.5px; color: {INK};">{v}</span>'
-    return f'<div style="display: flex; align-items: center; gap: 8px; height: 18px;">{cells}</div>'
-
-def derived_table(deriveds, tags):
-    rows = []
-    heads = f'<span style="width: 104px; flex-shrink: 0;"></span>'
-    for tag in tags:
-        heads += f'<span style="width: 96px; flex-shrink: 0; font-size: 11px; color: {READOUT};">{tag}</span>'
-    rows.append(f'<div style="display: flex; align-items: center; gap: 8px; height: 16px;">{heads}</div>')
-    columns = [dict(ui_text.derived_rows(d)) for d in deriveds]
-    for label_text, _ in ui_text.derived_rows(deriveds[0]):
-        rows.append(value_row(label_text, [c[label_text] for c in columns]))
-    return f'<div style="display: flex; flex-direction: column;">' + "".join(rows) + '</div>'
-
-def warning(text, error=False):
-    return f'<div style="font-size: 12px; color: {ERR if error else MUTED}; line-height: 1.35;">{text}</div>'
-
-# ------------------------------------------------------- the field explainer
-#
-# One card at the foot of the gear panel that has the caret. It names the field,
 # says in two sentences what the number is, and works the typed value out.
 
 def _svg(body, w=56, h=56):
@@ -214,6 +112,28 @@ DIAGRAMS = {
     "fillet": _svg(f'<path d="M52 46 H30 Q22 46 20 38 L14 8"></path><path d="M4 46 H12"></path>'
                    f'<path d="M30 46 Q22 46 20 38" stroke="{ACCENT}" stroke-width="1.8"></path>'
                    f'<text x="30" y="38" font-family="{MONO}" font-size="10" fill="{ACCENT}" stroke="none">ρ</text>'),
+    # a tooth, its pitch line, and the cutting rack's datum line x·m further out
+    "profile_shift": _svg(f'<path d="M4 46 H11 L17 14 H31 L37 46 H52"></path>'
+                          f'<path d="M4 36 H52 M4 27 H52" stroke="{BORDER}" stroke-dasharray="3 2"></path>'
+                          f'<path d="M45 27 V36" stroke="{ACCENT}" stroke-width="1.8"></path><path d="M42 27 H48 M42 36 H48" stroke="{ACCENT}"></path>'
+                          f'<text x="49" y="34" font-family="{MONO}" font-size="10" fill="{ACCENT}" stroke="none">x</text>'),
+    # the gear from the side, axis across: its teeth leaning β off the axis
+    "helix_angle": _svg(f'<path d="M14 8 H42 V48 H14 Z"></path>'
+                        f'<path d="M14 26 L42 10 M14 48 L42 32" stroke="{BORDER}"></path>'
+                        f'<path d="M14 37 L42 21" stroke="{ACCENT}" stroke-width="1.8"></path>'
+                        f'<path d="M14 37 H40" stroke="{BORDER}" stroke-dasharray="3 2"></path>'
+                        f'<path d="M26 37 A12 12 0 0 0 24.39 31" stroke="{ACCENT}"></path>'
+                        f'<text x="28" y="36" font-family="{MONO}" font-size="10" fill="{ACCENT}" stroke="none">β</text>'),
+    # a right-hand and a left-hand gear, axes upright, their teeth leaning the two ways
+    "hand": _svg(f'<path d="M8 10 H24 V42 H8 Z M32 10 H48 V42 H32 Z"></path>'
+                 f'<path d="M8 40 L24 24 M8 28 L24 12 M32 24 L48 40 M32 12 L48 28" stroke="{ACCENT}" stroke-width="1.8"></path>'
+                 f'<text x="13" y="54" font-family="{MONO}" font-size="10" fill="{HEADER_TEXT}" stroke="none">R</text>'
+                 f'<text x="37" y="54" font-family="{MONO}" font-size="10" fill="{HEADER_TEXT}" stroke="none">L</text>'),
+    # a herringbone from the side: two toothed halves, their teeth leaning apart, the hub between
+    "groove": _svg(f'<path d="M8 10 H22 V46 H8 Z M34 10 H48 V46 H34 Z M22 16 H34 M22 40 H34"></path>'
+                   f'<path d="M10 24 L20 16 M10 34 L20 26 M10 44 L20 36 M36 16 L46 24 M36 26 L46 34 M36 36 L46 44" stroke="{BORDER}"></path>'
+                   f'<path d="M22 51 H34" stroke="{ACCENT}" stroke-width="1.8"></path><path d="M22 48 V54 M34 48 V54" stroke="{ACCENT}"></path>'
+                   f'<text x="38" y="55" font-family="{MONO}" font-size="10" fill="{ACCENT}" stroke="none">g</text>'),
     "name": _svg(f'<path d="M15 6 H33 L42 15 V50 H15 Z"></path><path d="M33 6 V15 H42"></path>'
                  f'<path d="M21 26 H36 M21 32 H36 M21 38 H31" stroke="{BORDER}"></path>'),
     # two pitch circles touching, the distance between centres dimensioned
@@ -225,6 +145,12 @@ DIAGRAMS = {
     "ratio": _svg(f'<circle cx="14" cy="28" r="8" stroke="{ACCENT}" stroke-width="1.8"></circle><circle cx="38" cy="28" r="16"></circle>'
                   f'<text x="14" y="31.5" text-anchor="middle" font-family="{MONO}" font-size="9" fill="{ACCENT}" stroke="none">3</text>'
                   f'<text x="38" y="31.5" text-anchor="middle" font-family="{MONO}" font-size="9" fill="{HEADER_TEXT}" stroke="none">1</text>'),
+    # a pinion and its wheel, each with an arrow round it the other way: they turn together
+    "motion": _svg(f'<circle cx="14" cy="30" r="8"></circle><circle cx="38" cy="30" r="16"></circle>'
+                   f'<path d="M19.5 20.47 A11 11 0 0 0 3 30" stroke="{ACCENT}" stroke-width="1.8"></path>'
+                   f'<path d="M5 27 L3 30 L1 27" stroke="{ACCENT}"></path>'
+                   f'<path d="M28.5 13.55 A19 19 0 0 1 52.55 17.79" stroke="{ACCENT}" stroke-width="1.8"></path>'
+                   f'<path d="M52.15 14.2 L52.55 17.79 L49.09 16.78" stroke="{ACCENT}"></path>'),
     # the standard modules as a scale: tall ticks are series 1, short ones series 2
     "series": _svg(f'<path d="M4 34 H52"></path>'
                    f'<path d="M6 34 V22 M14 34 V22 M22 34 V22 M30 34 V22 M38 34 V22 M46 34 V22" stroke="{ACCENT}" stroke-width="1.8"></path>'
@@ -233,85 +159,121 @@ DIAGRAMS = {
                    f'<text x="20" y="46" font-family="{MONO}" font-size="8" fill="{HEADER_TEXT}" stroke="none">1.5</text>'
                    f'<text x="38" y="46" font-family="{MONO}" font-size="8" fill="{HEADER_TEXT}" stroke="none">2.5</text>'),
 }
-DIAGRAMS["pair_module"] = DIAGRAMS["series"]
-DIAGRAMS["teeth_range"] = DIAGRAMS["teeth"]
-DIAGRAMS["assembly_name"] = DIAGRAMS["name"]
 
-def guide(key, d, side_stem, pair=None):
-    """(title, symbol, what it is, what the typed value comes to) for one field.
+def _aliases():
+    """widgets.DIAGRAM_ALIASES, read from the file so this needs no tkinter."""
+    tree = ast.parse(open(os.path.join(HERE, "..", "..", "src", "gear_generator", "widgets.py"), encoding="utf-8").read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "DIAGRAM_ALIASES" for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise SystemExit("widgets.py has no DIAGRAM_ALIASES")
 
-    ``d`` is the SpurDerived of the gear the caret is in; ``pair`` a PairSpec in pair mode.
+
+for alias, target in _aliases().items():
+    DIAGRAMS.setdefault(alias, DIAGRAMS[target])
+
+FOLDER_TEXT = "D:\\Gears"
+
+
+def n(v, places=3):
+    return ui_text._n(v, places)
+
+
+# ------------------------------------------------------------ the gear maths
+
+def worked(spec):
+    """(spec, derived, outline, diagnostics) of one gear, as the window works it out."""
+    kind = kind_for(spec)
+    derived = kind.derive(spec)
+    return spec, derived, kind.outline(spec, derived), kind.validate(spec, derived)
+
+
+# ---------------------------------------------------------- the picture
+
+def _arrow_line(x0, x1, y, color=HEADER_TEXT):
+    """A dimension line with filled arrowheads at both ends."""
+    return (f'<line x1="{x0:.1f}" y1="{y:.1f}" x2="{x1:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="1"></line>'
+            f'<path d="M{x0:.1f} {y:.1f} l7 -3 v6 z" fill="{color}"></path>'
+            f'<path d="M{x1:.1f} {y:.1f} l-7 -3 v6 z" fill="{color}"></path>')
+
+
+def _poly(points, closed=False):
+    parts = [f"{'M' if i == 0 else 'L'}{x:.1f} {y:.1f}" for i, (x, y) in enumerate(points)]
+    return " ".join(parts) + (" Z" if closed else "")
+
+
+def picture(gears, labels=("A", "B"), note=""):
+    """The Derived panel's picture: preview.layout's placement, stroked as SVG the way _draw_preview strokes it."""
+    made = layout_of.layout([d for d, _ in gears], labels=labels, note=note)
+    out = [f'<svg width="{made.width}" height="{made.height}" viewBox="0 0 {made.width} {made.height}" fill="none" '
+           f'style="display: block; flex-shrink: 0;">']
+    for placed in made.gears:
+        if placed.pitch_radius > 0:
+            out.append(f'<circle cx="{placed.x:.1f}" cy="{placed.y:.1f}" r="{placed.pitch_radius * made.scale:.1f}" '
+                       f'stroke="{BORDER_SOFT}" stroke-width="1" stroke-dasharray="3 3"></circle>')
+    for guide in made.guides:
+        out.append(f'<path d="{_poly(guide)}" stroke="{BORDER_SOFT}" stroke-width="1" stroke-dasharray="3 3"></path>')
+    for polyline in made.polylines:
+        out.append(f'<path d="{_poly(polyline)}" stroke="{HEADER_TEXT}" stroke-width="1" stroke-linejoin="round"></path>')
+    for placed, (_, outline) in zip(made.gears, gears):
+        if not made.polylines:
+            out.append(f'<path d="{_poly(layout_of.points_on(outline, placed, made.scale), True)}" stroke="{HEADER_TEXT}" '
+                       f'stroke-width="1" stroke-linejoin="round"></path>')
+        if placed.bore_radius > 0:
+            out.append(f'<circle cx="{placed.x:.1f}" cy="{placed.y:.1f}" r="{placed.bore_radius * made.scale:.1f}" '
+                       f'stroke="{HEADER_TEXT}" stroke-width="1"></circle>')
+        out.append(f'<path d="M{placed.x - 5:.1f} {placed.y:.1f} h10 M{placed.x:.1f} {placed.y - 5:.1f} v10" '
+                   f'stroke="{READOUT}" stroke-width="1"></path>')
+        if placed.label:
+            out.append(f'<text x="{placed.x + 8:.1f}" y="{placed.y - 8:.1f}" font-family="{SANS}" font-size="11" '
+                       f'fill="{READOUT}">{placed.label}</text>')
+    dim = made.dimension
+    for x, top, bottom in dim.extensions:
+        out.append(f'<line x1="{x:.1f}" y1="{top:.1f}" x2="{x:.1f}" y2="{bottom:.1f}" stroke="{BORDER}" stroke-width="1"></line>')
+    out.append(_arrow_line(dim.x0, dim.x1, dim.y))
+    out.append(f'<text x="{dim.text_x:.1f}" y="{dim.text_y:.1f}" text-anchor="middle" font-family="{MONO}" '
+               f'font-size="11.5" fill="{INK}">{dim.text}</text>')
+    out.append('</svg>')
+    return "".join(out)
+
+
+# ------------------------------------------------------------ derived rows
+
+def value_row(label_text, values, widths=(104, 96)):
+    """A label and its values. Tk's grid widens a column to fit what is in it, so a value never wraps: nor here."""
+    cells = f'<span style="width: {widths[0]}px; flex-shrink: 0; font-size: 12px; color: {LABEL};">{label_text}</span>'
+    for v in values:
+        cells += (f'<span style="min-width: {widths[1]}px; flex-shrink: 0; white-space: nowrap; font-family: {MONO}; '
+                  f'font-size: 11.5px; color: {INK};">{v}</span>')
+    return f'<div style="display: flex; align-items: center; gap: 8px; height: 18px;">{cells}</div>'
+
+
+def derived_table(deriveds, tags):
+    """Every label once, in the order it first appears, and a dash where a gear has none — as the window does.
+
+    A grid, as Tk's is: a column widens to its longest value and the others keep in line.
     """
-    m, z = d.module, d.teeth
-    rim = (d.df - d.bore) / 2 if d.bore else None
-    G = {
-        "module": ("Module", "m",
-                   "Tooth size, in mm: the pitch diameter divided by the number of teeth. A bigger module means bigger, "
-                   "stronger teeth and fewer of them for the same diameter. Two gears mesh only if their modules match.",
-                   f"m {n(m)} × z {z} = PD {n(d.d)} mm · tooth depth {n(d.h)} · circular pitch {n(d.p)}"),
-        "teeth": ("Teeth", "z",
-                  "How many teeth go round the gear. With the module it sets the size, PD = m × z, and the ratio between two "
-                  "gears is the ratio of their tooth counts. Fewer than 17 undercuts the root at 20°.",
-                  f"z {z} → PD {n(d.d)} mm · OD {n(d.da)} mm · " + ("undercut" if d.undercut else f"no undercut ({d.undercut_limit} or more)")),
-        "pressure_angle": ("Pressure angle", "α",
-                           "The slant of the flank: the angle between the line along which the teeth push on each other and the "
-                           "tangent to the pitch circle. 20° is the standard; 14.5° runs quieter but undercuts sooner, 25° is "
-                           "stronger but loads the bearings more. Meshing gears must share it.",
-                           f"{n(d.pressure_angle_deg, 2)}° → base diameter {n(d.db)} mm · undercut below {d.undercut_limit} teeth"),
-        "face_width": ("Face width", "b",
-                       "How thick the gear is along its axis: the depth it is extruded. Wider carries more load; "
-                       "6 to 12 × module is usual for a spur gear.",
-                       f"{n(d.face_width)} mm = {n(d.face_width / m, 1)} × module"),
-        "bore": ("Bore", "",
-                 "The hole through the centre for the shaft. Blank makes a solid disc. Leave a rim between the bore and "
-                 "the root circle: the form warns under one module, and two to three is usual.",
-                 f"{n(d.bore)} mm → rim {n(rim)} mm to the root circle" if rim else "blank → a solid disc, no bore feature"),
-        "backlash": ("Backlash", "j",
-                     "How much each tooth is thinned at the pitch circle so the pair does not bind: the space grows by this "
-                     "and the tooth shrinks by it, on both gears, so the play in the mesh is twice the number. Blank uses "
-                     "0.3 × module, the default the equations carry; ISO asks 0.02–0.05 × m for a precise pair.",
-                     f"blank → {n(d.backlash)} mm (0.3 m) · tooth {n(d.s)} · space {n(d.space)} · play in the mesh {n(2 * d.backlash)}"),
-        "fillet": ("Fillet", "ρ",
-                   "The radius where each flank meets the root circle. It rounds off the sharp inside corner where a tooth "
-                   "would otherwise crack. Blank uses 0.38 × module.",
-                   f"blank → {n(d.fillet)} mm (0.38 m)"),
-        "name": ("Name", "",
-                 "The file the part is saved as, without .SLDPRT. Blank uses the name shown, built from module and teeth; "
-                 "in a pair the smaller gear is the pinion.",
-                 f"{side_stem}.SLDPRT in D:\\Gears"),
-    }
-    if pair is not None:
-        C = pair.centre_distance_mm()
-        sums = " · ".join(f"{int(round(2 * C / mm))} at m {n(mm)}" for mm in (1.5, 1.25, 1.0))
-        G.update({
-            "centre_distance": ("Centre distance", "C",
-                                "Shaft to shaft, centre to centre. Standard gears sit at C = m (z₁ + z₂) / 2, their pitch circles "
-                                "touching, so C fixes how many teeth the pair has between them once a module is chosen.",
-                                f"{n(C)} mm → z₁ + z₂ = {sums}"),
-            "ratio": ("Ratio", "i",
-                      "Turns of the driver for one turn of the driven gear, z₂ / z₁. 3 or 3:1 makes the second gear three "
-                      "times the first; 1:3 makes it a third.",
-                      f"{pair.ratio} → 20 : 60"),
-            "pair_module": ("Module", "m",
-                            "Pin the module the solver may use, or leave it blank to try every standard one in the chosen series.",
-                            "blank → 1 · 1.25 · 1.5 · 2 · 2.5 · 3 · 4 … from Series 1"),
-            "series": ("Series", "",
-                       "Which standard modules the solver tries. Series 1 is the preferred set (1, 1.25, 1.5, 2, 2.5 …); "
-                       "1 + 2 adds the in-between sizes (1.125, 1.375 …); + fine adds 0.5, 0.6, 0.7, 0.8 and 0.9 for small gears.",
-                       "Series 1 → 18 modules from 1 to 50 (ISO 54)"),
-            "teeth_range": ("Teeth", "min to max",
-                            "The tooth counts the solver may give either gear. Below 17 a 20° pinion undercuts; the maximum "
-                            "keeps the list short.",
-                            "17 to 200 → 64 candidates at C 60, i 3 · 3 exact"),
-            "assembly_name": ("Assembly name", "",
-                              "The file the assembly is saved as, without .SLDASM. Blank uses the name shown, built from the module "
-                              "and both tooth counts.",
-                              "Pair_m1.5_20T_60T.SLDASM in D:\\Gears"),
-        })
-    return G[key]
+    columns = [dict(ui_text.derived_rows(d)) for d in deriveds]
+    labels = list(dict.fromkeys(label for d in deriveds for label, _ in ui_text.derived_rows(d)))
+    cells = ['<span></span>'] + [f'<span style="font-size: 11px; color: {READOUT}; line-height: 16px;">{tag}</span>'
+                                 for tag in tags]
+    for label_text in labels:
+        cells.append(f'<span style="font-size: 12px; color: {LABEL}; line-height: 18px;">{label_text}</span>')
+        cells += [f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 18px; '
+                  f'white-space: nowrap;">{c.get(label_text, "—")}</span>' for c in columns]
+    template = "104px " + " ".join(["minmax(96px, max-content)"] * len(deriveds))
+    return (f'<div style="display: grid; grid-template-columns: {template}; column-gap: 8px; justify-content: start;">'
+            + "".join(cells) + '</div>')
+
+
+def warning(text, error=False):
+    return f'<div style="font-size: 12px; color: {ERR if error else MUTED}; line-height: 1.35;">{text}</div>'
+
+
+# ------------------------------------------------------- the field explainer
 
 def explainer(key, d, side_stem, pair=None):
-    title, symbol, what, comes_to = guide(key, d, side_stem, pair)
+    title, symbol, what, comes_to = ui_text.explainer(key, d, side_stem, pair, FOLDER_TEXT)
     sym = f'<span style="font-family: {MONO}; font-weight: 400; color: {MUTED};"> · {symbol}</span>' if symbol else ""
     return (f'<div style="display: flex; align-items: flex-start; gap: 10px; box-sizing: border-box; border: 1px solid {CARD_BORDER}; '
             f'border-radius: 2px; background: {CARD_BG}; padding: 8px 10px;">{DIAGRAMS[key]}'
@@ -322,47 +284,129 @@ def explainer(key, d, side_stem, pair=None):
             f'<span style="font-family: {SANS}; color: {READOUT};">here </span>{comes_to}</span>'
             f'</div></div>')
 
+
 # ------------------------------------------------------------------ panels
 
-def gear_kind_panel(mode):
-    return panel("Gear", "Spur · involute curve", [
-        row(label("Kind"), seg(["Spur", "Bevel", "Helical", "Internal"], "Spur", disabled=("Bevel", "Helical", "Internal")), hint("later")),
+KIND_SEG = {"spur": "Spur", "helical": "Helical", "herringbone": "Double", "bevel": "Bevel"}
+
+
+def gear_kind_panel(kind, mode):
+    return panel("Gear", ui_text.kind_readout(kind, "A"), [
+        row(label("Kind"), seg(["Spur", "Helical", "Double", "Bevel"], KIND_SEG[kind])),
         row(label("Flank"), seg(["Involute", "Arcs"], "Involute", w="200px")),
         row(label("Make"), seg(["Single gear", "Gear pair"], mode, w="200px")),
     ])
 
-def pair_panel(summary):
-    header = readout_header("C 60 mm · i 3 · m1.5 20:60", button("Candidates", SIDE_ICON, h=20))
-    return panel("Pair", "", [
-        row(label("Centre distance"), gfield("60", "mm")),
-        row(label("Ratio"), gfield("3"), hint("3, or 1:3 for driven over driver")),
-        row(label("Module"), gfield("any", "mm", placeholder=True), hint("blank tries every standard one")),
-        row(label("Series"), seg(["Series 1", "1 + 2", "+ fine"], "Series 1", w="220px")),
-        row(label("Teeth"), gfield("17", w="60px"), f'<span style="font-size: 12.5px; color: {LABEL};">to</span>', gfield("200", w="60px"), hint("under min is undercut")),
-        row(label("Assembly name"), gfield("Pair_m1.5_20T_60T", w="220px", placeholder=True)),
-        row(button("Solve", REFRESH_ICON), hint(summary)),
-    ], extra_header=header)
 
-def side_panel(title, spec, d, stem, focused="", card=None, pair=None):
-    """A gear's fields; ``focused`` names the field with the caret and ``card`` shows its explainer."""
+def pair_panel(pair, summary, readout, focused="", card=None, d=None):
+    """The solver, with the rows this kind of pair has — as _show_helix_rows decides them."""
+    kind = pair.gear_a.kind
+    bevel, helical = kind == "bevel", kind in ("helical", "herringbone")
+    ring = not bevel and pair.mesh_value() == "internal"
+    crossed = helical and not ring and pair.shafts_value() == "crossed"
+
     def f(key, text, **kw):
         return gfield(text, focused=(focused == key), **kw)
+
+    rows = []
+    if bevel:
+        rows.append(row(label("Cone distance"), f("cone_distance", pair.cone_distance, unit="mm"), hint("apex to heel")))
+    else:
+        rows.append(row(label("Centre distance"), f("centre_distance", pair.centre_distance, unit="mm")))
+    rows += [
+        row(label("Ratio"), f("ratio", pair.ratio), hint("3, or 1:3 for driven over driver")),
+        row(label("Module"), f("pair_module", pair.module or "any", unit="mm", placeholder=not pair.module),
+            hint("blank tries every standard one")),
+        row(label("Series"), seg(["Series 1", "1 + 2", "+ fine"], "Series 1", w="220px")),
+        row(label("Teeth"), gfield(pair.min_teeth, w="60px"), f'<span style="font-size: 12.5px; color: {LABEL};">to</span>',
+            gfield(pair.max_teeth, w="60px"), hint("under min is undercut")),
+    ]
+    if helical:
+        rows.append(row(label("Helix angle"), gfield(pair.helix_angle or "any", unit="°", placeholder=not pair.helix_angle),
+                        hint("blank solves it in the range")))
+        if not crossed:
+            rows.append(row(label("Helix range"), gfield("20" if kind == "herringbone" else "8", w="60px", unit="°", placeholder=True),
+                            f'<span style="font-size: 12.5px; color: {LABEL};">to</span>',
+                            gfield("40" if kind == "herringbone" else "25", w="60px", unit="°", placeholder=True)))
+    if not bevel:
+        rows.append(row(label("Mesh"), seg(["External", "Internal"], ui_text.MESH_LABELS[pair.mesh_value()], w="180px")))
+    if helical and not ring:
+        rows.append(row(label("Shafts"), seg(["Parallel", "Crossed"], ui_text.SHAFTS_LABELS[pair.shafts_value()], w="180px")))
+    if bevel or crossed:
+        rows.append(row(label("Shaft angle"), f("pair_shaft_angle", pair.shaft_angle, unit="°")))
+    if crossed:
+        rows.append(row(label("Hands"), seg(["Same", "Opposite"], ui_text.HANDS_PAIRING_LABELS[pair.hands_value()], w="180px")))
+    if not bevel and not crossed:
+        greyed = ("Gear mate",) if findings.GEAR_MATE_ROUTE is None else ()
+        rows.append(row(label("Assembly"), seg(["Fixed", "Gear mate"], ui_text.MOTION_LABELS[pair.motion_value()],
+                                               w="180px", disabled=greyed),
+                        hint("not yet probed") if greyed else ""))
+    rows += [
+        row(label("Assembly name"), gfield(pair_stems(pair)[2], w="220px", placeholder=True)),
+        row(button("Solve", REFRESH_ICON), hint(summary)),
+    ]
+    if card:
+        rows.append(explainer(card, d, "", pair))
+    header = readout_header(readout, button("Candidates", SIDE_ICON, h=20))
+    return panel("Pair", "", rows, extra_header=header)
+
+
+def side_panel(title, spec, d, stem, focused="", card=None, pair=None, side="a"):
+    """A gear's fields with the rows this kind has; ``focused`` names the field with the caret, ``card`` its explainer."""
+    def f(key, text, **kw):
+        return gfield(text, focused=(focused == key), **kw)
+    kind = spec.kind
+    bevel, helical = kind == "bevel", kind in ("helical", "herringbone")
+    ring = spec.is_internal() and not bevel
+    pair_mode = pair is not None
+    crossed = pair_mode and helical and not ring and pair.shafts_value() == "crossed" and \
+        pair.mesh_value() != "internal"
+    ring_pair = pair_mode and pair.mesh_value() == "internal" and not bevel
+    takes_shift = not bevel and not ring and not (pair_mode and (ring_pair or crossed))
     rows = [
         row(label("Module"), f("module", spec.module, unit="mm"), dropdown("", "72px"), hint("ISO 54")),
         row(label("Teeth"), f("teeth", spec.teeth)),
         row(label("Pressure angle"), f("pressure_angle", spec.pressure_angle, unit="°"), dropdown("", "72px")),
         row(label("Face width"), f("face_width", spec.face_width, unit="mm")),
-        row(label("Bore"), f("bore", spec.bore or "none", unit="mm", placeholder=not spec.bore)),
-        row(label("Backlash"), f("backlash", "0.3 × module", unit="mm", w="150px", placeholder=True), hint("ISO: 0.02–0.05 × m")),
-        row(label("Fillet"), f("fillet", "0.38 × module", unit="mm", w="150px", placeholder=True)),
-        row(label("Name"), f("name", stem, grow=True, placeholder=True)),
     ]
+    if not ring:
+        rows.append(row(label("Bore"), f("bore", spec.bore or "none", unit="mm", placeholder=not spec.bore)))
+    rows += [
+        row(label("Backlash"), f("backlash", spec.backlash or "0.3 × module", unit="mm", w="150px",
+                                 placeholder=not spec.backlash), hint("ISO: 0.02–0.05 × m")),
+        row(label("Fillet"), f("fillet", spec.fillet or ("0.15 × module" if ring else "0.38 × module"), unit="mm",
+                               w="150px", placeholder=not spec.fillet)),
+    ]
+    if takes_shift:
+        shifted = spec.profile_shift.strip() not in ("", "0")
+        rows.append(row(label("Profile shift"), f("profile_shift", spec.profile_shift if shifted else "0", unit="× m",
+                                                  placeholder=not shifted), hint("+ cures undercut")))
+    if helical:
+        rows.append(row(label("Helix angle"), f("helix_angle", spec.helix_angle, unit="°"), dropdown("", "72px"),
+                        hint("normal module, α")))
+        hand = ui_text.HAND_LABELS[spec.hand_value()]
+        follows = pair_mode and side == "b"
+        off = tuple(h for h in ("Right", "Left") if h != hand) if follows else ()
+        rows.append(row(label("Hand"), seg(["Right", "Left"], hand, w="160px", disabled=off),
+                        hint("follows gear A") if follows else ""))
+    if kind == "herringbone" and not ring:
+        rows.append(row(label("Groove"), f("groove", spec.groove or "none", unit="mm", placeholder=not spec.groove),
+                        hint("between the two helices")))
+    if not bevel and not pair_mode:
+        rows.append(row(label("Teeth side"), seg(["External", "Internal"], "Internal" if ring else "External", w="180px")))
+    if ring:
+        rows.append(row(label("Rim"), f("rim", spec.rim or "root + 6 × module", unit="mm", w="190px", placeholder=not spec.rim)))
+    if bevel and not pair_mode:
+        rows.append(row(label("Shaft angle"), f("shaft_angle", spec.shaft_angle, unit="°"), hint("90 for a right angle")))
+        rows.append(row(label("Mate teeth"), f("mate_teeth", spec.mate_teeth), hint("the gear it meshes with")))
+    rows.append(row(label("Name"), f("name", stem, grow=True, placeholder=True)))
     if card:
         rows.append(explainer(card, d, stem, pair))
     return panel(title, ui_text.gear_readout(spec), rows)
 
-def derived_panel(gears, tags, diagnostics, readout, pair_rows=None):
-    body = [preview([(d, o) for d, o in gears], labels=tags)]
+
+def derived_panel(gears, tags, diagnostics, readout, pair_rows=None, note=""):
+    body = [picture(gears, labels=tags, note=note)]
     if pair_rows:
         body.append('<div style="display: flex; flex-direction: column;">' + "".join(value_row(k, [v]) for k, v in pair_rows) + '</div>')
         body.append(rule("0 0 2px 0"))
@@ -371,15 +415,17 @@ def derived_panel(gears, tags, diagnostics, readout, pair_rows=None):
         body.append(warning(text, error))
     return panel("Derived", readout, body)
 
+
 def output_panel(pair_mode):
     rows = [
-        row(label("Folder"), gfield("D:\\Gears", grow=True), button("Browse", FOLDER)),
+        row(label("Folder"), gfield(FOLDER_TEXT, grow=True), button("Browse", FOLDER)),
         row(label("Part template"), gfield("SolidWorks default", grow=True, placeholder=True), button("Browse", FOLDER)),
     ]
     if pair_mode:
         rows.append(row(label("Assembly template"), gfield("SolidWorks default", grow=True, placeholder=True), button("Browse", FOLDER)))
     rows.append(row(button("Open .gear.json", FOLDER), hint("put a built gear back on the form")))
-    return panel("Output", "D:\\Gears", rows)
+    return panel("Output", FOLDER_TEXT, rows)
+
 
 def sw_bar(note, manual):
     header = (f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: {READOUT};">'
@@ -389,12 +435,14 @@ def sw_bar(note, manual):
         rows.append(row('<span style="width: 15px; flex-shrink: 0;"></span>', f'<span style="font-size: 12px; color: {MUTED}; line-height: 1.35;">{manual}</span>', gap=8, align="flex-start"))
     return panel("SolidWorks", "", rows, gap=4, extra_header=header)
 
+
 def footer(status, update=False):
     buttons = (button("Update values", h=32) if update else "") + button("Build", primary=True, h=32)
     return (f'<div style="margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
             f'<div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: {OK}; min-width: 0;">{dot(OK, 8)}'
             f'<span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">{status}</span></div>'
             f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{buttons}</div></div>')
+
 
 # -------------------------------------------------------------------- pages
 
@@ -419,77 +467,200 @@ TAIL = '''</x-dc>
 </html>
 '''
 
-def column(min_height, body, gap=8, width=484):
+
+def column(body, gap=8, width=484):
     """The strip as the app draws it: 460 px of content inside 12 px of window ground."""
-    return (f'<div style="width: {width}px; min-height: {min_height}px; flex-shrink: 0; box-sizing: border-box; background: #f0f0f0; color: {INK}; '
+    return (f'<div style="width: {width}px; flex-shrink: 0; box-sizing: border-box; background: #f0f0f0; color: {INK}; '
             f'font-family: {SANS}; font-size: 13px; line-height: 1.3; display: flex; flex-direction: column; gap: {gap}px; padding: 12px;">\n' + body + '\n</div>')
 
-def page(min_height, body, gap=8):
-    return HEAD + column(min_height, body, gap) + '\n' + TAIL
 
-# -- the pair the docs use throughout: C 60, i 3 → m 1.5, 20 : 60
-spec_a, d_a, o_a, diag_a = gear(20)
-spec_b, d_b, o_b, diag_b = gear(60)
-pair_spec = PairSpec(mode="pair", centre_distance="60", ratio="3", gear_a=spec_a, gear_b=spec_b)
-stem_a, stem_b, stem_pair = pair_stems(pair_spec)
-candidates = pairs.solve_spec(pair_spec)
-C, ratio, eps = pairs.describe(1.5, 20, 60, 20.0)
-summary = f"{ui_text.solve_summary(candidates)} · m1.5 20 : 60 chosen"
-diagnostics = [("A: " + x.message, x.is_error) for x in diag_a] + [("B: " + x.message, x.is_error) for x in diag_b]
+def page(body, gap=8):
+    return HEAD + column(body, gap) + '\n' + TAIL
 
-main = page(2160, "\n".join([
-    gear_kind_panel("Gear pair"),
-    pair_panel(summary),
-    side_panel("Gear A", spec_a, d_a, stem_a, focused="module", card="module", pair=pair_spec),
-    side_panel("Gear B", spec_b, d_b, stem_b),
-    derived_panel([(d_a, o_a), (d_b, o_b)], ("A", "B"), diagnostics,
-                  f"C {n(C)} mm · i {n(ratio)} · contact ratio {ui_text.contact_ratio_text(eps)}",
-                  pair_rows=[("Centre distance", f"{n(C)} mm"), ("Ratio", f"{n(ratio)}  ·  20 : 60"), ("Contact ratio", ui_text.contact_ratio_text(eps))]),
-    output_panel(True),
-    sw_bar(ui_text.mode_note("pair", [stem_a, stem_b, stem_pair]),
-           ui_text.manual_steps_line([f"Assign a material to {stem_a}; the build leaves it unset.", f"Assign a material to {stem_b}; the build leaves it unset.", "Look along the gear axis and check the teeth mesh without clashing."])),
-    footer("Both gears now carry module 1.5: 20 and 60 teeth."),
-]))
-open(os.path.join(HERE, "Main.dc.html"), "w").write(main)
 
-# -- single mode: the default gear, the caret in Pressure angle
-spec_s, d_s, o_s, diag_s = gear(25)
-single = page(1380, "\n".join([
-    gear_kind_panel("Single gear"),
-    side_panel("Gear", spec_s, d_s, spec_s.default_stem(), focused="pressure_angle", card="pressure_angle"),
-    derived_panel([(d_s, o_s)], ("",), [(x.message, x.is_error) for x in diag_s], ui_text.derived_line(d_s)),
-    output_panel(False),
-    sw_bar(ui_text.mode_note("single", [spec_s.default_stem()]), ""),
-    footer("Type a gear, or switch to Gear pair to solve one."),
-]))
-open(os.path.join(HERE, "SingleGear.dc.html"), "w").write(single)
+def diagnostics_of(sides):
+    """``(message, is error)`` for the Derived panel: each gear's own, prefixed A: and B: in a pair."""
+    out = []
+    for tag, diagnostics in sides:
+        prefix = f"{tag}: " if len(sides) > 1 else ""
+        out += [(prefix + x.message, x.is_error) for x in diagnostics]
+    return list(dict.fromkeys(out))
 
-# -- every explainer, as the copy for whoever wires it up
+
+def pair_board(title_kind, pair, chosen=None, focus=("a", "module"), card=None, note="", status=""):
+    """A whole strip in pair mode, from a PairSpec as the window would hold it."""
+    spec_a, d_a, o_a, diag_a = worked(pair.gear_a)
+    spec_b, d_b, o_b, diag_b = worked(pair.gear_b)
+    stem_a, stem_b, stem_pair = pair_stems(pair)
+    candidates = pairs.solve_spec(pair)
+    summary = ui_text.solve_summary(candidates, chosen)
+    bevel = spec_a.kind == "bevel"
+    ring = pair.mesh_value() == "internal" and not bevel
+    crossed = spec_a.kind in ("helical", "herringbone") and not ring and pair.shafts_value() == "crossed"
+    alpha = getattr(d_a, "normal_pressure_angle_deg", d_a.pressure_angle_deg)
+    if bevel:
+        row_ = pairs.bevel_candidate(d_a.module, d_a.teeth, d_b.teeth, d_a.shaft_angle, alpha)
+        centre, ratio, eps, symbol = row_.centre_distance, row_.ratio, row_.contact_ratio, "R"
+    elif crossed:
+        centre, ratio, eps = pairs.describe_crossed(d_a.module, d_a.teeth, d_b.teeth, d_a.helix_angle_deg,
+                                                   d_b.helix_angle_deg, alpha)
+        symbol = "C"
+    else:
+        centre, ratio, eps = pairs.describe(d_a.module, d_a.teeth, d_b.teeth, alpha, getattr(d_a, "helix_angle_deg", 0.0),
+                                            mesh="internal" if ring else "external",
+                                            shift_1=getattr(d_a, "shift", 0.0), shift_2=getattr(d_b, "shift", 0.0))
+        symbol = "C"
+    working = None
+    if not bevel and not crossed and not ring and (getattr(d_a, "shift", 0.0) or getattr(d_b, "shift", 0.0)):
+        working = pairs.working_pressure_angle(d_a.module, d_a.teeth, d_b.teeth, d_a.pressure_angle_deg,
+                                               d_a.shift, d_b.shift, d_a.d / d_a.teeth)
+    rows = ui_text.pair_derived_rows(centre, ratio, eps, d_a.teeth, d_b.teeth,
+                                     "Cone distance" if bevel else "Centre distance", working_angle=working)
+    diagnostics = diagnostics_of([("A", diag_a), ("B", diag_b)])
+    if not bevel and not crossed and not ring:
+        diagnostics += [(message, "cannot be built" in message) for message in pairs.mesh_warnings(d_a, d_b)]
+    panel_card = {"a": card if focus[0] == "a" else None, "b": card if focus[0] == "b" else None,
+                  "pair": card if focus[0] == "pair" else None}
+    readout = ui_text.pair_readout(pair.cone_distance if bevel else pair.centre_distance, pair.ratio, chosen,
+                                   "R" if bevel else "C")
+    manual = ui_text.manual_steps_line([f"Assign a material to {stem_a}; the build leaves it unset.",
+                                        f"Assign a material to {stem_b}; the build leaves it unset."])
+    return page("\n".join([
+        gear_kind_panel(title_kind, "Gear pair"),
+        pair_panel(pair, summary, readout, focused=focus[1] if focus[0] == "pair" else "", card=panel_card["pair"], d=d_a),
+        side_panel("Gear A", spec_a, d_a, stem_a, focused=focus[1] if focus[0] == "a" else "", card=panel_card["a"],
+                   pair=pair, side="a"),
+        side_panel("Gear B", spec_b, d_b, stem_b, focused=focus[1] if focus[0] == "b" else "", card=panel_card["b"],
+                   pair=pair, side="b"),
+        derived_panel([(d_a, o_a), (d_b, o_b)], ("A", "B"), diagnostics,
+                      ui_text.pair_derived_readout(centre, ratio, eps, symbol), pair_rows=rows, note=note),
+        output_panel(True),
+        sw_bar(ui_text.mode_note("pair", [stem_a, stem_b, stem_pair]), manual),
+        footer(status or "Both gears now carry the chosen module and teeth."),
+    ]))
+
+
+def single_board(spec, focus="module", status="Type a gear, or switch to Gear pair to solve one."):
+    spec, d, o, diagnostics = worked(spec)
+    stem = spec.default_stem()
+    return page("\n".join([
+        gear_kind_panel(spec.kind, "Single gear"),
+        side_panel("Gear", spec, d, stem, focused=focus, card=focus),
+        derived_panel([(d, o)], ("",), diagnostics_of([("", diagnostics)]), ui_text.derived_line(d)),
+        output_panel(False),
+        sw_bar(ui_text.mode_note("single", [stem]),
+               ui_text.manual_steps_line([f"Assign a material to {stem}; the build leaves it unset."])),
+        footer(status),
+    ]))
+
+
+def chosen_row(pair, test):
+    """The first candidate Solve lists that passes ``test``, and the pair with it applied."""
+    candidates = pairs.solve_spec(pair)
+    row_ = next(c for c in candidates if test(c))
+    a, b = pairs.apply(row_, pair.gear_a, pair.gear_b)
+    values = pair.to_dict()
+    values.update(gear_a=a, gear_b=b)
+    return row_, PairSpec(**values)
+
+
+# -------------------------------------------------------------------- the boards
+
+boards = {}
+
+# The pair the docs use throughout: C 60, i 3 → m 1.5, 20 : 60.
+base = PairSpec(mode="pair", centre_distance="60", ratio="3", gear_a=GearSpec(teeth="20"), gear_b=GearSpec(teeth="60"))
+chosen, spur_pair = chosen_row(base, lambda c: (c.module, c.teeth_driver, c.teeth_driven) == (1.5, 20, 60))
+boards["Main"] = ("Gear pair · spur", pair_board("spur", spur_pair, chosen, ("a", "module"), "module",
+                                                  status="Both gears now carry module 1.5: 20 and 60 teeth."))
+
+boards["SingleGear"] = ("Single gear · spur", single_board(GearSpec(), "pressure_angle"))
+
+# A pair that needs profile shift: C 47.5 at 32 : 15 on module 2.
+shift_base = PairSpec(mode="pair", centre_distance="47.5", ratio="32:15", module="2",
+                      gear_a=GearSpec(module="2", teeth="15"), gear_b=GearSpec(module="2", teeth="32"))
+chosen, shifted = chosen_row(shift_base, lambda c: c.shifted)
+boards["ShiftedPair"] = ("Gear pair · profile shift", pair_board("spur", shifted, chosen, ("a", "profile_shift"),
+                                                                  "profile_shift"))
+
+# A helical pair, helix angle solved: C 60 at 2, gear B's hand following A's.
+helical = dict(kind="helical", face_width="20")
+helix_base = PairSpec(mode="pair", centre_distance="60", ratio="2", gear_a=GearSpec(teeth="20", helix_angle="15", **helical),
+                      gear_b=GearSpec(teeth="40", helix_angle="15", hand="left", **helical))
+chosen, helical_pair = chosen_row(helix_base, lambda c: c.exact and not c.undercut and not c.shifted)
+boards["HelicalPair"] = ("Gear pair · helical", pair_board("helical", helical_pair, chosen, ("b", "hand"), "hand"))
+
+boards["Herringbone"] = ("Single gear · herringbone, grooved", single_board(
+    GearSpec(kind="herringbone", module="2", teeth="20", helix_angle="30", face_width="40", groove="8"), "groove"))
+
+# A pinion inside a ring: C 40 at 3.
+ring_base = PairSpec(mode="pair", centre_distance="40", ratio="3", mesh="internal",
+                     gear_a=GearSpec(module="2", teeth="20"), gear_b=GearSpec(module="2", teeth="60", teeth_side="internal"))
+chosen, ring_pair = chosen_row(ring_base, lambda c: c.exact and not c.clashes)
+boards["RingPair"] = ("Gear pair · internal", pair_board("spur", ring_pair, chosen, ("pair", "mesh"), "mesh"))
+
+# Crossed, opposite hands, on shafts 30° apart at C 70: the helix angles differ by the shaft angle.
+crossed_base = PairSpec(mode="pair", centre_distance="70", ratio="2",
+                        module="2", shafts="crossed", shaft_angle="30", hands="opposite",
+                        gear_a=GearSpec(teeth="20", module="2", helix_angle="45", **helical),
+                        gear_b=GearSpec(teeth="40", module="2", helix_angle="15", hand="left", **helical))
+chosen, crossed_pair = chosen_row(crossed_base, lambda c: c.exact)
+boards["CrossedPair"] = ("Gear pair · crossed, opposite hands",
+                         pair_board("helical", crossed_pair, chosen, ("pair", "hands"), "hands", note="Σ 30°"))
+
+# Straight bevel: R 50 at 4 : 3 on module 2, shafts at 90° — 30 : 40 meets it exactly.
+bevel = dict(kind="bevel", module="2", face_width="14")
+bevel_base = PairSpec(mode="pair", cone_distance="50", ratio="4:3", module="2", shaft_angle="90",
+                      gear_a=GearSpec(teeth="30", mate_teeth="40", **bevel), gear_b=GearSpec(teeth="40", mate_teeth="30", **bevel))
+chosen, bevel_pair = chosen_row(bevel_base, lambda c: c.exact)
+boards["BevelPair"] = ("Gear pair · bevel", pair_board("bevel", bevel_pair, chosen, ("pair", "cone_distance"),
+                                                       "cone_distance"))
+
+# Every card, each worked out for a gear that has the field.
+examples = {
+    "": worked(GearSpec(teeth="20")),
+    "profile_shift": worked(GearSpec(module="2", teeth="15", profile_shift="0.12")),
+    "helix_angle": worked(GearSpec(teeth="20", helix_angle="15", **helical)),
+    "hand": worked(GearSpec(teeth="20", helix_angle="15", **helical)),
+    "groove": worked(GearSpec(kind="herringbone", module="2", teeth="20", helix_angle="30", face_width="40", groove="8")),
+    "teeth_side": worked(GearSpec(module="2", teeth="60", teeth_side="internal")),
+    "rim": worked(GearSpec(module="2", teeth="60", teeth_side="internal")),
+    "shaft_angle": worked(GearSpec(teeth="30", mate_teeth="40", **bevel)),
+    "mate_teeth": worked(GearSpec(teeth="30", mate_teeth="40", **bevel)),
+}
+pair_examples = {"cone_distance": bevel_pair, "pair_shaft_angle": crossed_pair, "mesh": ring_pair,
+                 "shafts": crossed_pair, "hands": crossed_pair}
 cards = [section_caption("Gear A · Gear B — one card, shown for the field with the caret")]
-for key in ("module", "teeth", "pressure_angle", "face_width", "bore", "backlash", "fillet", "name"):
-    cards.append(explainer(key, d_a, stem_a, pair_spec))
+for key in ui_text.GEAR_EXPLAINERS:
+    spec, d, _, _ = examples.get(key, examples[""])
+    cards.append(explainer(key, d, spec.default_stem()))
 cards.append(section_caption("Pair — the same card under the solver's fields"))
-for key in ("centre_distance", "ratio", "pair_module", "series", "teeth_range", "assembly_name"):
-    cards.append(explainer(key, d_a, stem_a, pair_spec))
-cards.append(caption("Worked values are for Gear A of the pair on the main artboard: m 1.5, 20 teeth, 20°, bore 10, at C 60 and i 3."))
-field_guide = page(1900, "\n".join(cards))
-open(os.path.join(HERE, "FieldGuide.dc.html"), "w").write(field_guide)
+for key in ui_text.PAIR_EXPLAINERS:
+    pair = pair_examples.get(key, spur_pair)
+    cards.append(explainer(key, worked(pair.gear_a)[1], "", pair))
+cards.append(caption("Each card is worked out for a gear that has the field: the spur pair of the main artboard "
+                     "(m 1.5, 20 : 60 at C 60) unless it belongs to a shifted, helical, grooved, ring, bevel or crossed one."))
+boards["FieldGuide"] = ("Field explainers · every card", page("\n".join(cards)))
+
+layout = []
+for index, (name, (title, html)) in enumerate(boards.items()):
+    open(os.path.join(HERE, f"{name}.dc.html"), "w").write(html)
+    layout.append({"file": f"{name}.dc.html", "title": title, "x": index * 564, "y": 0, "w": 484})
 
 canvas = {
-    "artboards": [
-        {"file": "Main.dc.html", "title": "Gear pair · new order", "x": 0, "y": 0, "w": 484, "h": 2160},
-        {"file": "SingleGear.dc.html", "title": "Single gear · new order", "x": 564, "y": 0, "w": 484, "h": 1380},
-        {"file": "FieldGuide.dc.html", "title": "Field explainers · all states", "x": 1128, "y": 0, "w": 484, "h": 1900},
-    ],
+    "artboards": layout,
     "annotations": [
-        {"id": "note-order", "x": 0, "y": -250, "w": 484,
-         "text": "Order, top to bottom, follows the work\nGear (what kind, one or two) · Pair (solve it: this fills the gears, so it comes before them; its Candidates button moves up here from the SolidWorks bar) · Gear A and Gear B (type or adjust) · Derived (what that comes to) · Output · SolidWorks · Build.\nToday Pair sits under Derived, so a pair is solved by going down, then back up, then down again."},
-        {"id": "note-explainer", "x": 564, "y": -250, "w": 484,
-         "text": "What the numbers mean, as you type\nOne card at the foot of the gear panel follows the caret: the field's name and symbol, two sentences on what it is, and the typed value worked out — m 1.5 × z 20 = PD 30 mm. The Tk field already knows when it has focus; the card swaps its text on that.\nThe third artboard has every card's copy and diagram."},
-        {"id": "note-derived", "x": 0, "y": 2260, "w": 484,
-         "text": "Derived, in pair mode\nBoth gears drawn at one scale, meshed at the centre distance their teeth make, the pitch circles dashed and touching at the pitch point. The centre distance is dimensioned below; a single gear gets its pitch diameter the same way. The values sit under it in two columns, with the pair's own three above them."},
+        {"id": "note-source", "x": 0, "y": -200, "w": 484,
+         "text": "Drawn from the app\nEvery card's words are ui_text.explainer's, every readout and derived row "
+                 "ui_text's, and every picture preview.layout's: gen.py only writes the HTML. So an artboard shows "
+                 "what the window would, for the same form."},
+        {"id": "note-rows", "x": 564, "y": -200, "w": 484,
+         "text": "Rows by kind\nProfile shift for external spur and helical gears on parallel shafts; Helix angle and "
+                 "Hand for the helical kinds, gear B's hand following gear A's; Groove for a herringbone; Rim for a "
+                 "ring; Shaft angle and Mate teeth for a single bevel gear; Hands for a crossed pair; Assembly for a "
+                 "pair on parallel shafts."},
     ],
     "launch": {"view": "canvas"},
 }
 json.dump(canvas, open(os.path.join(HERE, "canvas.json"), "w"), indent=2, ensure_ascii=False)
-print("Main", len(main), "Single", len(single), "Guide", len(field_guide), "| candidates", len(candidates), "eps", round(eps, 3))
+print(" · ".join(f"{name} {len(html)}" for name, (_, html) in boards.items()))

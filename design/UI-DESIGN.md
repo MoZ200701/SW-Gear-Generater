@@ -52,6 +52,8 @@ below that only some kinds have — `_show_helix_rows` decides all of them (§2,
 | Row | Panel | Shown for |
 |---|---|---|
 | Helix angle, Hand | Gear A/B | helical, double |
+| Groove (placeholder *none*, hint *between the two helices*) | Gear A/B | double with external teeth; not a ring |
+| Profile shift (unit *× m*, placeholder *0*, hint *+ cures undercut*) | Gear A/B | spur, helical, double with external teeth; in a pair only on parallel shafts with an external mesh. Hidden, it goes to the spec as 0 |
 | Teeth side (`External` · `Internal`) | Gear | spur, helical, double in single mode; in a pair the Pair panel's Mesh decides |
 | Rim (placeholder *root + 6 × module*) | Gear A/B | a ring — and Bore is hidden for it |
 | Shaft angle, Mate teeth | Gear | bevel in single mode; in a pair they come from the Pair panel's shaft angle and the other gear's teeth |
@@ -59,12 +61,16 @@ below that only some kinds have — `_show_helix_rows` decides all of them (§2,
 | Mesh (`External` · `Internal`) | Pair | every kind but bevel; Internal makes gear B the ring |
 | Shafts (`Parallel` · `Crossed`) | Pair | helical and double, external mesh |
 | Shaft angle | Pair | bevel, and crossed pairs |
+| Hands (`Same` · `Opposite`) | Pair | crossed pairs |
 | Helix range | Pair | helical pairs on parallel shafts |
+| Assembly (`Fixed` · `Gear mate`, hint *not yet probed* while `Gear mate` is greyed) | Pair | every pair on parallel shafts; bevel and crossed pairs are built fixed |
 
 Each new field has an explainer card; its diagram is, for now, an existing
 field's (`widgets.DIAGRAM_ALIASES`): Teeth side and Mate teeth draw the teeth
 and ratio glyphs, Rim the bore, both shaft angles the pressure angle, and Mesh,
-Shafts and Cone distance the centre distance.
+Shafts and Cone distance the centre distance. Profile shift has its own: a
+tooth, its pitch line and the cutting rack's datum line x·m further out; and
+Assembly its own, a pinion and its wheel with arrows turning opposite ways.
 
 ### Pair — readout `C 60 mm · i 3 · m1.5 20:60`, and **Candidates** beside it
 
@@ -73,8 +79,9 @@ Centre distance, Ratio (hint *3, or 1:3 for driven over driver*), Module
 `1 + 2` · `+ fine`), Teeth *min* to *max* (hint *under min is undercut*), for a
 helical kind Helix angle (placeholder *any*, hint *blank solves it in the
 range*) and Helix range *min* to *max* (placeholders the kind's range, 8–25° or
-20–40°), Assembly name, and **Solve** with its summary, `64 candidates · 3 exact · m1.5
-20 : 60 chosen` — the last part once a candidate has been clicked, so the strip
+20–40°), Assembly name, and **Solve** with its summary, `69 candidates · 3 exact · 2 with
+shift · m1.5 20 : 60 chosen` — *with shift* counting the clean rows that need a
+profile shift, and the last part once a candidate has been clicked, so the strip
 says what was picked with the flyout closed. The readout's last part appears
 then too.
 
@@ -92,7 +99,8 @@ dropdown, hint *normal module, α*) and Hand (`Right` · `Left`), and Name
 (placeholder: the stem the part will be saved as, `Gear_m1.5_N25`, or
 `Helical_m2_N20_15R` with the helix angle to two decimals). For a helical gear
 Module and Pressure angle are the normal ones, and the readout adds the helix:
-`m2 · z20 · 20° · β15° R · PD 41.411 mm`. A dropdown writes its value into the field and lets
+`m2 · z20 · 20° · β15° R · PD 41.411 mm`, and a shifted gear its shift, `m2 · z15 · 20° · x+0.12 ·
+PD 30 mm`, whose Name placeholder ends `_x0.12`. Profile shift sits under Fillet. A dropdown writes its value into the field and lets
 go, so the field stays the one source. A half-typed gear reads out *check the
 fields*. At the foot of the panel, the explainer card.
 
@@ -116,8 +124,7 @@ left and three lines at the right:
    to in mono 11.5 px ink. A blank field says what blank means.
 
 The words are `ui_text.explainer(field, derived, stem, pair, folder) -> (name,
-symbol, what, worked)`, tested for all fourteen fields in
-`tests/test_ui_text.py`. The worked line is derived text like every readout: it
+symbol, what, worked)`, tested for every field in `tests/test_ui_text.py`. The worked line is derived text like every readout: it
 is filled in again on every `_derive_now`, not only when the caret moves, and a
 gear that does not work out says *check the fields*, as the gear readout does.
 The diagrams are `widgets.draw_diagram`, stroke drawings on a 56 px grid the way
@@ -131,7 +138,9 @@ A **434 × 210 px** picture across the panel body, above the values:
 - **Pair mode.** Both outlines at one scale, gear B turned half a turn plus the
   mesh angle the assembly is mated at (`pair.mesh_angle`: half a pitch for an
   even count, nothing for an odd one) so a tooth points at A's centre, and
-  placed at the centre distance the teeth make, `m (N_A + N_B) / 2`. Pitch
+  placed at the centre distance the teeth make, `m (N_A + N_B) / 2` — or,
+  shifted, the working one, `pair.centre_of`, so the pitch circles stand a
+  little apart. Pitch
   circles dashed `#d8d8d8`, touching at the pitch point, which is what says
   "meshed"; outlines and bores `#505050`; a 10 px cross and the gear's letter at
   each centre in `#8f8f8f`. Below, the centre distance: extension lines
@@ -149,13 +158,17 @@ turns those into the screen's pixels and strokes them.
 A helical gear is drawn as its transverse section, the one its sketch cuts.
 Under the picture in pair mode, three rows for the pair — Centre distance
 `60 mm`, Ratio `3 · 20 : 60`, Contact ratio `1.671` (the transverse one for a
-helical pair), all from `pairs.describe` —
+helical pair), all from `pairs.describe`, and for a shifted pair a fourth,
+Working α `21.252°` —
 then a 1 px rule, then the table: captions `A · mm` and `B · mm`, the label
 column 104 px, value columns 96 px. Values carry no unit; one `mm` caption heads
 each column. Where a value came from a default it says so (`0.45 · 0.3m`). A
 helical gear's column starts with six more: Helix `15° · right`, Transverse m,
 Transverse α, Lead, Twist on face (face to apex for a herringbone), and
-Overlap εβ.
+Overlap εβ. A shifted gear's starts with Profile shift `+0.3 · 0.6`, the
+coefficient and what it comes to in mm. A shifted pair whose tips come within a
+tenth of a module of the other gear's root says so under the table, and one
+whose tips reach it is an error.
 Errors come first, then warnings, each once, in `theme.ERROR`. The form is
 worked out again **120 ms** after the last keystroke. An error disables
 **Build**.
@@ -185,12 +198,15 @@ the form differs from what that part holds.
 `PAIR CANDIDATES` with **Hide**; the solve summary; a table `MODULE · TEETH ·
 ERROR` — a non-standard module marked ` *`, the error column reading *exact* or
 what is off (*C +0.5 mm · i 1.2 % · undercut*), and for a helical pair starting
-with the row's helix angle (*β18.19° · exact*), exact rows in `theme.OK`; and a
+with the row's helix angle (*β18.19° · exact*) and a shifted row with its shifts
+(*x +0.12/−0.12 · exact*), exact rows in `theme.OK`; and a
 card for the chosen row: module and teeth, the centre distance and ratio they
-make, the contact ratio, and whether the module is non-standard or the pinion
-undercut. Clicking a row writes its
-module and teeth onto both gears — and for a helical pair the helix angle, and
-gear B the other hand from gear A — and changes nothing else on the form.
+make, the contact ratio, and whether the module is non-standard, the pinion
+undercut, or the gears shifted. Clicking a row writes its
+module, teeth and profile shifts onto both gears — a row without shift writes 0,
+so an earlier row's shift is not left behind — and for a helical pair the helix
+angle, and gear B the other hand from gear A, and changes nothing else on the
+form.
 
 ## 4. The build flow
 
@@ -209,7 +225,8 @@ A build is refused before anything is made when the folder does not exist or a
 file it would write already does.
 
 **Update values** refuses a change the equations cannot carry (the other
-recipe or kind, or a bore that appears or vanishes) with a sentence saying to
+recipe or kind, a bore that appears or vanishes, or a shift that does — an
+unshifted part has no `"Profile Shift"` global) with a sentence saying to
 build a new part, and otherwise runs `swbuild.update_variables`, which checks
 the active document is the record's part, sets only the globals that differ in
 one suppressed batch, and rebuilds once.
@@ -237,8 +254,8 @@ All in `ui_text.py`, tested without a window:
 | `widgets.py` | Airfoil Converter's, plus `Explainer` and `draw_diagram` |
 | `swbuild.py` | the build, run against the `SolidWorks` protocol |
 | `store.py` | `.gear.json` records and `recent.json` |
-| `design/canvas/` | the artboards this window was designed on, at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>: `Main.dc.html` the strip in pair mode, `SingleGear.dc.html` in single mode, `FieldGuide.dc.html` every explainer card. `gen.py` makes them from the app's own maths — `.venv/bin/python design/canvas/gen.py` — and `ui.py` is Airfoil Converter's builders, unchanged |
-| `design/renders/` | the same three artboards as PNGs, at 2× |
+| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field). `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
+| `design/renders/` | each artboard as a PNG at 2×, `<Board>.png`, made by `.venv/bin/python design/canvas/render.py` with headless Chrome (no window opens; a throwaway profile) and trimmed of the empty window ground |
 
 ## 7. Where it differs from the plan
 
@@ -253,9 +270,11 @@ All in `ui_text.py`, tested without a window:
   failing the build: the part is still the right gear, and the sentence says
   what to look at.
 
-- The helix rows have no explainer card yet: putting the caret in Helix angle
-  leaves the card on the field it was last on. Gear B's Hand can still be set
-  to A's; the assembly then refuses the pair with a sentence at Build.
+- Helix angle and Hand have their cards (a slab with its teeth leaning β, and a
+  right- and a left-hand gear). Hand takes no caret, so choosing a hand shows
+  it. In a pair gear B's Hand follows gear A's — `pair.partner_hand`: the other
+  on parallel shafts, the same round a ring, and on crossed shafts as Hands
+  says — with the wrong segment turned off and the hint *follows gear A*.
 
 And where the window differs from the artboards, because Tk would not do it:
 
@@ -283,10 +302,17 @@ And where the window differs from the artboards, because Tk would not do it:
   fillet note is *0.15m*. A bevel gear's rows are its own: pitch cone δ, cone
   distance, pitch and outer diameters, apex to crown, addendum, dedendum, face
   and root angles, virtual teeth, toe scale, tooth at pitch and backlash. The
-  readout reads `δ 26.565° · R 67.082 · OD 67.218 · X 58.195`.
+  readout reads `δ 26.565° · R 67.082 · OD 67.218 · X 58.195`. A crown gear's
+  readout ends `· crown` and its virtual teeth read *∞ · a rack*; an internal
+  bevel's ends `· internal`, its *Outer diameter* row becomes *Tip diameter*
+  and its virtual teeth end *· a ring*. The Teeth row's worked line says which
+  side the cone puts the teeth, and Shaft angle's names the form.
 - **Pair readout and rows** say `R` and *Cone distance* for a bevel pair.
 - **Candidates**: a bevel row's error is *R +0.03 mm*, an internal row adds
-  *clash 0.14 mm*, a crossed row starts *β45°/45°*.
+  *clash 0.14 mm*, a crossed row starts *β45°/45°*. A bevel row with a crown
+  or internal bevel gear starts *B crown ·* or *B internal ·*. Build refuses
+  those two until probe `bevel_planes_beyond_90` has run, in the status line,
+  as the gear mate does; nothing on the form is greyed for it.
 - **Preview** (`preview.layout_internal`, `preview.layout_bevel`): a pinion is
   drawn inside its ring, the rim a plain circle, the pinion turned half its
   pitch; a bevel gear is its axial section, both halves, with the pitch cone and
