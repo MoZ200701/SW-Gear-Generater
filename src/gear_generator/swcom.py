@@ -215,6 +215,16 @@ def _out_long() -> Any:
     return VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
 
+def _out_text() -> Any:
+    """A by-reference string for an out parameter. UNVERIFIED: first used by probe custom_properties."""
+    return VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BSTR, "")
+
+
+def _out_bool() -> Any:
+    """A by-reference boolean for an out parameter. UNVERIFIED: first used by probe custom_properties."""
+    return VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BOOL, False)
+
+
 def _type_name(obj: Any) -> str:
     """``GetTypeName2`` first, defaulting to ``?``: naming a failure must not fail."""
     try:
@@ -1273,9 +1283,38 @@ class Session:
         if not bool(call(component, "IsFixed")):
             raise SolidWorksError(f"{call(component, 'Name2')} is still floating after FixComponent.")
 
+    def unfix_component(self, handle: str) -> None:
+        """Let a component move: select it, ``UnfixComponent``, and read back that it floats.
+
+        UNVERIFIED: written from the API help beside ``FixComponent``, which
+        takes no arguments and so is invoked explicitly; probe gear_mate is what
+        settles it. The first component inserted comes in fixed (probe
+        assembly_components_and_mates).
+        """
+        component = self._handles[handle]["component"]
+        if not bool(call(component, "IsFixed")):
+            return
+        doc = self._doc()
+        call(doc, "ClearSelection2", True)
+        if not call(component, "Select4", False, _null_dispatch(), False):
+            raise SolidWorksError(f"{call(component, 'Name2')} could not be selected to unfix it.")
+        doc.UnfixComponent()
+        call(doc, "ClearSelection2", True)
+        if bool(call(component, "IsFixed")):
+            raise SolidWorksError(f"{call(component, 'Name2')} is still fixed after UnfixComponent.")
+
     def _component_ref(self, ref: str, append: bool) -> None:
-        """``gear1:plane2`` or ``gear2:Gear Axis``, selected at mark 1 for a mate."""
+        """``gear1:plane2`` or ``gear2:Gear Axis``, selected at mark 1 for a mate; ``asm:plane2`` the assembly's own.
+
+        The assembly's own planes are taken by tree order, as a part's are, and
+        selected the same way (UNVERIFIED in an assembly: probe gear_mate).
+        """
         handle, _, target = ref.partition(":")
+        if handle == "asm":
+            if not (target.startswith("plane") and target[5:].isdigit()):
+                raise SolidWorksError(f"The assembly's own {target!r} is not a plane this tool can select.")
+            self.select_plane_by_order(int(target[5:]), append=append, mark=1)
+            return
         component = self._handles[handle]["component"]
         if target == "origin":
             self._select_component_origin(component, append)
@@ -1374,12 +1413,16 @@ class Session:
             feature = call(feature, "GetNextFeature")
         raise SolidWorksError(f"No mate called {name!r}.")
 
-    def add_mate(self, handle: str, kind: str, a: str, b: str, value: float = 0.0, name: str = "") -> Tuple[str, str]:
+    def add_mate(self, handle: str, kind: str, a: str, b: str, value: float = 0.0, name: str = "",
+                 ratio: Tuple[float, float] = (1.0, 1.0), flip: bool = False) -> Tuple[str, str]:
         """``AddMate5`` on two component references; returns ``(mate name, its dimension)``.
 
         Probe assembly_components_and_mates: coincident, distance and angle
         mates were made this way and the component moved to where they said.
+        A ``gear`` mate is :meth:`_gear_mate`'s.
         """
+        if kind == "gear":
+            return self._gear_mate(handle, a, b, ratio, flip, name)
         # Probe nonparallel_mates: a point on a point or a plane is a coincident
         # mate, a point's distance from a plane a distance mate, and the angle
         # between two axes an angle mate, each with its value as dimension D1.
@@ -1410,6 +1453,56 @@ class Session:
             dim = str(call(matches[0], "Name")) if len(matches) == 1 else ""
         self._handles[handle] = {"mate": kept}
         return kept, dim
+
+    def _gear_mate(self, handle: str, a: str, b: str, ratio: Tuple[float, float], flip: bool,
+                   name: str) -> Tuple[str, str]:
+        """A gear mate between two axes, ``a`` turning ``ratio[0]`` teeth to ``b``'s ``ratio[1]``.
+
+        UNVERIFIED until probe gear_mate passes: the ``swMateType_e`` value, which
+        of the two ratio arguments goes with the first selection, and which
+        ``Flip`` turns the gears opposite ways are all its findings, and until
+        they are recorded this refuses rather than guess them. The arguments
+        are ``AddMate5``'s own order, the gear ratio being the seventh and
+        eighth, which the verified mates pass as 1 and 1.
+        """
+        if findings.GEAR_MATE_ROUTE is None or findings.MATE_GEAR is None or findings.GEAR_MATE_NUMERATOR_FIRST is None:
+            raise SolidWorksError("A gear mate has not been settled on SolidWorks yet; run the gear_mate probe first.")
+        before = self._mate_names()
+        self._component_ref(a, append=False)
+        self._component_ref(b, append=True)
+        numerator, denominator = ratio if findings.GEAR_MATE_NUMERATOR_FIRST else (ratio[1], ratio[0])
+        mate = call(self._doc(), "AddMate5", findings.MATE_GEAR, findings.MATE_ALIGN_CLOSEST, flip, 0.0, 0.0, 0.0,
+                    float(numerator), float(denominator), 0.0, 0.0, 0.0, False, False, 0, _out_long())
+        call(self._doc(), "ClearSelection2", True)
+        made = [n for n in self._mate_names() if n not in before]
+        if mate is None or len(made) != 1:
+            raise SolidWorksError(f"AddMate5 would not make a gear mate between {a} and {b}.")
+        kept = self._rename(self._mate_feature(made[0]), name) if name else made[0]
+        self._handles[handle] = {"mate": kept}
+        return kept, ""
+
+    def set_custom_property(self, name: str, value: str) -> None:
+        """A text custom property on the build's part, added or replaced, and read back.
+
+        UNVERIFIED until probe custom_properties passes: ``Add3``'s type and
+        option are its findings (from swconst.tlb), as is the read that gives a
+        value back, and until they are recorded this refuses rather than guess.
+        """
+        if findings.CUSTOM_PROPERTY_ROUTE is None or findings.CUSTOM_INFO_TEXT is None:
+            raise SolidWorksError("Custom properties have not been settled on SolidWorks yet; "
+                                  "run the custom_properties probe first.")
+        manager = call(call(self._doc(), "Extension"), "CustomPropertyManager", "")
+        if manager is None:
+            raise SolidWorksError(f"{call(self._doc(), 'GetTitle')} has no custom property manager.")
+        call(manager, "Add3", name, findings.CUSTOM_INFO_TEXT, value, findings.CUSTOM_PROPERTY_REPLACE)
+        if findings.PROPERTY_READ_ROUTE == "Get":
+            kept = call(manager, "Get", name)
+        else:
+            out = _out_text()
+            call(manager, "Get6", name, False, out, _out_text(), _out_bool(), _out_bool())
+            kept = out.value
+        if str(kept) != value:
+            raise SolidWorksError(f"The custom property {name!r} reads back {kept!r}, not {value!r}.")
 
     def interference_count(self) -> Tuple[int, float]:
         """How many interferences the build's assembly has, and their volume in mm³.

@@ -35,7 +35,9 @@ Judgement calls (change at review if wrong):
 - An internal gear's default fillet is **0.15 × module**. The spur default of 0.38 × m reaches into the
   pinion's tip path.
 - A bevel part's **pitch apex is at the part origin**, with the axis along +Z.
-- Crown gears and internal bevels (δ = 90° or more) are refused.
+- Crown gears and internal bevels (δ = 90° or more) are refused. *Superseded 2026-09-29: both are built
+  — a crown gear's section is a rack's, an internal bevel's a ring's — behind probe
+  `bevel_planes_beyond_90`; see "Follow-on" at the end.*
 - Phase order is **internal → crossed → bevel**, easiest first. Crossed introduces the interference
   check and non-parallel mates in the simpler setting.
 
@@ -463,3 +465,32 @@ Where the build differs from the plan above, and what was observed on SolidWorks
   were not needed.
 - **Crossed end to end** (mn 2, 20:40, β 45°/45° R, Σ 90°): built by the mates route with no interference, and 3
   interferences (102.6 mm³) with gear 2's mesh angle half a pitch round.
+
+## Follow-on (2026-09-29, written on a machine without SolidWorks — none of it built there)
+
+- **Crown gears** (|δ − 90°| ≤ 0.01°) and **internal bevel gears** (δ ≥ 91°) are derived, validated,
+  solved and planned. The band 89°–91° either side of a crown gear is still refused, and the message
+  names the shaft angle, `acos(−z_mate / z)`, that makes the gear a crown gear exactly.
+  - Crown: δ is built as exactly 90° (`"Pitch Cone Angle"` is the literal 90, since the formula's
+    denominator is zero there). The section is a rack: its sketch is `Du` to the root line, `Cu` to the
+    cap line, `W` across the space on the pitch line, one flank at the pressure angle, the cap line
+    carrying the other flank round as its mirror, and tangent root fillets. Addenda 0.54 m and 1.46 m,
+    Gleason's limit as q → ∞. The blank's rims are measured along the axis: 3 m behind the root at the
+    heel, 1 m at the toe, so the web inside the toe is at least 2 m thick.
+  - Internal: equal addenda of one module (Gleason tabulates nothing for them), whole depth 2.188 m,
+    default fillet 0.15 m as a ring's. The section is `internal.space_ops` on the back cone's ring of
+    N / |cos δ| teeth, framed with its x reversed: the ring's centre is on its tips' side. The blank is
+    a conical ring 3 m behind the root cone; a typed bore is warned about and not cut.
+  - εα of any bevel pair is the sum of each gear's share of the path of contact on its back cone —
+    external, rack (`ha / sin α`) or ring (`rv sin α − √((rv − ha)² − rb²)`).
+- **Probe `bevel_planes_beyond_90`** (tier 2, extra) makes the heel plane fresh on cones of 90° and
+  120° and measures its sketch frame, as `ref_plane_normal` did at 30° and 50°. Until it passes,
+  `findings.BEVEL_CROWN_SECTION_X_SIGN` and `BEVEL_INTERNAL_SECTION_X_SIGN` are None and Build refuses
+  those gears with the probe's name.
+- **Fixed on the way:** recipe B's bevel sections linked their pitch circle to `"Pitch Diameter"` (the
+  heel's) instead of `"Back Cone Pitch Diameter"`, so SolidWorks would have rebuilt the flank arcs on
+  the wrong circle. Every bevel recipe-B plan was affected; recipe A, the default and the one probe
+  `bevel_end_to_end` built, was not. `spur.space_ops` and `internal.space_ops` now take the pitch global.
+- **Not built:** spiral and zerol bevel gears. Their teeth curve along the face (a cutter radius and a
+  spiral angle), which needs a 3D tooth trace or guide-curve loft and SolidWorks calls not yet probed.
+

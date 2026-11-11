@@ -232,6 +232,15 @@ REF_PLANE_PERPENDICULAR = 2   # swRefPlaneReferenceConstraint_Perpendicular
 REF_PLANE_COINCIDENT = 4      # swRefPlaneReferenceConstraint_Coincident
 BEVEL_SECTION_X_SIGN = 1      # the section's outward radial is the plane's sketch +x
 
+# bevel_planes_beyond_90 (UNVERIFIED — written on a machine without SolidWorks,
+# never run): the same plane made fresh on a pitch cone of 90° (a crown gear's,
+# square to X) and of 120° (an internal bevel's, leaning past it). +1 when the
+# plane's sketch +x is (cos δ, 0, −sin δ), the way the teeth's tips point, as it
+# is below 90°. None until the probe has run: a crown or internal bevel gear is
+# refused at build time until then.
+BEVEL_CROWN_SECTION_X_SIGN = None
+BEVEL_INTERNAL_SECTION_X_SIGN = None
+
 # loft_cut_sections: InsertCutBlend (12 arguments) through two similar
 # rectangles on parallel planes, both at mark 1 in order, removed their frustum
 # L A (1 + k + k^2) / 3 to 1e-4 and left one body.
@@ -265,6 +274,32 @@ ORIGIN_POINT = "Point1"
 # top plane, an angle mate between the axes and one between the top planes — a
 # bevel-style frame held to 1e-16 and 0 mm.
 BEVEL_MATE_ROUTE = "mates"
+
+# -- custom properties ------------------------------------------------------
+
+# custom_properties (tier 3) has been written but has not run on SolidWorks yet,
+# so no plan stamps a property. Once it passes these are read off its facts:
+# the route, swCustomInfoText and swCustomPropertyReplaceValue as read from
+# swconst.tlb, which read gave the value back, and whether a property whose
+# value is a global's quoted name followed the global when it changed.
+CUSTOM_PROPERTY_ROUTE = None
+CUSTOM_INFO_TEXT = None
+CUSTOM_PROPERTY_REPLACE = None
+PROPERTY_READ_ROUTE = None
+PROPERTY_LINKS_GLOBALS = None
+
+# -- gear mate --------------------------------------------------------------
+
+# gear_mate (tier 4, extra) has been written but has not run on SolidWorks yet,
+# so nothing about a gear mate is settled, and an assembly that asks for one is
+# refused. Once it passes, these are read off its facts (probe/decide.py):
+# the route, swMateType_e.swMateGEAR as read from swconst.tlb, whether
+# AddMate5's gear ratio numerator goes with the first selection, and the Flip
+# that turns two external gears opposite ways.
+GEAR_MATE_ROUTE = None
+MATE_GEAR = None
+GEAR_MATE_NUMERATOR_FIRST = None
+GEAR_MATE_EXTERNAL_FLIP = None
 # The crossed frame's mates held its rotation; a point's distance from a plane is
 # measured along the plane's normal, so a negative offset is mated flipped.
 CROSSED_ROUTE = "mates"

@@ -7,7 +7,8 @@ from gear_generator.spec import GearSpec, PairSpec, parse_ratio
 
 
 def rows(candidates):
-    return [(c.module, c.teeth_driver, c.teeth_driven) for c in candidates]
+    """Module and teeth of the unshifted rows; a shifted row stands in as ``None``, keeping the positions."""
+    return [None if c.shifted else (c.module, c.teeth_driver, c.teeth_driven) for c in candidates]
 
 
 # -- the pinned cases -------------------------------------------------------
@@ -175,7 +176,7 @@ def test_a_blank_helix_angle_is_solved_so_every_exact_ratio_row_meets_the_centre
         (1.0, 37, 74, 22.3316),
     ]
     assert all(abs(c.centre_error) < 1e-9 for c in rows)
-    undercut = next(c for c in rows if (c.module, c.teeth_driver) == (3.0, 13))
+    undercut = next(c for c in rows if (c.module, c.teeth_driver) == (3.0, 13) and not c.shifted)
     assert undercut.undercut and rows.index(undercut) > 8
 
 

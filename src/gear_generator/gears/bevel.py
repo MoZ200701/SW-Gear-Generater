@@ -33,7 +33,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .. import findings
 from ..spec import KIND_BEVEL, GearSpec, InputError
-from . import equations, spur
+from . import equations, internal, spur
+from .properties import property_ops
 from .base import (
     ERROR,
     ORIGIN,
@@ -88,8 +89,19 @@ RATIO_ADDENDUM = 0.460      # × module, over the equivalent ratio
 
 SHAFT_MIN = 10.0
 SHAFT_MAX = 170.0
-CROWN_LIMIT = 89.0          # degrees of pitch cone at and above which a gear is a crown or internal bevel
+CROWN_LIMIT = 89.0          # degrees of pitch cone from which a gear is too near a crown gear to build as a cone
+CROWN_TOLERANCE = 0.01      # degrees either side of 90° within which a gear is built as a crown gear
+INTERNAL_LIMIT = 91.0       # degrees of pitch cone at and above which a gear is an internal bevel
 OVERRUN_MODULES = 1.0       # the loft runs this far past the heel and the toe
+CROWN_BACK_MODULES = 3.0    # a crown gear's back face is this far behind its root at the heel
+CROWN_FRONT_MODULES = 1.0   # and the face inside its toe this far behind the root there
+RING_MODULES = 3.0          # an internal bevel's rim is this far behind its root cone, as a ring's is
+RING_FILLET_FACTOR = 0.15   # × module, an internal bevel's default fillet, as a ring's
+
+# What a bevel gear's pitch cone makes it.
+FORM_CONE = "cone"          # δ < 90°: the usual bevel gear, its teeth outside a cone
+FORM_CROWN = "crown"        # δ = 90°: the pitch cone is a plane, the teeth on the gear's face, the section a rack's
+FORM_INTERNAL = "internal"  # δ > 90°: the teeth inside a cone, the section a ring's
 
 # The globals a bevel gear adds, by name.
 SHAFT = "Shaft Angle"
@@ -114,6 +126,7 @@ HEEL_SCALE = "Heel Scale"
 TOE_SCALE = "Toe Scale"
 HEEL_RADIUS = "Heel Virtual Radius"
 TOE_RADIUS = "Toe Virtual Radius"
+BACK_INNER = "Back Cone Inner Diameter"     # an internal bevel's: its back cone's ring's tip circle
 
 # The user's names a bevel part keeps, in their order; "Tooth Depth" is Gleason's, not the IIF.
 USER_VARIABLES = (TEETH, MODULE, BORE, PRESSURE_ANGLE, OUTER, PITCH, BACKLASH, ARC_LENGTH, FILLET, DEPTH)
@@ -135,8 +148,44 @@ def pitch_cone_angle(teeth: int, mate_teeth: int, shaft: float) -> float:
     return math.degrees(math.atan2(math.sin(math.radians(shaft)), mate_teeth / teeth + math.cos(math.radians(shaft))))
 
 
+def is_crown(delta: float) -> bool:
+    return abs(delta - 90.0) <= CROWN_TOLERANCE
+
+
+def form_of(delta: float) -> str:
+    """:data:`FORM_CONE`, :data:`FORM_CROWN` or :data:`FORM_INTERNAL`; ``""`` in the bands either side of a crown."""
+    if is_crown(delta):
+        return FORM_CROWN
+    if delta >= INTERNAL_LIMIT:
+        return FORM_INTERNAL
+    if delta >= CROWN_LIMIT:
+        return ""
+    return FORM_CONE
+
+
+def crown_shaft_angle(teeth: int, mate_teeth: int) -> Optional[float]:
+    """The shaft angle, degrees, that makes a gear of ``teeth`` a crown gear with its mate: ``cos Σ = −N_mate / N``.
+
+    None when there is none: only the bigger gear of a pair can be the crown.
+    """
+    if mate_teeth >= teeth:
+        return None
+    return math.degrees(math.acos(-mate_teeth / teeth))
+
+
 def addenda(module: float, teeth: int, mate_teeth: int, delta: float, delta_mate: float) -> Tuple[float, float]:
-    """``(this gear's addendum, the mate's)``, Gleason: the bigger gear gets ``0.54m + 0.46m / q``."""
+    """``(this gear's addendum, the mate's)``, Gleason: the bigger gear gets ``0.54m + 0.46m / q``.
+
+    A crown gear's ``q`` is infinite, so it gets ``0.54m`` and its pinion the
+    rest. Gleason tabulates nothing for an internal bevel pair, so both gears
+    of one get the module, as an internal spur pair's do.
+    """
+    if max(delta, delta_mate) >= INTERNAL_LIMIT:
+        return module, module
+    if is_crown(delta):
+        return BIG_ADDENDUM * module, WORKING_DEPTH * module - BIG_ADDENDUM * module
+    if is_crown(delta_mate):
+        return WORKING_DEPTH * module - BIG_ADDENDUM * module, BIG_ADDENDUM * module
     c, c_mate = math.cos(math.radians(delta)), math.cos(math.radians(delta_mate))
     if teeth >= mate_teeth:
         big = BIG_ADDENDUM * module + RATIO_ADDENDUM * module / ((teeth * c_mate) / (mate_teeth * c))
@@ -154,6 +203,59 @@ def cone_distance(module: float, teeth_1: int, teeth_2: int, shaft: float) -> fl
 def undercut_limit(pressure_angle_deg: float, shift: float) -> float:
     """``2 (1 − x) / sin² α``: the fewest virtual teeth a gear of shift ``x`` has without undercut."""
     return 2.0 * (1.0 - shift) / math.sin(math.radians(pressure_angle_deg)) ** 2
+
+
+@dataclass(frozen=True)
+class RackSection:
+    """A crown gear's section. Its back cone is a cylinder, so its virtual gear is a rack.
+
+    The space is a trapezoid, its flanks straight at the pressure angle, ``space``
+    wide on the pitch line and a fillet into each corner at the root. ``teeth``
+    is infinite, which is how the readouts know a rack when they see one.
+    """
+
+    module: float
+    pressure_angle_deg: float
+    face_width: float
+    bore: float
+    backlash: float
+    fillet: float
+    backlash_typed: bool
+    fillet_typed: bool
+    alpha: float
+    addendum: float
+    dedendum: float
+    space: float
+    s: float
+    p: float
+    teeth: float = math.inf
+
+    @property
+    def h(self) -> float:
+        return self.addendum + self.dedendum
+
+    def half_width(self, u: float) -> float:
+        """Half the space's width ``u`` mm out from the pitch line, toward the tips."""
+        return self.space / 2.0 + u * math.tan(self.alpha)
+
+    @property
+    def fillet_centre(self) -> Point2:
+        """The upper root fillet's centre, ``(u, v)``: a fillet above the root line, tangent to the upper flank."""
+        u = -self.dedendum + self.fillet
+        return u, self.half_width(u) - self.fillet / math.cos(self.alpha)
+
+    @property
+    def cap(self) -> float:
+        """How far out the space is closed: a module past the tips, as a spur gear's tip cap."""
+        return self.addendum + self.module
+
+    @property
+    def tip_thickness(self) -> float:
+        return self.p - 2.0 * self.half_width(self.addendum)
+
+    def values(self) -> Dict[str, float]:
+        return {BACKLASH: self.backlash, ARC_LENGTH: self.space, FILLET: self.fillet, DEPTH: self.h,
+                FACE_WIDTH: self.face_width}
 
 
 @dataclass(frozen=True)
@@ -191,6 +293,7 @@ class BevelDerived:
     virtual_teeth: float
     virtual_radius: float
     overrun: float
+    form: str = FORM_CONE
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("__") or name == "section":
@@ -227,13 +330,25 @@ class BevelDerived:
 
     @property
     def undercut(self) -> bool:
-        return self.virtual_teeth < undercut_limit(self.pressure_angle_deg, self.shift)
+        """Only a cone's teeth undercut: a crown gear's are a rack's, and an internal bevel's a ring's."""
+        return self.form == FORM_CONE and self.virtual_teeth < undercut_limit(self.pressure_angle_deg, self.shift)
+
+    @property
+    def crown(self) -> bool:
+        return self.form == FORM_CROWN
+
+    @property
+    def ring(self) -> bool:
+        return self.form == FORM_INTERNAL
 
     def values(self) -> Dict[str, float]:
         """The value of every global variable, by name."""
         s = self.section
         out = dict(s.values())
-        tan_delta = math.tan(math.radians(self.delta))
+        if self.ring:
+            for name in (internal.INNER, internal.RIM, TEETH):
+                out.pop(name, None)
+        tan_delta = abs(math.tan(math.radians(self.delta))) if not self.crown else 0.0
         out.update({
             TEETH: float(self.teeth),
             MODULE: self.module,
@@ -256,20 +371,27 @@ class BevelDerived:
             FACE_ANGLE: self.face_angle,
             ROOT_ANGLE: self.root_angle,
             OVERRUN: self.overrun,
-            BACK_PITCH: s.d,
-            BACK_OUTER: s.da,
             HEEL_DISTANCE: self.heel_distance,
             TOE_DISTANCE: self.toe_distance,
             HEEL_SCALE: self.heel_distance / self.cone_distance,
             TOE_SCALE: self.toe_distance / self.cone_distance,
-            HEEL_RADIUS: self.heel_distance * tan_delta,
-            TOE_RADIUS: self.toe_distance * tan_delta,
         })
+        if not self.crown:
+            out.update({
+                BACK_PITCH: s.d,
+                HEEL_RADIUS: self.heel_distance * tan_delta,
+                TOE_RADIUS: self.toe_distance * tan_delta,
+            })
+            out[BACK_INNER if self.ring else BACK_OUTER] = s.da
         return out
 
     def to_dict(self) -> Dict[str, Any]:
-        data = {key: value for key, value in asdict(self).items() if key != "section"}
-        data["section"] = asdict(self.section)
+        """As :func:`dataclasses.asdict`, with a crown gear's infinite virtual teeth written as None, JSON having no infinity."""
+        def finite(data: Dict[str, Any]) -> Dict[str, Any]:
+            return {k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in data.items()}
+
+        data = finite({key: value for key, value in asdict(self).items() if key != "section"})
+        data["section"] = finite(asdict(self.section))
         return data
 
 
@@ -306,11 +428,17 @@ def derive(spec: GearSpec) -> BevelDerived:
     width = spec.face_width_mm()
     delta = pitch_cone_angle(n, mate, shaft)
     delta_mate = shaft - delta
-    for name, angle in (("This gear", delta), ("Its mate", delta_mate)):
-        if angle >= CROWN_LIMIT:
+    for name, angle, teeth, other in (("This gear", delta, n, mate), ("Its mate", delta_mate, mate, n)):
+        if not form_of(angle):
+            crown = crown_shaft_angle(teeth, other)
             raise GeometryError(
-                f"{name} would have a pitch cone of {_num(angle, 2)}°: a crown or internal bevel gear, which is "
-                "not built; change the teeth or the shaft angle.")
+                f"{name} would have a pitch cone of {_num(angle, 2)}°, too near a crown gear's 90° to build either "
+                f"as a cone or as a crown gear; a shaft angle of {_num(crown, 3)}° makes it a crown gear, or change "
+                "the teeth or the shaft angle.")
+    form = form_of(delta)
+    if form == FORM_CROWN:
+        # Built as exactly a crown: the mate takes up what the typed shaft angle leaves.
+        delta, delta_mate = 90.0, shaft - 90.0
     d = m * n
     radius = d / (2.0 * math.sin(math.radians(delta)))
     ha, ha_mate = addenda(m, n, mate, delta, delta_mate)
@@ -318,34 +446,109 @@ def derive(spec: GearSpec) -> BevelDerived:
     theta_f = math.degrees(math.atan(hf / radius))
     theta_f_mate = math.degrees(math.atan(hf_mate / radius))
     shift = (ha - m) / m
-    cos_delta = math.cos(math.radians(delta))
-    virtual = n / cos_delta
+    cos_delta = 0.0 if form == FORM_CROWN else math.cos(math.radians(delta))
     typed_backlash = spec.backlash_mm()
     typed_fillet = spec.fillet_mm()
     j = BACKLASH_FACTOR * m if typed_backlash is None else typed_backlash
-    section = spur.profile(
-        virtual, m, alpha, width, 0.0, j, FILLET_FACTOR * m if typed_fillet is None else typed_fillet,
-        backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
-        addendum=ha, whole_depth=ha + hf, space_change=-2.0 * (ha - m) * math.tan(math.radians(alpha)),
-    )
+    space_change = -2.0 * (ha - m) * math.tan(math.radians(alpha))
+    section: Any
+    if form == FORM_CROWN:
+        virtual = virtual_radius = math.inf
+        space = m * math.pi / 2.0 + j + space_change
+        section = RackSection(
+            module=m, pressure_angle_deg=alpha, face_width=width, bore=spec.bore_mm(), backlash=j,
+            fillet=FILLET_FACTOR * m if typed_fillet is None else typed_fillet,
+            backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
+            alpha=math.radians(alpha), addendum=ha, dedendum=hf, space=space, s=m * math.pi - space, p=m * math.pi,
+        )
+    elif form == FORM_INTERNAL:
+        # The back cone's ring: Nv = N / |cos δ| teeth, its centre on the tips' side of the pitch cone.
+        virtual = n / abs(cos_delta)
+        virtual_radius = d / (2.0 * abs(cos_delta))
+        section = internal.section(
+            virtual, m, alpha, width, None, j, RING_FILLET_FACTOR * m if typed_fillet is None else typed_fillet,
+            backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None, whole_depth=ha + hf,
+        )
+    else:
+        virtual = n / cos_delta
+        virtual_radius = d / (2.0 * cos_delta)
+        section = spur.profile(
+            virtual, m, alpha, width, 0.0, j, FILLET_FACTOR * m if typed_fillet is None else typed_fillet,
+            backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
+            addendum=ha, whole_depth=ha + hf, space_change=space_change,
+        )
+    sin_delta = math.sin(math.radians(delta))
     return BevelDerived(
         section=section, teeth=n, mate_teeth=mate, module=m, pressure_angle_deg=alpha, shaft_angle=shaft,
         face_width=width, bore=spec.bore_mm(), d=d, delta=delta, delta_mate=delta_mate, cone_distance=radius,
         addendum=ha, mate_addendum=ha_mate, dedendum=hf, mate_dedendum=hf_mate, dedendum_angle=theta_f,
         mate_dedendum_angle=theta_f_mate, face_angle=delta + theta_f_mate, root_angle=delta - theta_f,
-        da=d + 2.0 * ha * cos_delta, crown_to_apex=radius * cos_delta - ha * math.sin(math.radians(delta)),
-        shift=shift, virtual_teeth=virtual, virtual_radius=d / (2.0 * cos_delta), overrun=OVERRUN_MODULES * m,
+        da=d + 2.0 * ha * cos_delta, crown_to_apex=radius * cos_delta - ha * sin_delta,
+        shift=shift, virtual_teeth=virtual, virtual_radius=virtual_radius, overrun=OVERRUN_MODULES * m, form=form,
     )
+
+
+def _approach(form: str, rv: float, ha: float, alpha: float) -> float:
+    """One gear's share of the path of contact, from its tip circle to the pitch point, on its back cone.
+
+    A cone's virtual gear is external, ``√((rv + ha)² − rb²) − rv sin α``; a
+    crown gear's is a rack, ``ha / sin α``; an internal bevel's is a ring, whose
+    tip circle is inside its pitch circle, ``rv sin α − √((rv − ha)² − rb²)``.
+    """
+    if form == FORM_CROWN:
+        return ha / math.sin(alpha)
+    rb = rv * math.cos(alpha)
+    if form == FORM_INTERNAL:
+        return rv * math.sin(alpha) - math.sqrt(max(0.0, (rv - ha) ** 2 - rb * rb))
+    return math.sqrt((rv + ha) ** 2 - rb * rb) - rv * math.sin(alpha)
+
+
+def virtual_radius(module: float, teeth: int, delta: float) -> float:
+    """``rv = m N / (2 |cos δ|)``, infinite for a crown gear."""
+    if is_crown(delta):
+        return math.inf
+    return module * teeth / (2.0 * abs(math.cos(math.radians(delta))))
+
+
+def pair_contact_ratio(module: float, pressure_angle_deg: float, teeth: int, mate_teeth: int, delta: float,
+                       delta_mate: float, addendum: float, mate_addendum: float) -> float:
+    """εα of the virtual pair on the two back cones: each gear's share of the path of contact, over the base pitch."""
+    alpha = math.radians(pressure_angle_deg)
+    total = sum(_approach(form_of(d), virtual_radius(module, n, d), ha, alpha)
+                for n, d, ha in ((teeth, delta, addendum), (mate_teeth, delta_mate, mate_addendum)))
+    return total / (math.pi * module * math.cos(alpha))
 
 
 def contact_ratio(g: BevelDerived) -> float:
     """εα of the virtual spur pair on the back cones, with each gear's own Gleason addendum."""
-    alpha = math.radians(g.pressure_angle_deg)
-    rv, rv_mate = g.virtual_radius, g.mate_teeth * g.module / (2.0 * math.cos(math.radians(g.delta_mate)))
-    total = math.sqrt((rv + g.addendum) ** 2 - (rv * math.cos(alpha)) ** 2)
-    total += math.sqrt((rv_mate + g.mate_addendum) ** 2 - (rv_mate * math.cos(alpha)) ** 2)
-    total -= (rv + rv_mate) * math.sin(alpha)
-    return total / (math.pi * g.module * math.cos(alpha))
+    return pair_contact_ratio(g.module, g.pressure_angle_deg, g.teeth, g.mate_teeth, g.delta, g.delta_mate,
+                              g.addendum, g.mate_addendum)
+
+
+def rack_diagnostics(r: RackSection) -> List[Diagnostic]:
+    """A crown gear's rack section: the teeth must not come to a point, and the root fillets must fit."""
+    out: List[Diagnostic] = []
+    if r.backlash >= r.p / 2.0:
+        out.append(Diagnostic(ERROR, (
+            f"Backlash of {_num(r.backlash)} mm leaves no tooth: it must be less than half "
+            f"the circular pitch, {_num(r.p / 2.0)} mm."), "backlash"))
+        return out
+    if r.tip_thickness <= 0.0:
+        out.append(Diagnostic(ERROR, (
+            f"The crown gear's teeth come to a point before their tips at {_num(r.pressure_angle_deg)}°; "
+            "reduce the backlash or the pressure angle."), "teeth"))
+    if r.fillet <= 0.0:
+        out.append(Diagnostic(ERROR, "Fillet must be more than zero.", "fillet"))
+    elif r.fillet_centre[1] <= 0.0:
+        out.append(Diagnostic(ERROR, (
+            f"The two {_num(r.fillet)} mm root fillets do not fit in the root of the crown gear's tooth space, "
+            f"{_num(2.0 * r.half_width(-r.dedendum))} mm wide; make Fillet smaller."), "fillet"))
+    return out
+
+
+def ring_outer_radius(g: BevelDerived) -> float:
+    """How far an internal bevel's back reaches from its axis, mm: at the heel's rim."""
+    return blank_points(g).heel_rim[0]
 
 
 def toe_root_radius(g: BevelDerived) -> float:
@@ -368,8 +571,19 @@ def validate(spec: GearSpec, derived: Optional[BevelDerived] = None, recipe: str
             f"A face width of {_num(g.face_width)} mm is half the cone distance of {_num(g.cone_distance)} mm or more; "
             "the teeth would shrink to nothing toward the apex."), "face_width"))
         return out
-    out.extend(d for d in spur.section_diagnostics(g.section, recipe, g.undercut_limit) if d.field != "bore")
-    if g.bore > 0.0 and g.bore / 2.0 >= toe_root_radius(g) - g.module:
+    if g.crown:
+        out.extend(rack_diagnostics(g.section))
+    elif g.ring:
+        out.extend(d for d in internal.section_diagnostics(g.section, recipe) if d.field not in ("rim", "bore"))
+    else:
+        out.extend(d for d in spur.section_diagnostics(g.section, recipe, g.undercut_limit, suggest_shift=False)
+                   if d.field != "bore")
+    if g.ring:
+        if g.bore > 0.0:
+            out.append(Diagnostic(WARNING, (
+                f"An internal bevel gear is a ring, {_num(2.0 * ring_outer_radius(g))} mm across its back, and has "
+                "no bore; the Bore is not cut."), "bore"))
+    elif g.bore > 0.0 and g.bore / 2.0 >= toe_root_radius(g) - g.module:
         out.append(Diagnostic(ERROR, (
             f"Bore of {_num(g.bore)} mm reaches within a module of the root at the toe, "
             f"{_num(2.0 * toe_root_radius(g))} mm across; it must be smaller."), "bore"))
@@ -409,8 +623,46 @@ def variables(spec: GearSpec, g: BevelDerived) -> List[GlobalVariable]:
                 f"2 * {m} - ( {big(nm, cone, n, mate_cone)} ) )")
     addendum_r = (f"IIF ( {n} >= {nm} , {big(n, mate_cone_r, nm, cone_r)} , "
                   f"2 * {m} - ( {big(nm, cone_r, n, mate_cone_r)} ) )")
+    pitch_cone = GlobalVariable(PITCH_CONE, f"IIF ( {denominator} > 0 , {base_angle} , 180 + {base_angle} )",
+                                f"IIF ( {denominator_r} > 0 , {base_angle_r} , 180 + {base_angle_r} )")
+    # Gleason's q is infinite beside a crown gear, and cos δ in it zero: those pairs, and the internal ones,
+    # have addenda of their own (see addenda), written without it.
+    mate_form = form_of(g.delta_mate)
+    if FORM_INTERNAL in (g.form, mate_form):
+        addendum = addendum_r = m
+    elif g.crown:
+        addendum = addendum_r = f"{equations.literal(BIG_ADDENDUM)} * {m}"
+    elif mate_form == FORM_CROWN:
+        addendum = addendum_r = f"{equations.literal(WORKING_DEPTH)} * {m} - {equations.literal(BIG_ADDENDUM)} * {m}"
+    if g.crown:
+        # The formula's denominator is zero at a crown gear; it is built as exactly 90°.
+        pitch_cone = GlobalVariable(PITCH_CONE, "90")
     backlash = equations.literal(s.backlash) if s.backlash_typed else f"{BACKLASH_FACTOR} * {m}"
-    fillet = equations.literal(s.fillet) if s.fillet_typed else f"{FILLET_FACTOR} * {m}"
+    factor = RING_FILLET_FACTOR if g.ring else FILLET_FACTOR
+    fillet = equations.literal(s.fillet) if s.fillet_typed else f"{factor} * {m}"
+    # A ring's back cone is on the far side of its axis: its pitch cone's supplement is what it is square to.
+    back = f"180 - {cone}" if g.ring else cone
+    back_r = f"pi - {cone_r}" if g.ring else cone_r
+    if g.crown:
+        section: List[GlobalVariable] = []
+        radii: List[GlobalVariable] = []
+    else:
+        section = [GlobalVariable(BACK_PITCH, f"{_q(PITCH)} / cos ( {back} )", f"{_q(PITCH)} / cos ( {back_r} )")]
+        if g.ring:
+            section += [
+                GlobalVariable(BACK_INNER, f"{_q(BACK_PITCH)} - 2 * {_q(ADDENDUM)}"),
+                *internal.profile_variables(g.section, PRESSURE_ANGLE, MODULE, pitch=BACK_PITCH, inner=BACK_INNER,
+                                            rim=False),
+            ]
+        else:
+            section += [
+                GlobalVariable(BACK_OUTER, f"{_q(BACK_PITCH)} + 2 * {_q(ADDENDUM)}"),
+                *spur.profile_variables(PRESSURE_ANGLE, MODULE, pitch=BACK_PITCH, outer=BACK_OUTER),
+            ]
+        radii = [
+            GlobalVariable(HEEL_RADIUS, f"{_q(HEEL_DISTANCE)} * tan ( {back} )", f"{_q(HEEL_DISTANCE)} * tan ( {back_r} )"),
+            GlobalVariable(TOE_RADIUS, f"{_q(TOE_DISTANCE)} * tan ( {back} )", f"{_q(TOE_DISTANCE)} * tan ( {back_r} )"),
+        ]
     return [
         GlobalVariable(TEETH, equations.literal(g.teeth)),
         GlobalVariable(MODULE, equations.literal(g.module)),
@@ -419,8 +671,7 @@ def variables(spec: GearSpec, g: BevelDerived) -> List[GlobalVariable]:
         GlobalVariable(SHAFT, equations.literal(g.shaft_angle)),
         GlobalVariable(MATE_TEETH, equations.literal(g.mate_teeth)),
         # Past 90° when the denominator is negative; both branches are evaluated, so a zero one is refused by validate.
-        GlobalVariable(PITCH_CONE, f"IIF ( {denominator} > 0 , {base_angle} , 180 + {base_angle} )",
-                       f"IIF ( {denominator_r} > 0 , {base_angle_r} , 180 + {base_angle_r} )"),
+        pitch_cone,
         GlobalVariable(MATE_CONE, f"{shaft} - {cone}"),
         GlobalVariable(ADDENDUM, addendum, addendum_r),
         GlobalVariable(OUTER, f"{n} * {m} + 2 * {_q(ADDENDUM)} * cos ( {cone} )",
@@ -444,15 +695,12 @@ def variables(spec: GearSpec, g: BevelDerived) -> List[GlobalVariable]:
         GlobalVariable(FACE_ANGLE, f"{cone} + {_q(MATE_DEDENDUM_ANGLE)}"),
         GlobalVariable(ROOT_ANGLE, f"{cone} - {_q(DEDENDUM_ANGLE)}"),
         GlobalVariable(OVERRUN, m),
-        GlobalVariable(BACK_PITCH, f"{_q(PITCH)} / cos ( {cone} )", f"{_q(PITCH)} / cos ( {cone_r} )"),
-        GlobalVariable(BACK_OUTER, f"{_q(BACK_PITCH)} + 2 * {_q(ADDENDUM)}"),
-        *spur.profile_variables(PRESSURE_ANGLE, MODULE, pitch=BACK_PITCH, outer=BACK_OUTER),
+        *section,
         GlobalVariable(HEEL_DISTANCE, f"{_q(CONE_DISTANCE)} + {_q(OVERRUN)}"),
         GlobalVariable(TOE_DISTANCE, f"{_q(CONE_DISTANCE)} - {_q(FACE_WIDTH)} - {_q(OVERRUN)}"),
         GlobalVariable(HEEL_SCALE, f"{_q(HEEL_DISTANCE)} / {_q(CONE_DISTANCE)}"),
         GlobalVariable(TOE_SCALE, f"{_q(TOE_DISTANCE)} / {_q(CONE_DISTANCE)}"),
-        GlobalVariable(HEEL_RADIUS, f"{_q(HEEL_DISTANCE)} * tan ( {cone} )", f"{_q(HEEL_DISTANCE)} * tan ( {cone_r} )"),
-        GlobalVariable(TOE_RADIUS, f"{_q(TOE_DISTANCE)} * tan ( {cone} )", f"{_q(TOE_DISTANCE)} * tan ( {cone_r} )"),
+        *radii,
     ]
 
 
@@ -493,18 +741,40 @@ class BlankPoints:
         return [self.toe_rim, self.toe_tip, self.heel_tip, self.heel_rim, self.back_bore, self.front_bore]
 
 
+def rim_lengths(g: BevelDerived) -> Tuple[float, float]:
+    """How far behind the pitch cone, square to it, the blank's rim is at the heel and at the toe, mm.
+
+    A cone's rims are a module inside its root, radially, so the rim lines run
+    square to the axis in to the bore. A crown gear's back is a plane: it is
+    three modules behind the root at the heel and one at the toe, so the web
+    inside the toe is at least two modules thick. An internal bevel is a ring,
+    its back parallel to its root cone three modules behind it.
+    """
+    m = g.module
+    toe_root = g.dedendum - g.face_width * math.tan(math.radians(g.dedendum_angle))
+    if g.crown:
+        return g.dedendum + CROWN_BACK_MODULES * m, toe_root + CROWN_FRONT_MODULES * m
+    if g.ring:
+        return g.dedendum + RING_MODULES * m, toe_root + RING_MODULES * m
+    c = math.cos(math.radians(g.delta))
+    return g.dedendum + m / c, toe_root + m / c
+
+
 def blank_points(g: BevelDerived) -> BlankPoints:
     d = math.radians(g.delta)
     gv = (math.sin(d), math.cos(d))
     nv = (math.cos(d), -math.sin(d))
-    radius, width, m = g.cone_distance, g.face_width, g.module
-    tan_f, tan_fm = math.tan(math.radians(g.dedendum_angle)), math.tan(math.radians(g.mate_dedendum_angle))
+    if g.crown:
+        gv, nv = (1.0, 0.0), (0.0, -1.0)
+    radius, width = g.cone_distance, g.face_width
+    tan_fm = math.tan(math.radians(g.mate_dedendum_angle))
 
     def along(t: float, s: float) -> Point2:
         return (t * gv[0] + s * nv[0], t * gv[1] + s * nv[1])
 
-    heel_rim = along(radius, -(g.dedendum + m / math.cos(d)))
-    toe_rim = along(radius - width, -(g.dedendum - width * tan_f + m / math.cos(d)))
+    heel_rim_length, toe_rim_length = rim_lengths(g)
+    heel_rim = along(radius, -heel_rim_length)
+    toe_rim = along(radius - width, -toe_rim_length)
     bore = g.bore / 2.0
     return BlankPoints(
         pitch=along(radius, 0.0), toe_pitch=along(radius - width, 0.0),
@@ -515,8 +785,10 @@ def blank_points(g: BevelDerived) -> BlankPoints:
 
 
 def outline(g: BevelDerived) -> List[Point2]:
-    """The blank's half-section, closed, in (radial, axial) mm."""
+    """The blank's half-section, closed, in (radial, axial) mm. An internal bevel's is a ring's, clear of the axis."""
     loop = blank_points(g).loop()
+    if g.ring:
+        loop = loop[:4]
     return loop + [loop[0]]
 
 
@@ -544,19 +816,58 @@ def _blank_ops(g: BevelDerived) -> List[Op]:
         return _top(point[0] + dx, point[1] + dz)
 
     nx, nz = math.cos(math.radians(d)), -math.sin(math.radians(d))
-    heel_rim_len = f"{_q(DEDENDUM)} + {m} / cos ( {cone} )"
-    heel_rim_len_r = f"{_q(DEDENDUM)} + {m} / cos ( {cone_r} )"
-    toe_rim_len = f"{_q(DEDENDUM)} - {_q(FACE_WIDTH)} * tan ( {_q(DEDENDUM_ANGLE)} ) + {m} / cos ( {cone} )"
-    toe_rim_len_r = (f"{_q(DEDENDUM)} - {_q(FACE_WIDTH)} * tan ( {_q(DEDENDUM_ANGLE)} * pi / 180 ) + "
-                     f"{m} / cos ( {cone_r} )")
-    back = f"{_q(CONE_DISTANCE)} * sin ( {cone} ) - {_q(DEDENDUM)} * cos ( {cone} ) - {m} - {_q(BORE)} / 2"
-    back_r = f"{_q(CONE_DISTANCE)} * sin ( {cone_r} ) - {_q(DEDENDUM)} * cos ( {cone_r} ) - {m} - {_q(BORE)} / 2"
-    front = (f"( {_q(CONE_DISTANCE)} - {_q(FACE_WIDTH)} ) * sin ( {cone} ) - ( {toe_rim_len} ) * cos ( {cone} ) - "
-             f"{_q(BORE)} / 2")
-    front_r = (f"( {_q(CONE_DISTANCE)} - {_q(FACE_WIDTH)} ) * sin ( {cone_r} ) - ( {toe_rim_len_r} ) * "
-               f"cos ( {cone_r} ) - {_q(BORE)} / 2")
+    if g.crown:
+        nx, nz = 0.0, -1.0
+    toe_root = f"{_q(DEDENDUM)} - {_q(FACE_WIDTH)} * tan ( {_q(DEDENDUM_ANGLE)} )"
+    toe_root_r = f"{_q(DEDENDUM)} - {_q(FACE_WIDTH)} * tan ( {_q(DEDENDUM_ANGLE)} * pi / 180 )"
+    if g.ring:
+        # A ring's back is parallel to its root cone, the same distance behind it at the heel and the toe.
+        heel_rim_len = heel_rim_len_r = f"{_q(DEDENDUM)} + {equations.literal(RING_MODULES)} * {m}"
+        toe_rim_len = f"{toe_root} + {equations.literal(RING_MODULES)} * {m}"
+        toe_rim_len_r = f"{toe_root_r} + {equations.literal(RING_MODULES)} * {m}"
+        back = back_r = front = front_r = ""
+    elif g.crown:
+        # The rims are measured along the axis; the rim lines run square to it from the heel's and the toe's radii.
+        heel_rim_len = heel_rim_len_r = f"{_q(DEDENDUM)} + {equations.literal(CROWN_BACK_MODULES)} * {m}"
+        toe_rim_len = f"{toe_root} + {equations.literal(CROWN_FRONT_MODULES)} * {m}"
+        toe_rim_len_r = f"{toe_root_r} + {equations.literal(CROWN_FRONT_MODULES)} * {m}"
+        back = back_r = f"{_q(CONE_DISTANCE)} - {_q(BORE)} / 2"
+        front = front_r = f"{_q(CONE_DISTANCE)} - {_q(FACE_WIDTH)} - {_q(BORE)} / 2"
+    else:
+        heel_rim_len = f"{_q(DEDENDUM)} + {m} / cos ( {cone} )"
+        heel_rim_len_r = f"{_q(DEDENDUM)} + {m} / cos ( {cone_r} )"
+        toe_rim_len = f"{toe_root} + {m} / cos ( {cone} )"
+        toe_rim_len_r = f"{toe_root_r} + {m} / cos ( {cone_r} )"
+        back = f"{_q(CONE_DISTANCE)} * sin ( {cone} ) - {_q(DEDENDUM)} * cos ( {cone} ) - {m} - {_q(BORE)} / 2"
+        back_r = f"{_q(CONE_DISTANCE)} * sin ( {cone_r} ) - {_q(DEDENDUM)} * cos ( {cone_r} ) - {m} - {_q(BORE)} / 2"
+        front = (f"( {_q(CONE_DISTANCE)} - {_q(FACE_WIDTH)} ) * sin ( {cone} ) - ( {toe_rim_len} ) * cos ( {cone} ) - "
+                 f"{_q(BORE)} / 2")
+        front_r = (f"( {_q(CONE_DISTANCE)} - {_q(FACE_WIDTH)} ) * sin ( {cone_r} ) - ( {toe_rim_len_r} ) * "
+                   f"cos ( {cone_r} ) - {_q(BORE)} / 2")
+    heel_rim_value, _ = rim_lengths(g)
     s_heel = p.heel_rim[0] - g.bore / 2.0
     s_toe = p.toe_rim[0] - g.bore / 2.0
+    ring = g.ring
+    # A ring's back runs straight from the heel's rim to the toe's; everything else's runs in to the bore.
+    back_lines: List[Op] = [Line("L4", _top(*p.heel_rim), _top(*p.toe_rim))] if ring else [
+        Line("L4", _top(*p.heel_rim), _top(*p.back_bore)),
+        Line("L5", _top(*p.back_bore), _top(*p.front_bore)),
+        Line("L6", _top(*p.front_bore), _top(*p.toe_rim)),
+    ]
+    back_joints: List[Op] = [Relation("coincident", ("L4.end", "L1.start"))] if ring else [
+        Relation("coincident", ("L4.end", "L5.start")),
+        Relation("coincident", ("L5.end", "L6.start")),
+        Relation("coincident", ("L6.end", "L1.start")),
+    ]
+    back_squares: List[Op] = [] if ring else [Relation("horizontal", ("L4",)), Relation("horizontal", ("L6",))]
+    back_dimensions: List[Op] = [] if ring else [
+        Dimension("Back", ("L4",), offset(p.back_bore, s_heel / 2.0, 3.0), s_heel),
+        Dimension("Front", ("L6",), offset(p.front_bore, s_toe / 2.0, -3.0), s_toe),
+    ]
+    back_links: List[Op] = [] if ring else [
+        LinkDimension(f"Back@{BLANK_SKETCH}", back, back_r),
+        LinkDimension(f"Front@{BLANK_SKETCH}", front, front_r),
+    ]
     return [
         OpenSketch("blank", 2),
         Line("A", (0.0, 0.0), _top(0.0, radius), construction=True),
@@ -565,9 +876,7 @@ def _blank_ops(g: BevelDerived) -> List[Op]:
         Line("L1", _top(*p.toe_rim), _top(*p.toe_tip)),
         Line("L2", _top(*p.toe_tip), _top(*p.heel_tip)),
         Line("L3", _top(*p.heel_tip), _top(*p.heel_rim)),
-        Line("L4", _top(*p.heel_rim), _top(*p.back_bore)),
-        Line("L5", _top(*p.back_bore), _top(*p.front_bore)),
-        Line("L6", _top(*p.front_bore), _top(*p.toe_rim)),
+        *back_lines,
         Line("Ha", _top(*p.pitch), _top(*p.heel_tip), construction=True),
         Line("Hc", _top(*p.pitch), _top(*p.heel_rim), construction=True),
         Line("Hf", _top(*p.toe_pitch), _top(*p.toe_rim), construction=True),
@@ -578,17 +887,14 @@ def _blank_ops(g: BevelDerived) -> List[Op]:
         Relation("coincident", ("L1.end", "L2.start")),
         Relation("coincident", ("L2.end", "L3.start")),
         Relation("coincident", ("L3.end", "L4.start")),
-        Relation("coincident", ("L4.end", "L5.start")),
-        Relation("coincident", ("L5.end", "L6.start")),
-        Relation("coincident", ("L6.end", "L1.start")),
+        *back_joints,
         Relation("coincident", ("Ha.start", "G.end")),
         Relation("coincident", ("Hc.start", "G.end")),
         Relation("coincident", ("Hf.start", "G2.end")),
         Relation("coincident", ("Ha.end", "L2.end")),
         Relation("coincident", ("Hc.end", "L3.end")),
         Relation("coincident", ("Hf.end", "L1.start")),
-        Relation("horizontal", ("L4",)),
-        Relation("horizontal", ("L6",)),
+        *back_squares,
         Dimension("Axis", ("A",), _top(-radius * 0.1, radius * 0.5), radius),
         Dimension("Cone", ("G", "A"), half_angle_point(radius * 0.4, 0.0, d), d, "deg"),
         Dimension("Heel", ("G",), offset(p.pitch, -nx * 3.0, -nz * 3.0), radius),
@@ -599,7 +905,7 @@ def _blank_ops(g: BevelDerived) -> List[Op]:
         Dimension("Addendum", ("Ha",), offset(p.heel_tip, 1.0, 2.0), g.addendum),
         Dimension("Root Square", ("Hc", "G"), offset(p.pitch, -nx * 0.5 - math.sin(math.radians(d)) * 0.5,
                                                     -nz * 0.5 - math.cos(math.radians(d)) * 0.5), 90.0, "deg"),
-        Dimension("Heel Rim", ("Hc",), offset(p.heel_rim, 1.0, 2.0), g.dedendum + g.module / math.cos(math.radians(d))),
+        Dimension("Heel Rim", ("Hc",), offset(p.heel_rim, 1.0, 2.0), heel_rim_value),
         Dimension("Toe Square", ("Hf", "G2"), offset(p.toe_pitch, -nx * 0.5 - math.sin(math.radians(d)) * 0.5,
                                                     -nz * 0.5 - math.cos(math.radians(d)) * 0.5), 90.0, "deg"),
         Dimension("Toe Rim", ("Hf",), offset(p.toe_rim, 1.0, -2.0),
@@ -608,8 +914,7 @@ def _blank_ops(g: BevelDerived) -> List[Op]:
                                                       nz * 0.5 - math.cos(math.radians(d)) * 0.5), 90.0, "deg"),
         Dimension("Face", ("L2", "G"), offset(p.pitch, nx * g.addendum / 2.0, nz * g.addendum / 2.0),
                   g.mate_dedendum_angle, "deg"),
-        Dimension("Back", ("L4",), offset(p.back_bore, s_heel / 2.0, 3.0), s_heel),
-        Dimension("Front", ("L6",), offset(p.front_bore, s_toe / 2.0, -3.0), s_toe),
+        *back_dimensions,
         CloseSketch("blank", BLANK_SKETCH),
         LinkDimension(f"Axis@{BLANK_SKETCH}", _q(CONE_DISTANCE)),
         LinkDimension(f"Cone@{BLANK_SKETCH}", _q(PITCH_CONE)),
@@ -620,8 +925,7 @@ def _blank_ops(g: BevelDerived) -> List[Op]:
         LinkDimension(f"Heel Rim@{BLANK_SKETCH}", heel_rim_len, heel_rim_len_r),
         LinkDimension(f"Toe Rim@{BLANK_SKETCH}", toe_rim_len, toe_rim_len_r),
         LinkDimension(f"Face@{BLANK_SKETCH}", _q(MATE_DEDENDUM_ANGLE)),
-        LinkDimension(f"Back@{BLANK_SKETCH}", back, back_r),
-        LinkDimension(f"Front@{BLANK_SKETCH}", front, front_r),
+        *back_links,
         Revolve("blank_revolve", "blank", BLANK, "A"),
     ]
 
@@ -660,21 +964,130 @@ def _cone_ops(g: BevelDerived) -> List[Op]:
     ]
 
 
+def section_sign(form: str) -> Optional[int]:
+    """+1 when a heel plane's sketch +x is the way the teeth's tips point, ``(cos δ, 0, −sin δ)``; None if unprobed.
+
+    Probe ref_plane_normal measured it on cones of 30° and 50°. A crown gear's
+    plane is square to the X axis and an internal bevel's leans past it, and
+    which way SolidWorks turns those planes' sketches waits on probe
+    bevel_planes_beyond_90.
+    """
+    return {FORM_CONE: findings.BEVEL_SECTION_X_SIGN, FORM_CROWN: findings.BEVEL_CROWN_SECTION_X_SIGN,
+            FORM_INTERNAL: findings.BEVEL_INTERNAL_SECTION_X_SIGN}[form]
+
+
+def _rack_ops(g: BevelDerived, plane: str, distance: float, scale_global: str, sketch_id: str, sketch_name: str,
+              prefix: str, sign: int) -> List[Op]:
+    """A crown gear's tooth space: a rack's, on a plane square to the pitch plane, scaled toward the apex.
+
+    The sketch's origin is the pitch point. ``Du`` runs from it in to the root
+    line ``R`` and ``Cu`` out to the cap line ``T``, both along the tooth; ``W``
+    crosses the space on the pitch line, ``"Arc Length"`` long and halved by
+    ``Cu``. The flank ``E+`` is at the pressure angle to ``Cu``, and ``T``, also
+    halved by ``Cu``, carries ``E−`` round as its mirror. The fillets are
+    tangent to the root and to their flanks.
+    """
+    r = g.section
+    k = distance / g.cone_distance
+    scale = _q(scale_global)
+    a, rho, hf, cap = r.alpha, r.fillet, r.dedendum, r.cap
+    uc, vc = r.fillet_centre
+    touch = (uc - rho * math.sin(a), vc + rho * math.cos(a))
+    w_cap, w_pitch = r.half_width(cap), r.space / 2.0
+    p = prefix
+
+    def at(u: float, v: float) -> Point2:
+        return sign * k * u, k * v
+
+    upper, upper_root, upper_flank = internal._ccw_arc(p + "F+", at(uc, vc), at(-hf, vc), at(*touch))  # noqa: SLF001
+    lower, lower_flank, lower_root = internal._ccw_arc(  # noqa: SLF001
+        p + "F-", at(uc, -vc), at(touch[0], -touch[1]), at(-hf, -vc))
+    middle = (cap / 2.0, r.half_width(cap / 2.0) / 2.0)
+    return [
+        OpenSketch(sketch_id, plane),
+        Line(p + "Du", (0.0, 0.0), at(-hf, 0.0), construction=True),
+        Line(p + "Cu", (0.0, 0.0), at(cap, 0.0), construction=True),
+        Line(p + "W", at(0.0, -w_pitch), at(0.0, w_pitch), construction=True),
+        Line(p + "R", at(-hf, -vc), at(-hf, vc)),
+        upper,
+        Line(p + "E+", at(*touch), at(cap, w_cap)),
+        Line(p + "T", at(cap, w_cap), at(cap, -w_cap)),
+        Line(p + "E-", at(cap, -w_cap), at(touch[0], -touch[1])),
+        lower,
+        Relation("coincident", (p + "R.end", upper_root)),
+        Relation("coincident", (upper_flank, p + "E+.start")),
+        Relation("coincident", (p + "E+.end", p + "T.start")),
+        Relation("coincident", (p + "T.end", p + "E-.start")),
+        Relation("coincident", (p + "E-.end", lower_flank)),
+        Relation("coincident", (lower_root, p + "R.start")),
+        Relation("coincident", (p + "Du.start", ORIGIN)),
+        Relation("horizontal", (p + "Du",)),
+        Relation("coincident", (p + "Du.end", p + "R")),
+        Relation("coincident", (p + "Cu.start", ORIGIN)),
+        Relation("horizontal", (p + "Cu",)),
+        Relation("coincident", (p + "Cu.end", p + "T")),
+        Relation("vertical", (p + "R",)),
+        Relation("symmetric", (p + "T.start", p + "T.end", p + "Cu")),
+        Relation("coincident", (p + "W.start", p + "E-")),
+        Relation("coincident", (p + "W.end", p + "E+")),
+        Relation("symmetric", (p + "W.start", p + "W.end", p + "Cu")),
+        Relation("coincident", (ORIGIN, p + "W")),
+        Relation("tangent", (p + "F+", p + "R")),
+        Relation("tangent", (p + "F+", p + "E+")),
+        Relation("tangent", (p + "F-", p + "R")),
+        Relation("tangent", (p + "F-", p + "E-")),
+        Relation("equal", (p + "F+", p + "F-")),
+        Dimension("Dedendum", (p + "Du",), at(-hf / 2.0, -w_pitch / 2.0), k * hf),
+        Dimension("Cap", (p + "Cu",), at(cap / 2.0, -w_cap - k * r.module), k * cap),
+        Dimension("Space", (p + "W",), at(-hf / 4.0, w_pitch * 1.2), k * r.space),
+        Dimension("Flank", (p + "E+", p + "Cu"), at(*middle), r.pressure_angle_deg, "deg"),
+        Dimension("Fillet", (p + "F+",), at(uc + 2.0 * rho, vc + rho), k * rho),
+        CloseSketch(sketch_id, sketch_name),
+        LinkDimension(f"Dedendum@{sketch_name}", f"( {_q(DEDENDUM)} ) * {scale}"),
+        LinkDimension(f"Cap@{sketch_name}", f"( {_q(ADDENDUM)} + {_q(MODULE)} ) * {scale}"),
+        LinkDimension(f"Space@{sketch_name}", f"( {_q(ARC_LENGTH)} ) * {scale}"),
+        LinkDimension(f"Flank@{sketch_name}", _q(PRESSURE_ANGLE)),
+        LinkDimension(f"Fillet@{sketch_name}", f"( {_q(FILLET)} ) * {scale}"),
+    ]
+
+
 def _section_ops(g: BevelDerived, recipe: str) -> List[Op]:
-    tan_delta = math.tan(math.radians(g.delta))
-    sign = findings.BEVEL_SECTION_X_SIGN
+    """The heel's and the toe's sections: a cone's back-cone gear, a crown gear's rack, or an internal bevel's ring.
+
+    A ring's centre is on its tips' side, so its section's own outward radial
+    runs the other way along the sketch's x from a cone's.
+    """
+    tan_delta = math.tan(math.radians(g.delta)) if not g.crown else 0.0
+    sign = section_sign(g.form)
+    if sign is None:
+        raise InputError(section_refusal(g))
     ops: List[Op] = []
     for plane, distance, radius_global, scale_global, sketch_id, sketch_name, prefix in (
         ("heel", g.heel_distance, HEEL_RADIUS, HEEL_SCALE, "heel_space", HEEL_SKETCH, "h_"),
         ("toe", g.toe_distance, TOE_RADIUS, TOE_SCALE, "toe_space", TOE_SKETCH, "t_"),
     ):
+        if g.crown:
+            ops.extend(_rack_ops(g, plane, distance, scale_global, sketch_id, sketch_name, prefix, sign))
+            continue
         frame = spur.SectionFrame(
             centre_x=-sign * distance * tan_delta, centre_global=radius_global,
             scale=distance / g.cone_distance, scale_global=scale_global,
-            sketch_id=sketch_id, sketch_name=sketch_name, prefix=prefix, x_sign=sign,
+            sketch_id=sketch_id, sketch_name=sketch_name, prefix=prefix, x_sign=-sign if g.ring else sign,
         )
-        ops.extend(spur.space_ops(g.section, recipe, plane=plane, frame=frame))
+        if g.ring:
+            ops.extend(spur._framed(internal.space_ops(g.section, recipe, plane, pitch=BACK_PITCH),  # noqa: SLF001
+                                    frame, plane))
+        else:
+            ops.extend(spur.space_ops(g.section, recipe, plane=plane, frame=frame, pitch=BACK_PITCH))
     return ops
+
+
+def section_refusal(g: BevelDerived) -> str:
+    """Why a crown or internal bevel gear is not built yet."""
+    what = "a crown gear" if g.crown else "an internal bevel gear"
+    return (f"The heel and toe planes of {what} have not been settled on SolidWorks yet, so which way its tooth "
+            "sections face is not known: run probe bevel_planes_beyond_90 on the host (probe.sh --only "
+            "bevel_planes_beyond_90) and record its findings first.")
 
 
 class BevelGear:
@@ -723,6 +1136,9 @@ class BevelGear:
         ops.append(LoftCut("space_cut", spur.SPACE, ("heel_space", "toe_space")))
         ops.append(CircularPattern("teeth", spur.TEETH_PATTERN, "axis", "space_cut", g.teeth, "Count"))
         ops.append(LinkDimension(f"Count@{spur.TEETH_PATTERN}", _q(TEETH)))
+        ops.extend(property_ops(KIND_BEVEL, recipe, g.ring, [TEETH, MATE_TEETH, MODULE, PRESSURE_ANGLE, SHAFT,
+                                                            FACE_WIDTH, PITCH, OUTER, *([BORE] if spec.has_bore()
+                                                                                          else [])]))
         part = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0] if path else spec.stem()
         ops.append(ManualStep("material", f"Assign a material to {part}; the build leaves it unset."))
         ops.append(Rebuild())

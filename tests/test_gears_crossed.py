@@ -62,6 +62,40 @@ def test_gear_two_is_placed_where_its_teeth_meet_gear_ones(hand, beta_1, beta_2,
     assert abs(p.gear_1_contact_z - g1.face_width / 2.0) <= g1.lead / g1.teeth / 2.0 + 1e-9
 
 
+@pytest.mark.parametrize("hand", ["right", "left"])
+@pytest.mark.parametrize("beta_1, beta_2, shaft, teeth", [
+    (60, 30, 30, (20, 40)), (20, 50, 30, (20, 40)), (75, 15, 60, (17, 31)),
+])
+def test_opposite_hands_are_placed_where_their_teeth_meet_too(hand, beta_1, beta_2, shaft, teeth):
+    other = "left" if hand == "right" else "right"
+    a = GearSpec(kind="helical", module="2", teeth=str(teeth[0]), helix_angle=str(beta_1), hand=hand, face_width="20")
+    b = GearSpec(kind="helical", module="2", teeth=str(teeth[1]), helix_angle=str(beta_2), hand=other,
+                 face_width="16")
+    g1, g2 = HELICAL.derive(a), HELICAL.derive(b)
+    assert crossed.validate(g1, g2, shaft) == []
+    p = crossed.placement(g1, g2, shaft)
+    assert crossed.angle_between((0.0, 0.0, 1.0), p.axis_2) == pytest.approx(shaft)
+    d1 = crossed.tooth_direction(g1, 0.0)
+    d2 = crossed.apply(p.rotation, crossed.tooth_direction(g2, 180.0 - p.spin))
+    along = crossed.angle_between(d1, d2)
+    assert min(along, 180.0 - along) < 1e-5
+    pitch_2 = 360.0 / teeth[1]
+    base = pitch_2 / 2.0 + crossed.twist_at(g2, p.gear_2_contact_z)
+    azimuth = base + round((180.0 - p.spin - base) / pitch_2) * pitch_2
+    local = (g2.rp * math.cos(math.radians(azimuth)), g2.rp * math.sin(math.radians(azimuth)), p.gear_2_contact_z)
+    moved = crossed.apply(p.rotation, local)
+    assert math.dist(tuple(moved[i] + p.origin[i] for i in range(3)), p.contact) < 1e-9
+
+
+def test_opposite_hands_solve_both_ways_round_and_take_the_gentler_pair():
+    beta_1, beta_2 = crossed.helix_pair_for(2, 20, 40, 30, crossed.centre_distance(2, 20, 40, 45, 15), opposite=True)
+    assert crossed.centre_distance(2, 20, 40, beta_1, beta_2) == pytest.approx(
+        crossed.centre_distance(2, 20, 40, 45, 15), abs=1e-9)
+    assert abs(beta_1 - beta_2) == pytest.approx(30.0, abs=1e-9)
+    assert crossed.partner_beta(45, 30, opposite=True) == 15 and crossed.partner_beta(20, 30, opposite=True) == 50
+    assert crossed.shaft_of(45, 15, opposite=True) == 30 and crossed.shaft_of(45, 15) == 60
+
+
 def test_the_turn_about_x_follows_the_hand():
     right = crossed.placement(*(HELICAL.derive(g) for g in gears()), 90.0)
     left = crossed.placement(*(HELICAL.derive(g) for g in gears(hand="left")), 90.0)
@@ -72,10 +106,11 @@ def test_what_would_not_mesh_is_said():
     a, b = gears("30", "45")
     problems = crossed.validate(HELICAL.derive(a), HELICAL.derive(b), 90.0)
     assert any("add up to 75" in p for p in problems)
+    # Of opposite hands 45° and 45° put the shafts parallel, not 90° apart.
     a, b = gears()
     b = b.with_values(hand="left")
-    assert any("same hand" in p for p in crossed.validate(HELICAL.derive(a), HELICAL.derive(b), 90.0))
-    with pytest.raises(ValueError, match="same hand"):
+    assert any("differ by 0°" in p for p in crossed.validate(HELICAL.derive(a), HELICAL.derive(b), 90.0))
+    with pytest.raises(ValueError, match="opposite hands, put the shafts 0° apart"):
         crossed.placement(HELICAL.derive(a), HELICAL.derive(b), 90.0)
 
 
@@ -180,3 +215,41 @@ def test_a_crossed_pair_is_named_for_its_shaft_angle():
     a, b = gears()
     spec = PairSpec(mode="pair", shafts="crossed", shaft_angle="90", gear_a=a, gear_b=b)
     assert pair_stems(spec) == ("Pinion_m2_N20_45R", "Gear_m2_N40_45R", "Pair_m2_20T_40T_X90")
+
+
+def test_opposite_hands_are_solved_and_applied():
+    shaft = 30.0
+    centre = crossed.centre_distance(2, 20, 40, 45, 15)
+    a, b = gears("15", "15")
+    spec = PairSpec(mode="pair", shafts="crossed", shaft_angle=str(shaft), hands="opposite",
+                    centre_distance=str(centre), ratio="2", module="2", gear_a=a, gear_b=b)
+    found = pair.solve_spec(spec)
+    assert found and all(c.opposite and abs(abs(c.helix_angle - c.helix_angle_b) - shaft) < 1e-9 for c in found)
+    best = found[0]
+    assert best.exact and (best.teeth_driver, best.teeth_driven) == (20, 40)
+    new_a, new_b = pair.apply(best, a, b)
+    assert (new_a.hand, new_b.hand) == ("right", "left")
+    plan = pair.crossed_assembly_plan(new_a, new_b, r"C:\a.SLDPRT", r"C:\b.SLDPRT", "", r"C:\p.SLDASM", shaft,
+                                      route=pair.ROUTE_MATES)
+    assert plan.check() == []
+    shaft_mate = next(op for op in plan.ops if isinstance(op, Mate) and op.name == "Shaft Angle")
+    assert shaft_mate.value == pytest.approx(shaft)
+
+
+@pytest.mark.parametrize("hand, ring, crossed_shafts, opposite, wanted", [
+    ("right", False, False, False, "left"),       # parallel: the other hand
+    ("left", True, False, False, "left"),         # round a ring: the same
+    ("right", False, True, False, "right"),       # crossed, same hands
+    ("right", False, True, True, "left"),         # crossed, opposite hands
+    ("Left", False, False, False, "right"),
+])
+def test_gear_b_hand_follows_gear_a(hand, ring, crossed_shafts, opposite, wanted):
+    assert pair.partner_hand(hand, ring, crossed_shafts, opposite) == wanted
+
+
+def test_an_opposite_hand_pair_is_named_apart_from_a_same_hand_one():
+    a, b = gears("45", "15")
+    same = PairSpec(mode="pair", shafts="crossed", shaft_angle="30", gear_a=a, gear_b=b)
+    opposite = PairSpec(mode="pair", shafts="crossed", shaft_angle="30", hands="opposite", gear_a=a,
+                        gear_b=b.with_values(hand="left"))
+    assert pair_stems(same)[2].endswith("_X30") and pair_stems(opposite)[2].endswith("_XO30")

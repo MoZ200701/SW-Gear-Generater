@@ -483,3 +483,84 @@ def ref_plane_normal(px: Px) -> None:
         px.fact("ref_plane_normal_signs", {k: round(v) for k, v in first.items()})
         px.check({k: round(v) for k, v in first.items()} == {k: round(v) for k, v in second.items()},
                  "the plane's sketch keeps the same frame when the line moves", (first, second))
+
+
+BEYOND_CONES = (90.0, 120.0)    # a crown gear's pitch cone, and an internal bevel's
+BEYOND_LENGTH = 40.0
+
+
+def _plane_square_to_cone(px: Px, doc: Any, cone: float, length: float) -> Tuple[Any, float]:
+    """``ref_plane_normal``'s plane, made fresh on a generatrix ``cone`` degrees from +Z: the plane and the angle read."""
+    with sc.quiet_dimensions(px):
+        before = sc.feature_names(doc)
+        manager = open_on(px, doc, sc.planes(doc)[1])
+        data = model_to_sketch(call(manager, "ActiveSketch"))
+        o = _sketch_point(data, (0.0, 0.0, 0.0))
+        up = _sketch_point(data, (0.0, 0.0, 50.0))
+        end_model = (length * math.sin(math.radians(cone)), 0.0, length * math.cos(math.radians(cone)))
+        end = _sketch_point(data, end_model)
+        vertical = call(manager, "CreateCenterLine", o[0], o[1], 0.0, up[0], up[1], 0.0)
+        line = call(manager, "CreateLine", o[0], o[1], 0.0, end[0], end[1], 0.0)
+        px.require(vertical is not None and line is not None, f"{cone:g}°: the axis and the generatrix are drawn")
+        origin = sc.origin_point(doc)
+        sc.relate(doc, "sgCOINCIDENT", call(vertical, "GetStartPoint2"), origin)
+        sc.relate(doc, "sgCOINCIDENT", call(line, "GetStartPoint2"), origin)
+        sc.relate(doc, "sgVERTICAL2D", vertical)
+        sc.select(doc, line, vertical)
+        # Where the build places its cone angle: on the bisector, inside the angle meant.
+        inside = (15.0 * math.sin(math.radians(cone / 2.0)), 0.0, 15.0 * math.cos(math.radians(cone / 2.0)))
+        angle = call(call(doc, "AddDimension2", inside[0] / sc.MM, inside[1] / sc.MM, inside[2] / sc.MM),
+                     "GetDimension2", 0)
+        call(doc, "ClearSelection2", True)
+        read = math.degrees(float(call(angle, "SystemValue")))
+        line_name = _segment_name(line)
+        sketch = sc.close_sketch(px, doc, f"Cone Sketch {cone:g}", before)
+    px.require(_select_segment(doc, sketch, line_name, False, 0), f"{cone:g}°: {line_name}@{sketch} selects at mark 0")
+    count = sc.selected_count(doc)
+    picked = call(sc.extension(doc), "SelectByID2", "", "EXTSKETCHPOINT", end_model[0] / sc.MM, 0.0,
+                  end_model[2] / sc.MM, True, 1, sc.null(), 0)
+    px.require(bool(picked) and sc.selected_count(doc) > count, f"{cone:g}°: the line's end selects at mark 1")
+    before = sc.feature_names(doc)
+    made = call(sc.feature_manager(doc), "InsertRefPlane", 2, 0.0, 4, 0.0, 0, 0.0)
+    call(doc, "ClearSelection2", True)
+    new = [n for n, t in sc.new_features(doc, before) if t == "RefPlane"]
+    px.require(made is not None and len(new) == 1, f"{cone:g}°: InsertRefPlane(perpendicular 2, coincident 4) makes one plane")
+    return sc.feature_by_name(doc, new[0]), read
+
+
+@probe("bevel_planes_beyond_90", needs=("ref_plane_normal",), tier=2, extra=True,
+       members=("IFeatureManager.InsertRefPlane", "ISketch.ModelToSketchTransform", "IModelDocExtension.SelectByID2"))
+def bevel_planes_beyond_90(px: Px) -> None:
+    """The heel plane of a crown gear (90°) and of an internal bevel (120°), each made fresh: which way its sketch faces.
+
+    Probe ref_plane_normal settled the frame on cones of 30° and 50°: the
+    sketch's x along ``(cos δ, 0, −sin δ)``, where the teeth's tips point. A
+    crown gear's plane is square to X and an internal bevel's leans past it, and
+    SolidWorks chooses a new plane's sketch axes itself, so each is measured
+    rather than assumed to carry on. The angle dimension placed on the bisector
+    must read the angle meant, not its supplement, past 90° too.
+
+    Written on a machine without SolidWorks: it has never run, and nothing it
+    decides is used until it has.
+    """
+    signs_by_cone: Dict[str, Dict[str, int]] = {}
+    for cone in BEYOND_CONES:
+        with sc.scratch(px) as doc:
+            plane, read = _plane_square_to_cone(px, doc, cone, BEYOND_LENGTH)
+            px.fact(f"beyond_cone_dimension_{cone:g}", read)
+            px.check(abs(read - cone) < 1e-6, f"the angle placed on the bisector reads {cone:g}°: {read}")
+            origin_mm, ex, ey, ez = plane_frame(px, doc, plane)
+            g = (math.sin(math.radians(cone)), 0.0, math.cos(math.radians(cone)))
+            tips = (math.cos(math.radians(cone)), 0.0, -math.sin(math.radians(cone)))
+            signs = {"x_along_outward": _dot(ex, tips), "y_along_plus_y": _dot(ey, (0.0, 1.0, 0.0)),
+                     "normal_along_line": _dot(ez, g)}
+            px.fact(f"beyond_frame_{cone:g}", {"origin_mm": origin_mm, "x": ex, "y": ey, "normal": ez, **signs})
+            want_origin = tuple(BEYOND_LENGTH * c for c in g)
+            px.check(math.dist(origin_mm, want_origin) < 1e-6,
+                     f"{cone:g}°: the sketch origin is the line's end {want_origin}: {origin_mm}")
+            aligned = all(abs(abs(v) - 1.0) < 1e-9 for v in signs.values())
+            px.check(aligned, f"{cone:g}°: the sketch's x, y and normal are the tips' way, Y and the line, "
+                              "each one way or the other", signs)
+            if aligned:
+                signs_by_cone[f"{cone:g}"] = {k: round(v) for k, v in signs.items()}
+    px.fact("beyond_signs", signs_by_cone)

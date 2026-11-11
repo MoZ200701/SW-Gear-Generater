@@ -115,6 +115,7 @@ DIAGRAM_SIZE = 56
 
 # Fields whose diagram is another field's.
 DIAGRAM_ALIASES = {"pair_module": "series", "teeth_range": "teeth", "assembly_name": "name", "teeth_side": "teeth",
+                   "hands": "hand",
                    "rim": "bore", "shaft_angle": "pressure_angle", "mate_teeth": "ratio", "mesh": "centre_distance",
                    "shafts": "centre_distance", "pair_shaft_angle": "pressure_angle", "cone_distance": "centre_distance"}
 
@@ -229,6 +230,46 @@ def draw_diagram(canvas: tk.Canvas, name: str, size: int = DIAGRAM_SIZE) -> None
         line([(4, 46), (12, 46)])
         line(fillet, theme.ACCENT, 1.8)
         label(30, 39, "ρ")
+    elif key == "profile_shift":
+        # a tooth, its pitch line, and the cutting rack's datum line x·m further out
+        line([(4, 46), (11, 46), (17, 14), (31, 14), (37, 46), (52, 46)])
+        line([(4, 36), (52, 36)], theme.BORDER, dash=dashed)
+        line([(4, 27), (52, 27)], theme.BORDER, dash=dashed)
+        line([(45, 27), (45, 36)], theme.ACCENT, 1.8)
+        line([(42, 27), (48, 27)], theme.ACCENT)
+        line([(42, 36), (48, 36)], theme.ACCENT)
+        label(49, 34, "x")
+    elif key == "helix_angle":
+        # the gear from the side, axis across: its teeth leaning β off the axis
+        line([(14, 8), (42, 8), (42, 48), (14, 48)], closed=True)
+        line([(14, 26), (42, 10)], theme.BORDER)
+        line([(14, 48), (42, 32)], theme.BORDER)
+        line([(14, 37), (42, 21)], theme.ACCENT, 1.8)
+        line([(14, 37), (40, 37)], theme.BORDER, dash=dashed)
+        arc(14, 37, 12, 0, 30, theme.ACCENT)
+        label(28, 36, "β")
+    elif key == "hand":
+        # a right-hand and a left-hand gear, axes upright, their teeth leaning the two ways
+        line([(8, 10), (24, 10), (24, 42), (8, 42)], closed=True)
+        line([(32, 10), (48, 10), (48, 42), (32, 42)], closed=True)
+        for lean in ((8, 40, 24, 24), (8, 28, 24, 12)):
+            line([(lean[0], lean[1]), (lean[2], lean[3])], theme.ACCENT, 1.8)
+        for lean in ((32, 24, 48, 40), (32, 12, 48, 28)):
+            line([(lean[0], lean[1]), (lean[2], lean[3])], theme.ACCENT, 1.8)
+        label(13, 54, "R", theme.HEADER_TEXT)
+        label(37, 54, "L", theme.HEADER_TEXT)
+    elif key == "groove":
+        # a herringbone from the side: two toothed halves, their teeth leaning apart, the hub between
+        line([(8, 10), (22, 10), (22, 46), (8, 46)], closed=True)
+        line([(34, 10), (48, 10), (48, 46), (34, 46)], closed=True)
+        line([(22, 16), (34, 16)])
+        line([(22, 40), (34, 40)])
+        for y in (18, 28, 38):
+            line([(10, y + 6), (20, y - 2)], theme.BORDER)
+            line([(36, y - 2), (46, y + 6)], theme.BORDER)
+        line([(22, 51), (34, 51)], theme.ACCENT, 1.8)
+        ticks(22, 34, 51)
+        label(38, 55, "g")
     elif key == "name":
         # a document
         line([(15, 6), (33, 6), (42, 15), (42, 50), (15, 50)], closed=True)
@@ -246,6 +287,14 @@ def draw_diagram(canvas: tk.Canvas, name: str, size: int = DIAGRAM_SIZE) -> None
         line([(11, 50), (36, 50)], theme.ACCENT, 1.8)
         ticks(11, 36, 50)
         label(41, 54, "C")
+    elif key == "motion":
+        # a pinion and its wheel, each with an arrow round it the other way: they turn together
+        circle(14, 30, 8)
+        circle(38, 30, 16)
+        arc(14, 30, 11, 60, 120, theme.ACCENT, 1.8)          # counter-clockwise, ending at the left
+        line([(5, 27), (3, 30), (1, 27)], theme.ACCENT)
+        arc(38, 30, 19, 40, 80, theme.ACCENT, 1.8)           # clockwise, ending at 40°
+        line([(52.15, 14.2), (52.55, 17.79), (49.09, 16.78)], theme.ACCENT)
     elif key == "ratio":
         # a pinion and its wheel: three turns against one
         circle(14, 28, 8, theme.ACCENT, 1.8)

@@ -69,8 +69,9 @@ def test_a_shaft_angle_over_ninety_turns_the_cone_past_the_right_angle_branch():
     g = BEVEL.derive(spec("40", "25", shaft_angle="120"))
     assert g.delta + g.delta_mate == pytest.approx(120.0)
     assert g.delta == pytest.approx(math.degrees(math.atan2(math.sin(math.radians(120)), 0.625 + math.cos(math.radians(120)))))
-    with pytest.raises(Exception, match="crown or internal"):
-        BEVEL.derive(spec("40", "16", shaft_angle="120"))
+    assert BEVEL.derive(spec("40", "16", shaft_angle="120")).form == bevel.FORM_INTERNAL    # see test_bevel_forms
+    with pytest.raises(Exception, match="too near a crown gear"):
+        BEVEL.derive(spec("40", "20", shaft_angle="120.5"))
 
 
 @pytest.mark.parametrize("teeth, mate, shaft", [("20", "40", "90"), ("40", "20", "90"), ("25", "25", "90"),
@@ -192,7 +193,7 @@ def test_a_bevel_pair_row_agrees_with_the_gear_it_would_build():
     g = BEVEL.derive(spec())
     assert row.centre_distance == pytest.approx(g.cone_distance)
     assert row.contact_ratio == pytest.approx(bevel.contact_ratio(g))
-    assert pair.bevel_candidate(3, 40, 16, 120) is None                   # a crown gear is never offered
+    assert pair.bevel_candidate(3, 40, 20, 120.5) is None                 # too near a crown gear to be offered
 
 
 def test_solving_a_bevel_pair_from_the_form_and_applying_a_row():

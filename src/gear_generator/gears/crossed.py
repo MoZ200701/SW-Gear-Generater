@@ -2,9 +2,10 @@
 
 The parts are ordinary helical gears (:mod:`gears.helical`), each with its own
 helix angle; only how they are placed differs. Both have the same normal module
-and normal pressure angle, and here the **same hand**, so the shaft angle is
-``Σ = β1 + β2`` and the centre distance, measured along the common
-perpendicular of the two axes, is
+and normal pressure angle. Of the **same hand**, the shaft angle is
+``Σ = β1 + β2``; of **opposite hands**, ``Σ = |β1 − β2|`` — a small shaft angle
+from two steep helices. Either way the centre distance, measured along the
+common perpendicular of the two axes, is
 
     C = (mn / 2) · (N1 / cos β1 + N2 / cos β2)
 
@@ -13,9 +14,11 @@ The ratio is the tooth ratio ``N2 / N1``, not the ratio of the pitch diameters.
 Placement, worked out here and tested without SolidWorks:
 
 * gear 1 sits as built, its axis on +Z;
-* gear 2's axis crosses the X axis at ``x = C``, turned about X by ``−Σ`` for a
-  right-hand pair and ``+Σ`` for a left-hand one — the turn that lays gear 2's
-  tooth line along gear 1's at the point where they touch;
+* gear 2's axis crosses the X axis at ``x = C``, turned about X by
+  ``−(s1 β1 + s2 β2)``, ``s`` +1 for a right hand and −1 for a left — the turn
+  that lays gear 2's tooth line along gear 1's at the point where they touch
+  (gear 1's leans ``s1 β1`` off its axis toward +Y there, gear 2's, facing back
+  along −X, ``−s2 β2``). Same hands give ``∓Σ``, opposite ones ``∓(β1 − β2)``;
 * that point is on gear 1's pitch cylinder on +X, at the place along its face
   nearest the middle where one of its tooth spaces is centred on +X, so gear 1
   needs no turning; gear 2 is slid so the point is the middle of its own face,
@@ -41,6 +44,19 @@ ROOT_SCAN = 120          # samples of β1 when looking for the angles that meet 
 ANGLE_TOLERANCE = 1e-6
 
 
+def shaft_of(beta_1: float, beta_2: float, opposite: bool = False) -> float:
+    """The shaft angle two helix angles make: their sum of the same hand, their difference of opposite hands."""
+    return abs(beta_1 - beta_2) if opposite else beta_1 + beta_2
+
+
+def partner_beta(beta_1: float, shaft: float, opposite: bool = False) -> float:
+    """Gear 2's helix angle for gear 1's on shafts ``shaft`` apart: ``Σ − β1``, or of opposite
+    hands ``β1 − Σ`` when that is above zero and ``β1 + Σ`` when it is not."""
+    if not opposite:
+        return shaft - beta_1
+    return beta_1 - shaft if beta_1 > shaft else beta_1 + shaft
+
+
 def centre_distance(module: float, teeth_1: int, teeth_2: int, beta_1: float, beta_2: float) -> float:
     """``(mn / 2) · (N1 / cos β1 + N2 / cos β2)``, angles in degrees."""
     return module / 2.0 * (teeth_1 / math.cos(math.radians(beta_1)) + teeth_2 / math.cos(math.radians(beta_2)))
@@ -53,14 +69,43 @@ def beta_1_for(module: float, teeth_1: int, teeth_2: int, shaft: float, centre: 
     ``N1 / cos β1 + N2 / cos (Σ − β1)`` is scanned across ``[β min, Σ − β min]``
     (both angles under 90°) and every crossing of ``2C / mn`` is bisected.
     """
-    target = 2.0 * centre / module
-    low = max(beta_min, shaft - 90.0 + 1e-6)
-    high = min(shaft - beta_min, 90.0 - 1e-6)
-    if low >= high:
+    roots = _roots(module, teeth_1, teeth_2, centre, lambda beta: shaft - beta,
+                   max(beta_min, shaft - 90.0 + 1e-6), min(shaft - beta_min, 90.0 - 1e-6))
+    if not roots:
         return None
+    return min(roots, key=lambda beta: (abs(beta - shaft / 2.0), beta))
+
+
+def helix_pair_for(module: float, teeth_1: int, teeth_2: int, shaft: float, centre: float, opposite: bool = False,
+                   beta_min: float = BETA_MIN) -> Optional[Tuple[float, float]]:
+    """``(β1, β2)`` that make the centre distance on shafts ``shaft`` apart; None if no pair does.
+
+    Of the same hand it is :func:`beta_1_for`'s. Of opposite hands both
+    families are scanned — ``β2 = β1 − Σ`` and ``β2 = β1 + Σ``, each angle
+    between ``β min`` and 90° — and the root with the smaller steeper angle
+    wins, since the steeper a helix the more it pushes along its shaft.
+    """
+    if not opposite:
+        beta_1 = beta_1_for(module, teeth_1, teeth_2, shaft, centre, beta_min)
+        return None if beta_1 is None else (beta_1, shaft - beta_1)
+    found: List[Tuple[float, float]] = []
+    top = 90.0 - 1e-6
+    for other, low, high in ((lambda beta: beta - shaft, shaft + beta_min, top),
+                             (lambda beta: beta + shaft, beta_min, top - shaft)):
+        found.extend((beta, other(beta)) for beta in _roots(module, teeth_1, teeth_2, centre, other, low, high))
+    if not found:
+        return None
+    return min(found, key=lambda pair: (max(pair), pair[0]))
+
+
+def _roots(module: float, teeth_1: int, teeth_2: int, centre: float, other, low: float, high: float) -> List[float]:
+    """Every β1 in ``[low, high]`` where ``N1 / cos β1 + N2 / cos other(β1)`` crosses ``2C / mn``, bisected."""
+    target = 2.0 * centre / module
+    if low >= high:
+        return []
 
     def f(beta: float) -> float:
-        return (teeth_1 / math.cos(math.radians(beta)) + teeth_2 / math.cos(math.radians(shaft - beta))) - target
+        return (teeth_1 / math.cos(math.radians(beta)) + teeth_2 / math.cos(math.radians(other(beta)))) - target
 
     roots: List[float] = []
     step = (high - low) / ROOT_SCAN
@@ -83,9 +128,7 @@ def beta_1_for(module: float, teeth_1: int, teeth_2: int, shaft: float, centre: 
                     b = middle
             roots.append((a + b) / 2.0)
         previous_x, previous = x, value
-    if not roots:
-        return None
-    return min(roots, key=lambda beta: (abs(beta - shaft / 2.0), beta))
+    return roots
 
 
 def normal_contact_ratio(module: float, teeth_1: int, teeth_2: int, beta_1: float, beta_2: float,
@@ -157,9 +200,12 @@ def twist_at(g: HelicalDerived, z: float) -> float:
 
 
 def placement(gear_1: HelicalDerived, gear_2: HelicalDerived, shaft: float) -> Placement:
-    """Gear 2's frame, and where the gears touch, for a same-hand crossed pair at shaft angle ``shaft``."""
-    if gear_1.hand != gear_2.hand:
-        raise ValueError("A crossed helical pair here has the same hand on both gears.")
+    """Gear 2's frame, and where the gears touch, for a crossed pair at shaft angle ``shaft``, either hands."""
+    tilt = -(gear_1.hand_sign * gear_1.helix_angle_deg + gear_2.hand_sign * gear_2.helix_angle_deg)
+    if abs(abs(tilt) - shaft) > ANGLE_TOLERANCE:
+        raise ValueError(f"Helix angles of {gear_1.helix_angle_deg:g}° and {gear_2.helix_angle_deg:g}°, "
+                         f"{'the same hand' if gear_1.hand == gear_2.hand else 'opposite hands'}, put the shafts "
+                         f"{abs(tilt):g}° apart, not {shaft:g}°.")
     r1, r2 = gear_1.rp, gear_2.rp
     centre = r1 + r2
     # Gear 1's space centres cross +X every axial pitch; take the crossing nearest its face's middle.
@@ -170,7 +216,6 @@ def placement(gear_1: HelicalDerived, gear_2: HelicalDerived, shaft: float) -> P
     # Gear 2's tooth centre at its face's middle must point back at gear 1, azimuth 180°.
     pitch_2 = 360.0 / gear_2.teeth
     spin = (180.0 - pitch_2 / 2.0 - twist_at(gear_2, z2)) % pitch_2
-    tilt = -gear_1.hand_sign * shaft
     turn = rot_x(tilt)
     rotation = multiply(turn, rot_z(spin))
     contact = (r1, 0.0, z1)
@@ -198,20 +243,26 @@ def validate(gear_1: HelicalDerived, gear_2: HelicalDerived, shaft: float) -> Li
     problems: List[str] = []
     if not SHAFT_MIN <= shaft <= SHAFT_MAX:
         problems.append(f"The shaft angle must be between {SHAFT_MIN:g}° and {SHAFT_MAX:g}° (got {shaft:g}°).")
-    if gear_1.hand != gear_2.hand:
-        problems.append(f"Crossed helical gears here have the same hand on both (got {gear_1.hand} and "
-                        f"{gear_2.hand}).")
+    opposite = gear_1.hand != gear_2.hand
     if abs(gear_1.module - gear_2.module) > 1e-9:
         problems.append(f"Both gears need the same normal module (got {gear_1.module:g} and {gear_2.module:g}).")
     if abs(gear_1.normal_pressure_angle_deg - gear_2.normal_pressure_angle_deg) > 1e-9:
         problems.append("Both gears need the same normal pressure angle.")
-    if abs(gear_1.helix_angle_deg + gear_2.helix_angle_deg - shaft) > ANGLE_TOLERANCE:
-        problems.append(f"The two helix angles add up to {gear_1.helix_angle_deg + gear_2.helix_angle_deg:g}°, "
-                        f"not the shaft angle of {shaft:g}°.")
+    if getattr(gear_1, "shift", 0.0) or getattr(gear_2, "shift", 0.0):
+        problems.append("Crossed helical gears are built without profile shift here; set both shifts to 0.")
+    made = shaft_of(gear_1.helix_angle_deg, gear_2.helix_angle_deg, opposite)
+    if abs(made - shaft) > ANGLE_TOLERANCE:
+        if opposite:
+            problems.append(f"Of opposite hands the two helix angles differ by {made:g}°, not the shaft angle of "
+                            f"{shaft:g}°.")
+        else:
+            problems.append(f"Of the same hand the two helix angles add up to {made:g}°, not the shaft angle of "
+                            f"{shaft:g}°.")
     return problems
 
 
 __all__ = [
-    "Placement", "angle_between", "apply", "beta_1_for", "centre_distance", "multiply", "normal_contact_ratio",
-    "placement", "rot_x", "rot_y", "rot_z", "tooth_direction", "twist_at", "validate",
+    "Placement", "angle_between", "apply", "beta_1_for", "centre_distance", "helix_pair_for", "multiply",
+    "normal_contact_ratio", "partner_beta", "placement", "rot_x", "rot_y", "rot_z", "shaft_of", "tooth_direction",
+    "twist_at", "validate",
 ]

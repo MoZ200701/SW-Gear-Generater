@@ -128,6 +128,13 @@ def test_bevel_decisions(evidence):
     assert decided["bevel_end_to_end"] is True
 
 
+def test_bevel_beyond_ninety_decisions(evidence):
+    """None until probe bevel_planes_beyond_90 has passed; then findings.py must say what it found."""
+    _, _, decided = evidence
+    assert decided["bevel_crown_section_x_sign"] == findings.BEVEL_CROWN_SECTION_X_SIGN
+    assert decided["bevel_internal_section_x_sign"] == findings.BEVEL_INTERNAL_SECTION_X_SIGN
+
+
 def test_non_parallel_assembly_decisions(evidence):
     _, records, decided = evidence
     assert decided["place_route"] == findings.PLACE_ROUTE
@@ -136,3 +143,22 @@ def test_non_parallel_assembly_decisions(evidence):
     assert decided["bevel_mate_route"] == findings.BEVEL_MATE_ROUTE
     assert decided["crossed_route"] == findings.CROSSED_ROUTE
     assert decided["crossed_end_to_end"] is True
+
+
+def test_gear_mate_decisions(evidence):
+    """None of them until probe gear_mate has passed; then findings.py must say what it found."""
+    _, _, decided = evidence
+    assert decided["gear_mate_route"] == findings.GEAR_MATE_ROUTE
+    assert decided["mate_gear_type"] == findings.MATE_GEAR
+    assert decided["gear_mate_numerator_first"] is findings.GEAR_MATE_NUMERATOR_FIRST
+    assert decided["gear_mate_external_flip"] is findings.GEAR_MATE_EXTERNAL_FLIP
+
+
+def test_custom_property_decisions(evidence):
+    """None of them until probe custom_properties has passed; then findings.py must say what it found."""
+    _, _, decided = evidence
+    assert decided["custom_property_route"] == findings.CUSTOM_PROPERTY_ROUTE
+    assert decided["custom_info_text"] == findings.CUSTOM_INFO_TEXT
+    assert decided["custom_property_replace"] == findings.CUSTOM_PROPERTY_REPLACE
+    assert decided["property_read_route"] == findings.PROPERTY_READ_ROUTE
+    assert decided["property_links_globals"] is findings.PROPERTY_LINKS_GLOBALS

@@ -467,3 +467,31 @@ def spline_ends_mm(spline: Any) -> Tuple[Tuple[float, float], Tuple[float, float
     if not points:
         raise Require("GetPoints2 returned no points.")
     return point_mm(points[0]), point_mm(points[-1])
+
+
+def swconst(px: Px, enum: str) -> Dict[str, int]:
+    """Every member of one ``swconst`` enum, read from the type library SolidWorks installs.
+
+    What makepy does, done at run time, so a probe never writes an enum value
+    from memory. UNVERIFIED until a probe that uses it has run: each one checks
+    it first against values already settled.
+    """
+    import pythoncom  # noqa: PLC0415 - Windows only, and only ever on the worker
+
+    where = str(call(app(px), "GetExecutablePath") or "")
+    folder = os.path.dirname(where) if where.lower().endswith(".exe") else where
+    path = os.path.join(folder, "swconst.tlb")
+    px.fact("swconst_path", path)
+    if not os.path.isfile(path):
+        raise Require(f"There is no swconst.tlb at {path}.")
+    library = pythoncom.LoadTypeLib(path)
+    for index in range(library.GetTypeInfoCount()):
+        if library.GetDocumentation(index)[0] != enum:
+            continue
+        info = library.GetTypeInfo(index)
+        members: Dict[str, int] = {}
+        for var in range(info.GetTypeAttr().cVars):
+            desc = info.GetVarDesc(var)
+            members[str(info.GetNames(desc.memid)[0])] = int(desc.value)
+        return members
+    raise Require(f"swconst.tlb has no {enum}.")

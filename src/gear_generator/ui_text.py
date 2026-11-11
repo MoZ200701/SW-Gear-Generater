@@ -25,6 +25,8 @@ KIND_LABELS = {"spur": "Spur", "helical": "Helical", "herringbone": "Herringbone
 TEETH_SIDE_LABELS = {"external": "External", "internal": "Internal"}
 MESH_LABELS = TEETH_SIDE_LABELS
 SHAFTS_LABELS = {"parallel": "Parallel", "crossed": "Crossed"}
+MOTION_LABELS = {"fixed": "Fixed", "gear mate": "Gear mate"}
+HANDS_PAIRING_LABELS = {"same": "Same", "opposite": "Opposite"}
 HAND_LABELS = {"right": "Right", "left": "Left"}
 # Five kinds share one segmented row, and "Herringbone" does not fit its share;
 # the Gear panel's readout still says the whole word.
@@ -51,8 +53,8 @@ def gear_readout(spec: GearSpec) -> str:
     """``m1.5 · z25 · 20° · PD 37.5 mm``, or what is stopping it.
 
     A helical gear adds its helix, ``β15° R``, and its pitch diameter is the
-    transverse one, ``m z / cos β``. A ring ends ``· ring``; a bevel gear names
-    its mate and shaft angle, ``z20:40 · Σ90°``.
+    transverse one, ``m z / cos β``. A shifted gear adds ``x+0.25``. A ring ends
+    ``· ring``; a bevel gear names its mate and shaft angle, ``z20:40 · Σ90°``.
     """
     try:
         m = spec.module_mm()
@@ -61,6 +63,7 @@ def gear_readout(spec: GearSpec) -> str:
         if spec.kind == "bevel":
             return (f"m{_n(m)} · z{n}:{spec.mate_teeth_count()} · {_n(alpha, 2)}° · "
                     f"Σ{_n(spec.shaft_angle_deg(), 2)}° · PD {_n(m * n)} mm")
+        shift = spec.profile_shift_value()
         if spec.is_helical():
             beta = spec.helix_angle_deg()
             hand = spec.hand_value()
@@ -69,10 +72,11 @@ def gear_readout(spec: GearSpec) -> str:
     except InputError:
         return CHECK_THE_FIELDS
     ring = " · ring" if spec.is_internal() else ""
+    shifted = f"x{shift_text(shift)} · " if shift else ""
     if spec.is_helical():
-        return (f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · β{_n(beta, 2)}° {hand[0].upper()} · "
+        return (f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · β{_n(beta, 2)}° {hand[0].upper()} · {shifted}"
                 f"PD {_n(m * n / math.cos(math.radians(beta)))} mm{ring}")
-    return f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · PD {_n(m * n)} mm{ring}"
+    return f"m{_n(m)} · z{n} · {_n(alpha, 2)}° · {shifted}PD {_n(m * n)} mm{ring}"
 
 
 def is_bevel(g) -> bool:
@@ -91,7 +95,8 @@ def derived_line(g) -> str:
     ``PD 120 · tip 116 · root 125 · rim 137``.
     """
     if is_bevel(g):
-        return (f"δ {_n(g.delta, 3)}° · R {_n(g.cone_distance)} · OD {_n(g.da)} · X {_n(g.crown_to_apex)}")
+        form = " · crown" if g.crown else (" · internal" if g.ring else "")
+        return (f"δ {_n(g.delta, 3)}° · R {_n(g.cone_distance)} · OD {_n(g.da)} · X {_n(g.crown_to_apex)}{form}")
     if is_ring(g):
         return f"PD {_n(g.d)} · tip {_n(g.da)} · root {_n(g.df)} · rim {_n(g.rim)}"
     return (
@@ -110,13 +115,13 @@ def derived_rows(g) -> List[Tuple[str, str]]:
             ("Pitch cone δ", f"{_n(g.delta, 3)}°"),
             ("Cone distance", _n(g.cone_distance)),
             ("Pitch diameter", _n(g.d)),
-            ("Outer diameter", _n(g.da)),
+            ("Tip diameter" if g.ring else "Outer diameter", _n(g.da)),
             ("Apex to crown", _n(g.crown_to_apex)),
             ("Addendum", _n(g.addendum)),
             ("Dedendum", _n(g.dedendum)),
             ("Face angle", f"{_n(g.face_angle, 3)}°"),
             ("Root angle", f"{_n(g.root_angle, 3)}°"),
-            ("Virtual teeth", _n(g.virtual_teeth, 2)),
+            ("Virtual teeth", "∞ · a rack" if g.crown else _n(g.virtual_teeth, 2) + (" · a ring" if g.ring else "")),
             ("Toe scale", _n(g.toe_scale, 4)),
             ("Tooth at pitch", _n(g.section.s)),
             ("Backlash", _n(g.section.backlash) + ("" if g.section.backlash_typed else " · 0.3m")),
@@ -136,12 +141,18 @@ def derived_rows(g) -> List[Tuple[str, str]]:
             ("Twist on face", f"{_n(g.face_twist_deg, 2)}°"),
             ("Overlap εβ", _n(g.overlap, 3)),
         ]
+        if getattr(g, "groove", 0.0):
+            helix.append(("Centre groove", f"{_n(g.groove)} · floor {_n(g.groove_d)}"))
     if is_ring(g):
         fillet_note = " · 0.15m"
         tip_label = "Inner tip"
     else:
         fillet_note = " · 0.38m"
         tip_label = "Outer diameter"
+    shift = getattr(g, "shift", 0.0)
+    if shift:
+        # The coefficient, and how far that moves the tip and the root, in mm.
+        ring = ring + [("Profile shift", f"{shift_text(shift)} · {_n(shift * g.module)}")]
     return helix + ring + [
         ("Pitch diameter", _n(g.d)),
         (tip_label, _n(g.da)),
@@ -186,13 +197,20 @@ def pair_derived_readout(centre: float, ratio: float, epsilon: float, symbol: st
 
 
 def pair_derived_rows(centre: float, ratio: float, epsilon: float,
-                      teeth_driver: int, teeth_driven: int, label: str = "Centre distance") -> List[Tuple[str, str]]:
-    """The three rows above the per-gear columns in Derived; a bevel pair's first is its cone distance."""
-    return [
+                      teeth_driver: int, teeth_driven: int, label: str = "Centre distance",
+                      working_angle: Optional[float] = None) -> List[Tuple[str, str]]:
+    """The three rows above the per-gear columns in Derived; a bevel pair's first is its cone distance.
+
+    A shifted pair adds a fourth, the pressure angle it actually meshes at.
+    """
+    rows = [
         (label, f"{_n(centre)} mm"),
         ("Ratio", f"{_n(ratio)} · {teeth_driver} : {teeth_driven}"),
         ("Contact ratio", contact_ratio_text(epsilon)),
     ]
+    if working_angle is not None:
+        rows.append(("Working α", f"{_n(working_angle, 3)}°"))
+    return rows
 
 
 def candidate_row(candidate: "pairs.Candidate") -> Tuple[str, str, str, str]:
@@ -213,11 +231,32 @@ def candidate_row(candidate: "pairs.Candidate") -> Tuple[str, str, str, str]:
     if candidate.clashes:
         errors.append(f"clash {_n(candidate.clash, 2)} mm")
     text = " · ".join(errors) if errors else "exact"
+    if candidate.shifted:
+        text = f"x {shift_text(candidate.shift_1)}/{shift_text(candidate.shift_2)} · {text}"
+    if candidate.cone:
+        forms = pairs.bevel_forms(candidate.teeth_driver, candidate.teeth_driven, candidate.shaft_angle)
+        named = [f"{side} {form}" for side, form in zip("AB", forms) if form != pairs.bevel.FORM_CONE]
+        if named:
+            text = f"{', '.join(named)} · {text}"
     if candidate.crossed:
         text = f"β{_n(candidate.helix_angle, 2)}°/{_n(candidate.helix_angle_b, 2)}° · {text}"
     elif candidate.helix_angle:
         text = f"β{_n(candidate.helix_angle, 2)}° · {text}"
     return module, teeth, text, "exact" if candidate.exact else "near"
+
+
+def _exact_counts(candidates: Sequence["pairs.Candidate"]) -> Tuple[int, int]:
+    """Clean rows — exact, standard, not undercut — without profile shift, and with it."""
+    clean = [c for c in candidates if c.exact and c.standard and not c.undercut]
+    shifted = sum(1 for c in clean if c.shifted)
+    return len(clean) - shifted, shifted
+
+
+def shift_text(shift: float) -> str:
+    """``+0.25``, ``−0.1``, ``0``: a profile shift coefficient with its sign, always."""
+    if not shift:
+        return "0"
+    return ("+" if shift > 0 else "−") + _n(abs(shift), 4)
 
 
 def solve_summary(candidates: Sequence["pairs.Candidate"],
@@ -230,9 +269,11 @@ def solve_summary(candidates: Sequence["pairs.Candidate"],
     """
     if not candidates:
         return "No pair of whole tooth counts fits; widen the series or Min teeth."
-    exact = sum(1 for c in candidates if c.exact and c.standard and not c.undercut)
+    exact, shifted = _exact_counts(candidates)
     noun = "candidate" if len(candidates) == 1 else "candidates"
     text = f"{len(candidates)} {noun} · {exact} exact"
+    if shifted:
+        text += f" · {shifted} with shift"
     if chosen is not None:
         text += f" · m{_n(chosen.module, 4)} {chosen.teeth_driver} : {chosen.teeth_driven} chosen"
     return text
@@ -295,10 +336,10 @@ def manual_steps_line(steps: Iterable[str]) -> str:
 # readout, so it changes as the form does.
 
 # The fields with a card, in the order they are on the form.
-GEAR_EXPLAINERS = ("module", "teeth", "pressure_angle", "face_width", "bore", "backlash", "fillet", "teeth_side",
-                   "rim", "shaft_angle", "mate_teeth", "name")
+GEAR_EXPLAINERS = ("module", "teeth", "pressure_angle", "face_width", "bore", "backlash", "fillet", "profile_shift",
+                   "helix_angle", "hand", "groove", "teeth_side", "rim", "shaft_angle", "mate_teeth", "name")
 PAIR_EXPLAINERS = ("centre_distance", "cone_distance", "ratio", "pair_module", "series", "teeth_range", "mesh",
-                   "shafts", "pair_shaft_angle", "assembly_name")
+                   "shafts", "pair_shaft_angle", "hands", "motion", "assembly_name")
 EXPLAINER_FIELDS = GEAR_EXPLAINERS + PAIR_EXPLAINERS
 
 # (name, symbol, what it is). The symbol is what the diagram beside it marks.
@@ -329,17 +370,38 @@ _EXPLAINER_COPY: Dict[str, Tuple[str, str, str]] = {
     "fillet": ("Fillet", "ρ",
                "The radius where each flank meets the root circle. It rounds off the sharp inside corner where "
                "a tooth would otherwise crack. Blank uses 0.38 × module."),
+    "profile_shift": ("Profile shift", "x",
+                      "How far the cutting rack is moved out from the gear, in modules. A positive shift makes the "
+                      "tip and root circles bigger and the tooth thicker, which cures undercut on a small pinion; "
+                      "the shifts of a pair together move its centre distance, which is how a standard module is "
+                      "made to fit one. 0 is the standard tooth."),
+    "helix_angle": ("Helix angle", "β",
+                    "How far the teeth lean from the axis, measured on the pitch cylinder. Module and pressure "
+                    "angle are then the normal ones, square to the teeth; round the gear the pitch is longer, "
+                    "mt = m / cos β. Steeper runs smoother but pushes the gear harder along its shaft: 8–25° is "
+                    "usual for a helical gear, 20–40° for a herringbone."),
+    "hand": ("Hand", "",
+             "Which way the teeth wind: a right-hand gear's lean like a right-hand screw thread. Helical gears on "
+             "parallel shafts mesh only with opposite hands, and a pinion inside a ring with the same hand; in a "
+             "pair gear B's hand follows gear A's. A herringbone's names its half nearest the Front plane."),
+    "groove": ("Groove", "g",
+               "A plain channel round the middle of a herringbone gear, between its two sets of teeth, where a "
+               "hob or a grinding wheel runs out. Its floor is two modules inside the root circle. Blank leaves "
+               "the two halves meeting at a point, as they do on a gear cut in one piece."),
     "teeth_side": ("Teeth", "",
                    "Which side of the rim the teeth are cut on. External teeth point outward, as on any gear; "
                    "internal teeth point inward from a ring, and a pinion runs inside it turning the same way. "
-                   "A bevel gear's teeth are always external."),
+                   "A bevel gear's side is set by its cone, not here: outside a pitch cone under 90°, inside one "
+                   "past it."),
     "rim": ("Rim", "",
             "A ring's outside diameter: the solid rim round the roots of its teeth. Blank leaves three modules "
             "of rim outside the root circle; under two modules the ring is thin."),
     "shaft_angle": ("Shaft angle", "Σ",
                     "The angle between the two shafts a bevel gear works across, 90° for a right-angle drive. "
                     "Each gear's pitch cone is its share of it, set by the two tooth counts; both gears of a pair "
-                    "must be cut for the same angle."),
+                    "must be cut for the same angle. Past 90° the bigger gear's cone opens out: where it reaches "
+                    "90° exactly it is a crown gear, its teeth on its face, and beyond that an internal bevel "
+                    "gear, its teeth inside a cone."),
     "mate_teeth": ("Mate teeth", "z₂",
                    "How many teeth the gear this bevel gear meshes with has. A bevel gear's cone, and the Gleason "
                    "split of its tooth depth, depend on its mate; in a pair it is the other gear's teeth."),
@@ -359,10 +421,20 @@ _EXPLAINER_COPY: Dict[str, Tuple[str, str, str]] = {
              "with gear A inside it, turning the same way, at C = m (z₂ − z₁) / 2."),
     "shafts": ("Shafts", "",
                "Parallel shafts mesh helical gears of equal helix and opposite hand. Crossed shafts mesh them "
-               "at an angle, both the same hand, with the two helix angles adding up to the shaft angle."),
+               "at an angle: of the same hand their two helix angles add up to the shaft angle, of opposite "
+               "hands they differ by it."),
+    "hands": ("Hands", "",
+              "Whether the two gears of a crossed pair are the same hand or opposite hands. The same hand splits "
+              "the shaft angle between the two helices, β₁ + β₂ = Σ, and suits a large angle such as 90°; "
+              "opposite hands make it the difference, β₁ − β₂ = Σ, which reaches a small angle with two steep "
+              "helices."),
     "pair_shaft_angle": ("Shaft angle", "Σ",
                          "The angle between the two shafts. A crossed helical pair splits it between its helix "
                          "angles; a bevel pair between its pitch cones."),
+    "motion": ("Assembly", "",
+               "Fixed holds both gears still, meshed: gear 1 fixed and gear 2 mated where its teeth meet gear 1's. "
+               "Gear mate lets gear 1 turn on its axis and adds a SolidWorks gear mate, so dragging gear 1 turns "
+               "gear 2 at the tooth ratio, the other way round, or the same way round a ring."),
     "ratio": ("Ratio", "i",
               "Turns of the driver for one turn of the driven gear, z₂ / z₁. 3 or 3:1 makes the second gear "
               "three times the first; 1:3 makes it a third."),
@@ -430,11 +502,11 @@ def _gear_worked(field: str, g, stem: str, folder: str) -> str:
         return (f"m {_n(g.module)} × z {g.teeth} = PD {_n(g.d)} mm · tooth depth {_n(g.h)} · "
                 f"circular pitch {_n(g.p)}")
     if field == "teeth":
-        undercut = "undercut" if g.undercut else f"no undercut ({g.undercut_limit} or more)"
+        undercut = "undercut" if g.undercut else f"no undercut ({_n(g.undercut_limit, 2)} or more)"
         return f"z {g.teeth} → PD {_n(g.d)} mm · OD {_n(g.da)} mm · {undercut}"
     if field == "pressure_angle":
         return (f"{_n(g.pressure_angle_deg, 2)}° → base diameter {_n(g.db)} mm · "
-                f"undercut below {g.undercut_limit} teeth")
+                f"undercut below {_n(g.undercut_limit, 2)} teeth")
     if field == "face_width":
         return f"{_n(g.face_width)} mm = {_n(g.face_width / g.module, 1)} × module"
     if field == "bore":
@@ -452,9 +524,38 @@ def _gear_worked(field: str, g, stem: str, folder: str) -> str:
         blank = "" if g.fillet_typed else "blank → "
         default = "" if g.fillet_typed else (" (0.15 m)" if is_ring(g) else " (0.38 m)")
         return f"{blank}{_n(g.fillet)} mm{default}"
+    if field == "profile_shift":
+        if is_bevel(g):
+            return "a bevel gear's Gleason addendum is its shift; this stays 0"
+        if is_ring(g):
+            return "a ring is cut unshifted; this stays 0"
+        shift = getattr(g, "shift", 0.0)
+        lead = f"x {shift_text(shift)} →" if shift else "0 → a standard tooth ·"
+        return (f"{lead} OD {_n(g.da)} mm · root {_n(g.df)} · tooth at pitch {_n(g.s)} · "
+                f"undercut below {_n(g.undercut_limit, 2)} teeth")
+    if field == "helix_angle":
+        if not hasattr(g, "helix_angle_deg"):
+            return "only a helical gear has a helix angle"
+        return (f"β {_n(g.helix_angle_deg, 4)}° → mt {_n(g.transverse_module, 4)} · PD {_n(g.d)} mm · "
+                f"lead {_n(g.lead, 2)} · overlap εβ {_n(g.overlap, 3)}")
+    if field == "hand":
+        if not hasattr(g, "helix_angle_deg"):
+            return "only a helical gear has a hand"
+        return (f"{HAND_LABELS.get(g.hand, g.hand).lower()} → wound like a {g.hand}-hand thread, "
+                f"{_n(g.face_twist_deg, 2)}° round across the face")
+    if field == "groove":
+        if getattr(g, "kind", "") != "herringbone":
+            return "only a herringbone gear has a centre groove"
+        if not g.groove:
+            return f"blank → the halves meet at the apex, {_n(g.face_width / 2)} mm of teeth each side"
+        return (f"{_n(g.groove)} mm → {_n(g.toothed_width)} mm of teeth each side · floor ⌀ {_n(g.groove_d)} mm")
     if field == "teeth_side":
         if is_bevel(g):
-            return "external → a bevel gear's teeth are always outside"
+            if g.ring:
+                return f"internal → its pitch cone is {_n(g.delta, 2)}°, past 90°, so its teeth are inside the cone"
+            if g.crown:
+                return "external → a crown gear's teeth stand on its face"
+            return "external → a bevel gear's teeth are outside its cone below 90°"
         if is_ring(g):
             return f"internal → teeth point inward from a {_n(g.rim)} mm rim, tips at {_n(g.da)} mm"
         return f"external → teeth point outward, tips at {_n(g.da)} mm"
@@ -466,7 +567,9 @@ def _gear_worked(field: str, g, stem: str, folder: str) -> str:
     if field == "shaft_angle":
         if not is_bevel(g):
             return "only a bevel gear has a shaft angle"
-        return f"Σ {_n(g.shaft_angle, 2)}° → this gear's cone {_n(g.delta, 3)}°, its mate's {_n(g.delta_mate, 3)}°"
+        form = " · a crown gear" if g.crown else (" · an internal bevel" if g.ring else "")
+        return (f"Σ {_n(g.shaft_angle, 2)}° → this gear's cone {_n(g.delta, 3)}°, its mate's "
+                f"{_n(g.delta_mate, 3)}°{form}")
     if field == "mate_teeth":
         if not is_bevel(g):
             return "only a bevel gear has a mate count"
@@ -497,10 +600,23 @@ def _pair_worked(field: str, g, pair: PairSpec, folder: str) -> str:
         return "external → the gears sit side by side, C = m (z₁ + z₂) / 2"
     if field == "shafts":
         if pair.shafts_value() == "crossed":
+            if pair.hands_value() == "opposite":
+                return f"crossed → |β₁ − β₂| = {_n(pair.shaft_angle_deg(), 2)}°, opposite hands"
             return f"crossed → β₁ + β₂ = {_n(pair.shaft_angle_deg(), 2)}°, both gears the same hand"
         return "parallel → both gears the same helix angle, opposite hands"
+    if field == "hands":
+        shaft = _n(pair.shaft_angle_deg(), 2)
+        if pair.hands_value() == "opposite":
+            return f"opposite → β₁ − β₂ = ±{shaft}°, gear B the other hand from gear A"
+        return f"same → β₁ + β₂ = {shaft}°, gear B the same hand as gear A"
     if field == "pair_shaft_angle":
         return f"Σ {_n(pair.shaft_angle_deg(), 2)}°"
+    if field == "motion":
+        n1, n2 = pair.gear_a.teeth_count(), pair.gear_b.teeth_count()
+        if pair.motion_value() == "fixed":
+            return "fixed → gear 1 fixed, gear 2 mated at the mesh angle; nothing turns"
+        way = "the same way" if pair.mesh_value() == "internal" else "the other way"
+        return f"gear mate → a turn of gear 1 turns gear 2 {_n(n1 / n2, 4)} of a turn, {way}"
     if field == "ratio":
         wanted = pair.ratio.strip() or _n(pair.ratio_value())
         return f"{wanted} → {pair.gear_a.teeth_count()} : {pair.gear_b.teeth_count()}"
@@ -517,10 +633,11 @@ def _pair_worked(field: str, g, pair: PairSpec, folder: str) -> str:
         return f"{label} → {len(allowed)} modules from {_n(allowed[0])} to {_n(allowed[-1])} (ISO 54)"
     if field == "teeth_range":
         candidates = pairs.solve_spec(pair)
-        exact = sum(1 for c in candidates if c.exact and c.standard and not c.undercut)
+        exact, shifted = _exact_counts(candidates)
         noun = "candidate" if len(candidates) == 1 else "candidates"
         return (f"{pair.min_teeth_count()} to {pair.max_teeth_count()} → {len(candidates)} {noun} at "
-                f"C {_n(pair.centre_distance_mm())}, i {pair.ratio.strip()} · {exact} exact")
+                f"C {_n(pair.centre_distance_mm())}, i {pair.ratio.strip()} · {exact} exact"
+                + (f" · {shifted} with shift" if shifted else ""))
     if field == "assembly_name":
         return f"{pair_stems(pair)[2]}.SLDASM{_in(folder)}"
     raise ValueError(f"There is no worked line for a solver field called {field!r}.")

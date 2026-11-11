@@ -134,12 +134,30 @@ def _bevel_section_x_sign(records: Records) -> Optional[int]:
     return None if not signs else int(signs["x_along_outward"])
 
 
+def _beyond_sign(records: Records, cone: str) -> Optional[int]:
+    """probe bevel_planes_beyond_90's x sign on one cone, once it has passed and read the angle meant."""
+    if not _passed(records, "bevel_planes_beyond_90"):
+        return None
+    signs = (_fact(records, "bevel_planes_beyond_90", "beyond_signs") or {}).get(cone)
+    return None if not signs else int(signs["x_along_outward"])
+
+
 def bevel_mate_route(records: Records) -> Optional[str]:
     """``mates`` when a placed component held a bevel frame under its mates; otherwise nothing is decided."""
     error = _fact(records, "nonparallel_mates", "bevel_frame_error")
     if error is None:
         return None
     return "mates" if error["rotation"] < 1e-6 and error["origin_mm"] < 1e-6 else None
+
+
+def custom_property_route(records: Records) -> Optional[str]:
+    """``Add3`` when a property added, read back and was replaced; else nothing."""
+    return "Add3" if _passed(records, "custom_properties") else None
+
+
+def gear_mate_route(records: Records) -> Optional[str]:
+    """``mates`` when a gear mate turned the second axis by the tooth ratio both ways round; else nothing."""
+    return "mates" if _passed(records, "gear_mate") else None
 
 
 def crossed_route(records: Records) -> Optional[str]:
@@ -186,6 +204,8 @@ def decide(records: Records) -> Dict[str, Any]:
         "internal_end_to_end": _passed(records, "internal_end_to_end"),
         "revolve_axis_mark": _revolve_axis_mark(records),
         "bevel_section_x_sign": _bevel_section_x_sign(records),
+        "bevel_crown_section_x_sign": _beyond_sign(records, "90"),
+        "bevel_internal_section_x_sign": _beyond_sign(records, "120"),
         "loft_cut_route": _fact(records, "loft_cut_sections", "loft_cut_route"),
         "loft_cut_type": _fact(records, "loft_cut_sections", "loft_cut_type"),
         "place_route": _fact(records, "nonparallel_mates", "place_route"),
@@ -193,6 +213,15 @@ def decide(records: Records) -> Dict[str, Any]:
         "origin_select_route": _fact(records, "nonparallel_mates", "origin_select_route"),
         "bevel_mate_route": bevel_mate_route(records),
         "crossed_route": crossed_route(records),
+        "custom_property_route": custom_property_route(records),
+        "custom_info_text": _fact(records, "custom_properties", "custom_info_text"),
+        "custom_property_replace": _fact(records, "custom_properties", "custom_property_replace"),
+        "property_read_route": _fact(records, "custom_properties", "property_read_route"),
+        "property_links_globals": _fact(records, "custom_properties", "property_links_global"),
+        "gear_mate_route": gear_mate_route(records),
+        "mate_gear_type": _fact(records, "gear_mate", "mate_gear_type"),
+        "gear_mate_numerator_first": _fact(records, "gear_mate", "gear_mate_numerator_first"),
+        "gear_mate_external_flip": _fact(records, "gear_mate", "gear_mate_external_flip"),
         "bevel_end_to_end": _passed(records, "bevel_end_to_end"),
         "crossed_end_to_end": _passed(records, "crossed_end_to_end"),
         "manual_steps": manual_steps(records, recipe),

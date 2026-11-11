@@ -23,6 +23,14 @@ coincide with the edge of the blank. That closure is not possible for every
 gear — a very small tooth count swings the flank round so far that the chord
 cuts back inside the outer diameter — and :meth:`SpurGear.validate` refuses
 those gears with a sentence rather than building a part with slivers in it.
+
+**Profile shift** ``x`` moves the generating rack ``x·m`` away from the gear:
+the tip and root circles grow by ``2xm``, the tooth thickens at the pitch
+circle by ``2xm·tan α`` (so the space ``"Arc Length"`` shrinks by as much), and
+the pitch and base circles do not move, so the flank is the same involute cut
+further out. A gear with no shift writes exactly the equations it always did;
+a shifted one adds a ``"Profile Shift"`` global after ``"Pressure Angle"`` and
+carries it in ``"Outer Diameter"`` and ``"Arc Length"``.
 """
 
 from __future__ import annotations
@@ -33,8 +41,9 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from .. import findings
-from ..spec import RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError
+from ..spec import KIND_BEVEL, RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError
 from . import equations
+from .properties import property_ops
 from .base import (
     ERROR,
     ORIGIN,
@@ -75,6 +84,8 @@ PRESSURE_ANGLE_MIN = 10.0
 PRESSURE_ANGLE_MAX = 35.0
 TIP_THICKNESS_WARNING = 0.3   # × module
 FLANK_START_FILLETS = 3.0     # the involute starts this many fillet radii above the root
+SHIFT_MIN = -1.0              # profile shift coefficient, × module
+SHIFT_MAX = 1.0
 
 # The global variables, by name. The first ten are the user's own, byte for byte.
 TEETH = "No. of Teeth"
@@ -101,6 +112,7 @@ T1 = "Involute t1"
 T2 = "Involute t2"
 FLANK_ARC = "Flank Arc Radius"
 FLANK_CENTRE = "Flank Centre Angle"
+PROFILE_SHIFT = "Profile Shift"   # only in a part whose shift is not zero
 
 USER_VARIABLES = (TEETH, MODULE, BORE, PRESSURE_ANGLE, OUTER, PITCH, BACKLASH, ARC_LENGTH, FILLET, DEPTH)
 
@@ -163,6 +175,7 @@ class SpurDerived:
     form_d: float
     flank_arc_radius: float
     tip_thickness: float
+    shift: float = 0.0     # profile shift coefficient x; the rack moved x × module outward
 
     @property
     def rp(self) -> float:
@@ -189,25 +202,28 @@ class SpurDerived:
         return self.db > self.df
 
     @property
-    def undercut_limit(self) -> int:
-        """The theoretical minimum tooth count, as the whole number it is quoted as.
+    def undercut_limit(self) -> float:
+        """The fewest teeth this gear has without being warned of undercut.
 
         ``2 / sin² α`` is 17.10 at 20°, and 17 teeth is the figure every table
-        gives, so a gear of exactly 17 is not warned about.
+        gives, so a gear of exactly 17 is not warned about; a shifted gear's is
+        that whole number times ``1 − x`` (see :func:`undercut_teeth`).
         """
-        return int(math.floor(self.n_min + 0.5))
+        return undercut_teeth(self.n_min, self.shift)
 
     @property
     def undercut(self) -> bool:
-        return self.teeth < self.undercut_limit
+        return self.teeth < self.undercut_limit - 1e-9
 
     def values(self) -> Dict[str, float]:
         """The value of every global variable, by name."""
+        shift = {PROFILE_SHIFT: self.shift} if self.shift else {}
         return {
             TEETH: float(self.teeth),
             MODULE: self.module,
             BORE: self.bore,
             PRESSURE_ANGLE: self.pressure_angle_deg,
+            **shift,
             OUTER: self.da,
             PITCH: self.d,
             BACKLASH: self.backlash,
@@ -239,8 +255,46 @@ def tooth_depth(module: float) -> float:
     return module * 2.4 if module <= 1.25 else module * 2.25
 
 
-def undercut_minimum(pressure_angle_deg: float) -> float:
-    return 2.0 / math.sin(math.radians(pressure_angle_deg)) ** 2
+def undercut_minimum(pressure_angle_deg: float, shift: float = 0.0) -> float:
+    """``2 (1 − x) / sin² α``: the fewest teeth a rack cuts without undercut, at shift ``x``."""
+    return 2.0 * (1.0 - shift) / math.sin(math.radians(pressure_angle_deg)) ** 2
+
+
+def undercut_teeth(unshifted: float, shift: float = 0.0) -> float:
+    """The tooth count below which a gear of shift ``x`` undercuts: the unshifted limit as the
+    whole number it is quoted as (17 at 20°), times ``1 − x``.
+
+    That is the textbook ``x_min = (17 − z) / 17``. The exact ``2 (1 − x) / sin² α``
+    would ask a tenth of a tooth more, which no table does.
+    """
+    return math.floor(unshifted + 0.5) * (1.0 - shift)
+
+
+def undercut_free_shift(teeth: int, unshifted: float) -> float:
+    """The least shift, to the hundredth above, at which ``teeth`` does not undercut (:func:`undercut_teeth`)."""
+    return _least_shift(teeth, math.floor(unshifted + 0.5))
+
+
+def _least_shift(teeth: int, table: float) -> float:
+    return math.ceil((1.0 - teeth / table) * 100.0 - 1e-9) / 100.0
+
+
+def inv(angle: float) -> float:
+    """The involute function, ``tan α − α``, radians."""
+    return math.tan(angle) - angle
+
+
+def inv_inverse(value: float) -> float:
+    """The angle whose involute is ``value``, radians, by Newton's method from a cube-root start."""
+    if value <= 0.0:
+        return 0.0
+    angle = (3.0 * value) ** (1.0 / 3.0)
+    for _ in range(60):
+        step = (inv(angle) - value) / (math.tan(angle) ** 2)
+        angle -= step
+        if abs(step) < 1e-15:
+            break
+    return angle
 
 
 def involute_point(rb: float, phi: float, t: float) -> Point2:
@@ -259,25 +313,73 @@ def involute_polar(g: SpurDerived, r: float) -> float:
     return g.phi + t - math.atan(t)
 
 
+def working_pressure_angle(module: float, teeth_1: int, teeth_2: int, pressure_angle_deg: float,
+                           shift_1: float = 0.0, shift_2: float = 0.0,
+                           transverse_module: Optional[float] = None) -> float:
+    """The pressure angle two shifted gears actually mesh at, degrees (transverse for a helical pair).
+
+    ``inv αw = inv α + 2 tan αn (x1 + x2) / (z1 + z2)``, where ``tan αn`` is the
+    normal one, ``tan α · mn / mt``. Raises ``ValueError`` when the shifts are so
+    negative that no angle has that involute.
+    """
+    alpha = math.radians(pressure_angle_deg)
+    mt = module if transverse_module is None else transverse_module
+    total = shift_1 + shift_2
+    if not total:
+        return pressure_angle_deg
+    tan_normal = math.tan(alpha) * module / mt
+    value = inv(alpha) + 2.0 * tan_normal * total / (teeth_1 + teeth_2)
+    if value <= 0.0:
+        raise ValueError(f"Profile shifts adding up to {total:g} are too negative for {teeth_1} and {teeth_2} "
+                         "teeth to mesh at all.")
+    return math.degrees(inv_inverse(value))
+
+
+def working_centre_distance(module: float, teeth_1: int, teeth_2: int, pressure_angle_deg: float,
+                            shift_1: float = 0.0, shift_2: float = 0.0,
+                            transverse_module: Optional[float] = None) -> float:
+    """Where two gears' teeth mesh without play from the flanks, ``a0 · cos α / cos αw``.
+
+    ``a0 = mt (z1 + z2) / 2`` when neither is shifted. The gears' backlash is
+    in their tooth thickness, not here: at this distance each pair of flanks
+    still has the play the two backlash values give it.
+    """
+    mt = module if transverse_module is None else transverse_module
+    standard = mt * (teeth_1 + teeth_2) / 2.0
+    if not shift_1 + shift_2:
+        return standard
+    working = working_pressure_angle(module, teeth_1, teeth_2, pressure_angle_deg, shift_1, shift_2, mt)
+    return standard * math.cos(math.radians(pressure_angle_deg)) / math.cos(math.radians(working))
+
+
 def contact_ratio(module: float, teeth_1: int, teeth_2: int, pressure_angle_deg: float,
-                  centre_distance: Optional[float] = None, transverse_module: Optional[float] = None) -> float:
-    """``[√(ra1²−rb1²) + √(ra2²−rb2²) − C·sin α] / (π·mt·cos α)``, standard teeth.
+                  centre_distance: Optional[float] = None, transverse_module: Optional[float] = None,
+                  shift_1: float = 0.0, shift_2: float = 0.0) -> float:
+    """``[√(ra1²−rb1²) + √(ra2²−rb2²) − C·sin αw] / (π·mt·cos α)``.
 
     ``module`` sets the addendum; ``transverse_module`` (the module itself for a
     spur gear) and the pressure angle, which is then the transverse one, set the
     pitch and base circles. A helical pair passes both, and this is its
-    transverse contact ratio εα.
+    transverse contact ratio εα. Shifted gears have tips ``x·m`` further out and
+    mesh at the working centre distance and pressure angle ``αw``, where
+    ``cos αw = (rb1 + rb2) / C``; unshifted at the standard distance, ``αw`` is ``α``.
     """
     alpha = math.radians(pressure_angle_deg)
     mt = module if transverse_module is None else transverse_module
     if centre_distance is None:
-        centre_distance = mt * (teeth_1 + teeth_2) / 2.0
+        centre_distance = working_centre_distance(module, teeth_1, teeth_2, pressure_angle_deg,
+                                                  shift_1, shift_2, mt)
     total = 0.0
-    for teeth in (teeth_1, teeth_2):
-        ra = teeth * mt / 2.0 + module
+    bases = 0.0
+    for teeth, shift in ((teeth_1, shift_1), (teeth_2, shift_2)):
+        ra = teeth * mt / 2.0 + module * (1.0 + shift)
         rb = teeth * mt * math.cos(alpha) / 2.0
+        bases += rb
         total += math.sqrt(max(0.0, ra * ra - rb * rb))
-    total -= centre_distance * math.sin(alpha)
+    if shift_1 or shift_2:
+        total -= math.sqrt(max(0.0, centre_distance ** 2 - bases ** 2))
+    else:
+        total -= centre_distance * math.sin(alpha)
     return total / (math.pi * mt * math.cos(alpha))
 
 
@@ -285,7 +387,7 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
             backlash: float, fillet: float, backlash_typed: bool = False, fillet_typed: bool = False,
             transverse_module: Optional[float] = None, transverse_backlash: Optional[float] = None,
             addendum: Optional[float] = None, whole_depth: Optional[float] = None,
-            space_change: float = 0.0) -> SpurDerived:
+            space_change: float = 0.0, shift: float = 0.0) -> SpurDerived:
     """Every size of one tooth space's section, the one sketch every kind of gear cuts.
 
     A spur gear's section is its only section. A helical gear's is the
@@ -298,6 +400,10 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
     depth IIF; ``space_change`` is added to the space at the pitch circle. A
     Gleason bevel gear's section passes all three: its addendum is not the
     module, and the tooth is thickened or thinned to match.
+
+    ``shift`` is the profile shift coefficient ``x``: the addendum becomes
+    ``m (1 + x)`` and the space shrinks by ``2 x m tan α``. With a helical
+    gear's transverse ``α`` and normal ``m`` that is its normal shift ``xn``.
     """
     m = module
     mt = module if transverse_module is None else transverse_module
@@ -307,12 +413,12 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
     rho = fillet
 
     d = n * mt
-    da = d + 2.0 * (m if addendum is None else addendum)
+    da = d + 2.0 * (m * (1.0 + shift) if addendum is None else addendum)
     h = tooth_depth(m) if whole_depth is None else whole_depth
     df = da - 2.0 * h
     db = d * math.cos(alpha)
     p = math.pi * mt
-    space = mt * math.pi / 2.0 + j_t + space_change
+    space = mt * math.pi / 2.0 + j_t + space_change - 2.0 * shift * m * math.tan(alpha)
     s = mt * math.pi - space
     psi_s = space / d
     inv_alpha = math.tan(alpha) - alpha
@@ -321,7 +427,9 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
     floor = df + FLANK_START_FILLETS * rho
     flank_start_d = db if db >= floor else floor
     rp = d / 2.0
-    reach = rp * math.sin(alpha) - m / math.sin(alpha)
+    # How far along the line of action the generating rack's tip line reaches in
+    # from the pitch point; a shifted rack's tip line is x × m nearer the pitch line.
+    reach = rp * math.sin(alpha) - m * (1.0 - shift) / math.sin(alpha)
     rb = db / 2.0
     form_d = 2.0 * math.sqrt(rb * rb + max(0.0, reach) ** 2)
 
@@ -338,6 +446,7 @@ def profile(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
         t2=math.sqrt((tip_cap_d / db) ** 2 - 1.0),
         form_d=form_d, flank_arc_radius=rp * math.sin(alpha),
         tip_thickness=2.0 * (da / 2.0) * (math.pi / n - tip_angle),
+        shift=shift,
     )
 
 
@@ -583,6 +692,7 @@ class SpurGear:
             BACKLASH_FACTOR * m if typed_backlash is None else typed_backlash,
             FILLET_FACTOR * m if typed_fillet is None else typed_fillet,
             backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
+            shift=spec.profile_shift_value(),
         )
 
     # -- checking --------------------------------------------------------
@@ -610,15 +720,31 @@ class SpurGear:
         g = derived
         backlash =equations.literal(g.backlash) if g.backlash_typed else f"{BACKLASH_FACTOR} * {_q(MODULE)}"
         fillet = equations.literal(g.fillet) if g.fillet_typed else f"{FILLET_FACTOR} * {_q(MODULE)}"
+        if g.shift:
+            # The user's own two, with the rack moved out: a wider tip and a thicker tooth.
+            deg_pa, rad_pa = _deg_arg(PRESSURE_ANGLE)
+            thicker = f"2 * {_q(PROFILE_SHIFT)} * {_q(MODULE)} * tan"
+            head = [
+                GlobalVariable(PROFILE_SHIFT, equations.literal(g.shift)),
+                GlobalVariable(OUTER, f"( {_q(TEETH)} + 2 + 2 * {_q(PROFILE_SHIFT)} ) * {_q(MODULE)}"),
+                GlobalVariable(PITCH, f"{_q(TEETH)} * {_q(MODULE)}"),
+                GlobalVariable(BACKLASH, backlash),
+                GlobalVariable(ARC_LENGTH, f"( ( {_q(MODULE)} * pi ) / 2 + {_q(BACKLASH)} - {thicker} ( {deg_pa} ) )",
+                               f"( ( {_q(MODULE)} * pi ) / 2 + {_q(BACKLASH)} - {thicker} ( {rad_pa} ) )"),
+            ]
+        else:
+            head = [
+                GlobalVariable(OUTER, f"( {_q(TEETH)} + 2 ) * {_q(MODULE)}"),
+                GlobalVariable(PITCH, f"{_q(TEETH)} * {_q(MODULE)}"),
+                GlobalVariable(BACKLASH, backlash),
+                GlobalVariable(ARC_LENGTH, f"( ( {_q(MODULE)} * pi ) / 2 + {_q(BACKLASH)} )"),
+            ]
         return [
             GlobalVariable(TEETH, equations.literal(g.teeth)),
             GlobalVariable(MODULE, equations.literal(g.module)),
             GlobalVariable(BORE, equations.literal(g.bore)),
             GlobalVariable(PRESSURE_ANGLE, equations.literal(g.pressure_angle_deg)),
-            GlobalVariable(OUTER, f"( {_q(TEETH)} + 2 ) * {_q(MODULE)}"),
-            GlobalVariable(PITCH, f"{_q(TEETH)} * {_q(MODULE)}"),
-            GlobalVariable(BACKLASH, backlash),
-            GlobalVariable(ARC_LENGTH, f"( ( {_q(MODULE)} * pi ) / 2 + {_q(BACKLASH)} )"),
+            *head,
             GlobalVariable(FILLET, fillet),
             GlobalVariable(DEPTH, f"IIF ( {_q(MODULE)} <= 1.25 , {_q(MODULE)} * 2.4 , {_q(MODULE)} * 2.25 )"),
             GlobalVariable(FACE_WIDTH, equations.literal(g.face_width)),
@@ -661,6 +787,9 @@ class SpurGear:
         ops.append(LinkDimension(f"Count@{TEETH_PATTERN}", _q(TEETH)))
         if spec.has_bore():
             ops.extend(_bore_ops(g))
+        sizes = [TEETH, MODULE, PRESSURE_ANGLE, *([PROFILE_SHIFT] if g.shift else []), FACE_WIDTH, PITCH, OUTER,
+                 *([BORE] if spec.has_bore() else [])]
+        ops.extend(property_ops(KIND, recipe, False, sizes))
         part = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0] if path else spec.stem()
         ops.append(ManualStep("material", f"Assign a material to {part}; the build leaves it unset."))
         ops.append(Rebuild())
@@ -668,12 +797,15 @@ class SpurGear:
         return BuildPlan(kind=KIND, recipe=recipe, ops=tuple(ops), path=path)
 
 
-def section_diagnostics(g: SpurDerived, recipe: str, undercut_limit: Optional[int] = None) -> List[Diagnostic]:
+def section_diagnostics(g: SpurDerived, recipe: str, undercut_limit: Optional[float] = None,
+                        suggest_shift: bool = True) -> List[Diagnostic]:
     """What is wrong with one tooth-space section, and what is worth knowing, as sentences.
 
     Every kind that cuts this section shares these. ``undercut_limit`` is the
     kind's own tooth count below which the pinion undercuts, when it is not the
-    spur gear's ``2 / sin² α``.
+    spur gear's ``2 / sin² α``. An undercut warning names the shift that would
+    clear it unless ``suggest_shift`` is off, as it is for a bevel gear, whose
+    shift is Gleason's.
     """
     out: List[Diagnostic] = []
 
@@ -710,11 +842,16 @@ def section_diagnostics(g: SpurDerived, recipe: str, undercut_limit: Optional[in
             "teeth"))
 
     limit = g.undercut_limit if undercut_limit is None else undercut_limit
-    if g.teeth < limit:
+    if g.teeth < limit - 1e-9:
+        cure = ""
+        if suggest_shift and g.shift < 1.0:
+            least = _least_shift(g.teeth, limit / (1.0 - g.shift))
+            if least <= SHIFT_MAX:
+                cure = f" A profile shift of {_num(least, 2)} or more would clear it."
         out.append(Diagnostic(WARNING, (
             f"{g.teeth} teeth at {_num(g.pressure_angle_deg)}° is below the undercut limit of "
-            f"{limit}: a generated gear would lose the bottom of its flanks, which "
-            "this profile does not show."), "teeth"))
+            f"{_num(limit, 2)}: a generated gear would lose the bottom of its flanks, which "
+            f"this profile does not show.{cure}"), "teeth"))
     if g.bore > 0.0 and (g.df - g.bore) / 2.0 < g.module and g.bore < g.df:
         out.append(Diagnostic(WARNING, (
             f"The bore leaves {_num((g.df - g.bore) / 2.0)} mm of rim under the teeth, thinner "
@@ -756,13 +893,16 @@ class SectionFrame:
     x_sign: int = 1          # -1 when the plane's sketch x runs the other way from the section's outward radial
 
 
-def space_ops(g: SpurDerived, recipe: str, plane: Union[int, str] = 1, frame: Optional[SectionFrame] = None) -> List[Op]:
+def space_ops(g: SpurDerived, recipe: str, plane: Union[int, str] = 1, frame: Optional[SectionFrame] = None,
+              pitch: str = PITCH) -> List[Op]:
     """The tooth-space sketch of either recipe, opened on ``plane``, closed and linked.
 
     With a ``frame`` the section is moved along x and scaled, its sketch and
     entities renamed, and every length it links multiplied by the scale.
+    ``pitch`` names the global holding the section's pitch diameter, which
+    recipe B's pitch circle is linked to: a bevel gear's is its back cone's.
     """
-    ops = _space_ops_involute(g) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g)
+    ops = _space_ops_involute(g) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g, pitch)
     if plane != 1:
         ops[0] = OpenSketch("space", plane)
     if frame is not None:
@@ -908,9 +1048,18 @@ def field_errors(spec: GearSpec, kind: str = KIND, internal: bool = False) -> Li
         out.append(Diagnostic(ERROR, f"Fillet must be more than zero (got {spec.fillet.strip()!r}).", "fillet"))
     shift = read("profile_shift", spec.profile_shift_value)
     if shift is not None and shift != 0:
-        out.append(Diagnostic(ERROR, (
-            f"Profile shift is reserved for a later version and must be 0 (got {spec.profile_shift.strip()!r})."),
-            "profile_shift"))
+        if internal:
+            out.append(Diagnostic(ERROR, (
+                f"A ring is cut without profile shift here, so Profile shift must be 0 "
+                f"(got {spec.profile_shift.strip()!r})."), "profile_shift"))
+        elif kind == KIND_BEVEL:
+            out.append(Diagnostic(ERROR, (
+                f"A bevel gear's addendum is already shifted by the Gleason proportions, so Profile shift must "
+                f"be 0 (got {spec.profile_shift.strip()!r})."), "profile_shift"))
+        elif not SHIFT_MIN <= shift <= SHIFT_MAX:
+            out.append(Diagnostic(ERROR, (
+                f"Profile shift must be between {_num(SHIFT_MIN)} and {_num(SHIFT_MAX)} × module "
+                f"(got {_num(shift)})."), "profile_shift"))
     return out
 
 
@@ -1037,7 +1186,7 @@ def _space_ops_involute(g: SpurDerived) -> List[Op]:
     ]
 
 
-def _space_ops_arcs(g: SpurDerived) -> List[Op]:
+def _space_ops_arcs(g: SpurDerived, pitch: str = PITCH) -> List[Op]:
     f = arc_flank(g)
     rp, rb, rc, rf = g.rp, g.rb, g.rc, g.rf
     fillet_up_start, fillet_up_end = f.flank_touch, f.root_touch
@@ -1099,7 +1248,7 @@ def _space_ops_arcs(g: SpurDerived) -> List[Op]:
         Dimension("Fillet", ("F+",), _add(fc, (g.fillet * 2.0, -g.fillet)), g.fillet),
         Dimension("Root", ("R",), (rf * 0.5, rf * 0.05), rf),
         CloseSketch("space", SPACE_SKETCH),
-        LinkDimension(f"Pitch@{SPACE_SKETCH}", _q(PITCH)),
+        LinkDimension(f"Pitch@{SPACE_SKETCH}", _q(pitch)),
         LinkDimension(f"Base@{SPACE_SKETCH}", _q(BASE)),
         LinkDimension(f"Cap@{SPACE_SKETCH}", _q(TIP_CAP)),
         LinkDimension(f"HalfSpace@{SPACE_SKETCH}", _q(HALF_SPACE)),

@@ -16,6 +16,13 @@ face, swept back past the Front plane, patterned, then the body mirrored about
 that plane. The mirror reverses the hand by geometry, and the apex is the
 section itself.
 
+A herringbone may have a **centre groove**: a plain channel ``g`` wide between
+the two helices, where the teeth stop. The toothed blank is extruded only to
+``g / 2`` short of the mid-plane, and a hub two modules under the root runs on
+to it; the same sweep then cuts teeth only where there is blank, and the
+mirror makes the other half, joined through the hub. Two blind extrudes and
+the sweep, patterned and mirrored: nothing the plain herringbone does not.
+
 Sign convention: +Z is the way the blank extrudes from the Front plane
 (``findings.EXTRUDE_Z_SIGN``). A **right-hand** gear's section turns
 counter-clockwise about +Z as z increases, by ``360·z / L`` degrees for a lead
@@ -33,6 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .. import findings
 from ..spec import HAND_RIGHT, HANDS, KIND_HELICAL, KIND_HERRINGBONE, GearSpec, InputError
 from . import equations, spur
+from .properties import property_ops
 from .base import (
     ERROR,
     ORIGIN,
@@ -40,6 +48,7 @@ from .base import (
     AddGlobal,
     Axis,
     BuildPlan,
+    Circle,
     CircularPattern,
     CloseSketch,
     Diagnostic,
@@ -91,12 +100,20 @@ OVERRUN = "Overrun"
 MID_WIDTH = "Mid Width"
 PATH_LENGTH = "Path Length"
 TWIST_ANGLE = "Twist Angle"
+GROOVE_WIDTH = "Groove Width"
+GROOVE_DIAMETER = "Groove Diameter"
+TOOTHED_WIDTH = "Toothed Width"
 
 # Feature and sketch names the build sets, and reads back.
 PROFILE_PLANE = "Profile Plane"
 MID_PLANE = "Mid Plane"
 PATH_SKETCH = "Path Sketch"
 MIRROR = "Mirror"
+HUB_SKETCH = "Hub Sketch"
+HUB = "Hub"
+
+GROOVE_MODULES = 2.0          # the groove's floor is this many modules inside the root circle
+GROOVE_WARNING_MODULES = 3.0  # a toothed half narrower than this many modules is warned about
 
 HELIX_MAX = 45.0
 # The steepest helix a single gear may have. Parallel pairs stay within
@@ -143,11 +160,22 @@ class HelicalDerived:
     twist_deg: float       # over the swept path, which runs past the faces
     overlap: float         # εβ over the whole face width
     n_min: float
+    groove: float = 0.0    # a herringbone's centre groove width, mm; 0 for none
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("__") or name == "section":
             raise AttributeError(name)
         return getattr(self.section, name)
+
+    @property
+    def groove_d(self) -> float:
+        """The groove's floor: the hub's diameter, two modules inside the root circle."""
+        return self.section.df - GROOVE_MODULES * self.section.module
+
+    @property
+    def toothed_width(self) -> float:
+        """How wide each toothed half of a herringbone is, face to groove."""
+        return self.section.face_width / 2.0 - self.groove / 2.0
 
     @property
     def hand_sign(self) -> int:
@@ -160,12 +188,13 @@ class HelicalDerived:
         return width * 360.0 / self.lead
 
     @property
-    def undercut_limit(self) -> int:
-        return int(math.floor(self.n_min + 0.5))
+    def undercut_limit(self) -> float:
+        """The fewest teeth without undercut: the unshifted ``2 cos β / sin² αt`` as a whole number, times ``1 − xn``."""
+        return spur.undercut_teeth(self.n_min, getattr(self.section, "shift", 0.0))
 
     @property
     def undercut(self) -> bool:
-        return self.section.teeth < self.undercut_limit
+        return self.section.teeth < self.undercut_limit - 1e-9
 
     def face_rotations(self) -> Tuple[float, float]:
         """How far the Front-plane face and the far face are turned from the section drawn, in degrees.
@@ -194,6 +223,8 @@ class HelicalDerived:
         })
         if self.kind == KIND_HERRINGBONE:
             out[MID_WIDTH] = self.section.face_width / 2.0
+        if self.groove:
+            out.update({GROOVE_WIDTH: self.groove, TOOTHED_WIDTH: self.toothed_width, GROOVE_DIAMETER: self.groove_d})
         return out
 
     def to_dict(self) -> Dict[str, Any]:
@@ -249,6 +280,19 @@ class HelicalGear:
             spec.hand_value()
         except InputError as exc:
             out.append(Diagnostic(ERROR, str(exc), "hand"))
+        try:
+            groove = spec.groove_mm()
+        except InputError as exc:
+            out.append(Diagnostic(ERROR, str(exc), "groove"))
+        else:
+            if groove is not None and self.kind != KIND_HERRINGBONE:
+                out.append(Diagnostic(ERROR, "Only a herringbone gear has a centre groove; leave Groove blank.",
+                                      "groove"))
+            elif groove is not None and self.internal:
+                out.append(Diagnostic(ERROR, "A herringbone ring is built without a centre groove; leave Groove "
+                                             "blank.", "groove"))
+            elif groove is not None and groove < 0:
+                out.append(Diagnostic(ERROR, f"Groove must not be negative (got {spec.groove.strip()!r}).", "groove"))
         return out
 
     # -- deriving --------------------------------------------------------
@@ -266,11 +310,14 @@ class HelicalGear:
         typed_fillet = spec.fillet_mm()
         j = BACKLASH_FACTOR * mn if typed_backlash is None else typed_backlash
         width = spec.face_width_mm()
+        # The normal shift: in the transverse section it moves the tip out x·mn and
+        # thickens the tooth by 2·x·mn·tan αt, which is what spur.profile does with these.
+        shift = {} if self.internal else {"shift": spec.profile_shift_value()}
         section = self._section(
             spec, spec.teeth_count(), mn, transverse_pressure_angle(normal, beta), width, j,
             self.fillet_factor * mn if typed_fillet is None else typed_fillet,
             backlash_typed=typed_backlash is not None, fillet_typed=typed_fillet is not None,
-            transverse_module=mt, transverse_backlash=j / cos_beta,
+            transverse_module=mt, transverse_backlash=j / cos_beta, **shift,
         )
         lead = math.pi * section.d / math.tan(math.radians(beta))
         path = width / 2.0 + mn if self.kind == KIND_HERRINGBONE else width + 2.0 * mn
@@ -278,7 +325,9 @@ class HelicalGear:
             section=section, kind=self.kind, helix_angle_deg=beta, hand=spec.hand_value(),
             normal_pressure_angle_deg=normal, transverse_module=mt, lead=lead, overrun=mn,
             path_length=path, twist_deg=path * 360.0 / lead,
-            overlap=overlap_ratio(mn, beta, width), n_min=self._n_min(normal, beta),
+            overlap=overlap_ratio(mn, beta, width),
+            n_min=self._n_min(normal, beta),
+            groove=spec.groove_mm() or 0.0,
         )
 
     # -- what an internal gear overrides ----------------------------------
@@ -290,7 +339,7 @@ class HelicalGear:
     def _n_min(self, normal: float, beta: float) -> float:
         return undercut_minimum(normal, beta)
 
-    def _section_diagnostics(self, section: Any, recipe: str, undercut_limit: int) -> List[Diagnostic]:
+    def _section_diagnostics(self, section: Any, recipe: str, undercut_limit: float) -> List[Diagnostic]:
         return spur.section_diagnostics(section, recipe, undercut_limit)
 
     def _section_variables(self, spec: GearSpec, g: "HelicalDerived", beta_rad: str) -> List[GlobalVariable]:
@@ -300,12 +349,22 @@ class HelicalGear:
         backlash = equations.literal(s.backlash) if s.backlash_typed else f"{BACKLASH_FACTOR} * {_q(MODULE)}"
         fillet = equations.literal(s.fillet) if s.fillet_typed else f"{FILLET_FACTOR} * {_q(MODULE)}"
         tm = _q(TRANSVERSE_MODULE)
+        if s.shift:
+            # A normal shift: x·mn more tip, and 2·x·mn·tan αt more tooth in the transverse section.
+            ta = _q(TRANSVERSE_PRESSURE_ANGLE)
+            thicker = f"2 * {_q(spur.PROFILE_SHIFT)} * {_q(MODULE)} * tan"
+            outer = f"{_q(TEETH)} * {tm} + 2 * ( 1 + {_q(spur.PROFILE_SHIFT)} ) * {_q(MODULE)}"
+            arc = (f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta} ) - {thicker} ( {ta} ) )",
+                   f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta_rad} ) - {thicker} ( {ta} * pi / 180 ) )")
+        else:
+            outer = f"{_q(TEETH)} * {tm} + 2 * {_q(MODULE)}"
+            arc = (f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta} ) )",
+                   f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta_rad} ) )")
         return [
-            GlobalVariable(OUTER, f"{_q(TEETH)} * {tm} + 2 * {_q(MODULE)}"),
+            GlobalVariable(OUTER, outer),
             GlobalVariable(PITCH, f"{_q(TEETH)} * {tm}"),
             GlobalVariable(BACKLASH, backlash),
-            GlobalVariable(ARC_LENGTH, f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta} ) )",
-                           f"( ( {tm} * pi ) / 2 + {_q(BACKLASH)} / cos ( {beta_rad} ) )"),
+            GlobalVariable(ARC_LENGTH, *arc),
             GlobalVariable(FILLET, fillet),
             GlobalVariable(DEPTH, f"IIF ( {_q(MODULE)} <= 1.25 , {_q(MODULE)} * 2.4 , {_q(MODULE)} * 2.25 )"),
             GlobalVariable(FACE_WIDTH, equations.literal(s.face_width)),
@@ -327,6 +386,11 @@ class HelicalGear:
     @property
     def plan_kind(self) -> str:
         return self.kind
+
+    def _property_sizes(self, spec: GearSpec, g: "HelicalDerived") -> List[str]:
+        shift = [spur.PROFILE_SHIFT] if getattr(g.section, "shift", 0.0) else []
+        bore = [BORE] if spec.has_bore() else []
+        return [TEETH, MODULE, PRESSURE_ANGLE, HELIX_ANGLE, *shift, FACE_WIDTH, PITCH, OUTER, *bore]
 
     # -- checking --------------------------------------------------------
 
@@ -351,6 +415,20 @@ class HelicalGear:
             out.append(Diagnostic(WARNING, (
                 f"The teeth overlap {_num(g.overlap, 2)} of a pitch along the face, under one, which loses most "
                 "of the smoothness helical teeth are for; widen the face or raise the helix angle."), "face_width"))
+        if g.groove:
+            if g.toothed_width <= 0.0:
+                out.append(Diagnostic(ERROR, (
+                    f"A groove of {_num(g.groove)} mm leaves no teeth on a {_num(g.face_width)} mm face; "
+                    "it must be narrower than the face."), "groove"))
+                return out
+            if g.bore >= g.groove_d:
+                out.append(Diagnostic(ERROR, (
+                    f"The groove's floor, at {_num(g.groove_d)} mm, reaches the bore of {_num(g.bore)} mm; "
+                    "make the bore smaller."), "groove"))
+            if g.toothed_width < GROOVE_WARNING_MODULES * g.module:
+                out.append(Diagnostic(WARNING, (
+                    f"Each toothed half is {_num(g.toothed_width)} mm wide, under three modules "
+                    f"({_num(GROOVE_WARNING_MODULES * g.module)} mm)."), "groove"))
         if g.face_twist_deg > 360.0:
             out.append(Diagnostic(WARNING, (
                 f"Each tooth turns {_num(g.face_twist_deg, 1)}° along the face, more than a whole turn."),
@@ -375,6 +453,7 @@ class HelicalGear:
             GlobalVariable(MODULE, equations.literal(s.module)),
             *([GlobalVariable(BORE, equations.literal(s.bore))] if self.has_bore_global else []),
             GlobalVariable(PRESSURE_ANGLE, equations.literal(g.normal_pressure_angle_deg)),
+            *([GlobalVariable(spur.PROFILE_SHIFT, equations.literal(s.shift))] if getattr(s, "shift", 0.0) else []),
             GlobalVariable(HELIX_ANGLE, equations.literal(g.helix_angle_deg)),
             GlobalVariable(TRANSVERSE_MODULE, f"{_q(MODULE)} / cos ( {beta} )", f"{_q(MODULE)} / cos ( {beta_rad} )"),
             # atn answers in the document's angle unit; the radian form turns it back into degrees.
@@ -386,6 +465,11 @@ class HelicalGear:
         ]
         if self.kind == KIND_HERRINGBONE:
             out.append(GlobalVariable(MID_WIDTH, f"{_q(FACE_WIDTH)} / 2"))
+            if g.groove:
+                out.append(GlobalVariable(GROOVE_WIDTH, equations.literal(g.groove)))
+                out.append(GlobalVariable(TOOTHED_WIDTH, f"{_q(MID_WIDTH)} - {_q(GROOVE_WIDTH)} / 2"))
+                out.append(GlobalVariable(GROOVE_DIAMETER, f"{_q(spur.ROOT)} - {equations.literal(GROOVE_MODULES)} * "
+                                                           f"{_q(MODULE)}"))
             out.append(GlobalVariable(PATH_LENGTH, f"{_q(MID_WIDTH)} + {_q(OVERRUN)}"))
         else:
             out.append(GlobalVariable(PATH_LENGTH, f"{_q(FACE_WIDTH)} + 2 * {_q(OVERRUN)}"))
@@ -415,15 +499,18 @@ class HelicalGear:
         ops.extend(AddGlobal(v.name, v.expression, v.radian_expression) for v in self.variables(spec, g))
         ops.append(Axis("axis", AXIS_NAME, (2, 3)))
 
-        blank = self._blank_ops(s)  # the same blank, half as deep for a herringbone
+        blank = self._blank_ops(s)  # the same blank, half as deep for a herringbone, or to its groove
         if herringbone:
+            depth, depth_global = (g.toothed_width, TOOTHED_WIDTH) if g.groove else (width / 2.0, MID_WIDTH)
             blank = [
-                replace(op, depth=width / 2.0) if isinstance(op, Extrude)
-                else LinkDimension(f"Width@{BLANK}", _q(MID_WIDTH))
+                replace(op, depth=depth) if isinstance(op, Extrude)
+                else LinkDimension(f"Width@{BLANK}", _q(depth_global))
                 if isinstance(op, LinkDimension) and op.dimension == f"Width@{BLANK}" else op
                 for op in blank
             ]
         ops.extend(blank)
+        if g.groove:
+            ops.extend(_hub_ops(g))
 
         if herringbone:
             z_section, z_end = ez * width / 2.0, -ez * g.overrun
@@ -446,6 +533,7 @@ class HelicalGear:
         if herringbone:
             ops.append(MirrorBody("mirror", MIRROR, "plane"))
         ops.extend(self._bore_ops(spec, s))
+        ops.extend(property_ops(self.kind, recipe, self.internal, self._property_sizes(spec, g)))
         part = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0] if path else spec.stem()
         ops.append(ManualStep("material", f"Assign a material to {part}; the build leaves it unset."))
         ops.append(Rebuild())
@@ -455,6 +543,22 @@ class HelicalGear:
 
 class HerringboneGear(HelicalGear):
     kind = KIND_HERRINGBONE
+
+
+def _hub_ops(g: HelicalDerived) -> List[Op]:
+    """A herringbone's groove floor: a hub under the root, from the Front plane to the mid-plane."""
+    r = g.groove_d / 2.0
+    lean = math.radians(-45.0)
+    return [
+        OpenSketch("hub", 1),
+        Circle("hub_circle", (0.0, 0.0), r),
+        Relation("coincident", ("hub_circle.centre", ORIGIN)),
+        Dimension("Hub", ("hub_circle",), (r * 1.2 * math.cos(lean), r * 1.2 * math.sin(lean)), g.groove_d),
+        CloseSketch("hub", HUB_SKETCH),
+        Extrude("hub_extrude", "hub", HUB, g.section.face_width / 2.0, "Width"),
+        LinkDimension(f"Hub@{HUB_SKETCH}", _q(GROOVE_DIAMETER)),
+        LinkDimension(f"Width@{HUB}", _q(MID_WIDTH)),
+    ]
 
 
 def _flip_for(z: float) -> bool:

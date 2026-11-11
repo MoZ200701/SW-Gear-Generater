@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .. import findings
 from ..spec import KIND_HELICAL, KIND_HERRINGBONE, KIND_SPUR, RECIPE_ARCS, RECIPE_INVOLUTE, GearSpec, InputError
 from . import equations, helical, spur
+from .properties import property_ops
 from .base import (
     ERROR,
     ORIGIN,
@@ -262,12 +263,14 @@ class InternalDerived:
 
 def section(teeth: int, module: float, pressure_angle_deg: float, face_width: float, rim: Optional[float],
             backlash: float, fillet: float, backlash_typed: bool = False, fillet_typed: bool = False,
-            transverse_module: Optional[float] = None, transverse_backlash: Optional[float] = None) -> InternalDerived:
+            transverse_module: Optional[float] = None, transverse_backlash: Optional[float] = None,
+            whole_depth: Optional[float] = None) -> InternalDerived:
     """Every size of a ring's tooth-space section; ``rim`` None is the root plus six modules.
 
     As :func:`spur.profile`: a helical ring passes its transverse module,
     backlash and pressure angle, and ``module`` stays the normal one, which
-    every size up the tooth is measured in.
+    every size up the tooth is measured in. ``whole_depth`` None is the user's
+    depth IIF; an internal bevel gear's back-cone ring passes Gleason's.
     """
     m = module
     mt = module if transverse_module is None else transverse_module
@@ -276,7 +279,7 @@ def section(teeth: int, module: float, pressure_angle_deg: float, face_width: fl
     alpha = math.radians(pressure_angle_deg)
     d = n * mt
     da = d - 2.0 * m
-    h = spur.tooth_depth(m)
+    h = spur.tooth_depth(m) if whole_depth is None else whole_depth
     df = da + 2.0 * h
     db = d * math.cos(alpha)
     p = math.pi * mt
@@ -530,7 +533,7 @@ def section_diagnostics(g: InternalDerived, recipe: str, _undercut_limit: int = 
             "it must be bigger."), "rim"))
     if g.tip_thickness <= 0.0:
         out.append(Diagnostic(ERROR, (
-            f"At {g.teeth} teeth and {_num(g.pressure_angle_deg)}° the ring's teeth come to a point before "
+            f"At {_num(g.teeth, 2)} teeth and {_num(g.pressure_angle_deg)}° the ring's teeth come to a point before "
             "their tips; reduce the backlash or add teeth."), "teeth"))
         return out
     try:
@@ -544,7 +547,7 @@ def section_diagnostics(g: InternalDerived, recipe: str, _undercut_limit: int = 
             "make Fillet smaller."), "fillet"))
     if recipe == RECIPE_ARCS and _polar(flank.cap_point) >= math.pi / g.teeth:
         out.append(Diagnostic(ERROR, (
-            f"Recipe B's flank arcs swing past the middle of the ring's teeth at {g.teeth} teeth; "
+            f"Recipe B's flank arcs swing past the middle of the ring's teeth at {_num(g.teeth, 2)} teeth; "
             "use the involute recipe."), "recipe"))
 
     if g.tip_below_base:
@@ -588,35 +591,39 @@ def _field_errors(spec: GearSpec, kind: str) -> List[Diagnostic]:
 
 
 def profile_variables(g: InternalDerived, pressure_angle: str = PRESSURE_ANGLE,
-                      circular_module: str = MODULE) -> List[GlobalVariable]:
+                      circular_module: str = MODULE, pitch: str = PITCH, inner: str = INNER,
+                      rim: bool = True) -> List[GlobalVariable]:
     """The globals a ring's tooth-space sketch reads, from ``"Root Diameter"`` on, in order.
 
     As :func:`spur.profile_variables`: ``pressure_angle`` and
     ``circular_module`` name the section's own globals, the transverse ones for
-    a helical ring.
+    a helical ring. ``pitch`` and ``inner`` name the section's pitch and tip
+    diameters, and ``rim`` False leaves out the blank's rim: an internal bevel
+    gear's section is its back cone's ring, which has globals of its own and no rim.
     """
     deg_pa, rad_pa = _q(pressure_angle), f"{_q(pressure_angle)} * pi / 180"
-    rim = equations.literal(g.rim) if g.rim_typed else f"{_q(ROOT)} + {equations.literal(RIM_MODULES)} * {_q(MODULE)}"
+    rim_value = (equations.literal(g.rim) if g.rim_typed
+                 else f"{_q(ROOT)} + {equations.literal(RIM_MODULES)} * {_q(MODULE)}")
     return [
-        GlobalVariable(ROOT, f"{_q(INNER)} + 2 * {_q(DEPTH)}"),
-        GlobalVariable(RIM, rim),
-        GlobalVariable(BASE, f"{_q(PITCH)} * cos ( {deg_pa} )", f"{_q(PITCH)} * cos ( {rad_pa} )"),
+        GlobalVariable(ROOT, f"{_q(inner)} + 2 * {_q(DEPTH)}"),
+        *((GlobalVariable(RIM, rim_value),) if rim else ()),
+        GlobalVariable(BASE, f"{_q(pitch)} * cos ( {deg_pa} )", f"{_q(pitch)} * cos ( {rad_pa} )"),
         GlobalVariable(BASE_RADIUS, f"{_q(BASE)} / 2"),
         GlobalVariable(THICKNESS, f"{_q(circular_module)} * pi - {_q(ARC_LENGTH)}"),
-        GlobalVariable(HALF_SPACE, f"( {_q(ARC_LENGTH)} / {_q(PITCH)} ) * 180 / pi"),
+        GlobalVariable(HALF_SPACE, f"( {_q(ARC_LENGTH)} / {_q(pitch)} ) * 180 / pi"),
         GlobalVariable(INVOLUTE_FN, f"tan ( {deg_pa} ) - {_q(pressure_angle)} * pi / 180",
                        f"tan ( {rad_pa} ) - {_q(pressure_angle)} * pi / 180"),
         # Negative: the flank narrows outward, the other way from a pinion's.
-        GlobalVariable(FLANK_OFFSET, f"0 - {_q(ARC_LENGTH)} / {_q(PITCH)} - {_q(INVOLUTE_FN)}"),
-        GlobalVariable(TIP_CAP, f"{_q(INNER)} - 2 * {_q(MODULE)}"),
+        GlobalVariable(FLANK_OFFSET, f"0 - {_q(ARC_LENGTH)} / {_q(pitch)} - {_q(INVOLUTE_FN)}"),
+        GlobalVariable(TIP_CAP, f"{_q(inner)} - 2 * {_q(MODULE)}"),
         # Bracketed both sides, as spur's: SolidWorks 2026 read "a >= b - c" as "( a >= b ) - c".
         GlobalVariable(FLANK_START, (
-            f"IIF ( {_q(BASE)} >= ( {_q(INNER)} - {_q(MODULE)} ) , {_q(BASE)} , {_q(INNER)} - {_q(MODULE)} )")),
+            f"IIF ( {_q(BASE)} >= ( {_q(inner)} - {_q(MODULE)} ) , {_q(BASE)} , {_q(inner)} - {_q(MODULE)} )")),
         GlobalVariable(FLANK_END, f"{_q(ROOT)} - {equations.literal(FLANK_END_FILLETS)} * {_q(FILLET)}"),
         GlobalVariable(T1, f"( abs ( ( {_q(FLANK_START)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
         GlobalVariable(T2, f"( abs ( ( {_q(FLANK_END)} / {_q(BASE)} ) ^ 2 - 1 ) ) ^ 0.5"),
-        GlobalVariable(FLANK_ARC, f"( {_q(PITCH)} / 2 ) * sin ( {deg_pa} )",
-                       f"( {_q(PITCH)} / 2 ) * sin ( {rad_pa} )"),
+        GlobalVariable(FLANK_ARC, f"( {_q(pitch)} / 2 ) * sin ( {deg_pa} )",
+                       f"( {_q(pitch)} / 2 ) * sin ( {rad_pa} )"),
         GlobalVariable(FLANK_CENTRE, f"{_q(HALF_SPACE)} - {_q(pressure_angle)}"),
     ]
 
@@ -709,9 +716,12 @@ def blank_ops(g: InternalDerived) -> List[Op]:
     ]
 
 
-def space_ops(g: InternalDerived, recipe: str, plane: Any = 1) -> List[Op]:
-    """A ring's tooth-space sketch of either recipe, opened on ``plane``, closed and linked."""
-    return _space_ops_involute(g, plane) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g, plane)
+def space_ops(g: InternalDerived, recipe: str, plane: Any = 1, pitch: str = PITCH) -> List[Op]:
+    """A ring's tooth-space sketch of either recipe, opened on ``plane``, closed and linked.
+
+    ``pitch`` names the global recipe B's pitch circle is linked to, as :func:`spur.space_ops`.
+    """
+    return _space_ops_involute(g, plane) if recipe == RECIPE_INVOLUTE else _space_ops_arcs(g, plane, pitch)
 
 
 def _space_ops_involute(g: InternalDerived, plane: Any) -> List[Op]:
@@ -772,7 +782,7 @@ def _space_ops_involute(g: InternalDerived, plane: Any) -> List[Op]:
     ]
 
 
-def _space_ops_arcs(g: InternalDerived, plane: Any) -> List[Op]:
+def _space_ops_arcs(g: InternalDerived, plane: Any, pitch: str = PITCH) -> List[Op]:
     f = arc_flank(g)
     rp, rb, rc, rf = g.rp, g.rb, g.rc, g.rf
     b = f.centre
@@ -829,7 +839,7 @@ def _space_ops_arcs(g: InternalDerived, plane: Any) -> List[Op]:
         Dimension("Fillet", ("F+",), _add(fc, (g.fillet * 2.0, -g.fillet)), g.fillet),
         Dimension("Root", ("R",), (rf * 1.08, rf * 0.05), rf),
         CloseSketch("space", SPACE_SKETCH),
-        LinkDimension(f"Pitch@{SPACE_SKETCH}", _q(PITCH)),
+        LinkDimension(f"Pitch@{SPACE_SKETCH}", _q(pitch)),
         LinkDimension(f"Base@{SPACE_SKETCH}", _q(BASE)),
         LinkDimension(f"Cap@{SPACE_SKETCH}", _q(TIP_CAP)),
         LinkDimension(f"HalfSpace@{SPACE_SKETCH}", _q(HALF_SPACE)),
@@ -915,6 +925,8 @@ class InternalSpurGear:
         ops.append(Cut("space_cut", "space", SPACE))
         ops.append(CircularPattern("teeth", TEETH_PATTERN, "axis", "space_cut", g.teeth, "Count"))
         ops.append(LinkDimension(f"Count@{TEETH_PATTERN}", _q(TEETH)))
+        ops.extend(property_ops(self.kind, recipe, True, [TEETH, MODULE, PRESSURE_ANGLE, FACE_WIDTH, PITCH, INNER,
+                                                           RIM]))
         part = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0] if path else spec.stem()
         ops.append(ManualStep("material", f"Assign a material to {part}; the build leaves it unset."))
         ops.append(Rebuild())
@@ -952,7 +964,7 @@ class InternalHelicalGear(helical.HelicalGear):
     def _n_min(self, normal: float, beta: float) -> float:
         return 0.0
 
-    def _section_diagnostics(self, g: Any, recipe: str, undercut_limit: int) -> List[Diagnostic]:
+    def _section_diagnostics(self, g: Any, recipe: str, undercut_limit: float) -> List[Diagnostic]:
         return section_diagnostics(g, recipe)
 
     def _section_variables(self, spec: GearSpec, g: Any, beta_rad: str) -> List[GlobalVariable]:
@@ -984,6 +996,9 @@ class InternalHelicalGear(helical.HelicalGear):
 
     def _bore_ops(self, spec: GearSpec, g: Any) -> List[Op]:
         return []
+
+    def _property_sizes(self, spec: GearSpec, g: Any) -> List[str]:
+        return [TEETH, MODULE, PRESSURE_ANGLE, helical.HELIX_ANGLE, FACE_WIDTH, PITCH, INNER, RIM]
 
 
 class InternalHerringboneGear(InternalHelicalGear):

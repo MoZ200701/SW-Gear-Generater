@@ -98,8 +98,9 @@ def layout(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
            labels: Sequence[str] = ("A", "B"), note: str = "") -> Layout:
     """Place one or two gears — ``SpurDerived``s — on a canvas that size.
 
-    Two gears are placed at ``m (N_A + N_B) / 2`` apart, the distance their
-    teeth make and the one the assembly is mated at, and the scale is whatever
+    Two gears are placed at ``m (N_A + N_B) / 2`` apart — or, shifted, at their
+    working centre distance — the distance their teeth make and the one the
+    assembly is mated at, and the scale is whatever
     lets both of them and the gap between them fit; one gear fills the height.
     A ring and its pinion go to :func:`layout_internal`, bevel gears to
     :func:`layout_bevel`. ``note`` follows the dimension's text (a crossed
@@ -112,7 +113,11 @@ def layout(gears: Sequence, width: int = WIDTH, height: int = HEIGHT,
     if len(gears) == 2 and _is_ring(gears[1]):
         return layout_internal(gears[0], gears[1], width, height, labels)
     tips = [g.rim / 2.0 if _is_ring(g) else g.ra for g in gears]
-    centre_distance = (gears[0].d + gears[1].d) / 2.0 if len(gears) == 2 else 0.0
+    centre_distance = 0.0
+    if len(gears) == 2:
+        # Shifted gears sit at their working centre distance, a little off the pitch circles touching.
+        shifted = getattr(gears[0], "shift", 0.0) or getattr(gears[1], "shift", 0.0)
+        centre_distance = pairs.centre_of(gears[0], gears[1]) if shifted else (gears[0].d + gears[1].d) / 2.0
     extent = tips[0] + centre_distance + tips[-1] if centre_distance else 2 * tips[0]
     gear_height = height - DIM_ZONE - TOP
     scale = min((width - 2 * PAD) / extent, gear_height / (2 * max(tips)))

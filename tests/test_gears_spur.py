@@ -156,7 +156,7 @@ def test_recipe_b_is_close_to_the_involute_at_this_size():
         ({"backlash": "2.4"}, "backlash", "leaves no tooth"),
         ({"bore": "34"}, "bore", "reaches the root diameter"),
         ({"fillet": "3"}, "fillet", "Fillet smaller"),
-        ({"profile_shift": "0.2"}, "profile_shift", "reserved"),
+        ({"profile_shift": "1.5"}, "profile_shift", "between -1 and 1"),
         ({"kind": "bevel"}, "kind", "form says"),
         ({"backlash": "-0.1"}, "backlash", "must not be negative"),
     ],

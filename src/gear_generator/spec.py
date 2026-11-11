@@ -33,6 +33,12 @@ MESHES = (MESH_EXTERNAL, MESH_INTERNAL)
 SHAFTS_PARALLEL = "parallel"
 SHAFTS_CROSSED = "crossed"
 SHAFTS = (SHAFTS_PARALLEL, SHAFTS_CROSSED)
+HANDS_SAME = "same"
+HANDS_OPPOSITE = "opposite"
+HAND_PAIRINGS = (HANDS_SAME, HANDS_OPPOSITE)
+MOTION_FIXED = "fixed"
+MOTION_GEAR_MATE = "gear mate"
+MOTIONS = (MOTION_FIXED, MOTION_GEAR_MATE)
 HAND_RIGHT = "right"
 HAND_LEFT = "left"
 HANDS = (HAND_RIGHT, HAND_LEFT)
@@ -135,9 +141,10 @@ class GearSpec:
     bore: str = "10"              # "" = no bore feature
     backlash: str = ""            # "" = the 0.3 × Module equation; typed = a literal
     fillet: str = ""              # "" = the 0.38 × Module equation; typed = a literal
-    profile_shift: str = "0"      # reserved; must be 0 in v1
+    profile_shift: str = "0"      # x, × module; external spur and helical gears only
     helix_angle: str = ""         # degrees; helical kinds only
     hand: str = HAND_RIGHT        # helical kinds only; a herringbone's names its half nearest the Front plane
+    groove: str = ""              # herringbone only: the centre groove's width in mm; "" = none
     teeth_side: str = TEETH_EXTERNAL  # "internal" = a ring, teeth pointing in; spur and helical kinds
     rim: str = ""                 # a ring's outside diameter; "" = root + 6 × module
     shaft_angle: str = "90"       # bevel only: degrees between the two shafts
@@ -207,6 +214,14 @@ class GearSpec:
             raise InputError(f"Teeth must be {' or '.join(TEETH_SIDES)} (got {self.teeth_side.strip()!r}).")
         return side
 
+    def groove_mm(self) -> Optional[float]:
+        """None when blank or zero: no centre groove."""
+        text = self.groove.strip()
+        if not text:
+            return None
+        value = parse_float(text, "Groove")
+        return value or None
+
     def is_internal(self) -> bool:
         return str(self.teeth_side).strip().lower() == TEETH_INTERNAL
 
@@ -249,7 +264,10 @@ def default_stem(spec: GearSpec, prefix: str = "") -> str:
 
     A ring is ``Ring_m2_N60`` whatever else it is, so its helix suffix carries
     the ``HB`` mark too; a bevel gear names its mate, ``Bevel_m3_N20_M40``, and
-    its shaft angle when that is not 90°, ``Bevel_m3_N20_M40_S80``.
+    its shaft angle when that is not 90°, ``Bevel_m3_N20_M40_S80``. A grooved
+    herringbone ends with its groove, ``Herringbone_m2_N20_30R_G8``. A shifted
+    gear ends with its shift, ``Gear_m2_N15_x0.09`` (``_x-0.09`` negative), since
+    it is a different part from the unshifted gear of the same module and teeth.
     """
     words = {KIND_HELICAL: "Helical", KIND_HERRINGBONE: "Herringbone", KIND_BEVEL: "Bevel"}
     internal = spec.is_internal() and spec.kind != KIND_BEVEL
@@ -259,11 +277,33 @@ def default_stem(spec: GearSpec, prefix: str = "") -> str:
         hand = str(spec.hand).strip().lower()[:1].upper()
         mark = "HB" if (prefix or internal) and spec.kind == KIND_HERRINGBONE else ""
         stem += f"_{mark}{_angle_text(spec.helix_angle) if spec.helix_angle.strip() else 'H'}{hand}"
+        if spec.kind == KIND_HERRINGBONE and _shifted(spec.groove):
+            stem += f"_G{_number_text(spec.groove)}"
     elif spec.kind == KIND_BEVEL:
         stem += f"_M{_number_text(spec.mate_teeth) if spec.mate_teeth.strip() else 'x'}"
         if spec.shaft_angle.strip() and _number_text(spec.shaft_angle) != "90":
             stem += f"_S{_angle_text(spec.shaft_angle)}"
+    if spec.kind != KIND_BEVEL and _shifted(spec.profile_shift):
+        stem += f"_x{_shift_name(spec.profile_shift)}"
     return sanitize_stem(stem)
+
+
+def _shift_name(text: str) -> str:
+    """A shift as it goes into a file name: three decimals at most, so a solved
+    ``0.050501234`` names the file ``0.051``."""
+    try:
+        value = round(float(str(text).strip() or "0"), 3)
+    except ValueError:
+        return str(text).strip()
+    return _number_text(str(value)) if math.isfinite(value) else str(text).strip()
+
+
+def _shifted(text: str) -> bool:
+    """A shift that is typed and not zero; one that does not read is left to the form to refuse."""
+    try:
+        return float(str(text).strip() or "0") != 0.0
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -283,7 +323,9 @@ class PairSpec:
     mesh: str = MESH_EXTERNAL     # "internal" = gear B is a ring round gear A
     shafts: str = SHAFTS_PARALLEL  # "crossed" = helical gears on shafts at an angle
     shaft_angle: str = "90"       # crossed and bevel pairs, degrees
+    hands: str = HANDS_SAME       # crossed pairs: "opposite" makes the shaft angle |β1 − β2|
     cone_distance: str = ""       # bevel pairs: what Solve aims for instead of a centre distance
+    motion: str = MOTION_FIXED    # "gear mate": gear 1 turns and a gear mate turns gear 2 with it
     gear_a: GearSpec = field(default_factory=GearSpec)
     gear_b: GearSpec = field(default_factory=GearSpec)
     assembly_name: str = ""
@@ -351,6 +393,18 @@ class PairSpec:
     def shaft_angle_deg(self) -> float:
         return parse_float(self.shaft_angle, "Shaft angle")
 
+    def hands_value(self) -> str:
+        hands = str(self.hands).strip().lower() or HANDS_SAME
+        if hands not in HAND_PAIRINGS:
+            raise InputError(f"Hands must be {' or '.join(HAND_PAIRINGS)} (got {self.hands.strip()!r}).")
+        return hands
+
+    def motion_value(self) -> str:
+        motion = str(self.motion).strip().lower() or MOTION_FIXED
+        if motion not in MOTIONS:
+            raise InputError(f"Assembly must be {' or '.join(MOTIONS)} (got {self.motion.strip()!r}).")
+        return motion
+
     def cone_distance_mm(self) -> float:
         value = parse_float(self.cone_distance, "Cone distance")
         if value <= 0:
@@ -371,7 +425,8 @@ def pair_stems(pair: PairSpec) -> Tuple[str, str, str]:
     The smaller gear is the pinion. On a tie the first is called the pinion,
     so the two files never share a name. A ring is always ``Ring_``, with its
     pinion ``Pinion_``, and the pair ends ``_INT``; a crossed pair ends with its
-    shaft angle, ``_X90``, and a bevel pair ``_B90``.
+    shaft angle, ``_X90`` (``_XO30`` of opposite hands), and a bevel pair ``_B90``. A shifted pair ends with
+    both shifts, ``_x0.09_-0.09``.
     """
     a, b = pair.gear_a, pair.gear_b
     internal = b.is_internal() and b.kind != KIND_BEVEL
@@ -388,11 +443,15 @@ def pair_stems(pair: PairSpec) -> Tuple[str, str, str]:
         if a.kind == KIND_BEVEL:
             suffix = f"_B{_angle_text(pair.shaft_angle) if pair.shaft_angle.strip() else 'x'}"
         elif crossed:
-            suffix = f"_X{_angle_text(pair.shaft_angle) if pair.shaft_angle.strip() else 'x'}"
+            # Of opposite hands the same module, teeth and shaft angle is another pair: _XO30.
+            opposite = "O" if str(pair.hands).strip().lower() == HANDS_OPPOSITE else ""
+            suffix = f"_X{opposite}{_angle_text(pair.shaft_angle) if pair.shaft_angle.strip() else 'x'}"
         else:
             mark = "HB" if a.kind == KIND_HERRINGBONE else "H"
             suffix = ("_INT" if internal else "") + (
                 f"_{mark}{_angle_text(a.helix_angle)}" if a.kind in HELICAL_KINDS and a.helix_angle.strip() else "")
+            if _shifted(a.profile_shift) or _shifted(b.profile_shift):
+                suffix += f"_x{_shift_name(a.profile_shift)}_{_shift_name(b.profile_shift)}"
         stem_pair = sanitize_stem(
             f"Pair_m{_number_text(a.module)}_{_number_text(a.teeth)}T_{_number_text(b.teeth)}T{suffix}"
         )

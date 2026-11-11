@@ -9,16 +9,21 @@ from tkinter import filedialog, font as tkfont, ttk
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import __version__, findings, preview, store, swbuild, swcom, theme, ui_text, widgets
-from .gears import KINDS, PLANNED_KINDS, helical as helix, kind_for, pair as pairs, standards
+from .gears import KINDS, PLANNED_KINDS, crossed, helical as helix, kind_for, pair as pairs, standards
 from .gears.base import Diagnostic, GeometryError, Point2
 from .gears.equations import literal
 from .spec import (
     HAND_LEFT,
+    HAND_PAIRINGS,
+    HANDS_OPPOSITE,
     HANDS,
     HELICAL_KINDS,
     KIND_BEVEL,
+    KIND_HERRINGBONE,
     MESH_INTERNAL,
     MESHES,
+    MOTION_GEAR_MATE,
+    MOTIONS,
     SHAFTS,
     SHAFTS_CROSSED,
     TEETH_EXTERNAL,
@@ -63,16 +68,18 @@ GEAR_VARS = (
     ("bore", "bore"),
     ("backlash", "backlash"),
     ("fillet", "fillet"),
+    ("profile_shift", "profile_shift"),
     ("helix_angle", "helix_angle"),
     ("hand", "hand"),
+    ("groove", "groove"),
     ("teeth_side", "teeth_side"),
     ("rim", "rim"),
     ("shaft_angle", "shaft_angle"),
     ("mate_teeth", "mate_teeth"),
     ("name", "name"),
 )
-# Shared by both gears, or fixed in this version.
-GEAR_COMPOUND = ("kind", "recipe", "profile_shift")
+# Shared by both gears.
+GEAR_COMPOUND = ("kind", "recipe")
 
 # Every PairSpec field, and the app attribute holding it.
 PAIR_VARS = (
@@ -89,7 +96,9 @@ PAIR_VARS = (
     ("mesh", "mesh"),
     ("shafts", "shafts"),
     ("shaft_angle", "pair_shaft_angle"),
+    ("hands", "hands"),
     ("cone_distance", "cone_distance"),
+    ("motion", "motion"),
     ("assembly_name", "assembly_name"),
 )
 PAIR_COMPOUND = ("gear_a", "gear_b")
@@ -170,6 +179,8 @@ class GearApp(ttk.Frame):
         self.shafts = tk.StringVar(value=pair_defaults.shafts)
         self.pair_shaft_angle = tk.StringVar(value=pair_defaults.shaft_angle)
         self.cone_distance = tk.StringVar(value=pair_defaults.cone_distance)
+        self.motion = tk.StringVar(value=pair_defaults.motion)
+        self.hands = tk.StringVar(value=pair_defaults.hands)
         self.assembly_name = tk.StringVar(value=pair_defaults.assembly_name)
 
         self.out_folder = tk.StringVar(value=self.recent.folder)
@@ -198,6 +209,9 @@ class GearApp(ttk.Frame):
         self.helix_rows: Dict[str, Tuple[tk.Widget, ...]] = {}
         # The rows only some gears have — a ring's rim, a bevel gear's shaft angle — per panel and name.
         self.kind_rows: Dict[str, Dict[str, Tuple[tk.Widget, ...]]] = {}
+        # Each gear's Hand row, and the hint that says gear B's follows gear A's.
+        self.hand_segs: Dict[str, widgets.Segmented] = {}
+        self.hand_hints: Dict[str, tk.Label] = {}
         self._card_panel = "a"
         self._card_field = "module"
 
@@ -453,8 +467,15 @@ class GearApp(ttk.Frame):
         fields["fillet"] = widgets.Field(cell, v["fillet"], width=150, unit="mm", placeholder="0.38 × module")
         fields["fillet"].grid(row=0, column=0)
 
-        helix_label = self._row_label(body, 7, "Helix angle")
-        helix_cell = self._cell(body, 7)
+        label = self._row_label(body, 7, "Profile shift")
+        cell = self._cell(body, 7)
+        fields["profile_shift"] = widgets.Field(cell, v["profile_shift"], width=84, unit="× m", placeholder="0")
+        fields["profile_shift"].grid(row=0, column=0)
+        self._hint(cell, "+ cures undercut").grid(row=0, column=1, padx=(theme.px(8), 0))
+        rows["profile_shift"] = (label, cell)
+
+        helix_label = self._row_label(body, 8, "Helix angle")
+        helix_cell = self._cell(body, 8)
         fields["helix_angle"] = widgets.Field(helix_cell, v["helix_angle"], width=84, unit="°")
         fields["helix_angle"].grid(row=0, column=0)
         helix_pick = tk.StringVar(value="")
@@ -462,44 +483,59 @@ class GearApp(ttk.Frame):
         holder.grid(row=0, column=1, padx=(theme.px(8), 0))
         box.bind("<<ComboboxSelected>>", lambda _e, s=side, p=helix_pick: self._pick_value(s, "helix_angle", p))
         self._hint(helix_cell, "normal module, α").grid(row=0, column=2, padx=(theme.px(8), 0))
-        hand_label = self._row_label(body, 8, "Hand")
-        hand = widgets.Segmented(body, v["hand"], HANDS, labels=ui_text.HAND_LABELS,
-                                 command=self._schedule_derive, width=160)
-        hand.grid(row=8, column=1, sticky="w", pady=(0, theme.px(6)))
-        self.helix_rows[side] = (helix_label, helix_cell, hand_label, hand)
+        hand_label = self._row_label(body, 9, "Hand")
+        hand_cell = self._cell(body, 9)
+        # In a pair gear B's hand is gear A's, or the other one: it follows, and says so.
+        hand = widgets.Segmented(hand_cell, v["hand"], HANDS, labels=ui_text.HAND_LABELS, width=160,
+                                 command=lambda s=side: (self._show_card(s, "hand"), self._lock_hands(),
+                                                         self._schedule_derive()))
+        hand.grid(row=0, column=0)
+        hint = self._hint(hand_cell, "follows gear A")
+        hint.grid(row=0, column=1, padx=(theme.px(8), 0))
+        hint.grid_remove()
+        self.hand_segs[side], self.hand_hints[side] = hand, hint
+        self.helix_rows[side] = (helix_label, helix_cell, hand_label, hand_cell)
+
+        label = self._row_label(body, 10, "Groove")
+        cell = self._cell(body, 10)
+        fields["groove"] = widgets.Field(cell, v["groove"], width=84, unit="mm", placeholder="none")
+        fields["groove"].grid(row=0, column=0)
+        self._hint(cell, "between the two helices").grid(row=0, column=1, padx=(theme.px(8), 0))
+        groove_row = (label, cell)
 
         # Which side of the rim the teeth are on. A segmented row takes no caret,
         # so choosing is what shows its card.
-        label = self._row_label(body, 9, "Teeth side")
+        label = self._row_label(body, 11, "Teeth side")
         seg = widgets.Segmented(body, v["teeth_side"], TEETH_SIDES, labels=ui_text.TEETH_SIDE_LABELS, width=180,
                                 command=lambda s=side: (self._show_card(s, "teeth_side"), self._show_helix_rows(),
                                                         self._schedule_derive()))
-        seg.grid(row=9, column=1, sticky="w", pady=(0, theme.px(6)))
+        seg.grid(row=11, column=1, sticky="w", pady=(0, theme.px(6)))
         rows["teeth_side"] = (label, seg)
 
-        label = self._row_label(body, 10, "Rim")
-        cell = self._cell(body, 10)
+        label = self._row_label(body, 12, "Rim")
+        cell = self._cell(body, 12)
         fields["rim"] = widgets.Field(cell, v["rim"], width=190, unit="mm", placeholder="root + 6 × module")
         fields["rim"].grid(row=0, column=0)
         rows["rim"] = (label, cell)
 
-        label = self._row_label(body, 11, "Shaft angle")
-        cell = self._cell(body, 11)
+        label = self._row_label(body, 13, "Shaft angle")
+        cell = self._cell(body, 13)
         fields["shaft_angle"] = widgets.Field(cell, v["shaft_angle"], width=84, unit="°")
         fields["shaft_angle"].grid(row=0, column=0)
         self._hint(cell, "90 for a right angle").grid(row=0, column=1, padx=(theme.px(8), 0))
         rows["shaft_angle"] = (label, cell)
 
-        label = self._row_label(body, 12, "Mate teeth")
-        cell = self._cell(body, 12)
+        label = self._row_label(body, 14, "Mate teeth")
+        cell = self._cell(body, 14)
         fields["mate_teeth"] = widgets.Field(cell, v["mate_teeth"], width=84)
         fields["mate_teeth"].grid(row=0, column=0)
         self._hint(cell, "the gear it meshes with").grid(row=0, column=1, padx=(theme.px(8), 0))
         rows["mate_teeth"] = (label, cell)
+        rows["groove"] = groove_row
         self.kind_rows[side] = rows
 
-        self._row_label(body, 13, "Name")
-        cell = self._cell(body, 13, sticky="ew", pady=0)
+        self._row_label(body, 15, "Name")
+        cell = self._cell(body, 15, sticky="ew", pady=0)
         cell.columnconfigure(0, weight=1)
         fields["name"] = widgets.Field(cell, v["name"], grow=True, placeholder="")
         fields["name"].grid(row=0, column=0, sticky="ew")
@@ -508,7 +544,7 @@ class GearApp(ttk.Frame):
         # this panel, so the strip reflows when the caret crosses to the other
         # gear rather than two cards of the same sentences standing open.
         card = widgets.Explainer(body, EXPLAINER_TEXT_WIDTH)
-        card.grid(row=14, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
+        card.grid(row=16, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
         self.cards[side] = card
         for name, field in fields.items():
             if name in ui_text.GEAR_EXPLAINERS:
@@ -686,11 +722,34 @@ class GearApp(ttk.Frame):
             "shaft_angle": (body.grid_slaves(row=9, column=0)[0], cell),
         }
 
-        cell, _ = field(10, "Assembly name", self.assembly_name, "assembly_name", width=220, placeholder="")
+        # A crossed pair's hands: the same, the helix angles adding up to the shaft
+        # angle, or opposite, differing by it.
+        hands_label = self._row_label(body, 10, "Hands")
+        hands = widgets.Segmented(body, self.hands, HAND_PAIRINGS, labels=ui_text.HANDS_PAIRING_LABELS, width=180,
+                                  command=lambda: (self._show_card("pair", "hands"), self._lock_hands(),
+                                                   self._schedule_derive()))
+        hands.grid(row=10, column=1, sticky="w", pady=(0, theme.px(6)))
+        self.kind_rows["pair"]["hands"] = (hands_label, hands)
+
+        # Fixed, or turning: gear 1 free and a gear mate turning gear 2. The second
+        # waits on the gear_mate probe, and is greyed until its findings are in.
+        motion_label = self._row_label(body, 11, "Assembly")
+        motion_cell = self._cell(body, 11)
+        self.motion_seg = widgets.Segmented(
+            motion_cell, self.motion, MOTIONS, labels=ui_text.MOTION_LABELS, width=180,
+            command=lambda: (self._show_card("pair", "motion"), self._schedule_derive()),
+        )
+        self.motion_seg.grid(row=0, column=0)
+        if findings.GEAR_MATE_ROUTE is None:
+            self.motion_seg.set_option_enabled(MOTION_GEAR_MATE, False)
+            self._hint(motion_cell, "not yet probed").grid(row=0, column=1, padx=(theme.px(8), 0))
+        self.kind_rows["pair"]["motion"] = (motion_label, motion_cell)
+
+        cell, _ = field(12, "Assembly name", self.assembly_name, "assembly_name", width=220, placeholder="")
         self.assembly_field = self.pair_fields[-1]
 
         solve = tk.Frame(body, bg=theme.WHITE)
-        solve.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(theme.px(2), 0))
+        solve.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(theme.px(2), 0))
         solve.columnconfigure(1, weight=1)
         self.solve_button = widgets.Button(solve, "Solve", command=self._solve, icon="refresh")
         self.solve_button.grid(row=0, column=0, sticky="w")
@@ -698,7 +757,7 @@ class GearApp(ttk.Frame):
                  font=self.fonts.hint, anchor="w").grid(row=0, column=1, sticky="w", padx=(theme.px(8), 0))
 
         card = widgets.Explainer(body, EXPLAINER_TEXT_WIDTH)
-        card.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
+        card.grid(row=14, column=0, columnspan=2, sticky="ew", pady=(theme.px(8), 0))
         self.cards["pair"] = card
         return panel
 
@@ -830,8 +889,8 @@ class GearApp(ttk.Frame):
         tk.Label(inner, textvariable=self.card_detail, bg=theme.WHITE, fg=theme.MUTED,
                  font=self.fonts.readout, anchor="w", justify="left",
                  wraplength=theme.px(FLYOUT_WIDTH - 44)).grid(row=1, column=0, sticky="w", pady=(theme.px(4), 0))
-        tk.Label(inner, text="Click a row to put its module and teeth on both gears. Nothing else "
-                             "on the form changes.",
+        tk.Label(inner, text="Click a row to put its module, teeth and profile shift on both gears. "
+                             "Nothing else on the form changes.",
                  bg=theme.WHITE, fg=theme.MUTED, font=self.fonts.readout, anchor="w", justify="left",
                  wraplength=theme.px(FLYOUT_WIDTH - 44)).grid(row=2, column=0, sticky="w", pady=(theme.px(4), 0))
 
@@ -873,7 +932,7 @@ class GearApp(ttk.Frame):
         for var in (self.kind, self.recipe, self.centre_distance, self.ratio, self.pair_module,
                     self.series, self.min_teeth, self.max_teeth, self.pair_helix_angle, self.helix_min,
                     self.helix_max, self.mesh, self.shafts, self.pair_shaft_angle, self.cone_distance,
-                    self.assembly_name, self.out_folder):
+                    self.motion, self.hands, self.assembly_name, self.out_folder):
             var.trace_add("write", lambda *_: self._schedule_derive())
 
     def _on_kind_changed(self) -> None:
@@ -886,9 +945,10 @@ class GearApp(ttk.Frame):
         Helix angle and hand are a helical gear's; Teeth side a spur or helical
         gear's, and Rim — in place of Bore — a ring's; Shaft angle and Mate teeth
         a single bevel gear's (in a pair they are the Pair panel's shaft angle and
-        the other gear's teeth). The Pair panel's Mesh is for gears that can be
-        rings, Shafts for helical pairs, and Cone distance replaces Centre
-        distance for bevel pairs.
+        the other gear's teeth). Profile shift is an external spur or helical
+        gear's, on parallel shafts outside a ring. The Pair panel's Mesh is for
+        gears that can be rings, Shafts for helical pairs, and Cone distance
+        replaces Centre distance for bevel pairs.
         """
         kind = self.kind.get()
         helical = kind in HELICAL_KINDS
@@ -923,6 +983,8 @@ class GearApp(ttk.Frame):
             show(rows["bore"], not internal)
             show(rows["shaft_angle"], bevel and not pair_mode)
             show(rows["mate_teeth"], bevel and not pair_mode)
+            show(rows["profile_shift"], self._takes_shift(side))
+            show(rows["groove"], self._takes_groove(side))
         rows = self.kind_rows.get("pair")
         if rows:
             show(rows["centre_distance"], not bevel)
@@ -930,6 +992,10 @@ class GearApp(ttk.Frame):
             show(rows["mesh"], not bevel)
             show(rows["shafts"], helical and not ring_pair)
             show(rows["shaft_angle"], bevel or crossed)
+            show(rows["hands"], crossed)
+            # A gear mate is built for parallel shafts only.
+            show(rows["motion"], not bevel and not crossed)
+        self._lock_hands()
         self._relayout()
 
     def _on_mode_changed(self) -> None:
@@ -964,10 +1030,62 @@ class GearApp(ttk.Frame):
     def _active_sides(self) -> Tuple[str, ...]:
         return SIDES if self.mode.get() == MODE_PAIR else ("a",)
 
+    def _takes_shift(self, side: str) -> bool:
+        """Whether this gear shows a Profile shift row: an external spur or helical gear, not in a
+        ring pair or on crossed shafts."""
+        if self.kind.get() == KIND_BEVEL:
+            return False
+        if self.mode.get() == MODE_PAIR:
+            return self.mesh.get() != MESH_INTERNAL and not self._crossed()
+        return self.gear_vars[side]["teeth_side"].get().strip().lower() != TEETH_INTERNAL
+
+    def _paired_hand(self) -> Optional[str]:
+        """The hand gear B must have for the pair on the form; None when it is free.
+
+        Opposite to gear A's on parallel shafts, the same round a ring, and on
+        crossed shafts whichever Hands says. A single gear is free, and so is any
+        pair that is not helical.
+        """
+        if self.mode.get() != MODE_PAIR or self.kind.get() not in HELICAL_KINDS:
+            return None
+        return pairs.partner_hand(self.gear_vars["a"]["hand"].get(), ring=self.mesh.get() == MESH_INTERNAL,
+                                  crossed_shafts=self._crossed(), opposite=self.hands.get() == HANDS_OPPOSITE)
+
+    def _lock_hands(self) -> None:
+        """Set gear B's hand to what the pair needs and turn the other segment off; or free it."""
+        seg, hint = self.hand_segs.get("b"), self.hand_hints.get("b")
+        if seg is None:
+            return
+        wanted = self._paired_hand()
+        for hand in HANDS:
+            seg.set_option_enabled(hand, wanted is None or hand == wanted)
+        if wanted is None:
+            hint.grid_remove()
+            return
+        if self.gear_vars["b"]["hand"].get() != wanted:
+            self.gear_vars["b"]["hand"].set(wanted)
+        hint.grid()
+
+    def _takes_groove(self, side: str) -> bool:
+        """Whether this gear shows a Groove row: a herringbone with external teeth."""
+        if self.kind.get() != KIND_HERRINGBONE:
+            return False
+        if self.mode.get() == MODE_PAIR:
+            return not (side == "b" and self.mesh.get() == MESH_INTERNAL)
+        return self.gear_vars[side]["teeth_side"].get().strip().lower() != TEETH_INTERNAL
+
     def _gear_spec(self, side: str) -> GearSpec:
-        """One gear on the form, as data. Every value goes across as the text typed."""
+        """One gear on the form, as data. Every value goes across as the text typed.
+
+        A shift typed for a gear that has no Profile shift row showing goes
+        across as 0: the row is hidden because that kind of gear refuses one.
+        """
         values = {field: self.gear_vars[side][attr].get() for field, attr in GEAR_VARS}
-        values.update(kind=self.kind.get(), recipe=self.recipe.get(), profile_shift="0")
+        values.update(kind=self.kind.get(), recipe=self.recipe.get())
+        if not self._takes_shift(side):
+            values["profile_shift"] = "0"
+        if not self._takes_groove(side):
+            values["groove"] = ""
         bevel = values["kind"] == KIND_BEVEL
         if self.mode.get() == MODE_PAIR:
             # In a pair the Pair panel decides: gear B is the ring of an internal
@@ -983,6 +1101,9 @@ class GearApp(ttk.Frame):
 
     def _pair_spec(self) -> PairSpec:
         values: Dict[str, Any] = {field: getattr(self, attr).get() for field, attr in PAIR_VARS}
+        if self.kind.get() == KIND_BEVEL or self._crossed():
+            # The row is hidden: these pairs are built fixed.
+            values["motion"] = PairSpec().motion
         values["gear_a"] = self._gear_spec("a")
         values["gear_b"] = self._gear_spec("b")
         return PairSpec(**values)
@@ -1060,8 +1181,20 @@ class GearApp(ttk.Frame):
             if self._crossed():
                 return (*pairs.describe_crossed(a.module, a.teeth, b.teeth, a.helix_angle_deg, b.helix_angle_deg,
                                                 alpha), "C")
-            return (*pairs.describe(a.module, a.teeth, b.teeth, alpha, getattr(a, "helix_angle_deg", 0.0)), "C")
+            return (*pairs.describe(a.module, a.teeth, b.teeth, alpha, getattr(a, "helix_angle_deg", 0.0),
+                                    shift_1=getattr(a, "shift", 0.0), shift_2=getattr(b, "shift", 0.0)), "C")
         except (ValueError, ZeroDivisionError):
+            return None
+
+    def _working_angle(self) -> Optional[float]:
+        """The transverse pressure angle a shifted external pair meshes at, degrees; None unshifted."""
+        a, b = self._derived["a"], self._derived["b"]
+        if a is None or b is None or not (getattr(a, "shift", 0.0) or getattr(b, "shift", 0.0)):
+            return None
+        try:
+            return pairs.working_pressure_angle(a.module, a.teeth, b.teeth, a.pressure_angle_deg,
+                                                a.shift, b.shift, a.d / a.teeth)
+        except ValueError:
             return None
 
     def _crossed(self) -> bool:
@@ -1087,7 +1220,8 @@ class GearApp(ttk.Frame):
             centre, ratio, epsilon, symbol = pair
             rows = ui_text.pair_derived_rows(centre, ratio, epsilon, self._derived["a"].teeth,
                                              self._derived["b"].teeth,
-                                             "Cone distance" if symbol == "R" else "Centre distance")
+                                             "Cone distance" if symbol == "R" else "Centre distance",
+                                             working_angle=self._working_angle())
             for row, (label, value) in enumerate(rows):
                 name = tk.Label(self.pair_rows, text=label, bg=theme.WHITE, fg=theme.LABEL,
                                 font=self.fonts.hint, anchor="w")
@@ -1129,6 +1263,9 @@ class GearApp(ttk.Frame):
             prefix = f"{side.upper()}: " if len(sides) > 1 else ""
             for diagnostic in self._diagnostics[side]:
                 lines.append((prefix + diagnostic.message, diagnostic.level))
+        if pair is not None and symbol == "C" and not self._crossed() and not ui_text.is_ring(self._derived["b"]):
+            for message in pairs.mesh_warnings(self._derived["a"], self._derived["b"]):
+                lines.append((message, "error" if "cannot be built" in message else "warning"))
         for row, (text, level) in enumerate(dict.fromkeys(lines)):
             label = tk.Label(self.warning_frame, text=text, bg=theme.WHITE,
                              fg=theme.ERROR if level == "error" else theme.MUTED,
@@ -1156,8 +1293,10 @@ class GearApp(ttk.Frame):
 
         k = width / float(preview.WIDTH)          # design pixels to this screen's
         line = max(1, theme.px(1))
-        note = f"Σ {ui_text._n(self._derived['a'].helix_angle_deg + self._derived['b'].helix_angle_deg, 2)}°" \
-            if len(sides) == 2 and self._crossed() else ""
+        note = ""
+        if len(sides) == 2 and self._crossed():
+            a, b = self._derived["a"], self._derived["b"]
+            note = f"Σ {ui_text._n(crossed.shaft_of(a.helix_angle_deg, b.helix_angle_deg, a.hand != b.hand), 2)}°"
         made = preview.layout([self._derived[side] for side in sides],
                               labels=[side.upper() for side in sides], note=note)
         scale = made.scale * k
@@ -1244,6 +1383,7 @@ class GearApp(ttk.Frame):
                 self.gear_vars[side]["hand"].set(spec.hand)
                 self.gear_vars[side]["mate_teeth"].set(spec.mate_teeth)
                 self.gear_vars[side]["shaft_angle"].set(spec.shaft_angle)
+                self.gear_vars[side]["profile_shift"].set(spec.profile_shift)
         finally:
             self._applying = False
         self._chosen = candidate
@@ -1255,6 +1395,8 @@ class GearApp(ttk.Frame):
             f"{symbol} {ui_text._n(centre)} mm · i {ui_text._n(ratio, 4)} · contact ratio "
             f"{ui_text.contact_ratio_text(epsilon)}" + (" · non-standard module" if not candidate.standard else "")
             + (" · undercut" if candidate.undercut else "")
+            + (f" · profile shift {ui_text.shift_text(candidate.shift_1)} and {ui_text.shift_text(candidate.shift_2)}"
+               if candidate.shifted else "")
         )
         self._derive_now()
         self._set_status(f"Both gears now carry module {ui_text._n(candidate.module, 4)}: "
@@ -1392,7 +1534,8 @@ class GearApp(ttk.Frame):
         crossed = self._crossed()
         assembly = pairs.assembly_plan(spec_a, spec_b, path_a, path_b, self.assembly_template.get().strip(), path_pair,
                                        shafts=SHAFTS_CROSSED if crossed else "parallel",
-                                       shaft_angle=pair.shaft_angle_deg() if crossed else 90.0)
+                                       shaft_angle=pair.shaft_angle_deg() if crossed else 90.0,
+                                       motion=pair.motion_value())
         plan_a, plan_b = plans
         values = self._pair_values()
         return {"job_kind": MODE_PAIR, "paths": [path_a, path_b, path_pair], "plans": plans,

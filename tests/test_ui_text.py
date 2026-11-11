@@ -77,14 +77,15 @@ def test_a_centre_distance_miss_is_signed():
 
 def test_the_solve_summary_counts():
     found = pair.solve(60, 3)
-    assert ui_text.solve_summary(found).endswith("· 3 exact")
+    # Two of the exact rows are undercut ones cleared by equal and opposite shifts.
+    assert ui_text.solve_summary(found).endswith("· 3 exact · 2 with shift")
     assert "No pair" in ui_text.solve_summary([])
 
 
 def test_the_solve_summary_names_the_chosen_candidate():
     """With the flyout closed, the strip still says which pair was picked."""
     found = pair.solve(60, 3)
-    assert ui_text.solve_summary(found, found[0]) == "64 candidates · 3 exact · m1.5 20 : 60 chosen"
+    assert ui_text.solve_summary(found, found[0]) == "69 candidates · 3 exact · 2 with shift · m1.5 20 : 60 chosen"
 
 
 # -- Derived, in pair mode -----------------------------------------------------
@@ -123,12 +124,17 @@ WORKED = {
     "bore": "10 mm → rim 8.125 mm to the root circle",
     "backlash": "blank → 0.45 mm (0.3 m) · tooth 1.906 · space 2.806 · play in the mesh 0.9",
     "fillet": "blank → 0.57 mm (0.38 m)",
+    "groove": "only a herringbone gear has a centre groove",
+    "helix_angle": "only a helical gear has a helix angle",
+    "hand": "only a helical gear has a hand",
+    "hands": "same → β₁ + β₂ = 90°, gear B the same hand as gear A",
+    "profile_shift": "0 → a standard tooth · OD 33 mm · root 26.25 · tooth at pitch 1.906 · undercut below 17 teeth",
     "name": r"Pinion_m1.5_N20.SLDPRT in D:\Gears",
     "centre_distance": "60 mm → z₁ + z₂ = 80 at m 1.5 · 96 at m 1.25 · 120 at m 1",
     "ratio": "3 → 20 : 60",
     "pair_module": "blank → 1 · 1.25 · 1.5 · 2 · 2.5 · 3 · 4 … from Series 1",
     "series": "Series 1 → 18 modules from 1 to 50 (ISO 54)",
-    "teeth_range": "17 to 200 → 64 candidates at C 60, i 3 · 3 exact",
+    "teeth_range": "17 to 200 → 69 candidates at C 60, i 3 · 3 exact · 2 with shift",
     "assembly_name": r"Pair_m1.5_20T_60T.SLDASM in D:\Gears",
     "teeth_side": "external → teeth point outward, tips at 33 mm",
     "rim": "only a ring has a rim",
@@ -138,6 +144,7 @@ WORKED = {
     "mesh": "external → the gears sit side by side, C = m (z₁ + z₂) / 2",
     "shafts": "parallel → both gears the same helix angle, opposite hands",
     "pair_shaft_angle": "Σ 90°",
+    "motion": "fixed → gear 1 fixed, gear 2 mated at the mesh angle; nothing turns",
 }
 
 
@@ -147,12 +154,12 @@ def test_every_field_works_its_own_value_out(field):
     assert name and what.endswith(".")
     assert worked == WORKED[field]
     assert (symbol == "") == (field in ("bore", "name", "series", "assembly_name", "teeth_side", "rim", "mesh",
-                                        "shafts"))
+                                        "shafts", "motion", "hand", "hands"))
 
 
 def test_every_field_on_the_form_has_a_card():
     assert set(ui_text.EXPLAINER_FIELDS) == set(WORKED)
-    assert len(ui_text.GEAR_EXPLAINERS) == 12 and len(ui_text.PAIR_EXPLAINERS) == 10
+    assert len(ui_text.GEAR_EXPLAINERS) == 16 and len(ui_text.PAIR_EXPLAINERS) == 12
 
 
 def test_a_typed_backlash_and_fillet_drop_the_word_blank():

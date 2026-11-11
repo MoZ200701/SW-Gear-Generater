@@ -82,9 +82,11 @@ class SolidWorks(Protocol):
     def loft_cut(self, handle: str, name: str, profiles: Sequence[str]) -> str: ...
     def add_component(self, handle: str, path: str, at) -> str: ...
     def fix_component(self, handle: str) -> None: ...
+    def unfix_component(self, handle: str) -> None: ...
     def add_mate(self, handle: str, kind: str, a: str, b: str, value: float = 0.0,
-                 name: str = "") -> Tuple[str, str]: ...
+                 name: str = "", ratio: Tuple[float, float] = (1.0, 1.0), flip: bool = False) -> Tuple[str, str]: ...
     def interference_count(self) -> Tuple[int, float]: ...
+    def set_custom_property(self, name: str, value: str) -> None: ...
     def place_component(self, handle: str, rotation: Sequence[float], at) -> None: ...
 
 
@@ -308,6 +310,11 @@ def _loft_cut(sw, op: base.LoftCut, result, trig):
     return f"loft {op.name}"
 
 
+def _property(sw, op: base.CustomProperty, result, trig):
+    sw.set_custom_property(op.name, op.value)
+    return f"property {op.name!r}"
+
+
 def _component(sw, op: base.AddComponent, result, trig):
     kept = sw.add_component(op.id, op.path, op.at)
     result.features.append(kept)
@@ -319,13 +326,19 @@ def _fix(sw, op: base.Fix, result, trig):
     return f"fixed {op.component}"
 
 
+def _unfix(sw, op: base.Unfix, result, trig):
+    sw.unfix_component(op.component)
+    return f"unfixed {op.component}"
+
+
 def _place(sw, op: base.Place, result, trig):
     sw.place_component(op.component, op.rotation, op.at)
     return f"placed {op.component}"
 
 
 def _mate(sw, op: base.Mate, result, trig):
-    kept, dim = sw.add_mate(op.id, op.kind, op.a, op.b, op.value, op.name)
+    extra = {"ratio": op.ratio, "flip": op.flip} if op.kind == "gear" else {}
+    kept, dim = sw.add_mate(op.id, op.kind, op.a, op.b, op.value, op.name, **extra)
     if op.name:
         _kept(result, "mate", op.name, kept)
     else:
@@ -359,8 +372,10 @@ _RUNNERS: Mapping[type, Callable] = {
     base.RefPlaneNormal: _ref_plane_normal,
     base.Revolve: _revolve,
     base.LoftCut: _loft_cut,
+    base.CustomProperty: _property,
     base.AddComponent: _component,
     base.Fix: _fix,
+    base.Unfix: _unfix,
     base.Place: _place,
     base.Mate: _mate,
 }
@@ -518,6 +533,30 @@ def structural_change(built: Mapping[str, str], wanted: Mapping[str, str]) -> st
 
     if has_bore(built) != has_bore(wanted):
         return ("A bore cannot be added to or removed from a built part through its values; "
+                "build it again as a new part.")
+
+    def has_shift(values: Mapping[str, str]) -> bool:
+        text = str(values.get("profile_shift", "")).strip()
+        try:
+            return bool(text) and float(text) != 0
+        except ValueError:
+            return False
+
+    # An unshifted part has no "Profile Shift" global for a new value to go into.
+    if has_shift(built) != has_shift(wanted):
+        return ("Profile shift cannot be added to or taken out of a built part through its values; "
+                "build it again as a new part.")
+
+    def has_groove(values: Mapping[str, str]) -> bool:
+        text = str(values.get("groove", "")).strip()
+        try:
+            return bool(text) and float(text) != 0
+        except ValueError:
+            return False
+
+    # A groove is a hub feature and a shorter blank: features, not values.
+    if has_groove(built) != has_groove(wanted):
+        return ("A centre groove cannot be added to or taken out of a built part through its values; "
                 "build it again as a new part.")
     return ""
 

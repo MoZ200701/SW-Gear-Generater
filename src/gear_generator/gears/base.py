@@ -310,6 +310,14 @@ class LoftCut:
 
 
 @dataclass(frozen=True)
+class CustomProperty:
+    """A text custom property on the part: ``value`` as written, or a global's quoted name, which it then follows."""
+
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
 class ManualStep:
     """Something the build cannot do and a person must, counted in every log."""
 
@@ -340,6 +348,13 @@ class Fix:
 
 
 @dataclass(frozen=True)
+class Unfix:
+    """Let a component move again: the first one inserted comes in fixed."""
+
+    component: str
+
+
+@dataclass(frozen=True)
 class Place:
     """Set a component's frame outright: a rotation (rows of a 3 × 3 matrix) and where its origin goes, in mm.
 
@@ -362,7 +377,10 @@ class Mate:
 
     ``kind`` is ``coincident``, ``distance`` or ``angle`` between planes and
     axes; ``axis angle`` between two axes; ``point`` (coincident) and ``point
-    distance`` from a component's origin, ``gearN:origin``, to a plane.
+    distance`` from a component's origin, ``gearN:origin``, to a plane; and
+    ``gear`` between two axes, turning them at ``ratio`` — the tooth counts of
+    ``a`` and ``b`` — the same way or, with ``flip``, the other.
+    ``asm:planeN`` is the assembly's own Nth plane.
     """
 
     id: str
@@ -371,22 +389,30 @@ class Mate:
     b: str
     value: float = 0.0
     name: str = ""
+    ratio: Tuple[float, float] = (1.0, 1.0)
+    flip: bool = False
 
 
 Op = Union[
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
     EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
-    MirrorBody, RefPlaneNormal, Revolve, LoftCut, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
+    MirrorBody, RefPlaneNormal, Revolve, LoftCut, CustomProperty, ManualStep, Rebuild, SaveAs, AddComponent, Fix,
+    Unfix, Place, Mate,
 ]
 OPS = (
     NewPart, NewAssembly, AddGlobal, LinkDimension, Axis, OpenSketch, Circle, Arc, Line, Point,
     EquationCurve, Relation, Dimension, CloseSketch, Extrude, Cut, CircularPattern, RefPlane, SweepCut,
-    MirrorBody, RefPlaneNormal, Revolve, LoftCut, ManualStep, Rebuild, SaveAs, AddComponent, Fix, Place, Mate,
+    MirrorBody, RefPlaneNormal, Revolve, LoftCut, CustomProperty, ManualStep, Rebuild, SaveAs, AddComponent, Fix,
+    Unfix, Place, Mate,
 )
 SKETCH_ENTITIES = (Circle, Arc, Line, Point, EquationCurve)
 GEOMETRY = SKETCH_ENTITIES + (Axis, OpenSketch, Relation, Dimension, CloseSketch, Extrude, Cut,
                               CircularPattern, RefPlane, SweepCut, MirrorBody, RefPlaneNormal, Revolve, LoftCut,
-                              AddComponent, Fix, Place, Mate)
+                              AddComponent, Fix, Unfix, Place, Mate)
+
+
+# A mate reference to the assembly's own planes, ``asm:plane1``, names no component.
+ASSEMBLY = "asm"
 
 
 def ref_id(ref: str) -> str:
@@ -471,7 +497,7 @@ class BuildPlan:
 
     def _check_ids(self) -> List[str]:
         problems: List[str] = []
-        defined = {ORIGIN}
+        defined = {ORIGIN, ASSEMBLY}
         open_sketch: Optional[str] = None
         sketch_names: Dict[str, str] = {}      # sketch id -> the name it was closed as
         feature_names: Dict[str, str] = {}     # feature id -> its name
@@ -588,7 +614,7 @@ class BuildPlan:
                 define(op.id, op)
             elif isinstance(op, AddComponent):
                 define(op.id, op)
-            elif isinstance(op, (Fix, Place)):
+            elif isinstance(op, (Fix, Unfix, Place)):
                 use(op.component, op)
             elif isinstance(op, Mate):
                 use(op.a, op)
@@ -648,6 +674,8 @@ def describe(op: Op, trig: str = DEGREES) -> str:
         return f"link    {equations.equation_text(op.dimension, op.expression_for(trig))}"
     if isinstance(op, ManualStep):
         return f"MANUAL  {op.text}"
+    if isinstance(op, CustomProperty):
+        return f"prop    {op.name!r} = {op.value}"
     if isinstance(op, (NewPart, NewAssembly)):
         return f"new     {name} from {op.template or '(default template)'}"
     if isinstance(op, Circle):
@@ -702,10 +730,15 @@ def describe(op: Op, trig: str = DEGREES) -> str:
         return f"insert  {op.id} {op.path} at {_fmt_point(op.at)}"
     if isinstance(op, Fix):
         return f"fix     {op.component}"
+    if isinstance(op, Unfix):
+        return f"unfix   {op.component}"
     if isinstance(op, Place):
         return f"place   {op.component} at {_fmt_point(op.at)} turned {_fmt_point(op.rotation)}"
     if isinstance(op, Mate):
         value = f" {equations.literal(round(op.value, 9))}" if op.kind in VALUED_MATES else ""
+        if op.kind == "gear":
+            value = (f" {equations.literal(op.ratio[0])}:{equations.literal(op.ratio[1])}"
+                     + (", flipped" if op.flip else ""))
         return f"mate    {op.kind}{value} {op.a} ~ {op.b}" + (f" as {op.name!r}" if op.name else "")
     return name  # pragma: no cover - every op is listed above
 

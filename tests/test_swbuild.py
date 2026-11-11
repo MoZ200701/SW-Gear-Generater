@@ -178,8 +178,11 @@ class FakeSolidWorks:
     def fix_component(self, handle):
         self._log("fix_component", handle)
 
-    def add_mate(self, handle, kind, a, b, value=0.0, name=""):
-        self._log("add_mate", kind, a, b)
+    def unfix_component(self, handle):
+        self._log("unfix_component", handle)
+
+    def add_mate(self, handle, kind, a, b, value=0.0, name="", ratio=(1.0, 1.0), flip=False):
+        self._log("add_mate", kind, a, b, *((ratio, flip) if kind == "gear" else ()))
         return (name or f"Mate{len(self.calls)}"), ("D7" if kind in ("distance", "angle", "axis angle",
                                                                     "point distance") else "")
 
@@ -189,6 +192,9 @@ class FakeSolidWorks:
     def interference_count(self):
         self._log("interference_count")
         return self.interference
+
+    def set_custom_property(self, name, value):
+        self._log("set_custom_property", name, value)
 
 
 def plan(spec=None, recipe="A", path=PATH):
