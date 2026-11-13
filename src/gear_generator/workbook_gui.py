@@ -194,8 +194,9 @@ class WorkbookWindow(tk.Toplevel):
         self.status_label.grid(row=0, column=1, sticky="w")
         self.export_button = widgets.Button(foot, "Export", command=self.export, height=32, bg=theme.WINDOW)
         self.export_button.grid(row=0, column=2, sticky="e", padx=(px(12), 0))
-        widgets.Button(foot, "Export as…", command=self.export_as, height=32, bg=theme.WINDOW).grid(
-            row=0, column=3, sticky="e", padx=(px(8), 0))
+        self.export_as_button = widgets.Button(foot, "Export as…", command=self.export_as, height=32,
+                                               bg=theme.WINDOW)
+        self.export_as_button.grid(row=0, column=3, sticky="e", padx=(px(8), 0))
         self.build_button = widgets.Button(foot, "Build parts", command=self.build_parts, primary=True, height=32,
                                            bg=theme.WINDOW)
         self.build_button.grid(row=0, column=4, sticky="e", padx=(px(8), 0))
@@ -316,6 +317,7 @@ class WorkbookWindow(tk.Toplevel):
         self.build_button.configure(state="normal" if enabled else "disabled")
         can_export = self.reading is not None and not self.error and self._pending is None
         self.export_button.configure(state="normal" if can_export else "disabled")
+        self.export_as_button.configure(state="normal" if can_export else "disabled")
 
     def locate(self) -> None:
         """The file was moved or renamed: point the window at it again."""
@@ -483,6 +485,10 @@ class WorkbookWindow(tk.Toplevel):
     def export(self, out_path: str = "") -> None:
         """Write the chosen fixes and the Results sheet: into the workbook, or a copy at ``out_path``."""
         if self.reading is None or self.error or self._pending is not None:
+            # Export as… can be pressed before a read fails (its file dialog keeps the poll running): say so.
+            why = ("a build is running in SolidWorks; export when it has finished." if self._pending is not None
+                   else self.error or "the workbook has not been read yet.")
+            self._set_status(f"Nothing was exported: {why}", ok=False)
             return
         try:
             done = wb_export.export(self.link.path, self.reading.spec, list(self.chosen), self.report,

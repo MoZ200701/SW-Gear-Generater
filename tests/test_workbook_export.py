@@ -162,3 +162,37 @@ def test_a_save_since_the_last_read_is_not_written_over(tmp_path):
     with pytest.raises(xlsx.XlsxError, match="changed since it was last read"):
         export.export(str(path), spec, [move], None, expected_digest=digest)
     assert path.read_bytes() == saved
+
+
+def test_export_as_without_a_good_read_is_disabled_and_says_why(tmp_path):
+    """Found on Windows: with the workbook unreadable, Export as… still opened its file dialog and then wrote
+    nothing, without a word. It is now disabled with Export, and if a read fails while its dialog is open, the
+    footer says why nothing was written. Needs Tk and a display (run on Windows); skipped where there is none."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display for Tk")
+    root.withdraw()
+    from gear_generator import theme, workbook_gui
+    theme.setup(root)
+
+    class App:
+        out_folder = tk.StringVar(root, "")
+        part_template = tk.StringVar(root, "")
+
+    path = write(tmp_path, reducer())
+    window = workbook_gui.WorkbookWindow(root, App(), str(path), poll_ms=10 ** 6)
+    try:
+        assert window.export_as_button._enabled and window.export_button._enabled
+        path.write_bytes(xlsx.OLE_MAGIC + b"\0" * 600)          # no longer a workbook
+        window.reread()
+        assert window.error
+        assert not window.export_as_button._enabled and not window.export_button._enabled
+        copy = tmp_path / "copy.xlsx"
+        window.export(out_path=str(copy))                         # what Export as… does once its dialog returns
+        assert not copy.exists()
+        assert window.status.get().startswith("Nothing was exported: ") and "encrypted" in window.status.get()
+    finally:
+        window.close()
+        root.destroy()
