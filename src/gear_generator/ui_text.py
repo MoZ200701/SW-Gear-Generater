@@ -719,6 +719,27 @@ def _plural(count: int, one: str, many: str = "") -> str:
     return f"{count} {one if count == 1 else (many or one + 's')}"
 
 
+def short_path(path: str, limit: int = 64) -> str:
+    """A path that fits a line: the start and as much of the end as room allows, ``…`` between.
+
+    The end — the folder a file is in, and its name — is what tells files apart,
+    so it is kept whole whenever it fits.
+    """
+    if len(path) <= limit:
+        return path
+    sep = "\\" if "\\" in path and "/" not in path else "/"
+    parts = path.split(sep)
+    head = sep.join(parts[:2]) if path.startswith(sep) else parts[0]
+    tail: List[str] = []
+    for piece in reversed(parts[1:]):
+        candidate = sep.join([piece] + tail)
+        if len(head) + len(candidate) + 3 > limit and tail:
+            break
+        tail.insert(0, piece)
+    text = f"{head}{sep}…{sep}{sep.join(tail)}"
+    return text if len(text) < len(path) else path
+
+
 def workbook_counts(spec) -> str:
     """``3 shafts · 4 gears · 2 meshes · no modes`` — the header's readout of what the file holds."""
     modes = _plural(len(spec.modes), "mode") if spec.modes else "no modes"
@@ -824,7 +845,7 @@ def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", f
     if not folder:
         return "Choose an output folder (the Box sheet's, or the strip's Output) before building.", False
     files = _plural(len(parts.jobs), "part")
-    return f"Ready: Build makes {files} in {folder}.", True
+    return f"Ready: Build makes {files} in {short_path(folder, 48)}.", True
 
 
 def _shared_steps(results) -> List[str]:

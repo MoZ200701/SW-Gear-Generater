@@ -409,7 +409,31 @@ class GearApp(ttk.Frame):
         widgets.Segmented(
             body, self.mode, MODE_VALUES, labels=MODE_LABELS, command=self._on_mode_changed, width=200,
         ).grid(row=2, column=1, sticky="w")
+
+        # A whole gearbox, specified in a workbook, opens in a window of its own (PLAN-WORKBOOK §5).
+        slot = panel.header_slot()
+        self.workbook_button = widgets.Button(slot, "Import workbook…", command=self._workbook_menu,
+                                              height=20, bg=theme.HEADER_BG)
+        self.workbook_button.grid(row=0, column=0)
         return panel
+
+    def _workbook_menu(self) -> None:
+        """Open a workbook, start a new one, or reopen one of the last few."""
+        from . import workbook_gui
+        menu = tk.Menu(self, tearoff=False)
+        menu.add_command(label="Open a workbook…", command=lambda: workbook_gui.open_workbook(self))
+        menu.add_command(label="New workbook…", command=lambda: workbook_gui.new_workbook(self))
+        recent = [p for p in self.recent.workbooks if os.path.exists(p)][:5]
+        if recent:
+            menu.add_separator()
+            for path in recent:
+                menu.add_command(label=os.path.basename(path),
+                                 command=lambda p=path: workbook_gui.open_workbook(self, p))
+        button = self.workbook_button
+        try:
+            menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+        finally:
+            menu.grab_release()
 
     # -- Gear A and Gear B
 
