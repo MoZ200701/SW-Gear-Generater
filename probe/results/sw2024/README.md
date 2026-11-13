@@ -28,3 +28,10 @@ Two decisions read differently, and neither changes the build:
 The end-to-end builds are memory-hungry on 2024: SolidWorks went from 0.3 GB to
 12 GB during the helical build and gave most of it back afterwards. A session
 that has made hundreds of documents does not give it all back.
+
+`w2-build-20261113-165706.log` is phase W2's workbook build on 2024, in the same
+session: `tests/fixtures/excel/Reducer_12to1.xlsx` read, planned and built by
+`swbuild.build_many` through the app's own code, 4 gears to 4 parts; each part's
+`.gear.json` variables equal those of a twin built from the same `GearSpec` the
+strip's way; a second build refused before making anything. The 2026 run is
+`../w2-build-20261113-164647.log`.
