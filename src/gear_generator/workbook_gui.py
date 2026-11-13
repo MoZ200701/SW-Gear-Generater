@@ -638,7 +638,8 @@ class WorkbookWindow(tk.Toplevel):
                 workbook_gears=list(job.gear_ids))
             if note:
                 text, ok = f"{text} {note}", False
-            built_parts.append({"path": result.saved, "gears": list(job.gear_ids)})
+            built_parts.append(store.PartEntry(path=result.saved, gears=list(job.gear_ids), kind=job.spec.kind,
+                                               spec=job.spec.to_dict(), trig=result.trig))
         store.save_recent(self.app.recent)    # _write_sidecar remembered each record; keep them
         if built_parts:
             record = store.load_link_record(self.link.path) or store.LinkRecord(workbook=self.link.path)

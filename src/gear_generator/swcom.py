@@ -729,8 +729,18 @@ class Session:
 
     # -- features
 
-    def insert_axis(self, handle: str, name: str, planes: Tuple[int, int]) -> str:
-        """Planes 2 and 3 selected, ``InsertAxis2(True)``, the new RefAxis found and named (probe axis)."""
+    def insert_axis(self, handle: str, name: str, planes: "Tuple[int | str, int | str]") -> str:
+        """Planes 2 and 3 selected, ``InsertAxis2(True)``, the new RefAxis found and named (probe axis).
+
+        A ``str`` plane is the handle of a plane this build made (``ref_plane``
+        keeps its name in ``_handles``), selected by the route probe tier 7
+        settled, ``findings.AXIS_PLANE_SELECT_ROUTE``. That route is not
+        committed yet, so a str plane is refused here rather than guessed (W4,
+        Agent A, once the finding is in ``findings.py``).
+        """
+        if any(isinstance(p, str) for p in planes):
+            raise NotImplementedError("An axis through planes made in this build waits for probe tier 7's "
+                                      "findings.AXIS_PLANE_SELECT_ROUTE (W4: Agent A, swcom.insert_axis).")
         doc = self._doc()
         before = self._top_names()
         self.select_plane_by_order(planes[0])
@@ -1533,6 +1543,50 @@ class Session:
     def component_translation(self, handle: str) -> Tuple[float, float, float]:
         data = call(call(self._handles[handle]["component"], "Transform2"), "ArrayData")
         return (float(data[9]) * MM_PER_METRE, float(data[10]) * MM_PER_METRE, float(data[11]) * MM_PER_METRE)
+
+    # -- W4: a workbook's layout part and static assembly (docs/PLAN-WORKBOOK.md §4.2–§4.5)
+    #
+    # Interfaces only, pinned before the work was split; Agent A implements each from probe tier 7's committed
+    # findings (p7_workbook.py). Every one runs on the worker thread, takes and returns millimetres, and raises
+    # SolidWorksError with a full sentence; none ever closes, saves or overwrites a document.
+
+    def open_document(self, path: str) -> DocInfo:
+        """Open a saved part or assembly by path, make it the active document and this session's build document.
+
+        ``OpenDoc6`` by ``findings.OPEN_DOC_ROUTE`` (an assembly by
+        ``OPEN_ASSEMBLY_ROUTE``), silently (``OPEN_DOC_SILENT``); a document
+        already open comes back with warning ``OPEN_DOC_ALREADY_OPEN_WARNING``
+        and is *not* brought forward, so ``ActivateDoc3`` always follows. The
+        active document's path is read back and compared with ``same_path``;
+        then ``_build_doc`` is that document, so ``equations``,
+        ``set_global_variable``, ``rebuild``, ``feature_names`` and
+        ``find_component`` act on it. A document of the same file name open
+        from another folder is refused before ``OpenDoc6`` is asked
+        (``SAME_NAME_OPEN_ERROR``), naming both paths. Returns the opened
+        document as :class:`DocInfo`.
+        """
+        raise NotImplementedError("W4: Agent A, swcom.Session.open_document")
+
+    def find_component(self, handle: str, name: str) -> str:
+        """Find a component of the build's assembly by the ``Name2`` recorded when it was inserted, and keep it as
+        ``handle`` (so ``place_component``, ``fix_component``, ``unfix_component`` and ``component_frame`` work on
+        it). Route: ``findings.COMPONENT_FIND_ROUTE``; resolved after a reopen per
+        ``COMPONENTS_RESOLVED_AFTER_REOPEN``. Returns ``Name2`` as read back. Missing: "<name> is not in <title>
+        any more: it was renamed or deleted in SolidWorks."
+        """
+        raise NotImplementedError("W4: Agent A, swcom.Session.find_component")
+
+    def component_frame(self, handle: str) -> Tuple[Tuple[float, ...], Tuple[float, float, float]]:
+        """A kept component's frame as ``place_component`` takes it: the rotation's 9 numbers by rows, and its
+        origin in mm (``Transform2.ArrayData``, laid out per ``findings.TRANSFORM_ARRAY_ORDER``)."""
+        raise NotImplementedError("W4: Agent A, swcom.Session.component_frame")
+
+    def interferences(self) -> List[Tuple[Tuple[str, ...], float]]:
+        """Every interference in the build's assembly: the ``Name2`` of each component in it, and its volume in
+        mm³. As :meth:`interference_count`, with ``IInterference.Components`` read by
+        ``findings.INTERFERENCE_NAMES_ROUTE``; where that route cannot name them, the names are ``()`` and only
+        the volume is given. ``Done`` is called whatever happens."""
+        raise NotImplementedError("W4: Agent A, swcom.Session.interferences")
 
 
 def connect() -> Session:

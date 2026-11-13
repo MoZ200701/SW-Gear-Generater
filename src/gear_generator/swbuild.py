@@ -22,6 +22,7 @@ on a machine with no CAD package at all:
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
@@ -57,7 +58,7 @@ class SolidWorks(Protocol):
     def link_dimension(self, dimension: str, expression: str) -> int: ...
     def equations(self) -> List[Tuple[str, float]]: ...
     def equation_values(self) -> Dict[str, float]: ...
-    def insert_axis(self, handle: str, name: str, planes: Tuple[int, int]) -> str: ...
+    def insert_axis(self, handle: str, name: str, planes: Tuple[base.PlaneRef, base.PlaneRef]) -> str: ...
     def open_sketch(self, handle: str, plane: Union[int, str]) -> None: ...
     def close_sketch(self, handle: str, name: str) -> str: ...
     def sketch_status(self, name: str) -> int: ...
@@ -88,6 +89,14 @@ class SolidWorks(Protocol):
     def interference_count(self) -> Tuple[int, float]: ...
     def set_custom_property(self, name: str, value: str) -> None: ...
     def place_component(self, handle: str, rotation: Sequence[float], at) -> None: ...
+    # W4 (a workbook's layout part and static assembly). ``documents`` and ``feature_names`` are swcom.Session's
+    # own, unchanged; the other four are new there (each docstring in swcom says what it does).
+    def documents(self) -> List[DocInfo]: ...
+    def feature_names(self) -> List[str]: ...
+    def open_document(self, path: str) -> DocInfo: ...
+    def find_component(self, handle: str, name: str) -> str: ...
+    def component_frame(self, handle: str) -> Tuple[Tuple[float, ...], Tuple[float, float, float]]: ...
+    def interferences(self) -> List[Tuple[Tuple[str, ...], float]]: ...
 
 
 class BuildError(SolidWorksError):
@@ -110,6 +119,7 @@ class BuildResult:
     checks: List[str] = field(default_factory=list)            # things to look at that do not fail a build
     rebuilt: bool = False
     saved: str = ""
+    components: Dict[str, str] = field(default_factory=dict)   # an assembly's plan handle -> the Name2 it kept
 
     @property
     def ok(self) -> bool:
@@ -318,6 +328,7 @@ def _property(sw, op: base.CustomProperty, result, trig):
 def _component(sw, op: base.AddComponent, result, trig):
     kept = sw.add_component(op.id, op.path, op.at)
     result.features.append(kept)
+    result.components[op.id] = kept
     return f"component {kept}"
 
 
@@ -674,3 +685,275 @@ def update_variables(sw: SolidWorks, variables: Sequence[GlobalVariable], expect
     finally:
         sw.end_build()
     return result
+
+
+# -- a workbook's gearbox: parts, layout part and static assembly (phase W4) ---------
+#
+# docs/PLAN-WORKBOOK.md §4.2–§4.5. Pinned in one interface commit before the work was split; the bodies that
+# raise NotImplementedError are Agent A's. Planning is pure and runs on the Tk thread (workbook.gearbox,
+# workbook.update); everything here that takes ``sw`` runs on the worker thread, as one job, and is given plain
+# data — never a workbook type — so swbuild stays below the workbook package.
+
+POSE_TOLERANCE = 1e-6        # mm for an origin, and per matrix entry (≈ radians) for a rotation
+
+# What the worker is doing, for the footer (ui_text turns a Step into its sentence).
+STAGE_CHECK = "check"                 # opening a document already built and checking it holds what is expected
+STAGE_PART = "part"                   # building part ``index`` of ``count``
+STAGE_LAYOUT = "layout"               # building the layout part
+STAGE_ASSEMBLY = "assembly"           # building the assembly
+STAGE_INTERFERENCE = "interference"   # checking the assembly for interference
+STAGE_VALUES = "values"               # Update: setting a part's or the layout's globals
+STAGE_PLACE = "place"                 # Update: re-placing components in the assembly
+STAGES = (STAGE_CHECK, STAGE_PART, STAGE_LAYOUT, STAGE_ASSEMBLY, STAGE_INTERFERENCE, STAGE_VALUES, STAGE_PLACE)
+
+
+@dataclass(frozen=True)
+class Step:
+    """One thing the worker has started. ``name`` is the document's file stem (``Gear_m1.5_N68``), or ``""``;
+    ``index`` counts from 1 among ``count`` for STAGE_PART and STAGE_CHECK, and is 0 otherwise."""
+
+    stage: str
+    name: str = ""
+    index: int = 0
+    count: int = 0
+
+
+class Progress:
+    """The last :class:`Step` a worker job said, for the Tk thread's poll to read.
+
+    One attribute, replaced whole by the worker and only read by Tk, so no
+    lock is needed under the GIL. Make one per job and pass its ``say`` to
+    :func:`build_gearbox` or :func:`update_gearbox`; never share one as a
+    default argument (it would outlive the job and leak its last step into
+    the next).
+    """
+
+    def __init__(self) -> None:
+        self.step: Optional[Step] = None
+
+    def say(self, step: Step) -> None:
+        self.step = step
+
+
+@dataclass(frozen=True)
+class DocumentValues:
+    """A saved document and the globals it should hold, in a workbook build or update.
+
+    In :func:`build_gearbox` (a reused part or layout) it must already hold
+    every one exactly — ``planned_changes(sw.equations(), variables, trig) ==
+    []`` in the document's own trig units — and every name in ``features``
+    (a reused layout's planes and axes); otherwise nothing is built. In
+    :func:`update_gearbox` the variables are what it is to hold afterwards,
+    and only those that differ are set. ``path`` is the absolute Windows path.
+    """
+
+    path: str
+    variables: Tuple[GlobalVariable, ...] = ()
+    features: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Where one gear's component belongs in a built assembly: the rotation's 9 numbers by rows and its origin
+    in mm (as :class:`gears.base.Place`), found by the ``Name2`` recorded at insertion. ``pitch`` is the gear's
+    angular pitch in degrees (360 / teeth): a frame turned a whole number of pitches about the part's own axis
+    is the same placement (:func:`same_frame`). 0 compares exactly."""
+
+    gear: str
+    component: str
+    rotation: Tuple[float, ...]
+    at: Tuple[float, float, float]
+    pitch: float = 0.0
+
+
+@dataclass(frozen=True)
+class Clash:
+    """One interference in an assembly. ``components`` are the ``Name2``s SolidWorks gave (``()`` when the names
+    could not be read, ``findings.INTERFERENCE_NAMES_ROUTE``); ``gears`` the workbook's gear ids for them, in
+    the same order, where the caller's map knows them (else the Name2 itself). ``volume`` in mm³."""
+
+    components: Tuple[str, ...]
+    gears: Tuple[str, ...]
+    volume: float
+
+
+def same_frame(rotation_a: Sequence[float], at_a: Sequence[float], rotation_b: Sequence[float],
+               at_b: Sequence[float], pitch: float = 0.0, tolerance: float = POSE_TOLERANCE) -> bool:
+    """Whether two component frames place the same gear the same way.
+
+    The origins must agree to ``tolerance`` mm on each axis. The rotations
+    must differ only by a turn about the part's own Z (its gear axis) of a
+    whole number of ``pitch`` degrees — a gear turned one tooth is the same
+    gear in the same place (review 14: comparing θ itself would call
+    2.5e-14 and one whole pitch different). ``pitch`` 0 asks for the same
+    rotation. Rotations are 9 numbers by rows, ``v_global = R · v_local + at``.
+    """
+    if any(abs(float(a) - float(b)) > tolerance for a, b in zip(at_a, at_b)):
+        return False
+    ra = [[float(rotation_a[i * 3 + j]) for j in range(3)] for i in range(3)]
+    rb = [[float(rotation_b[i * 3 + j]) for j in range(3)] for i in range(3)]
+    # M = Ra^T Rb: the turn, in a's own frame, that takes a to b. It must be a turn about local Z.
+    m = [[sum(ra[k][i] * rb[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    turn = math.atan2(m[1][0], m[0][0])
+    c, s = math.cos(turn), math.sin(turn)
+    about_z = ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
+    if any(abs(m[i][j] - about_z[i][j]) > tolerance for i in range(3) for j in range(3)):
+        return False
+    if pitch <= 0:
+        return abs(turn) <= tolerance
+    step = math.radians(pitch)
+    off = turn % step
+    return min(off, step - off) <= tolerance
+
+
+def same_named_elsewhere(documents: Sequence[DocInfo], paths: Sequence[str]) -> List[Tuple[str, str]]:
+    """``(open document's path, wanted path)`` for every open document with the same file name as a path this
+    job will build, open or insert, but in another folder (decision 7: SolidWorks keys open documents by file
+    name, so it would answer with the wrong one). Unsaved documents are not compared. Pure."""
+    def name(path: str) -> str:
+        return os.path.basename(path.replace("\\", "/")).lower()
+
+    out: List[Tuple[str, str]] = []
+    for doc in documents:
+        if not doc.path:
+            continue
+        for wanted in paths:
+            if wanted and name(doc.path) == name(wanted) and not same_path(doc.path, wanted):
+                out.append((doc.path, wanted))
+    return out
+
+
+@dataclass
+class GearboxResult:
+    """What :func:`build_gearbox` did, step by step; every part saved before a failure stays saved.
+
+    ``checked``: documents already built (reused parts, then a reused
+    layout), opened and found to hold what was expected, in order.
+    ``layout`` is None when the layout was reused (``layout_reused`` is then
+    its path) or not reached; ``assembly`` None when not reached or not
+    planned (Build parts). ``components`` is the assembly's
+    ``BuildResult.components`` (handle -> Name2, the layout's ``"layout"``
+    included). ``clashes`` and ``interference_error`` are filled only after
+    an assembly that built cleanly; a clash is a CHECK, not a failure.
+    ``skipped`` says, as a phrase, what a failure left unattempted.
+    ``parts.ok`` is False for an empty batch, so :attr:`ok` must not lean
+    on it when every part was reused.
+    """
+
+    parts: ManyResult = field(default_factory=ManyResult)
+    checked: List[str] = field(default_factory=list)
+    layout: Optional[BuildResult] = None
+    layout_reused: str = ""
+    assembly: Optional[BuildResult] = None
+    components: Dict[str, str] = field(default_factory=dict)
+    clashes: List[Clash] = field(default_factory=list)
+    interference_error: str = ""
+    skipped: str = ""
+
+    @property
+    def ok(self) -> bool:
+        """Every part planned was saved, the layout saved or reused (when planned), the assembly saved (when
+        planned). Clashes do not count against it."""
+        raise NotImplementedError("W4: Agent A, swbuild.GearboxResult.ok")
+
+    def log_lines(self) -> List[str]:
+        """The parts' lines, the checked documents, the layout's, the assembly's, then ``ok      no interference
+        between the gears`` or one ``CHECK`` per clash naming the gears, then ``SKIPPED …``."""
+        raise NotImplementedError("W4: Agent A, swbuild.GearboxResult.log_lines")
+
+
+def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[DocumentValues] = (),
+                  layout: Union[BuildPlan, DocumentValues, None] = None, assembly: Optional[BuildPlan] = None,
+                  gears: Optional[Mapping[str, str]] = None, *,
+                  exists: Callable[[str], bool] = os.path.exists,
+                  progress: Optional[Callable[[Step], None]] = None) -> GearboxResult:
+    """A workbook's parts, its layout part and its static assembly, in one worker job (PLAN-WORKBOOK §4.2–§4.3).
+
+    ``parts`` are the new parts' plans; ``reuse`` the parts already built and
+    unchanged; ``layout`` a plan to build, a saved layout to reuse
+    (:class:`DocumentValues` with its globals and its plane and axis names),
+    or None with ``assembly`` None too (Build parts: W2's batch, now able to
+    resume over parts already made); ``gears`` maps each assembly handle to
+    its gear id, for naming clashes. Order, and what may stop it:
+
+    1. **Before anything is made**, raise :class:`BuildError` (nothing made,
+       nothing changed) if a new path exists or two are the same, a reused
+       path is missing, a document of the same file name is open from another
+       folder (:func:`same_named_elsewhere` over every path built, opened or
+       inserted), or a reused document does not hold what is expected
+       (decision 3: each is opened with ``open_document`` and checked live —
+       ``planned_changes(...) == []`` and every ``features`` name present —
+       the sentence naming the file and what differs).
+    2. The new parts, by :func:`build_many`; a failure skips the rest.
+    3. The layout: built (a failure skips the assembly), or the reused one
+       left open from step 1.
+    4. The assembly, by :func:`build`; then, if it built cleanly,
+       ``sw.interferences()`` (a raise becomes ``interference_error``).
+
+    ``progress`` is told each :class:`Step` as it starts. Nothing is closed;
+    a failed document is left open, unsaved. Runs on the worker thread.
+    """
+    raise NotImplementedError("W4: Agent A, swbuild.build_gearbox")
+
+
+@dataclass
+class GearboxUpdate:
+    """What :func:`update_gearbox` did. Nothing is saved: ``changed`` lists every document it changed in
+    SolidWorks (the record marks them unsaved until the app sees them saved, decision 3).
+
+    ``parts`` holds one result per part reached, in the order given;
+    ``layout`` the layout's, if one was given and reached. ``found`` is each
+    placed gear's live frame (rotation by rows, origin in mm) as read before
+    anything moved — the finish compares it with the record to say a
+    component the user dragged was put back. ``placed`` lists the gears
+    re-placed because ``found`` differed from the wanted frame
+    (:func:`same_frame`, modulo the gear's pitch). ``rebuilt`` is the
+    assembly's one rebuild. ``failures`` are (what, why) in the order met.
+    """
+
+    parts: List[UpdateResult] = field(default_factory=list)
+    layout: Optional[UpdateResult] = None
+    found: Dict[str, Tuple[Tuple[float, ...], Tuple[float, float, float]]] = field(default_factory=dict)
+    placed: List[str] = field(default_factory=list)
+    rebuilt: bool = False
+    clashes: List[Clash] = field(default_factory=list)
+    interference_error: str = ""
+    failures: List[Tuple[str, str]] = field(default_factory=list)
+    changed: List[str] = field(default_factory=list)
+    skipped: str = ""
+
+    @property
+    def ok(self) -> bool:
+        raise NotImplementedError("W4: Agent A, swbuild.GearboxUpdate.ok")
+
+    def log_lines(self) -> List[str]:
+        raise NotImplementedError("W4: Agent A, swbuild.GearboxUpdate.log_lines")
+
+
+def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout: Optional[DocumentValues] = None,
+                   assembly: str = "", placements: Sequence[Placement] = (), *,
+                   exists: Callable[[str], bool] = os.path.exists,
+                   progress: Optional[Callable[[Step], None]] = None) -> GearboxUpdate:
+    """Update SolidWorks from the workbook: part values, the layout's globals, and the static assembly's
+    components re-placed (PLAN-WORKBOOK §4.5), in one worker job and in two phases, so a missing piece changes
+    nothing.
+
+    *Check* — raise :class:`BuildError` before any change if a path is
+    missing, a same-named document is open from another folder, a document
+    lacks a global it should hold (``planned_changes`` raises), or a
+    component is not found by its recorded ``Name2``. Each document is opened
+    with ``open_document`` (decision: Update always opens and activates).
+
+    *Change* — each part, then the layout: ``open_document`` then
+    :func:`update_variables`; the first failure stops. Then the assembly
+    (when ``assembly`` is given, even with nothing to move: a teeth change
+    alters the mesh): ``open_document``, ``find_component`` each, read
+    ``component_frame``, re-place only those not :func:`same_frame` (with
+    Unfix/Fix around it if ``findings.REPLACE_FIXED_ROUTE`` asks), one
+    ``rebuild``, then ``interferences``.
+
+    Compares with SolidWorks live, never with the record, so an update the
+    user never saved, or a component they dragged, is put right on the next
+    press. Saves nothing and closes nothing. Runs on the worker thread.
+    """
+    raise NotImplementedError("W4: Agent A, swbuild.update_gearbox")

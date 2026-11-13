@@ -460,7 +460,7 @@ def test_recent_workbooks(tmp_path):
 def test_a_link_record_sits_beside_its_workbook(tmp_path):
     workbook = str(tmp_path / "Reducer_12to1.xlsx")
     record = store.LinkRecord(workbook=workbook, digest="abc",
-                              parts=[{"path": "C:\\P\\Gear_m1.5_N17.SLDPRT", "gears": ["G1", "G5"]}])
+                              parts=[store.PartEntry(path="C:\\P\\Gear_m1.5_N17.SLDPRT", gears=["G1", "G5"])])
     where = store.save_link_record(record)
     assert where == str(tmp_path / "Reducer_12to1.workbook.json")
     assert store.load_link_record(workbook) == record

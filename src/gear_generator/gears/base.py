@@ -106,13 +106,27 @@ class LinkDimension:
         return self.radian_expression if trig == RADIANS and self.radian_expression else self.expression
 
 
+PlaneRef = Union[int, str]
+
+
 @dataclass(frozen=True)
 class Axis:
-    """A reference axis through two planes, chosen by tree order, never by name."""
+    """A reference axis where two planes cross, selected in the order given.
+
+    Each plane is an ``int``, the Nth reference plane in tree order (never a
+    base plane's English name), or a ``str``, the id of a :class:`RefPlane`
+    made earlier in the same plan — the form a workbook's layout part uses,
+    one axis per shaft through the planes offset from Right and Top (probe
+    tier 7, ``axis_through_named_planes`` and ``axis_through_base_planes``;
+    the route that selects a plane by its kept name is
+    ``findings.AXIS_PLANE_SELECT_ROUTE``). Which way the axis points follows
+    the selection order (``findings.LAYOUT_AXIS_Z_SIGN``), so the order is
+    part of the plan, not a detail of the runner.
+    """
 
     id: str
     name: str
-    planes: Tuple[int, int] = (2, 3)
+    planes: Tuple[PlaneRef, PlaneRef] = (2, 3)
 
 
 @dataclass(frozen=True)
@@ -611,6 +625,11 @@ class BuildPlan:
                 define(op.id, op)
                 feature_names[op.id] = op.name
             elif isinstance(op, Axis):
+                if open_sketch is not None:
+                    problems.append(f"Axis {op.id!r} is made while sketch {open_sketch!r} is open.")
+                for plane in op.planes:
+                    if isinstance(plane, str) and plane not in planes:
+                        problems.append(f"Axis {op.id!r} is through {plane!r}, which is not a plane made earlier.")
                 define(op.id, op)
             elif isinstance(op, AddComponent):
                 define(op.id, op)
@@ -699,7 +718,10 @@ def describe(op: Op, trig: str = DEGREES) -> str:
     if isinstance(op, CloseSketch):
         return f"close   {op.id} as {op.name!r}"
     if isinstance(op, Axis):
-        return f"axis    {op.name!r} through planes {op.planes[0]} and {op.planes[1]}"
+        if all(isinstance(p, int) for p in op.planes):
+            return f"axis    {op.name!r} through planes {op.planes[0]} and {op.planes[1]}"
+        first, second = (p if isinstance(p, str) else f"plane {p}" for p in op.planes)
+        return f"axis    {op.name!r} through {first} and {second}"
     if isinstance(op, RefPlane):
         flipped = ", flipped" if op.flip else ""
         return f"plane   {op.name!r} {equations.literal(round(op.offset, 6))} mm from plane {op.plane}{flipped} ({op.offset_dim})"

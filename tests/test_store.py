@@ -187,3 +187,63 @@ def test_update_values_changes_the_form_and_values_only():
     assert after.record.record_id == before.record.record_id
     assert after.record.last_updated == "2026-09-16T00:00:00Z"
     assert before.record.spec == {"module": "1.5", "teeth": "25"}
+
+
+# -- the link record, schema 2 (W4 interfaces) ------------------------------
+
+
+def link_record(workbook):
+    return store.LinkRecord(
+        workbook=workbook, digest="abc", last_built="2026-11-13T00:00:00Z",
+        parts=[store.PartEntry(path=r"C:\P\Gear_m1.5_N17.SLDPRT", gears=["G1"], revision=0, kind="spur",
+                               spec={"teeth": "17"}, variables=[["No. of Teeth", "17"]], trig="degrees"),
+               store.PartEntry(path=r"C:\P\Gear_m1.5_N17_r2.SLDPRT", gears=["G5"], revision=2)],
+        gearbox=store.GearboxRecord(
+            revision=2, name="R_r2", layout=r"C:\P\R_r2_Layout.SLDPRT", assembly=r"C:\P\R_r2.SLDASM",
+            shafts=[store.ShaftEntry(shaft="S2", x=63.75, sigma=1, x_side="plus", y_side="base", x_global="S2 X",
+                                     x_plane="S2 X Plane", axis_name="S2 Axis")],
+            meshes=[["G1", "G2"]], layout_component="R_r2_Layout-1",
+            components=[store.ComponentEntry(gear="G5", part=r"c:\p\gear_m1.5_n17_r2.SLDPRT",
+                                             name="Gear_m1.5_N17_r2-1", rotation=[1, 0, 0, 0, 1, 0, 0, 0, 1],
+                                             at=[0, 0, 0])]),
+        earlier=[store.EarlierRevision(revision=0, name="R", layout=r"C:\P\R_Layout.SLDPRT",
+                                       assembly=r"C:\P\R.SLDASM", parts=[r"C:\P\Gear_m1.5_N17.SLDPRT"])],
+        unsaved={r"C:\P\Gear_m1.5_N68.SLDPRT": 1763000000.5},
+    )
+
+
+def test_a_v2_link_record_round_trips(tmp_path):
+    workbook = str(tmp_path / "R.xlsx")
+    record = link_record(workbook)
+    store.save_link_record(record)
+    assert store.read_link_record(workbook) == record
+    assert json.loads((tmp_path / "R.workbook.json").read_text())["schema_version"] == store.LINK_SCHEMA_VERSION
+
+
+def test_a_v1_link_record_reads_as_v2_with_no_gearbox(tmp_path):
+    (tmp_path / "R.workbook.json").write_text(json.dumps({
+        "schema_version": 1, "workbook": "R.xlsx", "digest": "abc", "assembly": "", "last_built": "t",
+        "parts": [{"path": r"C:\P\Gear_m1.5_N17.SLDPRT", "gears": ["G1", "G5"]}]}))
+    record = store.read_link_record(str(tmp_path / "R.xlsx"))
+    assert record.schema_version == 2 and record.gearbox is None and record.earlier == []
+    assert record.parts == [store.PartEntry(path=r"C:\P\Gear_m1.5_N17.SLDPRT", gears=["G1", "G5"])]
+    assert record.current_parts() == record.parts
+
+
+def test_the_current_parts_are_those_the_current_revisions_components_name(tmp_path):
+    record = link_record(str(tmp_path / "R.xlsx"))
+    assert [p.gears for p in record.current_parts()] == [["G5"]]
+
+
+@pytest.mark.parametrize("text,error", [
+    ('{"schema_version": 3, "workbook": "R.xlsx"}', UnknownSchema),
+    ('{"workbook": "R.xlsx", "parts": "notalist"}', StoreError),
+    ("not json", StoreError),
+])
+def test_a_planning_read_never_moves_or_changes_the_file(tmp_path, text, error):
+    target = tmp_path / "R.workbook.json"
+    target.write_text(text)
+    with pytest.raises(error, match="R.workbook.json"):
+        store.read_link_record(str(tmp_path / "R.xlsx"))
+    assert target.read_text() == text and sorted(p.name for p in tmp_path.iterdir()) == ["R.workbook.json"]
+    assert store.load_link_record(str(tmp_path / "R.xlsx")) is None     # the window's read until it is rewired

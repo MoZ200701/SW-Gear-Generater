@@ -21,7 +21,7 @@ import sys
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 SCHEMA_VERSION = 1
 SIDECAR_SUFFIX = ".gear.json"
@@ -320,30 +320,219 @@ def link_record_path(workbook_path: str) -> str:
     return stem + LINK_SUFFIX
 
 
+LINK_SCHEMA_VERSION = 2          # the link record's own schema, apart from the .gear.json's SCHEMA_VERSION
+
+
+@dataclass
+class PartEntry:
+    """One part file built from the workbook, and what it holds as far as the app knows.
+
+    ``revision`` is the revision whose build made the file (0 for the first
+    build and for W2's Build parts; 2, 3, … for ``<Name>_r<n>``): a part
+    reused by a later revision keeps the revision that made it. ``spec`` is
+    ``GearSpec.to_dict()`` and ``variables`` the ``[name, expression]`` pairs
+    in the document's trig units (``trig``), both as built or last updated.
+    A v1 record's parts carry only ``path`` and ``gears``.
+    """
+
+    path: str = ""
+    gears: List[str] = field(default_factory=list)
+    revision: int = 0
+    kind: str = ""
+    spec: Dict[str, Any] = field(default_factory=dict)
+    variables: List[List[str]] = field(default_factory=list)
+    trig: str = ""
+
+
+@dataclass
+class ShaftEntry:
+    """One shaft of a built layout part: ``workbook.layout.ShaftLayout`` field for field (``ShaftEntry(**asdict(
+    shaft_layout))`` and back). Coordinates in mm from the origin; ``sigma`` +1 for Z+, -1 for Z-; a side is
+    ``plus``, ``minus`` or ``base``; ``x_global`` the global's unquoted name (``S2 X``) and ``x_plane`` the plane's
+    feature name (``S2 X Plane``), both ``""`` on a base coordinate; ``axis_name`` the axis feature (``S2 Axis``)."""
+
+    shaft: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    sigma: int = 1
+    x_side: str = ""
+    y_side: str = ""
+    x_global: str = ""
+    y_global: str = ""
+    x_plane: str = ""
+    y_plane: str = ""
+    axis_name: str = ""
+
+
+@dataclass
+class ComponentEntry:
+    """One gear's component in the built assembly: the part it is an instance of, the ``Name2`` SolidWorks kept
+    (``Gear_m1.5_N17-1``; components are never renamed), and the frame it was last placed at — rotation's 9
+    numbers by rows, origin in mm."""
+
+    gear: str = ""
+    part: str = ""
+    name: str = ""
+    rotation: List[float] = field(default_factory=list)
+    at: List[float] = field(default_factory=list)
+
+
+@dataclass
+class GearboxRecord:
+    """The current revision's layout part and static assembly (phase W4).
+
+    ``name`` is the revision's stem (``Reducer_12to1``, ``Reducer_12to1_r2``).
+    ``layout`` and ``shafts`` are written as soon as the layout part saves,
+    even if the assembly then fails (decision 4): a record with ``layout``
+    set and ``assembly`` empty is a revision whose assembly is still to be
+    made, and the next Build continues it, reusing the layout. ``meshes`` are
+    the listed meshes as ``[a, b]``; ``layout_component`` the layout's
+    ``Name2`` in the assembly. ``built`` and ``updated`` are stamps.
+    """
+
+    revision: int = 0
+    name: str = ""
+    layout: str = ""
+    assembly: str = ""
+    part_template: str = ""
+    assembly_template: str = ""
+    shafts: List[ShaftEntry] = field(default_factory=list)
+    meshes: List[List[str]] = field(default_factory=list)
+    layout_component: str = ""
+    components: List[ComponentEntry] = field(default_factory=list)
+    built: str = ""
+    updated: str = ""
+
+
+@dataclass
+class EarlierRevision:
+    """A revision superseded by a later build-again: its files, paths only. Never updated or reused by path
+    from here — a part still in use by the current revision is in ``LinkRecord.parts``, not only here."""
+
+    revision: int = 0
+    name: str = ""
+    layout: str = ""
+    assembly: str = ""
+    parts: List[str] = field(default_factory=list)
+
+
 @dataclass
 class LinkRecord:
-    """What the app built from a workbook: the parts (each with the gears it serves), and when.
+    """What the app built in SolidWorks from a workbook, beside it as ``<Name>.workbook.json`` (schema 2).
 
-    Kept beside the workbook so it travels with it, and so the window can say
-    whether SolidWorks is up to date with the file. The file's own contents are
-    never copied here: the workbook is the gearbox.
+    It records what SolidWorks holds — the parts, the layout part and the
+    assembly, and the values and frames last put into them — not the
+    workbook's cells: the workbook is the gearbox, and this says how far
+    SolidWorks has caught up with it.
+
+    - ``digest``: the workbook's sha256 that SolidWorks was last built or
+      updated from; ``own_digest``/``recalc``: the app's own last Export.
+    - ``parts``: the parts the current revision uses (with no ``gearbox``,
+      the parts Build parts made). Merged across builds, never replaced by
+      one batch. Update and reuse act only on :meth:`current_parts`
+      (decision 2); a part a build-again supersedes moves to ``earlier``.
+    - ``assembly``: kept a string for v1; it mirrors ``gearbox.assembly``.
+    - ``gearbox``: the current revision, or None before W4 has built one.
+    - ``earlier``: superseded revisions, oldest first, paths only.
+    - ``unsaved``: path -> the file's modification time (``os.path.getmtime``)
+      when Update SolidWorks changed that document without saving it; an
+      entry goes once the file on disk is newer (:func:`clear_saved`).
+
+    A v1 file (W2) reads as v2 with ``gearbox`` None; a newer one raises
+    :class:`UnknownSchema` and is left alone.
     """
 
     workbook: str = ""
-    digest: str = ""                  # the workbook's sha256 when it was last built from
-    parts: List[Dict[str, Any]] = field(default_factory=list)   # {"path": ..., "gears": [...]}
+    digest: str = ""
+    parts: List[PartEntry] = field(default_factory=list)
     assembly: str = ""
     last_built: str = ""
-    schema_version: int = SCHEMA_VERSION
+    schema_version: int = LINK_SCHEMA_VERSION
     written_by: str = ""
     own_digest: str = ""              # the workbook as the app last wrote it (Export)
     recalc: bool = False              # that write left formulas for Excel to recalculate before Build
+    last_updated: str = ""
+    gearbox: Optional[GearboxRecord] = None
+    earlier: List[EarlierRevision] = field(default_factory=list)
+    unsaved: Dict[str, float] = field(default_factory=dict)
+
+    def current_parts(self) -> List[PartEntry]:
+        """The parts Update and reuse may act on: those the current revision's components name, or every part
+        when no gearbox is recorded (decision 2)."""
+        if self.gearbox is None:
+            return list(self.parts)
+        named = [c.part for c in self.gearbox.components]
+        return [p for p in self.parts if any(same_path(p.path, n) for n in named)]
+
+
+def link_record_to_json(record: LinkRecord) -> str:
+    """Byte-deterministic, always written as the current schema."""
+    payload = asdict(record)
+    payload["schema_version"] = LINK_SCHEMA_VERSION
+    return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def _entries(cls, raw: Any) -> list:
+    if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
+        raise TypeError(f"{cls.__name__} entries are not a list of objects")
+    return [cls(**_known(cls, item)) for item in raw]
+
+
+def link_record_from_json(text: str) -> LinkRecord:
+    """Parse a link record of any schema up to :data:`LINK_SCHEMA_VERSION`; a v1 record is read as v2.
+
+    Raises :class:`UnknownSchema` for a newer schema and :class:`StoreError`
+    for anything else wrong; never touches a file.
+    """
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise StoreError(f"it is not JSON ({exc})") from None
+    if not isinstance(raw, dict):
+        raise StoreError("it is not an object")
+    version = raw.get("schema_version", 0)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise StoreError("it has no readable schema version")
+    if version > LINK_SCHEMA_VERSION:
+        raise UnknownSchema(f"it was written by a newer Gear Generator (schema {version}, this one reads "
+                            f"{LINK_SCHEMA_VERSION})")
+    try:
+        record = LinkRecord(**_known(LinkRecord, raw))
+        record.parts = _entries(PartEntry, raw.get("parts", []))
+        if not all(isinstance(p.path, str) and isinstance(p.gears, list) for p in record.parts):
+            raise TypeError("a part has no path or gears")
+        gearbox = raw.get("gearbox")
+        if gearbox is not None:
+            if not isinstance(gearbox, dict):
+                raise TypeError("gearbox is not an object")
+            record.gearbox = GearboxRecord(**_known(GearboxRecord, gearbox))
+            record.gearbox.shafts = _entries(ShaftEntry, gearbox.get("shafts", []))
+            record.gearbox.components = _entries(ComponentEntry, gearbox.get("components", []))
+        record.earlier = _entries(EarlierRevision, raw.get("earlier", []))
+        unsaved = raw.get("unsaved", {}) or {}
+        if not isinstance(unsaved, dict):
+            raise TypeError("unsaved is not an object")
+        record.unsaved = {str(k): float(v) for k, v in unsaved.items()}
+    except (TypeError, ValueError) as exc:
+        raise StoreError(f"its contents are not a link record ({exc})") from None
+    if not all(isinstance(getattr(record, k), str) for k in ("workbook", "digest", "assembly", "last_built",
+                                                             "own_digest", "last_updated", "written_by")):
+        raise StoreError("a field that holds text does not")
+    record.recalc = bool(record.recalc)
+    record.schema_version = LINK_SCHEMA_VERSION
+    return record
 
 
 def save_link_record(record: LinkRecord, path: Optional[str] = None) -> str:
-    """Write it beside the workbook; returns where. Raises OSError, which the window turns into a sentence."""
+    """Write it beside the workbook; returns where. Raises OSError, which the window turns into a sentence.
+
+    Callers read the file with :func:`open_link_record` first, so a newer
+    record is refused before a write (W4, Agent C: also refuse here, raising
+    :class:`UnknownSchema`, if the file on disk is newer than this app reads).
+    """
     target = path or link_record_path(record.workbook)
-    payload = json.dumps(asdict(record), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    payload = link_record_to_json(record)
     temporary = target + ".tmp"
     with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(payload)
@@ -351,20 +540,65 @@ def save_link_record(record: LinkRecord, path: Optional[str] = None) -> str:
     return target
 
 
-def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
-    """The record beside a workbook, or None when there is none or it cannot be read (it is only a convenience)."""
+def read_link_record(workbook_path: str) -> Optional[LinkRecord]:
+    """The record beside a workbook, for planning: None when there is none. **Never moves or writes a file**, so
+    the Tk thread may call it on every refresh (review 13).
+
+    Raises :class:`UnknownSchema` (a newer record: Build, Update SolidWorks and
+    the record's writes wait, and the file is left alone) and
+    :class:`StoreError` (a broken one: left where it is; :func:`open_link_record`
+    moves it aside when the app next writes), each a sentence naming the file.
+    """
+    target = link_record_path(workbook_path)
+    if not os.path.exists(target):
+        return None
+    name = os.path.basename(target)
     try:
-        with open(link_record_path(workbook_path), "r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-        if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) > SCHEMA_VERSION:
-            return None
-        record = LinkRecord(**_known(LinkRecord, raw))
-        if not isinstance(record.parts, list) or not all(isinstance(p, dict) for p in record.parts):
-            return None
-        if not all(isinstance(getattr(record, k), str) for k in ("workbook", "digest", "assembly", "last_built",
-                                                                 "own_digest")):
-            return None
-        record.recalc = bool(record.recalc)
-        return record
+        with open(target, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        return link_record_from_json(text)
+    except UnknownSchema as exc:
+        raise UnknownSchema(f"The record of what was built, {name}, cannot be read: {exc}. It is left alone, so "
+                            "Build and Update SolidWorks wait.") from None
+    except (StoreError, OSError, UnicodeDecodeError) as exc:
+        raise StoreError(f"The record of what was built, {name}, cannot be read: {exc}.") from None
+
+
+def open_link_record(workbook_path: str) -> Optional[LinkRecord]:
+    """The record beside a workbook, read just before the app writes it (a build's or an update's finish,
+    Export): None when there is none.
+
+    A newer record raises :class:`UnknownSchema` and the file is left
+    byte-identical. A broken one is moved aside to ``<name>.bad-<stamp>``, as
+    :func:`load` does a sidecar, and :class:`StoreError` is raised with a
+    sentence saying where it went; the caller then starts a fresh record.
+    Runs on the Tk thread, never during planning.
+    """
+    raise NotImplementedError("W4: Agent C, store.open_link_record")
+
+
+def clear_saved(record: LinkRecord, mtime: Callable[[str], float] = os.path.getmtime) -> bool:
+    """Drop every ``unsaved`` entry whose file on disk is now newer than when Update changed it (the user saved
+    it in SolidWorks), or is gone. Changes ``record`` in place; returns whether anything was dropped. Pure but
+    for ``mtime``, which tests inject."""
+    raise NotImplementedError("W4: Agent C, store.clear_saved")
+
+
+def read_sidecar(path: str) -> Optional[Sidecar]:
+    """A part's ``.gear.json`` for planning: None when there is none, or it cannot be read, or it is newer than
+    this app. **Never moves or writes a file** (unlike :func:`load`), so reuse can be planned on every refresh."""
+    raise NotImplementedError("W4: Agent C, store.read_sidecar")
+
+
+def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
+    """The record beside a workbook, or None when there is none or it cannot be read.
+
+    Kept for the window as it stands before W4 is wired (its Export and
+    Build parts paths), and for nothing new: it hides a newer record as None,
+    which a write would then overwrite. The window wiring moves to
+    :func:`read_link_record` and :func:`open_link_record` and removes this.
+    """
+    try:
+        return read_link_record(workbook_path)
     except Exception:  # noqa: BLE001 - a missing or broken record means "not built from here yet"
         return None

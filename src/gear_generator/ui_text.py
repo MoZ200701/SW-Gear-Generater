@@ -11,6 +11,7 @@ Nothing here touches tkinter, and nothing here holds state.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .gears import pair as pairs, standards
@@ -759,6 +760,10 @@ def workbook_read_line(clock_text: str, open_in_excel: bool) -> str:
 
 
 GEAR_STATE_BUILDS, GEAR_STATE_SHARES, GEAR_STATE_LATER, GEAR_STATE_ERROR = "builds", "shares", "later", "error"
+# W4 (Agent C): a gear whose part is built and matches the record; built, and Update SolidWorks would change it;
+# built, but its change needs a new part (a new revision). ``workbook_gear_rows`` gains keyword-only ``record=None,
+# update=None`` (a store.LinkRecord and a workbook.update.UpdatePlan) to choose them; without them it is as today.
+GEAR_STATE_BUILT, GEAR_STATE_CHANGES, GEAR_STATE_NEW_PART = "built", "changes", "new part"
 
 
 def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic]) -> List[Tuple[str, ...]]:
@@ -1076,3 +1081,98 @@ def many_status(result) -> Tuple[str, bool]:
     if manual:
         text += " " + manual
     return text, not checks
+
+
+# -- W4: the footer as one decision, and the sentences of a gearbox build and update ----------------------------
+#
+# Interfaces pinned in the W4 interface commit (docs/PLAN-WORKBOOK.md §5, W4-PLAN §4.1–§4.2); Agent C implements.
+# ``workbook_state`` above stays as it is until the window is wired to ``workbook_footer``.
+
+BUILD = "build"              # make the parts, the layout part and the assembly (reusing what is built)
+BUILD_PARTS = "parts"        # W2's batch, when only rows a later phase builds hold the layout back
+BUILD_AGAIN = "again"        # an assembly is on record: ask, then make the next revision
+BUILD_LABELS = {BUILD: "Build", BUILD_PARTS: "Build parts", BUILD_AGAIN: "Build again…"}
+
+
+@dataclass(frozen=True)
+class Footer:
+    """The Workbook window's footer, decided whole: the sentence and how it is shown, and both buttons.
+
+    ``build_action`` is one of :data:`BUILD`, :data:`BUILD_PARTS`,
+    :data:`BUILD_AGAIN` and ``build_label`` its :data:`BUILD_LABELS` word;
+    ``build_primary`` is False for Build again… (Update is the primary then).
+    ``update_shown`` once anything is on record; ``update_enabled`` under the
+    same gate as Build plus the record's own checks; ``update_primary`` once
+    an assembly is on record.
+    """
+
+    text: str
+    ok: bool
+    build_action: str = BUILD
+    build_label: str = "Build"
+    build_enabled: bool = False
+    build_primary: bool = True
+    update_shown: bool = False
+    update_enabled: bool = False
+    update_primary: bool = False
+
+
+def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=None, update=None,
+                    error: str = "", folder: str = "", folder_exists: bool = True, building: bool = False,
+                    updating: bool = False, progress=None, note: Optional[Tuple[str, bool]] = None,
+                    results_due: bool = False) -> Footer:
+    """The footer for every state of the window (W4-PLAN §4.2's table), replacing :func:`workbook_state`.
+
+    ``assessment`` is the last good read's ``workbook.assess.Assessment``
+    (assessed with ``provisional=`` the window's recalc, and its chosen
+    fixes), or None when there is none. ``record`` is the planning read of the
+    link record (``store.read_link_record``), ``record_problem`` the sentence
+    if that read raised (a newer or broken record: Build and Update wait).
+    ``plan`` is the ``workbook.gearbox.GearboxPlan`` the build button would
+    run (None while the gate refuses) and ``update`` the
+    ``workbook.update.UpdatePlan`` from ``classify`` (None with nothing on
+    record). ``building``/``updating``: a worker job is running, and
+    ``progress`` its last ``swbuild.Step`` (or None). ``note``: the last
+    job's own sentence, as :func:`workbook_state` keeps it. Order of the gate:
+    the window's own state (error, a job running, the folder missing on disk,
+    the record problem), then ``assessment.lay_out_refusal()`` — falling back
+    to Build parts when only ``parts.refused`` holds the layout back and
+    ``build_refusal()`` passes — then ``plan.refusal``.
+    """
+    raise NotImplementedError("W4: Agent C, ui_text.workbook_footer")
+
+
+def progress_text(step, updating: bool = False) -> str:
+    """*Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…*, *… the layout part…*, *… the assembly…*,
+    *… checking interference…*; *Updating SolidWorks: Gear_m1.5_N68…* — from a ``swbuild.Step`` (None: the
+    first words alone)."""
+    raise NotImplementedError("W4: Agent C, ui_text.progress_text")
+
+
+def gearbox_status(plan, result) -> Tuple[str, bool]:
+    """A finished build's sentence (``workbook.gearbox.GearboxPlan``, ``swbuild.GearboxResult``): *Built 4 parts,
+    Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears.*, a clash's *Check: G1 and
+    G2 interfere, 12.345 mm³; …*, or what failed and that Build carries on, reusing what was built."""
+    raise NotImplementedError("W4: Agent C, ui_text.gearbox_status")
+
+
+def update_summary(update) -> str:
+    """What Update SolidWorks will do, before the press (``workbook.update.UpdatePlan``): *Update SolidWorks will
+    change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.*; the
+    structural sentence when it needs a new revision; *SolidWorks already matches the workbook on record* when
+    nothing on record differs."""
+    raise NotImplementedError("W4: Agent C, ui_text.update_summary")
+
+
+def gearbox_update_status(update, result, dragged: Sequence[str] = ()) -> Tuple[str, bool]:
+    """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
+    *Save in SolidWorks to keep it.* whenever ``result.changed`` is not empty; *SolidWorks already matches the
+    workbook: nothing was changed.* when nothing was."""
+    raise NotImplementedError("W4: Agent C, ui_text.gearbox_update_status")
+
+
+def build_again_question(update, again) -> str:
+    """The *Build again?* question (``UpdatePlan``, and the ``GearboxPlan`` it would run): why Update cannot carry
+    the change, what the new revision makes and reuses, and — decision 8 — that the reused parts are shared, so a
+    later Update changes the earlier revision's assembly too. Never promises the old assembly is untouched."""
+    raise NotImplementedError("W4: Agent C, ui_text.build_again_question")

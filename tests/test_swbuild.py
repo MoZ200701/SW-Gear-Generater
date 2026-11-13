@@ -13,9 +13,26 @@ SPUR = KINDS["spur"]
 PATH = r"C:\Gears\Gear_m1.5_N25.SLDPRT"
 
 
+def _key(path):
+    return path.replace("/", "\\").lower()
+
+
 class FakeSolidWorks:
+    """Records every call. ``fail_on`` maps a call's name to a sentence it raises (or ``(arg, sentence)`` to
+    raise only when that argument is passed).
+
+    W4's members are configurable from the start: ``open_docs`` are the
+    documents open before the job (``documents()``); a saved document keeps
+    its globals and the planes and axes it made, and ``open_document`` brings
+    them back, so ``planned_changes`` and ``feature_names`` see what a build
+    left; ``missing_components`` are Name2s ``find_component`` will not find;
+    ``frames`` maps a handle to the (rotation, at) ``component_frame`` reads,
+    and ``place_component`` writes it; ``clashes`` is what ``interferences()``
+    returns.
+    """
+
     def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None,
-                 interference=(0, 0.0)):
+                 interference=(0, 0.0), open_docs=(), missing_components=(), frames=None, clashes=()):
         self.interference = interference
         self.revision = (34, 0, 0)
         self.calls = []
@@ -29,6 +46,12 @@ class FakeSolidWorks:
         self.equations_text = []
         self.active = None
         self.handles = set()
+        self.open_docs = list(open_docs)
+        self.missing_components = set(missing_components)
+        self.frames = dict(frames or {})
+        self.clashes = list(clashes)
+        self.made = []                 # planes and axes made in the current document, by kept name
+        self.saved = {}                # lower-cased path -> (equations_text, made) as saved
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -47,12 +70,12 @@ class FakeSolidWorks:
 
     def new_part(self, template=""):
         self._log("new_part", template)
-        self.equations_text = []
+        self.equations_text, self.made = [], []
         return DocInfo(title="Part1", path="", doc_type=1)
 
     def new_assembly(self, template=""):
         self._log("new_assembly", template)
-        self.equations_text = []
+        self.equations_text, self.made = [], []
         return DocInfo(title="Assem1", path="", doc_type=2)
 
     def document_path(self):
@@ -68,6 +91,7 @@ class FakeSolidWorks:
 
     def save_as(self, path):
         self._log("save_as", path)
+        self.saved[_key(path)] = (self.equations_text, self.made)
         return path
 
     def detect_trig_units(self):
@@ -99,8 +123,10 @@ class FakeSolidWorks:
         return values
 
     def insert_axis(self, handle, name, planes):
-        self._log("insert_axis", handle, name)
-        return self.rename.get(name, name)
+        self._log("insert_axis", handle, name, tuple(planes))
+        kept = self.rename.get(name, name)
+        self.made.append(kept)
+        return kept
 
     def open_sketch(self, handle, plane):
         self._log("open_sketch", handle, plane)
@@ -149,7 +175,9 @@ class FakeSolidWorks:
 
     def ref_plane(self, handle, name, plane, offset, flip, offset_dim):
         self._log("ref_plane", name, round(offset, 6), flip)
-        return self.rename.get(name, name), offset_dim
+        kept = self.rename.get(name, name)
+        self.made.append(kept)
+        return kept, offset_dim
 
     def sweep_cut(self, handle, profile, path, name, twist, reverse, twist_dim):
         self._log("sweep_cut", name, round(twist, 6), reverse)
@@ -188,6 +216,7 @@ class FakeSolidWorks:
 
     def place_component(self, handle, rotation, at):
         self._log("place_component", handle)
+        self.frames[handle] = (tuple(rotation), tuple(at))
 
     def interference_count(self):
         self._log("interference_count")
@@ -195,6 +224,39 @@ class FakeSolidWorks:
 
     def set_custom_property(self, name, value):
         self._log("set_custom_property", name, value)
+
+    # -- W4
+
+    def documents(self):
+        return list(self.open_docs)
+
+    def feature_names(self):
+        return list(self.made)
+
+    def open_document(self, path):
+        self._log("open_document", path)
+        doc_type = 2 if path.lower().endswith(".sldasm") else 1
+        info = DocInfo(title=path.replace("/", "\\").rsplit("\\", 1)[-1], path=path, doc_type=doc_type)
+        self.equations_text, self.made = self.saved.get(_key(path), ([], []))
+        if not any(_key(d.path) == _key(path) for d in self.open_docs):
+            self.open_docs.append(info)
+        self.active = info
+        return info
+
+    def find_component(self, handle, name):
+        self._log("find_component", handle, name)
+        if name in self.missing_components:
+            title = self.active.title if self.active else "the assembly"
+            raise SolidWorksError(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
+        return name
+
+    def component_frame(self, handle):
+        self._log("component_frame", handle)
+        return self.frames.get(handle, ((1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0)))
+
+    def interferences(self):
+        self._log("interferences")
+        return list(self.clashes)
 
 
 def plan(spec=None, recipe="A", path=PATH):
@@ -469,3 +531,108 @@ def test_structural_changes_are_named(built, wanted, word):
 def test_a_relation_that_already_holds_is_logged_as_such():
     result = swbuild.build(FakeSolidWorks(), plan(recipe="A"), never_exists)
     assert "ok      coincident L+.start I+.start (already one point)" in result.log_lines()
+
+
+# -- W4 interfaces: an axis through planes made in the plan ---------------------------------
+
+
+def _layout_like(axis_planes):
+    from gear_generator.gears import base
+    return BuildPlan("layout", "", (
+        base.NewPart(""),
+        base.RefPlane("x1", "S2 X Plane", 3, 63.75),
+        base.Axis("axis1", "S2 Axis", axis_planes),
+        base.Rebuild(),
+        base.SaveAs(r"C:\g\R_Layout.SLDPRT"),
+    ), r"C:\g\R_Layout.SLDPRT")
+
+
+def test_an_axis_may_go_through_a_plane_made_earlier_by_its_id():
+    assert _layout_like((2, "x1")).check() == []
+
+
+def test_an_axis_through_a_plane_not_made_is_refused_with_a_sentence():
+    problems = _layout_like((2, "x9")).check()
+    assert "Axis 'axis1' is through 'x9', which is not a plane made earlier." in problems
+
+
+def test_an_axis_is_described_by_plane_ids_and_tree_order_alike():
+    from gear_generator.gears import base
+    assert base.describe(base.Axis("a", "Gear Axis", (2, 3))) == "axis    'Gear Axis' through planes 2 and 3"
+    assert base.describe(base.Axis("a", "S2 Axis", (2, "x1"))) == "axis    'S2 Axis' through plane 2 and x1"
+    assert base.describe(base.Axis("a", "S2 Axis", ("y1", "x1"))) == "axis    'S2 Axis' through y1 and x1"
+
+
+def test_the_runner_hands_the_axis_its_planes_as_planned():
+    fake = FakeSolidWorks()
+    result = swbuild.build(fake, _layout_like((2, "x1")), never_exists)
+    assert result.ok, result.log_lines()
+    assert ("insert_axis", ("axis1", "S2 Axis", (2, "x1"))) in fake.calls
+
+
+def test_the_strips_own_axis_still_goes_through_planes_2_and_3():
+    fake = FakeSolidWorks()
+    swbuild.build(fake, plan(), never_exists)
+    assert ("insert_axis", ("axis", "Gear Axis", (2, 3))) in fake.calls
+
+
+# -- W4 interfaces: what an assembly kept, frames, same-named documents, progress ----------------
+
+
+def test_an_assembly_build_records_the_name_each_component_kept():
+    result = swbuild.build(FakeSolidWorks(), _assembly_plan(), never_exists)
+    assert result.components == {"gear1": "gear1-1", "gear2": "gear2-1"}
+
+
+IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def _turned(degrees, flipped=False):
+    import math
+    c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+    rows = ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
+    if flipped:                                  # rot_x(180) · rot_z: a part on a Z- shaft
+        rows = (rows[0], tuple(-v for v in rows[1]), tuple(-v for v in rows[2]))
+    return tuple(v for row in rows for v in row)
+
+
+@pytest.mark.parametrize("flipped", [False, True])
+def test_a_gear_turned_whole_pitches_is_the_same_placement(flipped):
+    at = (63.75, 0.0, 5.0)
+    pitch = 360.0 / 68
+    assert swbuild.same_frame(_turned(10, flipped), at, _turned(10 + 3 * pitch, flipped), at, pitch)
+    assert swbuild.same_frame(_turned(10, flipped), at, _turned(10 - pitch, flipped), at, pitch)
+    assert not swbuild.same_frame(_turned(10, flipped), at, _turned(10 + pitch / 2, flipped), at, pitch)
+    assert not swbuild.same_frame(_turned(10, flipped), at, _turned(10 + pitch, flipped), at)   # no pitch: exact
+
+
+def test_a_frame_moved_or_tipped_is_not_the_same_placement():
+    assert swbuild.same_frame(IDENTITY, (0.0, 0.0, 0.0), IDENTITY, (0.0, 0.0, 5e-7))
+    assert not swbuild.same_frame(IDENTITY, (0.0, 0.0, 0.0), IDENTITY, (0.0, 2e-6, 0.0))
+    assert not swbuild.same_frame(_turned(0), (0, 0, 0), _turned(0, flipped=True), (0, 0, 0), 360.0 / 17)
+
+
+def test_a_document_of_the_same_name_open_from_another_folder_is_found():
+    docs = [DocInfo("Gear_m1.5_N17.SLDPRT", r"C:\Other\Gear_m1.5_N17.SLDPRT", 1),
+            DocInfo("Gear_m1.5_N68.SLDPRT", r"C:\Parts\R\Gear_m1.5_N68.SLDPRT", 1),
+            DocInfo("Part1", "", 1)]
+    wanted = [r"C:\Parts\R\gear_m1.5_n17.SLDPRT", r"c:\parts\r\Gear_m1.5_N68.SLDPRT"]
+    assert swbuild.same_named_elsewhere(docs, wanted) == [(docs[0].path, wanted[0])]
+
+
+def test_progress_is_one_step_per_job_never_a_shared_default():
+    first, second = swbuild.Progress(), swbuild.Progress()
+    first.say(swbuild.Step(swbuild.STAGE_PART, "Gear_m1.5_N68", 2, 4))
+    assert first.step == swbuild.Step("part", "Gear_m1.5_N68", 2, 4) and second.step is None
+
+
+def test_the_fake_reopens_a_saved_document_holding_what_it_was_saved_with():
+    fake = FakeSolidWorks()
+    swbuild.build(fake, plan(), never_exists)
+    swbuild.build(fake, _layout_like((2, "x1")), never_exists)
+    fake.open_document(PATH)
+    assert swbuild.planned_changes(fake.equations(), SPUR.variables(GearSpec(), SPUR.derive(GearSpec())),
+                                   DEGREES) == []
+    assert fake.active.path == PATH and fake.documents()[-1].title == "Gear_m1.5_N25.SLDPRT"
+    fake.open_document(r"C:\g\R_Layout.SLDPRT")
+    assert fake.feature_names() == ["S2 X Plane", "S2 Axis"]
