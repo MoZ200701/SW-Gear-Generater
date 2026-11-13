@@ -15,7 +15,11 @@ from gear_generator.probe import decide, harness
 from gear_generator.probe import p7_workbook as p7
 
 TIER_7 = ["layout_planes", "axis_through_named_planes", "axis_through_base_planes", "layout_assembly_five",
-          "layout_assembly_reopen", "open_and_activate_part", "open_part_from_assembly", "layout_plane_negative_global"]
+          "layout_assembly_reopen", "open_and_activate_part", "open_part_from_assembly", "layout_part_without_body",
+          "add_component_opened_part", "layout_plane_negative_global", "interference_components",
+          "add_component_same_name_elsewhere"]
+EXTRAS = ["layout_plane_negative_global", "interference_components", "add_component_same_name_elsewhere"]
+REQUIRED = [name for name in TIER_7 if name not in EXTRAS]
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +44,8 @@ def test_tier_seven_is_registered_in_the_plans_order_with_the_extra_last(registr
     # tier 7 runs after everything else and its extra after the rest of it.
     names = [p.name for p in registry if p.tier == 7]
     assert names == TIER_7
-    assert [p.name for p in registry if p.tier == 7 and p.extra] == ["layout_plane_negative_global"]
+    assert [p.name for p in registry if p.tier == 7 and p.extra] == EXTRAS
+    assert names[-len(EXTRAS):] == EXTRAS
 
 
 def test_every_tier_seven_need_is_a_registered_probe(registry):
@@ -54,7 +59,7 @@ def test_every_tier_seven_need_is_a_registered_probe(registry):
 def test_running_tier_seven_alone_pulls_in_only_what_it_needs(registry):
     only = [p.name for p in registry if p.tier == 7 and not p.extra]
     chosen = [p.name for p in harness.select(registry, only)]
-    assert [n for n in chosen if n in TIER_7] == TIER_7[:-1]
+    assert [n for n in chosen if n in TIER_7] == REQUIRED
     # The scaffolding it stands on, and nothing from tier 5 or the bevel and helical probes.
     assert {"attach", "templates", "equation_add", "ref_plane_offset", "nonparallel_mates", "save_as"} <= set(chosen)
     assert not any(p.tier == 5 for p in registry if p.name in chosen)
@@ -203,3 +208,34 @@ def test_with_nothing_run_tier_seven_stops_the_layout_and_asks_for_the_part():
     assert decided["update_open_route"] == "ask"
     for key in ("layout_plus_flip", "axis_plane_select_route", "component_find_route", "open_doc_route"):
         assert decided[key] is None, key
+
+
+def test_a_global_is_found_by_its_name_whatever_the_spacing():
+    # Probe fault found on the first run (SolidWorks 2026): a name with spaces was never found.
+    assert p7._names_global('"Probe S1 X" = 7', "Probe S1 X")
+    assert p7._names_global('"Probe S1 X"= 23', "Probe S1 X")
+    assert not p7._names_global('"Probe S1 X Plane"= 7', "Probe S1 X")
+    assert not p7._names_global('"Offset@Probe S1 X Plane"= "Probe S1 X"', "Probe S1 X")
+
+
+def test_the_new_tier_seven_decisions_come_off_a_pass_only():
+    reopened = {"suppression_after_reopen": {"A-1": 2, "B-1": 2}}
+    passed = decide.decide(records(facts={
+        "layout_assembly_reopen": reopened,
+        "add_component_opened_part": {"reuse_add_route": "closed"},
+        "interference_components": {"interference_components_route": "Components (property)"},
+        "add_component_same_name_elsewhere": {"same_name_elsewhere": {"inserted": False}},
+    }))
+    assert passed["components_resolved_after_reopen"] is True
+    assert passed["reuse_add_route"] == "closed"
+    assert passed["interference_names_route"] == "Components (property)"
+    assert passed["same_name_elsewhere_inserted"] is False
+    light = decide.decide(records(facts={"layout_assembly_reopen": {"suppression_after_reopen": {"A-1": 1}}}))
+    assert light["components_resolved_after_reopen"] is False
+    for key in ("components_resolved_after_reopen", "reuse_add_route", "interference_names_route",
+                "same_name_elsewhere_inserted"):
+        assert decide.decide({})[key] is None, key
+
+
+def test_a_body_less_layout_part_is_one_of_the_layouts_needs():
+    assert "layout_part_without_body" in decide.WORKBOOK_LAYOUT_NEEDS

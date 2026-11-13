@@ -167,7 +167,7 @@ def crossed_route(records: Records) -> Optional[str]:
 
 # Tier 7 (PLAN-WORKBOOK §4.2): items 1–4 each STOP the layout if they fail; item 5 has a fallback.
 WORKBOOK_LAYOUT_NEEDS = ("layout_planes", "axis_through_named_planes", "axis_through_base_planes",
-                         "layout_assembly_five", "layout_assembly_reopen")
+                         "layout_assembly_five", "layout_assembly_reopen", "layout_part_without_body")
 
 
 def workbook_layout_route(records: Records) -> str:
@@ -175,6 +175,18 @@ def workbook_layout_route(records: Records) -> str:
     their globals, an axis through planes made in the part and through base planes, and five components
     placed, fixed, reopened, found by name and re-placed. Otherwise STOP and ask, as the plan says."""
     return "layout" if all(_passed(records, name) for name in WORKBOOK_LAYOUT_NEEDS) else STOP
+
+
+def components_resolved_after_reopen(records: Records) -> Optional[bool]:
+    """Whether every component came back fully resolved (swComponentFullyResolved, 2) from a reopened assembly."""
+    states = _fact(records, "layout_assembly_reopen", "suppression_after_reopen")
+    return None if not states else all(state == 2 for state in states.values())
+
+
+def same_name_elsewhere_inserted(records: Records) -> Optional[bool]:
+    """Whether a part of the same file name from another folder went into an assembly beside the first."""
+    found = _fact(records, "add_component_same_name_elsewhere", "same_name_elsewhere")
+    return None if found is None else bool(found.get("inserted"))
 
 
 def update_open_route(records: Records) -> str:
@@ -255,5 +267,9 @@ def decide(records: Records) -> Dict[str, Any]:
         "open_doc_makes_active": _fact(records, "open_and_activate_part", "open_doc_makes_active"),
         "open_part_beside_assembly": _passed(records, "open_part_from_assembly") or None,
         "offset_global_crosses_zero": _fact(records, "layout_plane_negative_global", "crosses_zero"),
+        "components_resolved_after_reopen": components_resolved_after_reopen(records),
+        "reuse_add_route": _fact(records, "add_component_opened_part", "reuse_add_route"),
+        "interference_names_route": _fact(records, "interference_components", "interference_components_route"),
+        "same_name_elsewhere_inserted": same_name_elsewhere_inserted(records),
         "manual_steps": manual_steps(records, recipe),
     }

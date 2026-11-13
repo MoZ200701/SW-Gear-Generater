@@ -66,6 +66,15 @@ def _run(px: Px, path_a: str, path_b: str, mate_gear: int, flip: bool) -> Option
         planes = [str(call(p, "Name")) for p in sc.planes(call(first, "GetModelDoc2"))]
         front, top, right = planes[0], planes[1], planes[2]
 
+        # Whether the first component comes in fixed depends on the assembly template
+        # (fixed with the stock one and on 2024; floating with 2026's "MMGS 8 Decimals").
+        # It is fixed first, so UnfixComponent is really exercised whatever the template.
+        px.fact(f"first_component_fixed_on_insert_{'flipped' if flip else 'plain'}", bool(call(first, "IsFixed")))
+        if not bool(call(first, "IsFixed")):
+            call(asm, "ClearSelection2", True)
+            px.require(bool(call(first, "Select4", False, sc.null(), False)), f"{label}: the first cylinder selects to fix")
+            px.attempt(f"{label}: FixComponent() on the first cylinder", lambda: asm.FixComponent())
+        px.require(bool(call(first, "IsFixed")), f"{label}: the first cylinder is fixed before it is unfixed")
         call(asm, "ClearSelection2", True)
         px.require(bool(call(first, "Select4", False, sc.null(), False)), f"{label}: the first cylinder selects")
         got, _ = px.attempt(f"{label}: UnfixComponent() on the first cylinder", lambda: asm.UnfixComponent())

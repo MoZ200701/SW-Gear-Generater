@@ -33,9 +33,12 @@ none of them is the same thing, so each is settled here on scratch documents:
 ``layout_plane_negative_global`` (extra, last) asks what a plane's offset does
 when its global goes below zero, which the plan assumes it cannot follow.
 
-Written on a machine without SolidWorks: it has never run. Every call in it not
-already in an earlier probe is UNVERIFIED until it does, and where the API offers
-more than one route each is tried and the one SolidWorks accepted is recorded.
+Written without SolidWorks, then run on SolidWorks 2026 (34.0.0) and 2024
+(32.5.0) on 2026-11-13. The first run found one fault in the probe itself (a
+global named with spaces was never found again, see ``_names_global``); after
+that every probe passed on both, and every route tried was accepted. Where the
+API offers more than one route each is still tried and recorded, so a later
+version that refuses one shows it. What was found is in :mod:`findings`.
 Lengths cross COM in metres; everything recorded is in millimetres.
 """
 
@@ -207,10 +210,19 @@ def _measure(px: Px, doc: Any, plane: Any) -> Dict[str, Any]:
     return out
 
 
+def _names_global(equation: str, name: str) -> bool:
+    """Whether an equation sets the global ``name``: spaces are compared away on both sides.
+
+    The first run on SolidWorks 2026 compared a space-stripped equation with a
+    name that kept its spaces, and so never found ``"Probe S1 X"``.
+    """
+    return equation.replace(" ", "").startswith(f'"{name}"='.replace(" ", ""))
+
+
 def _set_global(eqm: Any, name: str, value: float) -> str:
     """Change a global in place by an indexed put of ``Equation(i)`` (probe equation_set); returns what reads back."""
     for index in range(int(call(eqm, "GetCount"))):
-        if str(call(eqm, "Equation", index)).replace(" ", "").startswith(f'"{name}"='):
+        if _names_global(str(call(eqm, "Equation", index)), name):
             sc.put_indexed(eqm, "Equation", index, f'"{name}"= {value:g}')
             return str(call(eqm, "Equation", index))
     raise Require(f'There is no global "{name}" to change.')
@@ -218,7 +230,7 @@ def _set_global(eqm: Any, name: str, value: float) -> str:
 
 def _global_value(eqm: Any, name: str) -> Optional[float]:
     for index in range(int(call(eqm, "GetCount"))):
-        if str(call(eqm, "Equation", index)).replace(" ", "").startswith(f'"{name}"='):
+        if _names_global(str(call(eqm, "Equation", index)), name):
             return float(call(eqm, "Value", index))
     return None
 
@@ -1012,6 +1024,213 @@ def open_part_from_assembly(px: Px) -> None:
     px.check(not left, "the assembly and its parts are all closed")
 
 
+# -- the layout part as it will be: planes and axes, no body ------------------
+
+BODILESS_STEM = "Probe W7 Bodiless Layout"
+BODILESS_SHAFTS = (("S1", 20.0, 12.0), ("S2", -15.0, 30.0))
+BODILESS_INSERT_AT = (12.0, -7.0, 3.0)   # mm: where AddComponent5 is asked to put it, to see where it lands
+GEAR_ON_LAYOUT_STEM = "Probe W7 Gear on Layout"
+
+
+def _solid_bodies(doc: Any) -> int:
+    bodies = call(doc, "GetBodies2", 0, True)   # swSolidBody
+    return len(bodies) if bodies else 0
+
+
+def _bodiless_layout(px: Px, folder: str) -> Tuple[str, List[str]]:
+    """A saved part of offset planes and named axes only, closed afterwards. Returns its path and axis names."""
+    path = os.path.join(folder, f"{BODILESS_STEM}.SLDPRT")
+    if os.path.exists(path):
+        raise Require(f"{path} already exists.")
+    route = px.shared.get("axis_plane_select_route") or PLANE_ROUTES[0]
+    doc = sc.new_document(px)
+    _millimetres(px, doc)
+    axes = []
+    for shaft, x, y in BODILESS_SHAFTS:
+        pair = (_layout_plane(px, doc, "x", x, f"{shaft} X Plane"), _layout_plane(px, doc, "y", y, f"{shaft} Y Plane"))
+        px.require(_select_two(px, doc, route, pair), f"{shaft}'s planes select by {route}")
+        axis = _insert_axis(px, doc, f"{shaft} Axis")
+        px.require(axis is not None, f"{shaft} Axis is made")
+        _check_axis(px, axis, x, y, f"{shaft} Axis in the layout part")
+        axes.append(f"{shaft} Axis")
+    call(doc, "ForceRebuild3", False)
+    px.fact("bodiless_solid_bodies", _solid_bodies(doc))
+    px.check(_solid_bodies(doc) == 0, "the layout part has no solid body")
+    px.require(_save_in_place(px, doc, path, "the layout part") and os.path.isfile(path), "the layout part saves")
+    px.shared.setdefault("created", []).append(str(call(doc, "GetTitle")))
+    close_paths(px, [path])
+    return path, axes
+
+
+@probe("layout_part_without_body", needs=("layout_assembly_reopen", "axis_through_named_planes"), tier=7,
+       members=("IAssemblyDoc.AddComponent5", "IComponent2.Transform2", "IAssemblyDoc.FixComponent",
+                "IComponent2.FeatureByName", "IAssemblyDoc.InterferenceDetectionManager", "IModelDocExtension.SaveAs3"))
+def layout_part_without_body(px: Px) -> None:
+    """A part of planes and axes only, inserted, placed at identity, fixed, saved, reopened and found, its axes reachable."""
+    folder = sc.env_scratch_folder(px)
+    px.require(bool(folder) and folder[1:3] == ":\\", f"the scratch folder is on a drive: {folder!r}")
+    asm_path = os.path.join(folder, "Probe W7 Bodiless.SLDASM")
+    px.require(not os.path.exists(asm_path), f"{asm_path} does not exist yet")
+    layout_path, axes = _bodiless_layout(px, folder)
+    _gear, gear_path = _part_with_axis(px, folder, GEAR_ON_LAYOUT_STEM)
+    paths = [asm_path, layout_path, gear_path]
+    asm = None
+    try:
+        _open, _route = open_by_path(px, layout_path)
+        asm = sc.new_document(px, sc.SW_DOC_ASSEMBLY)
+        _millimetres(px, asm)
+        at = BODILESS_INSERT_AT
+        got, layout = px.attempt("AddComponent5(the body-less layout part)",
+                                 lambda: call(asm, "AddComponent5", layout_path, 0, "", False, "",
+                                              sc.m(at[0]), sc.m(at[1]), sc.m(at[2])))
+        px.require(got and layout is not None, "the body-less part is inserted")
+        name = str(call(layout, "Name2"))
+        rotation, landed = frame_error(layout, IDENTITY, (0.0, 0.0, 0.0))
+        px.fact("bodiless_insert", {"asked_mm": list(at), "landed_mm": _rounded(
+            [float(v) * sc.MM for v in list(call(call(layout, "Transform2"), "ArrayData"))[9:12]]),
+            "rotation_off_identity": rotation, "fixed_on_insert": bool(call(layout, "IsFixed"))})
+        place(px, asm, layout, IDENTITY, (0.0, 0.0, 0.0))
+        if not bool(call(layout, "IsFixed")):
+            call(asm, "ClearSelection2", True)
+            px.require(bool(call(layout, "Select4", False, sc.null(), False)), "the layout component selects")
+            px.attempt("FixComponent() on the layout component", lambda: asm.FixComponent())
+            call(asm, "ClearSelection2", True)
+        px.check(bool(call(layout, "IsFixed")), "the layout component is fixed")
+        gear = call(asm, "AddComponent5", gear_path, 0, "", False, "", 0.0, 0.0, 0.0)
+        px.require(gear is not None, "a gear is inserted beside it")
+        place(px, asm, gear, IDENTITY, (BODILESS_SHAFTS[0][1], BODILESS_SHAFTS[0][2], 0.0))
+        from .p4_interference import interferences  # noqa: PLC0415
+        found = interferences(px, asm, "with a body-less component")
+        px.fact("bodiless_interference", found)
+        px.check(found["count"] == 0, f"interference detection runs and finds nothing: {found}")
+        errors, warnings = sc.out_long(), sc.out_long()
+        got, result = px.attempt("SaveAs3 the assembly with a body-less component",
+                                 lambda: call(sc.extension(asm), "SaveAs3", asm_path, SAVE_AS_CURRENT_VERSION,
+                                              SAVE_AS_SILENT, sc.null(), sc.null(), errors, warnings))
+        px.shared.setdefault("created", []).append(str(call(asm, "GetTitle")))
+        px.fact("bodiless_save", {"returned": plain(result) if got else "raised",
+                                  "errors": plain(getattr(errors, "value", None)),
+                                  "warnings": plain(getattr(warnings, "value", None))})
+        px.require(os.path.isfile(asm_path), "the assembly is saved")
+    finally:
+        if asm is not None and not str(call(asm, "GetPathName") or ""):
+            sc.close(px, asm)
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    try:
+        asm, _route = open_by_path(px, asm_path, sc.SW_DOC_ASSEMBLY, prefer=px.shared.get("w7_open_route", ""))
+        got, layout = px.attempt(f"GetComponentByName({name})", lambda: call(asm, "GetComponentByName", name))
+        px.require(got and layout is not None, f"{name} is found by name after the reopen")
+        rotation, origin = frame_error(layout, IDENTITY, (0.0, 0.0, 0.0))
+        got, state = px.attempt(f"GetSuppression2 of {name}", lambda: member(layout, "GetSuppression2"))
+        px.fact("bodiless_after_reopen", {"rotation": rotation, "origin_mm": origin,
+                                          "fixed": bool(call(layout, "IsFixed")),
+                                          "suppression": plain(state[0]) if got else None})
+        px.check(rotation < TOLERANCE_ROTATION and origin < TOLERANCE_MM and bool(call(layout, "IsFixed")),
+                 f"{name} is at identity and fixed after the reopen")
+        asm_name = os.path.splitext(str(call(asm, "GetTitle")))[0]
+        reach = {}
+        for axis in axes:
+            feature = call(layout, "FeatureByName", axis)
+            call(asm, "ClearSelection2", True)
+            by_feature = bool(feature is not None and call(feature, "Select2", False, 1) and sc.selected_count(asm) == 1)
+            call(asm, "ClearSelection2", True)
+            full = f"{axis}@{name}@{asm_name}"
+            by_id = bool(call(sc.extension(asm), "SelectByID2", full, "AXIS", 0.0, 0.0, 0.0, False, 1, sc.null(), 0)
+                         and sc.selected_count(asm) == 1)
+            call(asm, "ClearSelection2", True)
+            reach[axis] = {"FeatureByName then Select2": by_feature, f"SelectByID2 {axis}@<component>@<assembly>": by_id}
+        px.fact("bodiless_axes_reachable", reach)
+        px.check(all(any(v.values()) for v in reach.values()), f"each named axis selects in the assembly: {reach}")
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    px.check(not left, "everything this probe opened is closed")
+
+
+# -- a part not built in this session, added to an assembly -------------------
+
+REUSE_STEM = "Probe W7 Reuse"
+REUSE_CLOSED_STEM = "Probe W7 Reuse Closed"
+REUSE_AT = (25.0, 10.0, 0.0)
+
+
+def _translation(component: Any) -> List[float]:
+    return _rounded([float(v) * sc.MM for v in list(call(call(component, "Transform2"), "ArrayData"))[9:12]])
+
+
+def _add(px: Px, asm: Any, path: str, label: str, at: Sequence[float] = REUSE_AT) -> Optional[Any]:
+    errors = {}
+    got, component = px.attempt(f"AddComponent5({label})",
+                                lambda: call(asm, "AddComponent5", path, 0, "", False, "",
+                                             sc.m(at[0]), sc.m(at[1]), sc.m(at[2])))
+    if not got:
+        errors = component
+    out = {"inserted": bool(got and component is not None)}
+    if out["inserted"]:
+        out.update(name=str(call(component, "Name2")), landed_mm=_translation(component))
+    else:
+        out["error"] = plain(errors) if errors else "returned nothing"
+    px.fact(f"add {label}", out)
+    return component if out["inserted"] else None
+
+
+@probe("add_component_opened_part", needs=("layout_assembly_five", "open_and_activate_part"), tier=7,
+       members=("IAssemblyDoc.AddComponent5", "ISldWorks.OpenDoc6", "ISldWorks.CloseDoc"))
+def add_component_opened_part(px: Px) -> None:
+    """AddComponent5 of parts not built this session: one opened by path first, one left closed on disk."""
+    folder = sc.env_scratch_folder(px)
+    px.require(bool(folder) and folder[1:3] == ":\\", f"the scratch folder is on a drive: {folder!r}")
+    asm_path = os.path.join(folder, "Probe W7 Reuse.SLDASM")
+    px.require(not os.path.exists(asm_path), f"{asm_path} does not exist yet")
+    _doc, opened_path = _part_with_axis(px, folder, REUSE_STEM)
+    _doc, closed_path = _part_with_axis(px, folder, REUSE_CLOSED_STEM)
+    paths = [asm_path, opened_path, closed_path]
+    close_paths(px, [opened_path, closed_path])
+    px.require(not any(os.path.normcase(p) in _open_paths(px) for p in paths[1:]), "both parts are saved and closed")
+    asm = None
+    routes: Dict[str, bool] = {}
+    try:
+        asm = sc.new_document(px, sc.SW_DOC_ASSEMBLY)
+        _millimetres(px, asm)
+        asm_title = str(call(asm, "GetTitle"))
+
+        # (ii) closed on disk, never opened in this session
+        closed = _add(px, asm, closed_path, "a part saved and closed")
+        routes["closed"] = closed is not None
+        px.fact("closed_part_listed_open_after_insert", os.path.normcase(closed_path) in _open_paths(px))
+
+        # (i) opened by path (and so made active) first
+        _part, _route = open_by_path(px, opened_path)
+        px.fact("active_after_opening_the_part", _active_title(px))
+        opened = _add(px, asm, opened_path, "a part opened by path, the part active")
+        if opened is None:
+            activate(px, asm_title)
+            opened = _add(px, asm, opened_path, "a part opened by path, the assembly active again")
+        routes["opened"] = opened is not None
+
+        if opened is not None or closed is not None:
+            path = opened_path if opened is not None else closed_path
+            twice = _add(px, asm, path, "the same file a second time")
+            px.fact("same_file_twice_names", [str(call(c, "Name2")) for c in (opened or closed, twice) if c is not None])
+        px.fact("add_component_routes", routes)
+        px.require(any(routes.values()), f"a part not built this session can be added somehow: {routes}")
+        px.fact("reuse_add_route", "closed" if routes["closed"] else "opened")
+        call(asm, "ForceRebuild3", False)
+        px.check(_save_in_place(px, asm, asm_path, "the assembly"), "the assembly saves")
+        px.shared.setdefault("created", []).append(str(call(asm, "GetTitle")))
+        px.shared["w7_reuse"] = {"path": opened_path, "folder": folder}
+    finally:
+        if asm is not None and not str(call(asm, "GetPathName") or ""):
+            sc.close(px, asm)
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    px.check(not left, "everything this probe opened is closed")
+
+
 # -- extra: an offset's global below zero ------------------------------------
 
 
@@ -1054,3 +1273,123 @@ def layout_plane_negative_global(px: Px) -> None:
                                     "offset_mm": offset, "plane_x_mm": x})
         px.fact("crosses_zero", crosses)
         px.check(crosses is not None, f"where the plane went could be read: {x}")
+
+
+# -- extras: naming the components that interfere, and a same-named part from elsewhere --
+
+
+@probe("interference_components", needs=("interference",), tier=7, extra=True,
+       members=("IInterferenceDetectionMgr.GetInterferences", "IInterference.Components", "IInterference.Volume"))
+def interference_components(px: Px) -> None:
+    """Which two components each interference is between: two overlapping cylinders and a third clear of both."""
+    from .p2_solid import BLANK_R, BLANK_W  # noqa: PLC0415
+    from .p4_interference import OPTIONS, lens_mm3  # noqa: PLC0415
+
+    folder = sc.env_scratch_folder(px)
+    px.require(bool(folder), "there is a scratch folder to save parts in")
+    paths = []
+    for stem in ("Probe W7 Clash A", "Probe W7 Clash B", "Probe W7 Clash C"):
+        paths.append(_part_with_axis(px, folder, stem)[1])
+    asm = sc.new_document(px, sc.SW_DOC_ASSEMBLY)
+    try:
+        _millimetres(px, asm)
+        components = []
+        for path, x in zip(paths, (0.0, 30.0, 80.0)):
+            component = call(asm, "AddComponent5", path, 0, "", False, "", sc.m(x), 0.0, 0.0)
+            px.require(component is not None, f"{os.path.basename(path)} is inserted at x {x:g}")
+            components.append(component)
+        call(asm, "ForceRebuild3", False)
+        names = [str(call(c, "Name2")) for c in components]
+        px.fact("clash_component_names", names)
+        manager = call(asm, "InterferenceDetectionManager")
+        px.require(manager is not None, "the assembly has an interference detection manager")
+        for option, value in OPTIONS:
+            setattr(manager, option, value)
+        found: List[Dict[str, Any]] = []
+        routes: Dict[str, int] = {}
+        try:
+            items = list(member(manager, "GetInterferences")[0] or ())
+            for number, item in enumerate(items):
+                entry: Dict[str, Any] = {"volume_mm3": float(member(item, "Volume")[0]) * 1e9}
+                got_count, count = px.attempt(f"interference {number}: GetComponentCount",
+                                              lambda i=item: member(i, "GetComponentCount"))
+                entry["component_count"] = plain(count[0]) if got_count else None
+                for route, thunk in (("Components", lambda i=item: member(i, "Components")),
+                                     ("GetComponents()", lambda i=item: call(i, "GetComponents"))):
+                    got, value = px.attempt(f"interference {number}: {route}", thunk)
+                    listed = value[0] if got and route == "Components" else value
+                    if got and listed:
+                        try:
+                            entry["names"] = sorted(str(call(c, "Name2")) for c in list(listed))
+                            entry["route"] = f"{route} ({value[1]})" if route == "Components" else route
+                            entry["shape"] = type(listed).__name__
+                            routes[entry["route"]] = routes.get(entry["route"], 0) + 1
+                            break
+                        except Exception as exc:  # noqa: BLE001 - what came back was not components
+                            px.note(f"interference {number}: {route} gave {type(listed).__name__}: {exc}")
+                found.append(entry)
+        finally:
+            member(manager, "Done")
+        px.fact("interference_entries", found)
+        expected = lens_mm3(BLANK_R, 30.0, BLANK_W)
+        px.check(len(found) == 1 and abs(found[0]["volume_mm3"] - expected) < 1e-3 * expected,
+                 f"one interference, the lens of {expected:.3f} mm³: {found}")
+        px.require(bool(found) and "names" in found[0], f"the interference's components can be read: {found}")
+        px.check(found[0]["names"] == sorted(names[:2]), f"it is between {names[:2]}, not {names[2]}: {found[0]['names']}")
+        px.fact("interference_components_route", found[0]["route"])
+    finally:
+        sc.close(px, asm)
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+
+
+@probe("add_component_same_name_elsewhere", needs=("add_component_opened_part",), tier=7, extra=True,
+       members=("IAssemblyDoc.AddComponent5",))
+def add_component_same_name_elsewhere(px: Px) -> None:
+    """A part with the same file name as one already in the assembly, from another folder: inserted, or refused?
+
+    Extra and last: SolidWorks keeps one document per file name, and may ask
+    about the clash in a dialog, which would hang the run.
+    """
+    info = px.shared.get("w7_reuse")
+    px.require(bool(info), "add_component_opened_part left a part to clash with")
+    other = os.path.join(info["folder"], "other")
+    os.makedirs(other, exist_ok=True)
+    clash_path = os.path.join(other, os.path.basename(info["path"]))
+    # Made in a folder of its own while the first is closed, so two documents of one name are never open.
+    doc, made = _part_with_axis(px, other, os.path.splitext(os.path.basename(info["path"]))[0])
+    px.require(same_path(made, clash_path), f"the clash part is at {clash_path}")
+    close_paths(px, [clash_path])
+    asm = sc.new_document(px, sc.SW_DOC_ASSEMBLY)
+    try:
+        _millimetres(px, asm)
+        asm_title = str(call(asm, "GetTitle"))
+        # A closed part is not inserted (add_component_opened_part), so the original is opened first.
+        open_by_path(px, info["path"])
+        first = _add(px, asm, info["path"], "the original")
+        px.require(first is not None, "the original part is inserted")
+        errors, warnings = sc.out_long(), sc.out_long()
+        got, opened = px.attempt("OpenDoc6 of the same file name from another folder",
+                                 lambda: _doc_of(call(sc.app(px), "OpenDoc6", clash_path, sc.SW_DOC_PART, OPEN_SILENT,
+                                                      "", errors, warnings)))
+        px.fact("same_name_open", {"returned": bool(got and opened is not None),
+                                   "path": str(call(opened, "GetPathName")) if got and opened is not None else None,
+                                   "errors": plain(getattr(errors, "value", None)),
+                                   "warnings": plain(getattr(warnings, "value", None))})
+        load_errors = _enum(px, "swFileLoadError_e") or {}
+        px.fact("same_name_open_error_names", sorted(k for k, v in load_errors.items()
+                                                     if v and int(getattr(errors, "value", 0) or 0) & v == v))
+        activate(px, asm_title)
+        second = _add(px, asm, clash_path, "a part of the same file name from another folder")
+        result: Dict[str, Any] = {"inserted": second is not None}
+        if second is not None:
+            result["name"] = str(call(second, "Name2"))
+            result["path"] = str(call(second, "GetPathName"))
+            result["refers_to_other_folder"] = same_path(result["path"], clash_path)
+        px.fact("same_name_elsewhere", result)
+    finally:
+        sc.close(px, asm)
+        left = close_paths(px, [info["path"], clash_path])
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
