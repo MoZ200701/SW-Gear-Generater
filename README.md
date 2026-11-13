@@ -2,7 +2,8 @@
 
 Builds parametric spur gears in SolidWorks from a form, and solves gear pairs:
 given a centre distance and a ratio, it finds module and tooth counts that work,
-builds both gears and mates them in an assembly.
+builds both gears and mates them in an assembly. A whole gearbox written in an
+Excel workbook can be imported, checked and built as parts.
 
 The gear it builds is parametric in SolidWorks itself. Its sizes live in the
 Equation Manager as global variables, starting with the ten a person would type
@@ -267,6 +268,74 @@ gear say so (*B crown · exact*), and an internal bevel pair is checked for tip
 clash on its back cones, as a ring is. The assembly sets the two apexes
 together, gear 2's axis in gear 1's top plane at `"Shaft Angle"` to gear 1's,
 and turns gear 2 by `"Mesh Angle"` so a tooth meets gear 1's space.
+
+## A gearbox from a workbook
+
+A whole gearbox — every gear, where each shaft is from one origin you choose,
+and which gears mesh — can be written in an Excel workbook (`.xlsx`) and
+brought in. **Import workbook…** in the Gear panel's header offers *Open a
+workbook…*, *New workbook…* (a blank one, saved where you say and opened in
+Excel, with drop-down lists for the words a column takes), and the
+last few workbooks you opened.
+
+| Sheet | Holds |
+|---|---|
+| Box | the gearbox's Name, its Output folder (blank: the form's Folder), part and assembly templates, and the pressure angle and efficiency per mesh that blank cells elsewhere take |
+| Shafts | one row per shaft: X, Y and Z of a point on its axis, from the origin; its Axis (`Z+`, `Z-` …); its Role (`input`, `output`, `fixed`); and on an input, its speed in rpm and torque in N·m |
+| Gears | one row per gear: the shaft it is on, how far along the axis its face's middle is (At), and the values the form takes — Kind, Teeth, Module, Face width, Bore, Helix angle, Hand, Profile shift … — a blank cell taking the form's default; and a Part name if you want one |
+| Meshes | one row per pair of gears in mesh, and its efficiency |
+| Modes | the positions of sliding gears, one row per mode |
+| Results | written by the app on Export, and never read |
+
+Headers are found by name, so columns may be in any order; a column the app
+does not know, and a row starting `#`, are left alone. Units are mm, degrees,
+rpm and N·m. A formula is read as the value Excel last saved. Axes are written
+`Z+`, not `+Z`, which Excel would take for a formula.
+
+The **Workbook** window then stays linked to the file: save in Excel and,
+within about two seconds, it is read again, checked again, and the window lists
+what changed, cell by cell. Every problem names its cell (*Gears!F3: Teeth must
+be a whole number (got '68.5').*), and every gear says what Build will do with
+it. The window works out what the rows add up to (*Parallel train · 2 meshes ·
+12.000 : 1 · output turns the same way*), draws the gears seen from +Z, each
+turned so its teeth sit in its partner's spaces, and gives each shaft's speed,
+which way it turns and its torque. Nothing reaches SolidWorks until you press
+**Build parts**.
+
+**Checks and fixes.** Two gears listed in Meshes must sit where their teeth put
+them, within 0.005 mm. When they do not, the error offers fixes: move the shaft
+(and every shaft beyond it, so the other meshes stay right) to where the teeth
+need it, or keep your positions and profile-shift both gears to meet them
+(*x +0.084550 / +0.084550 → 64.000 exact*). A chosen fix is checked at once
+and can be undone; it is written to the workbook only on **Export**, and Build
+waits until it is, so the workbook and the parts agree.
+
+**Export** writes the chosen fixes' cells and a Results sheet — each shaft's
+speed and torque, each mesh's ratio, centres and contact ratio — into the
+workbook. It changes only those cells, never a formula (one that a fix would
+change is listed for you to change in Excel), and leaves everything else in the
+file as it was. Close the workbook in Excel first, or use **Export as…** to
+write a copy, which never overwrites a file either. A workbook with formulas
+then waits for you to open and save it in Excel, so its formulas recalculate,
+before it builds.
+
+**Build parts** builds every gear as a part, exactly as the form builds the same
+values, each with its `.gear.json`; identical gears share one part file, and a
+build never overwrites a file. A `<name>.workbook.json` beside the workbook
+remembers what was built from which version of it.
+
+What is not built yet:
+
+- **Parts only.** The layout part (an axis per shaft), the assembly with the
+  gears placed and meshed, and Update SolidWorks for a changed workbook are the
+  next phase. **Build parts has not yet run on SolidWorks**; it runs the form's
+  own verified build for each part, but the batch is untried on the host.
+- Bevel gears, sleeves and dog rings are read, and listed as *later* with the
+  phase that builds them; they are not built.
+- Shafts on a carrier (a planetary) or with an axis other than `Z+` or `Z-` are
+  read but not laid out, checked as a gearbox or given speeds yet; the window
+  says so, and their spur and helical gears still build as parts. Modes are
+  read, and wait for the assembly.
 
 ## Driving SolidWorks
 
