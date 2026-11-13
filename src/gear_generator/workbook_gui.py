@@ -416,7 +416,8 @@ class WorkbookWindow(tk.Toplevel):
                           width=px(END_VIEW[0] - 24))
             self.view_readout.set("")
             return
-        view = preview.layout_gearbox(report.layout.placed, report.theta, px(END_VIEW[0]), px(END_VIEW[1]), step=2)
+        view = preview.layout_gearbox(report.layout.placed, report.theta, px(END_VIEW[0]), px(END_VIEW[1]), step=2,
+                                      unit=px(100) / 100)
         for gear, plane, points in view.outlines:
             colour = PLANE_COLOURS[plane % len(PLANE_COLOURS)]
             c.create_polygon(*[v for xy in points for v in xy], outline=colour, fill="", width=1)
@@ -425,11 +426,12 @@ class WorkbookWindow(tk.Toplevel):
         for name, x, y in view.shafts:
             c.create_line(x - px(5), y, x + px(5), y, fill=theme.INK)
             c.create_line(x, y - px(5), x, y + px(5), fill=theme.INK)
-            c.create_text(x + px(6), y + px(6), text=name, anchor="nw", fill=theme.INK, font=self.fonts.mono_tiny)
+        for name, x, y, anchor in view.labels:          # beside each cross, clear of the origin's arrows
+            c.create_text(x, y, text=name, anchor=anchor, fill=theme.INK, font=self.fonts.mono_tiny)
         if view.origin is not None:
             ox, oy = view.origin
-            c.create_line(ox, oy, ox + px(26), oy, fill=theme.ERROR, arrow="last")
-            c.create_line(ox, oy, ox, oy - px(26), fill=theme.OK, arrow="last")
+            c.create_line(ox, oy, ox + px(preview.ORIGIN_ARROW), oy, fill=theme.ERROR, arrow="last")
+            c.create_line(ox, oy, ox, oy - px(preview.ORIGIN_ARROW), fill=theme.OK, arrow="last")
             c.create_oval(ox - px(2.5), oy - px(2.5), ox + px(2.5), oy + px(2.5), fill=theme.INK, outline="")
         self.view_readout.set(ui_text.end_view_readout(view))
 

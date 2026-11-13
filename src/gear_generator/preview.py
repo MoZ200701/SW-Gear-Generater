@@ -288,6 +288,18 @@ def _n(value: float, places: int = 3) -> str:
 # -- the Workbook window's end view (PLAN-WORKBOOK §5, W3) ---------------------------------
 
 
+# The end view's marks, in design pixels (``unit`` grows them to the screen): the origin's X and Y arrows
+# and their heads' half-width, and a shaft's name, set a gap off its cross in a mono face about this size.
+ORIGIN_ARROW = 26
+ARROW_HEAD = 3
+LABEL_GAP = 6
+LABEL_CHAR = 7            # a character's width at 11.5 px mono, a little over
+LABEL_HEIGHT = 13
+# Where a shaft's name goes, in order of preference: below right, then the other sides. Each is the corner of
+# the text at the anchor point, as Tk names it (``nw``: the text's top left is at the point).
+LABEL_SIDES = (("nw", 1, 1), ("ne", -1, 1), ("se", -1, -1), ("sw", 1, -1))
+
+
 @dataclass
 class EndView:
     """A workbook's gears seen from +Z, in canvas pixels: each gear's outline at its turn, the shafts, the origin."""
@@ -298,20 +310,54 @@ class EndView:
     shafts: List[Tuple[str, float, float]] = None                        # (name, x, y)
     origin: Optional[Tuple[float, float]] = None                         # None when it is off the picture
     planes: List[float] = None                                           # the face heights, in drawing order
+    labels: List[Tuple[str, float, float, str]] = None                   # (name, x, y, Tk anchor), one per shaft
+
+
+def _label_box(name: str, x: float, y: float, side, unit: float) -> Tuple[float, float, float, float]:
+    """The box a shaft's name takes on ``side`` of its cross at (x, y): (left, top, right, bottom)."""
+    _, sx, sy = side
+    w, h, gap = len(name) * LABEL_CHAR * unit, LABEL_HEIGHT * unit, LABEL_GAP * unit
+    ax, ay = x + sx * gap, y + sy * gap
+    return (ax if sx > 0 else ax - w, ay if sy > 0 else ay - h, ax + w if sx > 0 else ax, ay + h if sy > 0 else ay)
+
+
+def _overlaps(a, b) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def _place_label(name: str, x: float, y: float, origin, unit: float) -> Tuple[str, float, float, str]:
+    """A shaft's name below right of its cross, unless that would sit on the origin's arrows: then the first
+    side clear of them (below left, for a shaft at the origin, since the arrows point right and up). With no
+    side clear, below right as ever."""
+    if origin is not None:
+        ox, oy = origin
+        reach, head, gap = ORIGIN_ARROW * unit, ARROW_HEAD * unit, LABEL_GAP * unit
+        # Each arrow from the origin out, with a gap round it, so a name never crowds a head or the shaft.
+        arrows = ((ox, oy - head - gap, ox + reach + gap, oy + head + gap),       # X, to the right
+                  (ox - head - gap, oy - reach - gap, ox + head + gap, oy))       # Y, up
+        side = next((s for s in LABEL_SIDES
+                     if not any(_overlaps(_label_box(name, x, y, s, unit), a) for a in arrows)), LABEL_SIDES[0])
+    else:
+        side = LABEL_SIDES[0]
+    anchor, sx, sy = side
+    return name, x + sx * LABEL_GAP * unit, y + sy * LABEL_GAP * unit, anchor
 
 
 def layout_gearbox(placed, theta, width: int = 696, height: int = 300, pad: float = 16.0,
-                   step: int = 1) -> EndView:
+                   step: int = 1, unit: float = 1.0) -> EndView:
     """Every placed gear drawn as the strip draws one, turned to its phase, the whole fitted to the canvas.
 
     ``placed`` is ``{gear: workbook.geometry.Placed}`` and ``theta`` its turns.
     The view is from +Z, as SolidWorks' Front view: +X right, +Y up. A gear is
     drawn at the middle of its face, so a helical gear shows its section there.
     Gears are grouped by face height, a plane each, so the window can colour
-    the stages apart; the planes are drawn nearest +Z last.
+    the stages apart; the planes are drawn nearest +Z last. Each shaft's name
+    goes below right of its cross, or on a side clear of the origin's arrows
+    when that would sit on them. ``unit`` is screen pixels per design pixel,
+    for those fixed-size marks.
     """
     from .gears import kind_for
-    view = EndView(outlines=[], rims=[], shafts=[], planes=[])
+    view = EndView(outlines=[], rims=[], shafts=[], planes=[], labels=[])
     if not placed:
         return view
     shapes = []
@@ -355,4 +401,5 @@ def layout_gearbox(placed, theta, width: int = 696, height: int = 300, pad: floa
     ox, oy = to_canvas(0.0, 0.0)
     if 0 <= ox <= width and 0 <= oy <= height:
         view.origin = (ox, oy)
+    view.labels = [_place_label(name, x, y, view.origin, unit) for name, x, y in view.shafts]
     return view

@@ -203,3 +203,26 @@ def test_the_end_view_draws_meshed_gears_clear_of_each_other():
     assert crossing(view) == 0
     wrong = dict(theta, Q=theta["Q"] + math.pi / 30)
     assert crossing(preview.layout_gearbox(lay.placed, wrong, 800, 600)) > 0
+
+
+def test_a_shaft_name_at_the_origin_goes_clear_of_its_arrows():
+    """Shaft A sits on the origin: its name goes below left, where neither arrow points; the others stay
+    below right of their crosses, as ever."""
+    _, _, view = _workbook_view()
+    labels = {name: (x, y, anchor) for name, x, y, anchor in view.labels}
+    shafts = {name: (x, y) for name, x, y in view.shafts}
+    assert set(labels) == set(shafts)
+    ox, oy = view.origin
+    x, y, anchor = labels["A"]
+    assert anchor == "ne" and x < ox and y > oy           # its right edge left of the Y arrow, its top below X
+    for name in ("B", "R"):
+        sx, sy = shafts[name]
+        assert labels[name] == (sx + preview.LABEL_GAP, sy + preview.LABEL_GAP, "nw")
+
+
+def test_shaft_names_keep_their_gap_at_any_screen_scale():
+    lay, theta, _ = _workbook_view()
+    view = preview.layout_gearbox(lay.placed, theta, 784, 600, unit=2.0)
+    (_, x, y, anchor), = [label for label in view.labels if label[0] == "B"]
+    (_, sx, sy), = [shaft for shaft in view.shafts if shaft[0] == "B"]
+    assert (x - sx, y - sy, anchor) == (2 * preview.LABEL_GAP, 2 * preview.LABEL_GAP, "nw")

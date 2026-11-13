@@ -638,12 +638,16 @@ def end_view_svg(report):
         body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="none" '
                     f'stroke="{wb_gui.PLANE_COLOURS[plane % len(wb_gui.PLANE_COLOURS)]}"></circle>')
     for name, x, y in view.shafts:
-        body.append(f'<path d="M{x - 5:.1f} {y:.1f}H{x + 5:.1f}M{x:.1f} {y - 5:.1f}V{y + 5:.1f}" stroke="{INK}"></path>'
-                    f'<text x="{x + 6:.1f}" y="{y + 16:.1f}" font-family="{MONO}" font-size="11" fill="{INK}">{name}</text>')
+        body.append(f'<path d="M{x - 5:.1f} {y:.1f}H{x + 5:.1f}M{x:.1f} {y - 5:.1f}V{y + 5:.1f}" stroke="{INK}"></path>')
+    for name, x, y, anchor in view.labels:        # the window's Tk anchors: n/s the top or bottom, w/e the start or end
+        baseline = y + 10 if anchor[0] == "n" else y - 3
+        body.append(f'<text x="{x:.1f}" y="{baseline:.1f}" text-anchor="{"start" if anchor[1] == "w" else "end"}" '
+                    f'font-family="{MONO}" font-size="11" fill="{INK}">{name}</text>')
     if view.origin is not None:
         ox, oy = view.origin
-        body.append(f'<path d="M{ox:.1f} {oy:.1f}h26m-5 -3l5 3l-5 3" fill="none" stroke="{ERR}"></path>'
-                    f'<path d="M{ox:.1f} {oy:.1f}v-26m-3 5l3 -5l3 5" fill="none" stroke="{OK}"></path>'
+        reach, head = layout_of.ORIGIN_ARROW, layout_of.ARROW_HEAD
+        body.append(f'<path d="M{ox:.1f} {oy:.1f}h{reach}m-5 -{head}l5 {head}l-5 {head}" fill="none" stroke="{ERR}"></path>'
+                    f'<path d="M{ox:.1f} {oy:.1f}v-{reach}m-{head} 5l{head} -5l{head} 5" fill="none" stroke="{OK}"></path>'
                     f'<circle cx="{ox:.1f}" cy="{oy:.1f}" r="2.5" fill="{INK}"></circle>')
     svg = (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" style="display: block; background: #ffffff;">'
            + "".join(body) + '</svg>')
