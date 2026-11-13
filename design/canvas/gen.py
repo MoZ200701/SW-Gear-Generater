@@ -564,6 +564,89 @@ def chosen_row(pair, test):
     return row_, PairSpec(**values)
 
 
+# -------------------------------------------------------------------- the Workbook window (W2)
+#
+# Drawn from a real workbook: written by the app's writer, read by its reader,
+# checked and planned by workbook.build, and every line of text from ui_text —
+# so the board says what the window would for the same file.
+
+import tempfile
+from gear_generator.workbook import build as wb_build, link as wb_link, model as wb_model, xlsx as wb_xlsx
+
+WINDOW_WIDTH = 720
+STATE_COLOURS = {ui_text.GEAR_STATE_BUILDS: OK, ui_text.GEAR_STATE_SHARES: OK,
+                 ui_text.GEAR_STATE_LATER: READOUT, ui_text.GEAR_STATE_ERROR: ERR}
+
+
+def read_workbook(spec):
+    """``spec`` through a real file: written, then read back, so cells and diagnostics are the app's own."""
+    folder = tempfile.mkdtemp(prefix="gen-workbook-")
+    path = os.path.join(folder, f"{spec.box.name}.xlsx")
+    wb_xlsx.write_new(path, wb_model.to_sheets(spec))
+    return path, wb_model.from_book(wb_xlsx.read(path))
+
+
+def gears_table(rows):
+    widths = "52px 52px 72px 48px 58px 48px minmax(0, 1fr) 170px"
+    head = ["Gear", "Shaft", "Kind", "Teeth", "Module", "Face", "Part", ""]
+    cells = [f'<span style="font-size: 11px; color: {READOUT}; line-height: 18px;">{h}</span>' for h in head]
+    for gear, shaft, kind, teeth, module, face, part, state, what in rows:
+        mono = f'font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 20px; white-space: nowrap;'
+        cells += [f'<span style="{mono}">{v}</span>' for v in (gear, shaft)]
+        cells.append(f'<span style="font-size: 12px; color: {LABEL}; line-height: 20px;">{kind}</span>')
+        cells += [f'<span style="{mono}">{v}</span>' for v in (teeth, module, face)]
+        cells.append(f'<span style="{mono} overflow: hidden; text-overflow: ellipsis;">{part or "—"}</span>')
+        colour = STATE_COLOURS[state]
+        cells.append(f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; '
+                     f'color: {ERR if state == ui_text.GEAR_STATE_ERROR else MUTED}; line-height: 20px;">'
+                     f'{dot(colour)}{what}</span>')
+    return (f'<div style="display: grid; grid-template-columns: {widths}; column-gap: 10px; align-items: center;">'
+            + "".join(cells) + '</div>')
+
+
+def check_lines(diagnostics):
+    if not diagnostics:
+        return [warning("No problems: every row reads, and every gear works out.")]
+    ordered = [d for d in diagnostics if d.is_error] + [d for d in diagnostics if not d.is_error]
+    return [warning(d.message, d.is_error) for d in ordered]
+
+
+def workbook_board(spec, *, changes, clock="14:02:31", open_in_excel=True, before=None):
+    path, (read_spec, diagnostics) = read_workbook(spec)
+    if before is not None:
+        changes = wb_link.describe_changes(read_workbook(before)[1][0], read_spec)
+    parts = wb_build.plan_parts(read_spec, read_spec.box.output_folder,
+                                skip_rows=wb_build.rows_with_errors(diagnostics))
+    diagnostics = diagnostics + parts.diagnostics
+    name = os.path.basename(path)
+    status, ok = ui_text.workbook_status(parts, diagnostics, folder=read_spec.box.output_folder)
+    header = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
+              f'<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">'
+              f'<span style="font-size: 15px; font-weight: 600; color: {INK};">{name}</span>'
+              f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: {READOUT};">'
+              f'{dot(OK)}linked · {ui_text.workbook_read_line(clock, open_in_excel)}</span></div>'
+              f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Open in Excel")}{button("Re-read")}</div></div>')
+    box = panel("Workbook", ui_text.workbook_counts(read_spec), [
+        row(label("File"), f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK};">C:\\Parts\\{name}</span>'),
+        row(label("Name"), f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK};">{read_spec.box.name}</span>'),
+        row(label("Output folder"), f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK};">'
+                                    f'{read_spec.box.output_folder}</span>', hint("from the Box sheet")),
+    ])
+    gears = panel("Gears", ui_text.workbook_parts_readout(parts),
+                  [gears_table(ui_text.workbook_gear_rows(read_spec, parts, diagnostics))])
+    checks = panel("Checks", ui_text.workbook_checks_readout(diagnostics), check_lines(diagnostics), gap=4)
+    since = panel("Since the last read", ui_text.workbook_changes_readout(changes, clock),
+                  [f'<div style="font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 1.5;">{c}</div>'
+                   for c in changes] or [warning("Nothing changed.")], gap=2)
+    colour = OK if ok else ERR
+    foot = (f'<div style="margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
+            f'<div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: {colour}; min-width: 0;">'
+            f'{dot(colour, 8)}<span style="line-height: 1.35;">{status}</span></div>'
+            f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Build parts", primary=ok, disabled=not ok, h=32)}'
+            f'</div></div>')
+    return HEAD + column("\n".join([header, box, gears, checks, since, foot]), width=WINDOW_WIDTH) + "\n" + TAIL
+
+
 # -------------------------------------------------------------------- the boards
 
 boards = {}
@@ -642,10 +725,35 @@ cards.append(caption("Each card is worked out for a gear that has the field: the
                      "(m 1.5, 20 : 60 at C 60) unless it belongs to a shifted, helical, grooved, ring, bevel or crossed one."))
 boards["FieldGuide"] = ("Field explainers · every card", page("\n".join(cards)))
 
+# The Workbook window: the 12 : 1 reducer after a save that made G4 wider, and after one that broke a cell.
+reducer = wb_model.GearboxSpec(
+    box=wb_model.Box(name="Reducer_12to1", output_folder="C:\\Parts\\Reducer_12to1\\"),
+    shafts=(wb_model.Shaft("S1", "frame", "0", "0", "0", "Z+", "input", "", "1500", "10"),
+            wb_model.Shaft("S2", "frame", "63.75", "0", "0", "Z+"),
+            wb_model.Shaft("S3", "frame", "131.75", "0", "0", "Z+", "output")),
+    gears=(wb_model.Gear("G1", "S1", "7.5", "spur", "external", "17", "1.5", "", "15", "8"),
+           wb_model.Gear("G2", "S2", "7.5", "spur", "external", "68", "1.5", "", "15", "12"),
+           wb_model.Gear("G3", "S2", "27", "spur", "external", "17", "2", "", "20", "12"),
+           wb_model.Gear("G4", "S3", "27", "spur", "external", "51", "2", "", "20", "16", part_name="OutputGear")),
+    meshes=(wb_model.Mesh("G1", "G2"), wb_model.Mesh("G3", "G4")))
+wider = wb_model.replace(reducer, gears=reducer.gears[:3] + (wb_model.replace(reducer.gears[3], face_width="22"),))
+boards["WorkbookReady"] = ("Workbook · linked, after a save", workbook_board(wider, changes=None, before=reducer),
+                           WINDOW_WIDTH)
+broken = wb_model.replace(reducer, gears=(
+    reducer.gears[0], wb_model.replace(reducer.gears[1], teeth="68.5"), reducer.gears[2], reducer.gears[3],
+    wb_model.Gear("G5", "S3", "47", "spur", "external", "17", "1.5", "", "15", "8"),
+    wb_model.Gear("G6", "S2", "60", "bevel", "external", "20", "3", "", "14", "10")))
+boards["WorkbookError"] = ("Workbook · a save with an error", workbook_board(broken, changes=None, before=reducer),
+                           WINDOW_WIDTH)
+
 layout = []
-for index, (name, (title, html)) in enumerate(boards.items()):
+x = 0
+for name, value in boards.items():
+    title, html = value[0], value[1]
+    width = value[2] if len(value) > 2 else 484
     open(os.path.join(HERE, f"{name}.dc.html"), "w").write(html)
-    layout.append({"file": f"{name}.dc.html", "title": title, "x": index * 564, "y": 0, "w": 484})
+    layout.append({"file": f"{name}.dc.html", "title": title, "x": x, "y": 0, "w": width})
+    x += width + 80
 
 canvas = {
     "artboards": layout,
@@ -663,4 +771,4 @@ canvas = {
     "launch": {"view": "canvas"},
 }
 json.dump(canvas, open(os.path.join(HERE, "canvas.json"), "w"), indent=2, ensure_ascii=False)
-print(" · ".join(f"{name} {len(html)}" for name, (_, html) in boards.items()))
+print(" · ".join(f"{name} {len(value[1])}" for name, value in boards.items()))

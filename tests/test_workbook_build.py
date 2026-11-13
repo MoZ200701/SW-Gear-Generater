@@ -258,3 +258,49 @@ def test_a_parts_record_says_which_workbook_it_came_from():
                                   workbook_gears=["G1", "G5"])
     again = store.from_json(store.to_json(sidecar))
     assert again.record.workbook == "C:\\P\\R.xlsx" and again.record.workbook_gears == ["G1", "G5"]
+
+
+# -- the window's words (ui_text) ---------------------------------------------------------
+
+from gear_generator import ui_text  # noqa: E402
+
+
+def test_the_windows_readouts(tmp_path):
+    spec = from_file(write(tmp_path, reducer()))
+    parts = build.plan_parts(spec, FOLDER)
+    assert ui_text.workbook_counts(spec) == "3 shafts · 4 gears · 2 meshes · no modes"
+    assert ui_text.workbook_read_line("14:02:31", True) == "read 14:02:31 · open in Excel"
+    assert ui_text.workbook_parts_readout(parts) == "4 parts to build"
+    assert ui_text.workbook_checks_readout(parts.diagnostics) == "2 warnings"
+    assert ui_text.workbook_changes_readout([], "14:02") == "nothing changed · 14:02"
+    assert ui_text.workbook_status(parts, parts.diagnostics, folder=FOLDER) == (
+        f"Ready: Build makes 4 parts in {FOLDER}.", True)
+    assert ui_text.workbook_status(parts, parts.diagnostics, folder="")[1] is False
+
+
+def test_the_gear_tables_states(tmp_path):
+    spec = reducer()
+    spec = model.replace(spec, gears=(
+        spec.gears[0], model.replace(spec.gears[1], teeth="68.5"), spec.gears[2], spec.gears[3],
+        Gear("G5", "S3", "47", "spur", "external", "17", "1.5", "", "15", "8"),
+        Gear("G6", "S2", "60", "bevel", "external", "20", "3", "", "14", "10")))
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec)))
+    parts = build.plan_parts(read_spec, FOLDER, skip_rows=build.rows_with_errors(diagnostics))
+    rows = {r[0]: r for r in ui_text.workbook_gear_rows(read_spec, parts, diagnostics + parts.diagnostics)}
+    assert rows["G1"][6:] == ("Gear_m1.5_N17", ui_text.GEAR_STATE_BUILDS, "to build")
+    assert rows["G2"][3] == "68.5" and rows["G2"][7:] == (ui_text.GEAR_STATE_ERROR, "see Checks")
+    assert rows["G5"][6:] == ("Gear_m1.5_N17", ui_text.GEAR_STATE_SHARES, "the same part as G1")
+    assert rows["G6"][7:] == (ui_text.GEAR_STATE_LATER, "later · phase W6")
+    text, ok = ui_text.workbook_status(parts, diagnostics + parts.diagnostics, folder=FOLDER)
+    assert not ok and text.startswith("Fix the workbook before building: Gears!F3: Teeth must be a whole number")
+
+
+def test_a_batchs_sentence(tmp_path):
+    batch = plans(tmp_path)
+    assert ui_text.many_status(swbuild.build_many(FakeSolidWorks(), batch, never_exists))[0] == (
+        "Built 4 parts. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset.")
+    second = os.path.join(FOLDER, "Gear_m1.5_N68.SLDPRT")
+    failed = swbuild.build_many(FakeSolidWorks(fail_on={"save_as": (second, "The disk is full.")}), batch,
+                                never_exists)
+    text, ok = ui_text.many_status(failed)
+    assert not ok and text.startswith("1 part built before it; ") and text.endswith("2 parts not attempted.")

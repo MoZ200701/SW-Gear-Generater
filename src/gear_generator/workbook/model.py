@@ -235,7 +235,9 @@ def _cell_text(reader: _Reader, sheet: Sheet, cell: Optional[Cell], column: Opti
 
 
 def _check_value(reader: _Reader, where: str, column: Column, text: str, percent: bool = False) -> str:
-    """The value as the model keeps it: a canonical word, a number as typed, or "" after a diagnostic."""
+    """The value as the model keeps it: a canonical word, a number as typed — or, after a diagnostic, the text
+    exactly as it was typed, so the window and the change list show what is in the cell. A row with an error
+    is never built (``build.rows_with_errors``), so an unread value goes no further than the screen."""
     if not text:
         return ""
     if column.key == "axis":
@@ -250,25 +252,25 @@ def _check_value(reader: _Reader, where: str, column: Column, text: str, percent
         if len(values) == 3 and math.isfinite(sum(values)) and math.hypot(*values) > 1e-9:
             return ", ".join(number_text(repr(v)) for v in values)
         reader.error(where, f"Axis must be Z+, Z-, X+, X-, Y+, Y- or three numbers (got {text!r}).")
-        return ""
+        return text
     if column.words:
         word = column.canonical(text)
         if word is None:
             reader.error(where, f"{column.header} must be {', '.join(column.words)} (got {text!r}).")
-            return ""
+            return text
         return word
     if column.numeric:
         try:
             value = float(text.replace("−", "-"))
         except ValueError:
             reader.error(where, f"{column.header} must be a number (got {text!r}).")
-            return ""
+            return text
         if not math.isfinite(value):
             reader.error(where, f"{column.header} must be a finite number (got {text!r}).")
-            return ""
+            return text
         if column.whole and abs(value - round(value)) > 1e-9:
             reader.error(where, f"{column.header} must be a whole number (got {text!r}).")
-            return ""
+            return text
         if column.key == "efficiency":
             # A cell formatted as a percentage holds 0.98 for 98 %. Unformatted, a value under 1 is read the
             # same way: an efficiency of 0.98 % is not one anybody means.
@@ -276,7 +278,7 @@ def _check_value(reader: _Reader, where: str, column: Column, text: str, percent
                 value *= 100.0
             if not 0 < value <= 100:
                 reader.error(where, f"Efficiency must be more than 0 and at most 100 % (got {text!r}).")
-                return ""
+                return text
             return number_text(repr(value))
         return number_text(text.replace("−", "-"))
     return text

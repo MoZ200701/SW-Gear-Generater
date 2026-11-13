@@ -82,13 +82,13 @@ def trimmed(rows, channels, margin=12 * SCALE):
     return rows[:min(len(rows), last + 1 + margin)]
 
 
-def _shoot(page, shot, wait=90.0):
+def _shoot(page, shot, width=WIDTH, wait=90.0):
     """Headless Chrome writes the screenshot, but on macOS does not always exit after: wait for the
     file to appear and stop growing, then stop the process ourselves."""
     with tempfile.TemporaryDirectory() as profile:
         chrome = subprocess.Popen([CHROME, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
                                    "--disable-extensions", "--hide-scrollbars", f"--user-data-dir={profile}",
-                                   f"--force-device-scale-factor={SCALE}", f"--window-size={WIDTH},{TALL}",
+                                   f"--force-device-scale-factor={SCALE}", f"--window-size={width},{TALL}",
                                    "--timeout=6000", f"--screenshot={shot}", "file://" + page],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
@@ -108,10 +108,10 @@ def _shoot(page, shot, wait=90.0):
                 chrome.kill()
 
 
-def render(name):
+def render(name, width=WIDTH):
     page = os.path.join(HERE, f"{name}.dc.html")
     shot = os.path.join(tempfile.mkdtemp(), f"{name}.png")
-    _shoot(page, shot)
+    _shoot(page, shot, width)
     width, _, channels, rows = read_png(shot)
     kept = trimmed(rows, channels)
     target = os.path.join(OUT, f"{name}.png")
@@ -120,7 +120,8 @@ def render(name):
 
 
 if __name__ == "__main__":
-    boards = [a["file"][:-len(".dc.html")] for a in json.load(open(os.path.join(HERE, "canvas.json")))["artboards"]]
-    for name in (sys.argv[1:] or boards):
-        target, width, height = render(name)
+    artboards = json.load(open(os.path.join(HERE, "canvas.json")))["artboards"]
+    widths = {a["file"][:-len(".dc.html")]: a.get("w", WIDTH) for a in artboards}
+    for name in (sys.argv[1:] or list(widths)):
+        target, width, height = render(name, widths.get(name, WIDTH))
         print(f"{os.path.relpath(target, os.path.join(HERE, '..', '..'))}  {width} × {height}")

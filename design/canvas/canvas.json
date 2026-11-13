@@ -62,6 +62,20 @@
       "x": 4512,
       "y": 0,
       "w": 484
+    },
+    {
+      "file": "WorkbookReady.dc.html",
+      "title": "Workbook · linked, after a save",
+      "x": 5076,
+      "y": 0,
+      "w": 720
+    },
+    {
+      "file": "WorkbookError.dc.html",
+      "title": "Workbook · a save with an error",
+      "x": 5876,
+      "y": 0,
+      "w": 720
     }
   ],
   "annotations": [

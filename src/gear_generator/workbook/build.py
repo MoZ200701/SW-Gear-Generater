@@ -11,6 +11,7 @@ where each diagnostic points in the workbook.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -86,7 +87,18 @@ def check_gear(spec: GearboxSpec, gear: Gear) -> Tuple[Optional[GearSpec], Any, 
         return gear_spec, None, out
 
 
-def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "") -> PartsPlan:
+def rows_with_errors(diagnostics) -> set:
+    """The Gears rows a reading error already points at: the strip's checks would only repeat it."""
+    rows = set()
+    for d in diagnostics:
+        if d.is_error:
+            match = re.match(r"^Gears(?:!\$?[A-Za-z]{1,3}\$?(\d+)| row (\d+))$", d.field or "")
+            if match:
+                rows.add(int(match.group(1) or match.group(2)))
+    return rows
+
+
+def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "", skip_rows=()) -> PartsPlan:
     """A plan per distinct part: each buildable row checked, identical rows sharing one file.
 
     Two rows that would make the same file name but are not the same gear (a
@@ -102,6 +114,8 @@ def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "") -> Parts
         if why:
             out.later.append((gear.id, why))
             continue
+        if gear.row in skip_rows:
+            continue                       # its own cell is already an error; it is not built
         gear_spec, derived, diagnostics = check_gear(spec, gear)
         out.diagnostics.extend(diagnostics)
         if derived is None:
@@ -131,11 +145,11 @@ def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "") -> Parts
     return out
 
 
-def gear_diagnostics(spec: GearboxSpec) -> List[Diagnostic]:
+def gear_diagnostics(spec: GearboxSpec, skip_rows=()) -> List[Diagnostic]:
     """Every row's own checks, for the window to show as the file changes — no plans are made."""
     out: List[Diagnostic] = []
     for gear in spec.gears:
-        if gear.kind_word() in LATER:
+        if gear.kind_word() in LATER or gear.row in skip_rows:
             continue
         out.extend(check_gear(spec, gear)[2])
     return out

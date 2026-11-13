@@ -319,3 +319,37 @@ And where the window differs from the artboards, because Tk would not do it:
   axis dashed, and a bevel pair is the two sections meeting at the apex with
   gear B turned Σ, dimensioned `R 67.082 mm · Σ 90°`. A crossed pair is drawn as
   a parallel one with `· Σ 90°` after the centre distance.
+
+## 9. The Workbook window (W2, docs/PLAN-WORKBOOK.md §5)
+
+A second window, opened by **Import workbook…** in the Gear panel's header (a
+file dialog first), and by **New workbook…**, which writes a blank template from
+the schema and opens it in Excel. It is a `Toplevel` 720 px wide, sharing the
+strip's theme, widgets and SolidWorks worker; the strip is untouched. Artboards
+`WorkbookReady` and `WorkbookError`, drawn by `gen.py` from a real workbook
+written, read, checked and planned by the app, with every line from `ui_text`.
+
+Top to bottom:
+
+- **Header**: the file's name; `linked · read 14:02:31 · open in Excel`
+  (`ui_text.workbook_read_line`), the dot green while linked, red when the file
+  has gone or will not read; **Open in Excel** and **Re-read**.
+- **Workbook** (readout `3 shafts · 4 gears · 2 meshes · no modes`): the file's
+  path, the Box's Name and the output folder, with where it came from (*from the
+  Box sheet*, or *the strip's Output* when the Box leaves it blank).
+- **Gears** (readout `4 parts to build · 1 later`): one row per gear — gear,
+  shaft, kind, teeth, module, face, the part's name, and a dot with what will
+  happen: *to build*, *the same part as G1*, *later · phase W6*, or *see
+  Checks* in red. Values are shown as typed, a bad one included (`68.5`).
+- **Checks** (readout `1 error · 1 warning`): errors first, in red, then the
+  strip's own warnings, each beginning with the cell it names (`Gears!F3: …`).
+  *No problems: every row reads, and every gear works out.* when clean.
+- **Since the last read** (readout `3 changes · 14:02:31`): what the last save
+  changed, one line per cell, in the mono face (`Gears!F3 G2 Teeth 68 → 68.5`).
+- **Footer**: one sentence (`ui_text.workbook_status`, then `many_status` after
+  a build), green when Build can go ahead, and **Build parts**, disabled while
+  there is an error or nothing to build.
+
+The live link polls once a second, as the strip's SolidWorks link does; a
+change appears within about two seconds of a save. Nothing reaches SolidWorks
+until Build parts is pressed. The end view, Export and the fixes come in W3.

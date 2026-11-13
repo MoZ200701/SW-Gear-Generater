@@ -710,3 +710,156 @@ def update_status(result) -> Tuple[str, bool]:
         return (f"Changed {len(result.changed)} {noun} in {result.document}, but SolidWorks reported an error "
                 "on the rebuild."), False
     return f"Changed {len(result.changed)} {noun} in {result.document} and rebuilt it.", True
+
+
+# -- the Workbook window (docs/PLAN-WORKBOOK.md §5) --------------------------------------
+
+
+def _plural(count: int, one: str, many: str = "") -> str:
+    return f"{count} {one if count == 1 else (many or one + 's')}"
+
+
+def workbook_counts(spec) -> str:
+    """``3 shafts · 4 gears · 2 meshes · no modes`` — the header's readout of what the file holds."""
+    modes = _plural(len(spec.modes), "mode") if spec.modes else "no modes"
+    return " · ".join([_plural(len(spec.shafts), "shaft"), _plural(len(spec.gears), "gear"),
+                       _plural(len(spec.meshes), "mesh", "meshes"), modes])
+
+
+def workbook_read_line(clock_text: str, open_in_excel: bool) -> str:
+    """``read 14:02:31 · open in Excel`` — when the file was last read, and whether Excel holds it."""
+    return f"read {clock_text}" + (" · open in Excel" if open_in_excel else "")
+
+
+GEAR_STATE_BUILDS, GEAR_STATE_SHARES, GEAR_STATE_LATER, GEAR_STATE_ERROR = "builds", "shares", "later", "error"
+
+
+def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic]) -> List[Tuple[str, ...]]:
+    """One row per gear for the window's table: gear, shaft, kind, teeth, module, face, part, state, what.
+
+    ``part`` is the part file's name without ``.SLDPRT`` (every part is one), so the column stays narrow.
+
+    ``parts`` is a :class:`workbook.build.PartsPlan` (it may be empty when the
+    workbook has errors); ``diagnostics`` are the per-gear ones, each naming its
+    cell. ``state`` is one of the ``GEAR_STATE_*`` words, for the window's dot.
+    """
+    by_gear = {}
+    for job in parts.jobs:
+        for index, gear_id in enumerate(job.gear_ids):
+            by_gear[gear_id] = (job, index)
+    later = dict(parts.later)
+    erred_rows = {_gears_row(d.field) for d in diagnostics if d.is_error}
+    erred = {gear.id for gear in spec.gears if gear.row in erred_rows}
+    rows = []
+    for gear in spec.gears:
+        kind = KIND_LABELS.get(gear.kind_word(), gear.kind_word().title())
+        if gear.side == "internal":
+            kind = "Ring"
+        part = ""
+        if gear.id in later:
+            import re
+            phase = re.search(r"phase (W\d+)", later[gear.id])
+            state, what = GEAR_STATE_LATER, f"later · phase {phase.group(1)}" if phase else "later"
+        elif gear.id in erred:
+            state, what = GEAR_STATE_ERROR, "see Checks"
+        elif gear.id in by_gear:
+            job, index = by_gear[gear.id]
+            part = job.stem
+            if index:
+                state, what = GEAR_STATE_SHARES, f"the same part as {job.gear_ids[0]}"
+            else:
+                state, what = GEAR_STATE_BUILDS, "to build"
+        else:
+            state, what = GEAR_STATE_ERROR, "see Checks"
+        rows.append((gear.id, gear.shaft, kind, gear.teeth, gear.module, gear.face_width, part, state, what))
+    return rows
+
+
+def _gears_row(where: str) -> int:
+    """The row of a Gears-sheet cell a diagnostic names (``Gears!F3``, ``Gears row 3``), or 0."""
+    import re
+    match = re.match(r"^Gears(?:!\$?[A-Za-z]{1,3}\$?(\d+)| row (\d+))$", where or "")
+    return int(match.group(1) or match.group(2)) if match else 0
+
+
+def workbook_parts_readout(parts) -> str:
+    """The Gears panel's readout: ``4 parts to build · 1 later``."""
+    pieces = [_plural(len(parts.jobs), "part") + " to build"] if parts.jobs else ["nothing to build yet"]
+    if parts.later:
+        pieces.append(f"{len(parts.later)} later")
+    return " · ".join(pieces)
+
+
+def workbook_checks_readout(diagnostics: Sequence[Diagnostic]) -> str:
+    errors = sum(1 for d in diagnostics if d.is_error)
+    warnings = len(diagnostics) - errors
+    if not diagnostics:
+        return "no problems"
+    pieces = []
+    if errors:
+        pieces.append(_plural(errors, "error"))
+    if warnings:
+        pieces.append(_plural(warnings, "warning"))
+    return " · ".join(pieces)
+
+
+def workbook_changes_readout(changes: Sequence[str], clock_text: str) -> str:
+    if not changes:
+        return f"nothing changed · {clock_text}"
+    return f"{_plural(len(changes), 'change')} · {clock_text}"
+
+
+def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", folder: str = "") -> Tuple[str, bool]:
+    """The footer's one sentence, and whether Build can go ahead."""
+    if error:
+        return error, False
+    errors = [d for d in diagnostics if d.is_error]
+    if errors:
+        first = errors[0].message
+        more = f" ({len(errors) - 1} more under Checks)" if len(errors) > 1 else ""
+        return f"Fix the workbook before building: {first}{more}", False
+    if not parts.jobs:
+        return "Nothing in this workbook can be built yet: " + (parts.later[0][1] + "." if parts.later
+                                                                 else "it has no gears."), False
+    if not folder:
+        return "Choose an output folder (the Box sheet's, or the strip's Output) before building.", False
+    files = _plural(len(parts.jobs), "part")
+    return f"Ready: Build makes {files} in {folder}.", True
+
+
+def _shared_steps(results) -> List[str]:
+    """Manual steps across a batch, one line for a step every part shares: *Assign a material to each of the 4
+    parts* rather than four sentences that differ only in the part's name."""
+    import os
+    counts: Dict[str, List[str]] = {}
+    for result in results:
+        stem = os.path.splitext(os.path.basename(result.saved.replace("\\", "/")))[0]
+        for step in result.manual:
+            key = step.replace(stem, "{part}") if stem else step
+            counts.setdefault(key, []).append(step)
+    out = []
+    for key, steps in counts.items():
+        if len(steps) > 1 and "{part}" in key:
+            out.append(key.replace("{part}", f"each of the {len(steps)} parts"))
+        else:
+            out.extend(steps)
+    return out
+
+
+def many_status(result) -> Tuple[str, bool]:
+    """One sentence for a batch of parts: how many were built, or the first thing that went wrong."""
+    built = [r for r in result.built if r.ok and r.saved]
+    for part in result.built:
+        if not (part.ok and part.saved):
+            text, _ = build_status(part)
+            done = f"{_plural(len(built), 'part')} built before it; " if built else ""
+            skipped = f" {_plural(len(result.skipped), 'part')} not attempted." if result.skipped else ""
+            return f"{done}{text}{skipped}", False
+    text = f"Built {_plural(len(built), 'part')}."
+    manual = manual_steps_line(_shared_steps(built))
+    checks = [c for r in built for c in r.checks]
+    if checks:
+        text += " Check: " + "; ".join(checks) + "."
+    if manual:
+        text += " " + manual
+    return text, not checks
