@@ -766,7 +766,8 @@ GEAR_STATE_BUILDS, GEAR_STATE_SHARES, GEAR_STATE_LATER, GEAR_STATE_ERROR = "buil
 GEAR_STATE_BUILT, GEAR_STATE_CHANGES, GEAR_STATE_NEW_PART = "built", "changes", "new part"
 
 
-def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic]) -> List[Tuple[str, ...]]:
+def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record=None,
+                       update=None) -> List[Tuple[str, ...]]:
     """One row per gear for the window's table: gear, shaft, kind, teeth, module, face, part, state, what.
 
     ``part`` is the part file's name without ``.SLDPRT`` (every part is one), so the column stays narrow.
@@ -774,12 +775,19 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic]) -> List[T
     ``parts`` is a :class:`workbook.build.PartsPlan` (it may be empty when the
     workbook has errors); ``diagnostics`` are the per-gear ones, each naming its
     cell. ``state`` is one of the ``GEAR_STATE_*`` words, for the window's dot.
+
+    With ``record`` (a ``store.LinkRecord``) a gear its current parts serve is
+    *built*, its part the recorded file's; with ``update`` too (a
+    ``workbook.update.UpdatePlan``) it is *built · changes on Update* when its
+    part's values change, and *needs a new part* (red) when a reason Update
+    cannot carry names it, or its part's file is missing.
     """
     by_gear = {}
     for job in parts.jobs:
         for index, gear_id in enumerate(job.gear_ids):
             by_gear[gear_id] = (job, index)
     later = dict(parts.later)
+    built = {g: p for p in (record.current_parts() if record is not None else []) for g in p.gears}
     erred_rows = {_gears_row(d.field) for d in diagnostics if d.is_error}
     erred = {gear.id for gear in spec.gears if gear.row in erred_rows}
     rows = []
@@ -794,6 +802,10 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic]) -> List[T
             state, what = GEAR_STATE_LATER, f"later · phase {phase.group(1)}" if phase else "later"
         elif gear.id in erred:
             state, what = GEAR_STATE_ERROR, "see Checks"
+        elif gear.id in built:
+            entry = built[gear.id]
+            part = _stem(entry.path)
+            state, what = _built_state(gear.id, entry, update)
         elif gear.id in by_gear:
             job, index = by_gear[gear.id]
             part = job.stem
@@ -805,6 +817,19 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic]) -> List[T
             state, what = GEAR_STATE_ERROR, "see Checks"
         rows.append((gear.id, gear.shaft, kind, gear.teeth, gear.module, gear.face_width, part, state, what))
     return rows
+
+
+def _built_state(gear_id: str, entry, update) -> Tuple[str, str]:
+    """A gear already built: whether Update SolidWorks leaves it, changes it, or cannot carry its change."""
+    import re
+    if update is not None:
+        named = re.compile(rf"(?<![\w]){re.escape(gear_id)}(?![\w])")
+        from .store import same_path
+        if any(same_path(entry.path, m) for m in update.missing) or any(named.search(s) for s in update.structural):
+            return GEAR_STATE_NEW_PART, "needs a new part"
+        if any(gear_id in p.gear_ids for p in update.changed_parts):
+            return GEAR_STATE_CHANGES, "built · changes on Update"
+    return GEAR_STATE_BUILT, "built"
 
 
 def _gears_row(where: str) -> int:
@@ -1085,13 +1110,20 @@ def many_status(result) -> Tuple[str, bool]:
 
 # -- W4: the footer as one decision, and the sentences of a gearbox build and update ----------------------------
 #
-# Interfaces pinned in the W4 interface commit (docs/PLAN-WORKBOOK.md §5, W4-PLAN §4.1–§4.2); Agent C implements.
-# ``workbook_state`` above stays as it is until the window is wired to ``workbook_footer``.
+# Interfaces pinned in the W4 interface commit (docs/PLAN-WORKBOOK.md §5, W4-PLAN §4.1–§4.2). ``workbook_state``
+# above stays as it is until the window is wired to ``workbook_footer``. Everything here reads the plans and the
+# worker's results by their fields only (never ``GearboxResult.ok``), and the worker's own BuildError text is
+# shown as it comes, never reworded.
 
 BUILD = "build"              # make the parts, the layout part and the assembly (reusing what is built)
 BUILD_PARTS = "parts"        # W2's batch, when only rows a later phase builds hold the layout back
 BUILD_AGAIN = "again"        # an assembly is on record: ask, then make the next revision
 BUILD_LABELS = {BUILD: "Build", BUILD_PARTS: "Build parts", BUILD_AGAIN: "Build again…"}
+
+RECALC_WAIT_UPDATE = ("Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so "
+                      "they recalculate; Build, Update SolidWorks and Export wait for that save.")
+ALREADY_MATCHES = "SolidWorks already matches the workbook: nothing was changed."
+SAVE_TO_KEEP = "Save in SolidWorks to keep it."
 
 
 @dataclass(frozen=True)
@@ -1117,6 +1149,442 @@ class Footer:
     update_primary: bool = False
 
 
+_EXTENSIONS = (".sldprt", ".sldasm", ".slddrw")
+
+
+def _stem(path: str) -> str:
+    """``C:\\P\\Gear_m1.5_N68.SLDPRT`` -> ``Gear_m1.5_N68``; a SolidWorks extension only, so ``Gear_m1.5`` keeps
+    its ``.5``."""
+    name = _file(path)
+    return name[:-7] if name.lower().endswith(_EXTENSIONS) else name
+
+
+def _folder_of(path: str) -> str:
+    text = path.replace("\\", "/")
+    return path[:len(text.rsplit("/", 1)[0])] if "/" in text else ""
+
+
+def _and(items: Iterable[str]) -> str:
+    """``A``, ``A and B``, ``A, B and C``."""
+    items = [str(i) for i in items if str(i)]
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if not text or text[-1] in ".?!…" else text + "."
+
+
+def progress_text(step, updating: bool = False) -> str:
+    """*Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…*, *… the layout part…*, *… the assembly…*,
+    *… checking interference…*; *Updating SolidWorks: Gear_m1.5_N68…* — from a ``swbuild.Step`` (None: the
+    first words alone)."""
+    from . import swbuild
+    lead = "Updating SolidWorks" if updating else "Building in SolidWorks"
+    if step is None:
+        return f"{lead}…"
+    name, of = step.name, (f"{step.index} of {step.count}" if step.count else "")
+    stage = step.stage
+    if stage == swbuild.STAGE_PART:
+        what = ", ".join(p for p in (f"part {of}" if of else "a part", name) if p)
+    elif stage == swbuild.STAGE_CHECK:
+        counted = (f"{of} already built" if not updating else of) if of else ""
+        what = f"checking {name or 'what is built'}" + (f" ({counted})" if counted else "")
+    elif stage == swbuild.STAGE_LAYOUT:
+        what = "the layout part" + (f", {name}" if name else "")
+    elif stage == swbuild.STAGE_ASSEMBLY:
+        what = "the assembly" + (f", {name}" if name else "")
+    elif stage == swbuild.STAGE_INTERFERENCE:
+        what = "checking interference"
+    elif stage == swbuild.STAGE_VALUES:
+        what = name or "the values"
+    elif stage == swbuild.STAGE_PLACE:
+        what = "placing the gears" + (f" in {name}" if name else "")
+    else:
+        what = name
+    return f"{lead}: {what}…" if what else f"{lead}…"
+
+
+def _clash_lines(clashes) -> List[str]:
+    lines = []
+    for clash in clashes:
+        named = [g for g in (clash.gears or clash.components) if g]
+        if len(named) >= 2:
+            lines.append(f"{_and(named)} interfere, {_n(clash.volume)} mm³")
+        elif named:
+            lines.append(f"{named[0]} interferes with something, {_n(clash.volume)} mm³")
+        else:
+            lines.append(f"an interference of {_n(clash.volume)} mm³ that SolidWorks could not name")
+    return lines
+
+
+def _interference(clashes, error: str, assembly: str) -> Tuple[str, bool]:
+    """``; no interference between the gears`` (to end a sentence), or a sentence of its own that stands out."""
+    where = f" in {assembly}" if assembly else ""
+    if error:
+        return f". Interference could not be checked: {_sentence(error)} Look at each mesh{where} by eye.", False
+    if clashes:
+        lines = _clash_lines(clashes)
+        return (f". Check: {'; '.join(lines)}; look at {'their mesh' if len(lines) == 1 else 'those meshes'}"
+                f"{where}."), False
+    return "; no interference between the gears.", True
+
+
+def _done_phrase(made: Sequence[str], reused: Sequence[str]) -> str:
+    """``Built 1 part and R_r2_Layout, reusing the 3 parts already built``; ``Reused R_Layout and …``."""
+    if made:
+        return "Built " + _and(made) + (", reusing " + _and(reused) if reused else "")
+    if reused:
+        return "Reused " + _and(reused)
+    return ""
+
+
+def _already(count: int) -> str:
+    return "" if not count else ("the part already built" if count == 1 else f"the {count} parts already built")
+
+
+def _layout_reused(plan) -> bool:
+    from .workbook.gearbox import LayoutReuse
+    return isinstance(getattr(plan, "layout", None), LayoutReuse)
+
+
+def gearbox_status(plan, result) -> Tuple[str, bool]:
+    """A finished build's sentence (``workbook.gearbox.GearboxPlan``, ``swbuild.GearboxResult``): *Built 4 parts,
+    Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears.*, a clash's *Check: G1 and
+    G2 interfere, 12.345 mm³; …*, or what failed and that Build carries on, reusing what was built."""
+    parts_only = plan is None or (plan.layout is None and plan.assembly is None)
+    button = "Build parts" if parts_only else "Build"
+    made = [r for r in result.parts.built if r.ok and r.saved]
+    reused_parts = len(plan.reuse) if plan is not None else 0
+    reused_layout = _stem(result.layout_reused) if result.layout_reused else ""
+    made_names = [_plural(len(made), "part")] if made else []
+
+    for part in result.parts.built:
+        if not (part.ok and part.saved):
+            text, _ = build_status(part)
+            before = f"{_plural(len(made), 'part')} built before it; " if made else ""
+            skipped = len(result.parts.skipped)
+            if parts_only:
+                tail = f" {_plural(skipped, 'part')} not attempted." if skipped else ""
+            elif skipped:
+                tail = f" {_plural(skipped, 'part')} not attempted, nor the layout and assembly."
+            else:
+                tail = " The layout and assembly were not attempted."
+            return f"{before}{text}{tail} Press {button} to carry on: what was built is reused.", False
+
+    layout = result.layout
+    if layout is not None and not (layout.ok and layout.saved):
+        text, _ = build_status(layout)
+        done = _done_phrase(made_names, [_already(reused_parts)] if reused_parts else [])
+        lead = f"{done}; " if done else ""
+        return (f"{lead}{text} The assembly was not attempted. Press Build to carry on: "
+                f"{'the parts are' if made or reused_parts else 'what was built is'} reused."), False
+
+    layout_name = _stem(layout.saved) if layout is not None and layout.saved else ""
+    assembly = result.assembly
+    if assembly is not None and not (assembly.ok and assembly.saved):
+        made_now = made_names + ([layout_name] if layout_name else [])
+        reused_now = ([reused_layout] if reused_layout else []) + ([_already(reused_parts)] if reused_parts else [])
+        done = _done_phrase(made_now, reused_now)
+        if assembly.failures:
+            what, why = assembly.failures[0]
+            where = (f"the assembly {assembly.document} was left open, unsaved" if assembly.document
+                     else "the assembly was not made")
+            failed = f"{where}. {what.strip()}: {why}"
+        else:
+            failed = (f"SolidWorks reported an error rebuilding the assembly {assembly.document}, so it was left "
+                      "open, unsaved.")
+        lead = f"{done}; " if done else ""
+        failed = failed if lead else failed[:1].upper() + failed[1:]
+        return f"{lead}{failed} Press Build to try the assembly again: the parts and layout are reused.", False
+
+    built_names = made_names + ([layout_name] if layout_name else [])
+    asm_name = _file(assembly.saved) if assembly is not None and assembly.saved else ""
+    if asm_name:
+        built_names.append(asm_name)
+    reused_names = ([reused_layout] if reused_layout else []) + ([_already(reused_parts)] if reused_parts else [])
+    done = _done_phrase(built_names, reused_names)
+    if not done:
+        return "Nothing was built.", False
+    results = made + [r for r in (layout, assembly) if r is not None and r.saved]
+    checks = [c for r in results for c in r.checks]
+    ok = not checks
+    if not parts_only and not asm_name:
+        # Planned and never reached, with nothing failing: say what the worker said was left.
+        skipped = f" {_sentence(result.skipped)}" if result.skipped else " The assembly was not made."
+        text, ok = f"{done}.{skipped}", False
+    elif asm_name:
+        ending, clean = _interference(result.clashes, result.interference_error, asm_name)
+        text, ok = done + ending, ok and clean
+    else:
+        text = f"{done}."
+    if checks:
+        text += " Check: " + "; ".join(checks) + "."
+    manual = manual_steps_line(_shared_steps(results))
+    if manual:
+        text += " " + manual
+    return text, ok
+
+
+def _missing_sentence(missing: Sequence[str]) -> str:
+    files = [_file(p) for p in missing]
+    if len(files) == 1:
+        folder = _folder_of(missing[0])
+        where = f"in {short_path(folder, 48)}" if folder else "where it was built"
+        return (f"{files[0]} is no longer {where}: it was moved or renamed since it was built, so Update "
+                "SolidWorks cannot change it.")
+    return (f"{_and(files)} are no longer where they were built: they were moved or renamed since, so Update "
+            "SolidWorks cannot change them.")
+
+
+def _again_sentence(update, name: str = "") -> str:
+    """Why Update cannot carry it, folded into one line for the footer: *G2's bore was added, which its built part
+    cannot take: Update SolidWorks offers to build again as Reducer_12to1_r2.*"""
+    target = name or "a new revision"
+    offer = f"Update SolidWorks offers to build again as {target}."
+    if update.missing:
+        more = len(update.structural)
+        also = f" (and {_plural(more, 'other change')} Update SolidWorks cannot carry)" if more else ""
+        files = [_file(p) for p in update.missing]
+        if len(files) == 1:
+            folder = _folder_of(update.missing[0])
+            where = f"in {short_path(folder, 48)}" if folder else "where it was built"
+            return f"{files[0]} is no longer {where}: it was moved or renamed since it was built{also}, so {offer}"
+        return f"{_and(files)} are no longer where they were built: they were moved or renamed since{also}, so {offer}"
+    more = len(update.structural) - 1
+    also = f" (and {_plural(more, 'other change')} Update SolidWorks cannot carry)" if more else ""
+    return f"{update.structural[0].strip().rstrip('.')}{also}: {offer}"
+
+
+def update_summary(update) -> str:
+    """What Update SolidWorks will do, before the press (``workbook.update.UpdatePlan``): *Update SolidWorks will
+    change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.*; the
+    structural sentence when it needs a new revision; *SolidWorks already matches the workbook on record* when
+    nothing on record differs."""
+    if update.refusal:
+        return update.refusal
+    if update.needs_new_revision:
+        return _again_sentence(update)
+    if update.record_matches:
+        return ("SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right "
+                "anything changed there.")
+    pieces = []
+    changed = update.changed_parts
+    if len(changed) == 1 and len(changed[0].gear_ids) == 1:
+        pieces.append(f"change {changed[0].gear_ids[0]}'s values ({_stem(changed[0].path)})")
+    elif changed:
+        pieces.append("change the values in " + _and(f"{_stem(p.path)} ({', '.join(p.gear_ids)})" for p in changed))
+    if update.moved_shafts:
+        layout = f" in {_stem(update.layout.path)}" if update.layout is not None else ""
+        pieces.append(f"move {_and(update.moved_shafts)}{layout}")
+    if update.replaced:
+        pieces.append(f"re-place {_and(update.replaced)}")
+    if len(pieces) > 1:
+        pieces[-1] = "and " + pieces[-1]
+    return "Update SolidWorks will " + ", ".join(pieces) + "."
+
+
+def _kept_name(path: str, spec) -> str:
+    """`` (it now has 69 teeth; its file keeps its name)`` when a value update leaves a default-named part's file
+    name saying what it no longer holds; ``""`` otherwise (a Part name of the user's own never goes stale)."""
+    import re
+    if spec is None or str(getattr(spec, "name", "")).strip():
+        return ""
+    try:
+        wanted = spec.default_stem()
+    except Exception:  # noqa: BLE001 - a spec that does not work out has no name to compare
+        return ""
+    held = re.sub(r"_r\d+$", "", _stem(path))
+    if held == wanted:
+        return ""
+    for mark, word in (("N", "{} teeth"), ("m", "module {}")):
+        old, new = (re.search(rf"_{mark}([^_]+)", s) for s in (held, wanted))
+        if old and new and old.group(1) != new.group(1):
+            now_ = "now has" if mark == "N" else "is now"
+            return f" (it {now_} {word.format(new.group(1))}; its file keeps its name)"
+    return " (its file keeps its name, which no longer says what it holds)"
+
+
+def _layout_shafts(names: Sequence[str]) -> List[str]:
+    """``["S2 X", "S3 X", "S3 Y"]`` -> ``["S2", "S3"]``: the shafts a layout's changed globals move."""
+    shafts: List[str] = []
+    for name in names:
+        head, _, axis = name.rpartition(" ")
+        if head and axis in ("X", "Y") and head not in shafts:
+            shafts.append(head)
+    return shafts
+
+
+def gearbox_update_status(update, result, dragged: Sequence[str] = ()) -> Tuple[str, bool]:
+    """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
+    *Save in SolidWorks to keep it.* whenever ``result.changed`` is not empty; *SolidWorks already matches the
+    workbook: nothing was changed.* when nothing was."""
+    changed_docs = [_stem(p) for p in result.changed]
+    if result.failures:
+        what, why = result.failures[0]
+        text = f"Update SolidWorks stopped. {what.strip()}: {_sentence(why)}"
+        if changed_docs:
+            one = len(changed_docs) == 1
+            text += (f" It had already changed {_and(changed_docs)}, not saved: press Update SolidWorks again once "
+                     f"that is put right, or save {'it' if one else 'them'} in SolidWorks to keep what it did.")
+        else:
+            text += " Nothing was changed."
+        return text, False
+
+    pieces: List[str] = []
+    ok = True
+    for index, part in enumerate(result.parts):
+        if not part.changed:
+            continue
+        planned = update.parts[index] if index < len(update.parts) else None
+        name = _stem(planned.path) if planned is not None else _stem(part.document)
+        pieces.append(f"changed {_plural(len(part.changed), 'variable')} in {name}"
+                      + _kept_name(planned.path if planned is not None else part.document,
+                                   getattr(planned, "spec", None)))
+        if not part.rebuilt:
+            pieces[-1] += " (SolidWorks reported an error rebuilding it)"
+            ok = False
+    if result.layout is not None and result.layout.changed:
+        name = _stem(update.layout.path) if update.layout is not None else _stem(result.layout.document)
+        shafts = _layout_shafts(result.layout.changed)
+        pieces.append(f"moved {_and(shafts)} in {name}" if shafts
+                      else f"changed {_plural(len(result.layout.changed), 'variable')} in {name}")
+        if not result.layout.rebuilt:
+            pieces[-1] += " (SolidWorks reported an error rebuilding it)"
+            ok = False
+    dragged = list(dragged)
+    placed = [g for g in result.placed if g not in dragged]
+    if placed:
+        pieces.append(f"re-placed {_and(placed)}")
+
+    assembly = _file(update.assembly) if update.assembly else ""
+    nothing = not pieces and not dragged and not result.changed
+    if nothing:
+        text = ALREADY_MATCHES
+        if assembly and (result.clashes or result.interference_error):
+            ending, ok = _interference(result.clashes, result.interference_error, assembly)
+            text += ending[1:]
+        return text, ok
+    put_back = ""
+    if dragged:
+        one = len(dragged) == 1
+        put_back = (f"{_and(dragged)} had been moved in SolidWorks; put back where the workbook has "
+                    f"{'it' if one else 'them'}")
+    text = "Updated SolidWorks: " + (", ".join(pieces) if pieces else put_back)
+    if assembly:
+        if not result.rebuilt:
+            text += f". SolidWorks reported an error rebuilding {assembly}, so look at it before saving."
+            ok = False
+        else:
+            ending, clean = _interference(result.clashes, result.interference_error, assembly)
+            text, ok = text + ending, ok and clean
+    else:
+        text += "."
+    if put_back and pieces:
+        text += f" {put_back}."
+    if result.changed:
+        text += f" {SAVE_TO_KEEP}"
+    return text, ok
+
+
+def build_again_question(update, again) -> str:
+    """The *Build again?* question (``UpdatePlan``, and the ``GearboxPlan`` it would run): why Update cannot carry
+    the change, what the new revision makes and reuses, and — decision 8 — that the reused parts are shared, so a
+    later Update changes the earlier revision's assembly too. Never promises the old assembly is untouched."""
+    reasons = []
+    if update is not None and update.missing:
+        reasons.append(_missing_sentence(update.missing))
+    if update is not None:
+        reasons.extend(_sentence(s) for s in update.structural)
+    if not reasons:
+        reasons.append("Update SolidWorks can bring SolidWorks up to date as it is, so a new revision is not "
+                       "needed.")
+    text = " ".join(reasons) + f" Build again as {again.name}?"
+    if again.refusal:
+        return f"{text} It cannot go ahead: {again.refusal}"
+
+    does = []
+    if again.build:
+        news = [f"{', '.join(job.gear_ids)} ({job.stem})" for job in again.build]
+        does.append(f"makes {'a new part' if len(news) == 1 else 'new parts'} for {_and(news)}")
+    kept = len(again.reuse)
+    if kept:
+        does.append(f"reuses {_plural(kept, 'part')} that {'has' if kept == 1 else 'have'} not changed")
+    asm = _file(again.assembly_path) if again.assembly_path else ""
+    if _layout_reused(again):
+        does.append(f"reuses {_stem(again.layout.path)} and makes a new assembly, {asm}")
+    elif again.layout is not None:
+        does.append(f"makes a new layout part and assembly ({_stem(again.layout_path)} and {asm})")
+    if does:
+        text += " That " + _and(does) + "."
+
+    old = _file(update.assembly) if update is not None and update.assembly else "the earlier assembly"
+    if kept:
+        one = kept == 1
+        text += (f" Nothing is overwritten, and {old} stays as it is on disk, but it shares the "
+                 f"{'reused part' if one else f'{kept} reused parts'}: a later Update SolidWorks that changes "
+                 f"{'it' if one else 'one of them'} changes {old} too.")
+    else:
+        text += f" Nothing is overwritten, and {old} and its files are left as they are."
+    return text
+
+
+def _without_folder(assessment):
+    """The assessment as if an output folder were set: Update SolidWorks writes nothing there, so a folder unset
+    or gone must not hold it back (review nit)."""
+    if assessment.folder:
+        return assessment
+    import dataclasses
+    return dataclasses.replace(assessment, folder="-")
+
+
+def _ready_build(assessment, plan, folder: str) -> Tuple[str, bool]:
+    """*Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\Parts\\Reducer_12to1.*,
+    reusing what is built, and why the revision is not 0."""
+    where = short_path((plan.folder if plan is not None and plan.folder else folder), 48)
+    if plan is None:
+        return (f"Ready: Build makes {_plural(len(assessment.parts.jobs), 'part')}, the layout part and the "
+                f"assembly in {where}."), True
+    made = [_plural(len(plan.build), "part")] if plan.build else []
+    reused = []
+    if _layout_reused(plan):
+        reused.append(_stem(plan.layout.path))
+    elif plan.layout is not None:
+        made.append(_stem(plan.layout_path))
+    if plan.assembly is not None:
+        made.append(_file(plan.assembly_path))
+    if plan.reuse:
+        reused.append(_already(len(plan.reuse)))
+    text = f"Ready: Build makes {_and(made)} in {where}" + (", reusing " + _and(reused) if reused else "") + "."
+    if plan.revision_reason:
+        text += " " + _sentence(plan.revision_reason)
+    return text, bool(made)
+
+
+def _waiting_rows(parts) -> str:
+    refused = parts.refused
+    more = f" ({len(refused) - 1} more under Checks)" if len(refused) > 1 else ""
+    return f"the layout and assembly wait for a later phase: {refused[0].message}{more}" if refused else ""
+
+
+def _ready_parts(assessment, plan, folder: str) -> Tuple[str, bool]:
+    """*Ready: Build parts makes 2 parts in …; the layout and assembly wait for a later phase: Shafts!A4: …* (W2's
+    batch, through the same reuse as Build, decision 9)."""
+    where = short_path((plan.folder if plan is not None and plan.folder else folder), 48)
+    new = len(plan.build) if plan is not None else len(assessment.parts.jobs)
+    kept = len(plan.reuse) if plan is not None else 0
+    waits = _waiting_rows(assessment.parts)
+    if not new:
+        return (f"The {_plural(kept, 'part')} {'is' if kept == 1 else 'are'} built already, so Build parts has "
+                f"nothing to make; {waits}"), True
+    text = f"Ready: Build parts makes {_plural(new, 'part')} in {where}"
+    if kept:
+        text += f", reusing {_already(kept)}"
+    return text + (f"; {waits}" if waits else "."), True
+
+
 def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=None, update=None,
                     error: str = "", folder: str = "", folder_exists: bool = True, building: bool = False,
                     updating: bool = False, progress=None, note: Optional[Tuple[str, bool]] = None,
@@ -1138,41 +1606,101 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     the record problem), then ``assessment.lay_out_refusal()`` — falling back
     to Build parts when only ``parts.refused`` holds the layout back and
     ``build_refusal()`` passes — then ``plan.refusal``.
+
+    The build button's action follows the record and the read, not the moment:
+    Build again… once an assembly is on record, else Build parts while rows a
+    later phase builds are there, else Build. A newer record (its sentence ends
+    ``store.LINK_WAITS``) holds both buttons back; a broken one only Update:
+    Build goes ahead without it, and its finish sets the file aside
+    (``store.open_link_record``). Update SolidWorks is gated as Build is, but
+    never on the output folder, since it writes nothing there; it stays
+    enabled when the record says nothing differs (the worker compares live),
+    and when the change needs a new revision (the press asks, then builds
+    again). A finished job's ``note`` takes the sentence's place while nothing
+    has gone wrong since, coloured by its own ``ok`` (a clash is ``False``);
+    otherwise *… Since then: …*.
     """
-    raise NotImplementedError("W4: Agent C, ui_text.workbook_footer")
+    from .store import LINK_WAITS
+    a = assessment
+    gearbox = getattr(record, "gearbox", None)
+    has_assembly = bool(gearbox is not None and gearbox.assembly)
+    on_record = record is not None and bool(record.parts or gearbox is not None)
+    later = bool(a is not None and a.parts.refused)
+    action = BUILD_AGAIN if has_assembly else (BUILD_PARTS if later else BUILD)
+    newer = bool(record_problem) and record_problem.rstrip().endswith(LINK_WAITS)
 
+    def footer(text: str, ok: bool, build: bool = False, update_on: bool = False) -> Footer:
+        return Footer(text, ok, action, BUILD_LABELS[action], build, action != BUILD_AGAIN, on_record,
+                      update_on and on_record, has_assembly)
 
-def progress_text(step, updating: bool = False) -> str:
-    """*Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…*, *… the layout part…*, *… the assembly…*,
-    *… checking interference…*; *Updating SolidWorks: Gear_m1.5_N68…* — from a ``swbuild.Step`` (None: the
-    first words alone)."""
-    raise NotImplementedError("W4: Agent C, ui_text.progress_text")
+    if building or updating:
+        return footer(progress_text(progress, updating=updating), True)
+    if error:
+        return footer(error, False)
+    if a is None:
+        return footer(record_problem, not record_problem)
+    if note is not None and not note[1] and a.chosen:
+        return footer(note[0], False)            # a refused Export must show, even with a fix still chosen
+    if a.chosen:
+        n = len(a.chosen)
+        waits = "Build and Update SolidWorks wait" if on_record else "Build waits"
+        return footer(f"{_plural(n, 'fix', 'fixes')} chosen: Export writes {'it' if n == 1 else 'them'} into the "
+                      f"workbook, and {waits} for that, so the workbook and SolidWorks agree.", True)
+    if a.provisional:
+        lead = f"{note[0]} " if note is not None else ""
+        return footer(lead + (RECALC_WAIT_UPDATE if on_record else RECALC_WAIT), True)
 
+    due = RESULTS_DUE if results_due else ""
+    if newer:
+        text = f"{note[0]} Since then: {record_problem}" if note is not None else record_problem
+        return footer(text + due, False)
 
-def gearbox_status(plan, result) -> Tuple[str, bool]:
-    """A finished build's sentence (``workbook.gearbox.GearboxPlan``, ``swbuild.GearboxResult``): *Built 4 parts,
-    Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears.*, a clash's *Check: G1 and
-    G2 interfere, 12.345 mm³; …*, or what failed and that Build carries on, reusing what was built."""
-    raise NotImplementedError("W4: Agent C, ui_text.gearbox_status")
+    where = folder or a.folder
+    missing_folder = (f"The output folder {short_path(where, 48)} does not exist; make it, or change it on the Box "
+                      "sheet.")
+    gate = a.build_refusal() if action == BUILD_PARTS else a.lay_out_refusal()
+    build_block = gate or ("" if folder_exists else missing_folder) or (plan.refusal if plan is not None else "")
+    loose = _without_folder(a)
+    update_gate = loose.lay_out_refusal() if gearbox is not None else loose.build_refusal()
+    update_on = on_record and not update_gate and update is not None and not update.refusal
 
+    if action == BUILD_AGAIN:
+        build_on = not build_block
+        if update_gate:
+            text, ok = update_gate, False
+        elif update is None:
+            text, ok = f"{_file(gearbox.assembly)} is built from this workbook.", True
+        elif update.refusal:
+            text, ok = update.refusal, False
+        elif update.needs_new_revision:
+            text, ok = _again_sentence(update, plan.name if plan is not None else ""), not update.missing
+            if build_block:
+                # Update would ask, and the build it offers cannot go: say why, and hold both back.
+                text, ok, update_on = f"{text} {build_block}", False, False
+        else:
+            text, ok = update_summary(update), True
+    else:
+        if build_block:
+            text, ok, build_on = build_block, False, False
+        elif action == BUILD_PARTS:
+            text, ok = _ready_parts(a, plan, where)
+            build_on = plan is None or bool(plan.build)
+        else:
+            text, ok = _ready_build(a, plan, where)
+            build_on = ok
 
-def update_summary(update) -> str:
-    """What Update SolidWorks will do, before the press (``workbook.update.UpdatePlan``): *Update SolidWorks will
-    change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.*; the
-    structural sentence when it needs a new revision; *SolidWorks already matches the workbook on record* when
-    nothing on record differs."""
-    raise NotImplementedError("W4: Agent C, ui_text.update_summary")
+    if record_problem:                            # a broken record: Build goes ahead and sets it aside
+        text, ok = f"{text} {record_problem}", False
+    if note is not None:
+        if ok:
+            text, ok = note[0] + _left_for_later(a.parts), note[1]
+        else:
+            text = f"{note[0]} Since then: {text}"
+    else:
+        unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
+        if unsaved:
+            one = len(unsaved) == 1
+            text += (f" {_and(_stem(p) for p in unsaved)} {'has' if one else 'have'} changes from Update SolidWorks "
+                     f"that are not saved: save {'it' if one else 'them'} in SolidWorks to keep them.")
+    return footer(text + due, ok, build_on, update_on)
 
-
-def gearbox_update_status(update, result, dragged: Sequence[str] = ()) -> Tuple[str, bool]:
-    """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
-    *Save in SolidWorks to keep it.* whenever ``result.changed`` is not empty; *SolidWorks already matches the
-    workbook: nothing was changed.* when nothing was."""
-    raise NotImplementedError("W4: Agent C, ui_text.gearbox_update_status")
-
-
-def build_again_question(update, again) -> str:
-    """The *Build again?* question (``UpdatePlan``, and the ``GearboxPlan`` it would run): why Update cannot carry
-    the change, what the new revision makes and reuses, and — decision 8 — that the reused parts are shared, so a
-    later Update changes the earlier revision's assembly too. Never promises the old assembly is untouched."""
-    raise NotImplementedError("W4: Agent C, ui_text.build_again_question")

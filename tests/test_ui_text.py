@@ -272,3 +272,552 @@ def test_update_values_says_how_many_changed():
     assert ui_text.update_status(UpdateResult(document="G.SLDPRT"))[0].startswith("Nothing to update")
     text, ok = ui_text.update_status(UpdateResult(document="G.SLDPRT", failures=[('"Module"', "refused")]))
     assert not ok and text == '"Module" could not be set in G.SLDPRT: refused'
+
+
+# -- W4: the footer as one decision, and the sentences of a gearbox build and update -----------------------------
+#
+# Plans, results and records are built from their dataclasses, never by plan_gearbox, classify, build_gearbox or
+# update_gearbox; the gate is a real assessment of the 12 : 1 fixture.
+
+import dataclasses  # noqa: E402
+
+from gear_generator import store, swbuild  # noqa: E402
+from gear_generator.gears.base import BuildPlan, GlobalVariable, NewAssembly, NewPart  # noqa: E402
+from gear_generator.workbook import assess, model, xlsx  # noqa: E402
+from gear_generator.workbook.build import PartJob  # noqa: E402
+from gear_generator.workbook.gearbox import GearboxPlan, LayoutReuse, PartReuse  # noqa: E402
+from gear_generator.workbook.model import Gear  # noqa: E402
+from gear_generator.workbook.update import PartUpdate, UpdatePlan  # noqa: E402
+from test_workbook_model import reducer, write  # noqa: E402
+
+P = "C:\\Parts\\Reducer_12to1"
+STEMS = ("Gear_m1.5_N17", "Gear_m1.5_N68", "Gear_m2_N17", "OutputGear")
+
+
+def _path(stem, ext=".SLDPRT"):
+    return f"{P}\\{stem}{ext}"
+
+
+@pytest.fixture
+def ready(tmp_path):
+    """The 12 : 1 workbook, read and assessed: every gate open."""
+    spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, reducer())))
+    a = assess.assess(spec, diagnostics, P)
+    assert a.lay_out_refusal() == ""
+    return a
+
+
+@pytest.fixture
+def with_bevel(tmp_path):
+    """The 12 : 1 workbook with a bevel gear: its parts build, its layout waits for W6."""
+    spec = reducer()
+    spec = model.replace(spec, gears=spec.gears + (Gear("G6", "S2", "60", "bevel", "external", "20", "3", "", "14",
+                                                        "10"),))
+    read, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec)))
+    a = assess.assess(read, diagnostics, P)
+    assert a.build_refusal() == "" and a.parts.refused
+    return a
+
+
+def _job(stem, gears, path=None):
+    return PartJob(stem, path or _path(stem), tuple(gears), GearSpec(), None, BuildPlan("spur", "A", (NewPart(""),)))
+
+
+def _reuse(stem, gears, revision=0):
+    return PartReuse(_path(stem), stem, tuple(gears), GearSpec(), None, (GlobalVariable("No. of Teeth", "17"),),
+                     revision)
+
+
+def _gearbox(name="Reducer_12to1", build=(), reuse=(), layout="build", assembly=True, **changes):
+    layout_path = _path(f"{name}_Layout")
+    plans = {"build": BuildPlan("layout", "", (NewPart(""),)),
+             "reuse": LayoutReuse(layout_path, (GlobalVariable("S2 X", "63.75"),), ("S2 Axis",)), None: None}
+    fields = dict(revision=0, name=name, folder=P, layout_path=layout_path if layout else "",
+                  assembly_path=_path(name, ".SLDASM") if assembly else "", build=tuple(build), reuse=tuple(reuse),
+                  shafts=(), frames={}, layout=plans[layout],
+                  assembly=BuildPlan("assembly", "", (NewAssembly(""),)) if assembly else None, handles={},
+                  part_of={})
+    fields.update(changes)
+    return GearboxPlan(**fields)
+
+
+FULL = dict(build=[_job(s, [g]) for s, g in zip(STEMS, ("G1", "G2", "G3", "G4"))])
+
+
+def _record(assembly=True, layout=True, unsaved=None):
+    parts = [store.PartEntry(path=_path(s), gears=[g], revision=0) for s, g in zip(STEMS, ("G1", "G2", "G3", "G4"))]
+    gearbox = store.GearboxRecord(
+        revision=0, name="Reducer_12to1", layout=_path("Reducer_12to1_Layout") if layout else "",
+        assembly=_path("Reducer_12to1", ".SLDASM") if assembly else "",
+        components=[store.ComponentEntry(gear=g, part=_path(s), name=f"{s}-1") for s, g in
+                    zip(STEMS, ("G1", "G2", "G3", "G4"))] if assembly else [])
+    return store.LinkRecord(workbook=f"{P}\\Reducer_12to1.xlsx", parts=parts, gearbox=gearbox if layout else None,
+                            unsaved=unsaved or {})
+
+
+def _update(**changes):
+    part = PartUpdate(_path("Gear_m1.5_N68"), ("G2",), GearSpec(module="1.5", teeth="69"), None,
+                      (GlobalVariable("No. of Teeth", "69"),), changed=True)
+    fields = dict(parts=(part,), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")),
+                  assembly=_path("Reducer_12to1", ".SLDASM"), moved_shafts=("S2", "S3"),
+                  replaced=("G2", "G3", "G4"))
+    fields.update(changes)
+    return UpdatePlan(**fields)
+
+
+def _saved(stem, ext=".SLDPRT", **values):
+    return swbuild.BuildResult(document=stem, saved=_path(stem, ext), **values)
+
+
+def _failed(document, what="cut 'Tooth Space'", why="FeatureCut4 would not cut."):
+    return swbuild.BuildResult(document=document, failures=[(what, why)])
+
+
+# progress
+
+
+@pytest.mark.parametrize("step,updating,text", [
+    (None, False, "Building in SolidWorks…"),
+    (None, True, "Updating SolidWorks…"),
+    (swbuild.Step("part", "Gear_m1.5_N68", 2, 4), False, "Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…"),
+    (swbuild.Step("check", "Gear_m1.5_N17", 1, 3), False,
+     "Building in SolidWorks: checking Gear_m1.5_N17 (1 of 3 already built)…"),
+    (swbuild.Step("layout", "Reducer_12to1_Layout"), False,
+     "Building in SolidWorks: the layout part, Reducer_12to1_Layout…"),
+    (swbuild.Step("assembly", "Reducer_12to1"), False, "Building in SolidWorks: the assembly, Reducer_12to1…"),
+    (swbuild.Step("interference"), False, "Building in SolidWorks: checking interference…"),
+    (swbuild.Step("check", "Gear_m1.5_N68", 1, 6), True, "Updating SolidWorks: checking Gear_m1.5_N68 (1 of 6)…"),
+    (swbuild.Step("values", "Gear_m1.5_N68"), True, "Updating SolidWorks: Gear_m1.5_N68…"),
+    (swbuild.Step("place", "Reducer_12to1"), True, "Updating SolidWorks: placing the gears in Reducer_12to1…"),
+    (swbuild.Step("interference"), True, "Updating SolidWorks: checking interference…"),
+])
+def test_progress_says_what_the_worker_is_doing(step, updating, text):
+    assert ui_text.progress_text(step, updating) == text
+
+
+# a finished build
+
+
+def test_a_built_gearbox_names_its_files_and_says_there_is_no_interference():
+    plan = _gearbox(**FULL)
+    result = swbuild.GearboxResult(
+        parts=swbuild.ManyResult(built=[_saved(s, manual=[f"Assign a material to {s}; the build leaves it unset."])
+                                        for s in STEMS]),
+        layout=_saved("Reducer_12to1_Layout"), assembly=_saved("Reducer_12to1", ".SLDASM"))
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears. 1 thing "
+        "to do by hand: Assign a material to each of the 4 parts; the build leaves it unset.", True)
+
+
+def test_a_build_again_says_what_it_reused():
+    plan = _gearbox("Reducer_12to1_r2", build=[_job("Gear_m1.5_N68_r2", ["G2"])],
+                    reuse=[_reuse("Gear_m1.5_N17", ["G1"]), _reuse("Gear_m2_N17", ["G3"]),
+                           _reuse("OutputGear", ["G4"])])
+    result = swbuild.GearboxResult(parts=swbuild.ManyResult(built=[_saved("Gear_m1.5_N68_r2")]),
+                                   layout=_saved("Reducer_12to1_r2_Layout"),
+                                   assembly=_saved("Reducer_12to1_r2", ".SLDASM"))
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no "
+        "interference between the gears.", True)
+
+
+def test_a_clash_is_a_check_that_stands_out():
+    plan = _gearbox(**FULL)
+    result = swbuild.GearboxResult(
+        parts=swbuild.ManyResult(built=[_saved(s) for s in STEMS]), layout=_saved("Reducer_12to1_Layout"),
+        assembly=_saved("Reducer_12to1", ".SLDASM"),
+        clashes=[swbuild.Clash(("Gear_m1.5_N17-1", "Gear_m1.5_N68-1"), ("G1", "G2"), 12.3454)])
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM. Check: G1 and G2 interfere, 12.345 mm³; look "
+        "at their mesh in Reducer_12to1.SLDASM.", False)
+    result.clashes.append(swbuild.Clash((), (), 0.5))
+    assert ui_text.gearbox_status(plan, result)[0].endswith(
+        "Check: G1 and G2 interfere, 12.345 mm³; an interference of 0.5 mm³ that SolidWorks could not name; look at "
+        "those meshes in Reducer_12to1.SLDASM.")
+    result.clashes, result.interference_error = [], "SolidWorks did not answer."
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM. Interference could not be checked: "
+        "SolidWorks did not answer. Look at each mesh in Reducer_12to1.SLDASM by eye.", False)
+
+
+def test_a_part_that_fails_stops_the_rest_and_build_carries_on():
+    plan = _gearbox(**FULL)
+    result = swbuild.GearboxResult(parts=swbuild.ManyResult(built=[_saved(STEMS[0]), _failed("Part3")],
+                                                            skipped=[_path(STEMS[2]), _path(STEMS[3])]))
+    assert ui_text.gearbox_status(plan, result) == (
+        "1 part built before it; Part3 was left open, unsaved. cut 'Tooth Space': FeatureCut4 would not cut. 2 parts "
+        "not attempted, nor the layout and assembly. Press Build to carry on: what was built is reused.", False)
+    result.parts.skipped = []
+    assert ui_text.gearbox_status(plan, result)[0].endswith(
+        "would not cut. The layout and assembly were not attempted. Press Build to carry on: what was built is "
+        "reused.")
+    parts_only = _gearbox(layout=None, assembly=False, **FULL)
+    result.parts.skipped = [_path(STEMS[2])]
+    assert ui_text.gearbox_status(parts_only, result)[0].endswith(
+        "would not cut. 1 part not attempted. Press Build parts to carry on: what was built is reused.")
+
+
+def test_a_layout_that_fails_leaves_the_parts_for_the_next_press():
+    plan = _gearbox(**FULL)
+    result = swbuild.GearboxResult(parts=swbuild.ManyResult(built=[_saved(s) for s in STEMS]),
+                                   layout=_failed("Part5", "insert plane 'S2 X Plane'", "SolidWorks returned None."))
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built 4 parts; Part5 was left open, unsaved. insert plane 'S2 X Plane': SolidWorks returned None. The "
+        "assembly was not attempted. Press Build to carry on: the parts are reused.", False)
+
+
+def test_an_assembly_that_fails_leaves_the_parts_and_layout_for_the_next_press():
+    plan = _gearbox(**FULL)
+    result = swbuild.GearboxResult(parts=swbuild.ManyResult(built=[_saved(s) for s in STEMS]),
+                                   layout=_saved("Reducer_12to1_Layout"),
+                                   assembly=_failed("Assem1", "place G2", "Transform2 was not taken."))
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built 4 parts and Reducer_12to1_Layout; the assembly Assem1 was left open, unsaved. place G2: Transform2 was "
+        "not taken. Press Build to try the assembly again: the parts and layout are reused.", False)
+
+
+def test_a_retry_after_the_assembly_failed_reuses_the_layout():
+    plan = _gearbox(layout="reuse", reuse=[_reuse(s, [g]) for s, g in zip(STEMS, ("G1", "G2", "G3", "G4"))])
+    result = swbuild.GearboxResult(layout_reused=_path("Reducer_12to1_Layout"),
+                                   assembly=_saved("Reducer_12to1", ".SLDASM"))
+    assert ui_text.gearbox_status(plan, result) == (
+        "Built Reducer_12to1.SLDASM, reusing Reducer_12to1_Layout and the 4 parts already built; no interference "
+        "between the gears.", True)
+    result.assembly = _failed("Assem1", "place G2", "Transform2 was not taken.")
+    assert ui_text.gearbox_status(plan, result)[0].startswith(
+        "Reused Reducer_12to1_Layout and the 4 parts already built; the assembly Assem1 was left open, unsaved.")
+
+
+def test_build_parts_counts_what_it_made():
+    plan = _gearbox(layout=None, assembly=False, build=[_job(STEMS[1], ["G2"])], reuse=[_reuse(STEMS[0], ["G1"])])
+    result = swbuild.GearboxResult(parts=swbuild.ManyResult(built=[_saved(STEMS[1])]))
+    assert ui_text.gearbox_status(plan, result) == ("Built 1 part, reusing the part already built.", True)
+
+
+# before Update SolidWorks, and after
+
+
+def test_the_update_summary_says_what_will_change():
+    assert ui_text.update_summary(_update()) == (
+        "Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and "
+        "re-place G2, G3 and G4.")
+    shared = PartUpdate(_path("Gear_m1.5_N17"), ("G1", "G5"), GearSpec(), None, (), changed=True)
+    assert ui_text.update_summary(_update(parts=(_update().parts[0], shared), moved_shafts=(), replaced=())) == (
+        "Update SolidWorks will change the values in Gear_m1.5_N68 (G2) and Gear_m1.5_N17 (G1, G5).")
+    assert ui_text.update_summary(_update(parts=(), moved_shafts=(), replaced=("G4",))) == (
+        "Update SolidWorks will re-place G4.")
+    assert ui_text.update_summary(_update(parts=(), moved_shafts=(), replaced=())) == (
+        "SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything "
+        "changed there.")
+
+
+def test_a_change_update_cannot_carry_offers_to_build_again():
+    assert ui_text.update_summary(_update(structural=("G2's bore was added, which its built part cannot take.",))) == (
+        "G2's bore was added, which its built part cannot take: Update SolidWorks offers to build again as a new "
+        "revision.")
+    two = _update(structural=("G2's bore was added, which its built part cannot take.", "S4 was added."))
+    assert ui_text.update_summary(two).startswith("G2's bore was added, which its built part cannot take (and 1 "
+                                                  "other change Update SolidWorks cannot carry): ")
+    assert ui_text.update_summary(_update(missing=(_path("Gear_m1.5_N68"),))) == (
+        f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved or renamed since it was built, so Update SolidWorks "
+        "offers to build again as a new revision.")
+    both = _update(missing=(_path("Gear_m1.5_N68"), _path("Reducer_12to1_Layout")), structural=("S4 was added.",))
+    assert ui_text.update_summary(both) == (
+        "Gear_m1.5_N68.SLDPRT and Reducer_12to1_Layout.SLDPRT are no longer where they were built: they were moved "
+        "or renamed since (and 1 other change Update SolidWorks cannot carry), so Update SolidWorks offers to build "
+        "again as a new revision.")
+
+
+def _updated(**values):
+    fields = dict(parts=[swbuild.UpdateResult(document="Gear_m1.5_N68.SLDPRT", changed=["No. of Teeth"],
+                                              rebuilt=True)],
+                  layout=swbuild.UpdateResult(document="Reducer_12to1_Layout.SLDPRT", changed=["S2 X", "S3 X"],
+                                              rebuilt=True),
+                  placed=["G2", "G3", "G4"], rebuilt=True,
+                  changed=[_path("Gear_m1.5_N68"), _path("Reducer_12to1_Layout"), _path("Reducer_12to1", ".SLDASM")])
+    fields.update(values)
+    return swbuild.GearboxUpdate(**fields)
+
+
+def test_an_update_says_what_it_changed_that_a_file_keeps_its_name_and_to_save():
+    assert ui_text.gearbox_update_status(_update(), _updated()) == (
+        "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), "
+        "moved S2 and S3 in Reducer_12to1_Layout, re-placed G2, G3 and G4; no interference between the gears. Save "
+        "in SolidWorks to keep it.", True)
+
+
+def test_a_part_with_a_name_of_its_own_never_goes_stale():
+    named = PartUpdate(_path("Pinion"), ("G2",), GearSpec(teeth="69", name="Pinion"), None, (), changed=True)
+    text, _ = ui_text.gearbox_update_status(_update(parts=(named,)), _updated(placed=[]))
+    assert text.startswith("Updated SolidWorks: changed 1 variable in Pinion, moved")
+    module = PartUpdate(_path("Gear_m1.5_N68"), ("G2",), GearSpec(module="2", teeth="68"), None, (), changed=True)
+    text, _ = ui_text.gearbox_update_status(_update(parts=(module,)), _updated(placed=[]))
+    assert "Gear_m1.5_N68 (it is now module 2; its file keeps its name)" in text
+
+
+def test_a_component_dragged_in_solidworks_is_put_back_and_said():
+    text, ok = ui_text.gearbox_update_status(_update(parts=(), layout=None), _updated(
+        parts=[], layout=None, placed=["G4"], changed=[_path("Reducer_12to1", ".SLDASM")]), dragged=["G4"])
+    assert (text, ok) == ("Updated SolidWorks: G4 had been moved in SolidWorks; put back where the workbook has it; "
+                          "no interference between the gears. Save in SolidWorks to keep it.", True)
+    text, _ = ui_text.gearbox_update_status(_update(), _updated(), dragged=["G3", "G4"])
+    assert "re-placed G2; no interference" in text and "G3 and G4 had been moved in SolidWorks; put back where the " \
+                                                       "workbook has them." in text
+
+
+def test_an_update_that_changed_nothing_says_so():
+    nothing = _updated(parts=[swbuild.UpdateResult(document="Gear_m1.5_N68.SLDPRT", unchanged=["No. of Teeth"],
+                                                   rebuilt=True)], layout=None, placed=[], changed=[])
+    assert ui_text.gearbox_update_status(_update(), nothing) == (ui_text.ALREADY_MATCHES, True)
+    nothing.clashes = [swbuild.Clash(("a-1", "b-1"), ("G1", "G2"), 1.0)]
+    assert ui_text.gearbox_update_status(_update(), nothing) == (
+        "SolidWorks already matches the workbook: nothing was changed. Check: G1 and G2 interfere, 1 mm³; look at "
+        "their mesh in Reducer_12to1.SLDASM.", False)
+
+
+def test_an_update_that_stops_says_what_it_had_changed_unsaved():
+    stopped = _updated(failures=[("Reducer_12to1_Layout", "S2 X could not be set: the value was refused")],
+                       changed=[_path("Gear_m1.5_N68")])
+    assert ui_text.gearbox_update_status(_update(), stopped) == (
+        "Update SolidWorks stopped. Reducer_12to1_Layout: S2 X could not be set: the value was refused. It had already "
+        "changed Gear_m1.5_N68, not saved: press Update SolidWorks again once that is put right, or save it in "
+        "SolidWorks to keep what it did.", False)
+    stopped.changed = []
+    assert ui_text.gearbox_update_status(_update(), stopped)[0].endswith("the value was refused. Nothing was changed.")
+
+
+def test_an_assembly_that_will_not_rebuild_after_an_update_stands_out():
+    text, ok = ui_text.gearbox_update_status(_update(), _updated(rebuilt=False))
+    assert not ok and "re-placed G2, G3 and G4. SolidWorks reported an error rebuilding Reducer_12to1.SLDASM, so " \
+                      "look at it before saving. Save in SolidWorks to keep it." in text
+
+
+# the build-again question (decision 8)
+
+
+def _again():
+    return _gearbox("Reducer_12to1_r2", build=[_job("Gear_m1.5_N68_r2", ["G2"])],
+                    reuse=[_reuse("Gear_m1.5_N17", ["G1"]), _reuse("Gear_m2_N17", ["G3"]),
+                           _reuse("OutputGear", ["G4"])])
+
+
+def test_the_build_again_question_never_promises_the_old_assembly_is_untouched():
+    update = _update(structural=("G2's bore was added, which its built part cannot take through its values.",))
+    assert ui_text.build_again_question(update, _again()) == (
+        "G2's bore was added, which its built part cannot take through its values. Build again as Reducer_12to1_r2? "
+        "That makes a new part for G2 (Gear_m1.5_N68_r2), reuses 3 parts that have not changed and makes a new "
+        "layout part and assembly (Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM). Nothing is overwritten, and "
+        "Reducer_12to1.SLDASM stays as it is on disk, but it shares the 3 reused parts: a later Update SolidWorks "
+        "that changes one of them changes Reducer_12to1.SLDASM too.")
+
+
+def test_the_build_again_question_for_a_missing_file_or_by_choice():
+    missing = ui_text.build_again_question(_update(missing=(_path("Gear_m1.5_N68"),)), _again())
+    assert missing.startswith(f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved or renamed since it was built, "
+                              "so Update SolidWorks cannot change it. Build again as Reducer_12to1_r2? ")
+    fresh = _gearbox("Reducer_12to1_r2", **FULL)
+    chosen = ui_text.build_again_question(_update(), fresh)
+    assert chosen.startswith("Update SolidWorks can bring SolidWorks up to date as it is, so a new revision is not "
+                             "needed. Build again as Reducer_12to1_r2? That makes new parts for G1 (Gear_m1.5_N17), ")
+    assert chosen.endswith("Nothing is overwritten, and Reducer_12to1.SLDASM and its files are left as they are.")
+    refused = ui_text.build_again_question(_update(), _gearbox("Reducer_12to1_r2", refusal="Save Gear_m1.5_N68 first."))
+    assert refused.endswith("Build again as Reducer_12to1_r2? It cannot go ahead: Save Gear_m1.5_N68 first.")
+
+
+# the footer: every state
+
+
+def _footer(a, **kw):
+    return ui_text.workbook_footer(a, folder=P, **kw)
+
+
+def test_ready_to_build_the_whole_gearbox(ready):
+    f = _footer(ready, plan=_gearbox(**FULL))
+    assert f == ui_text.Footer(f"Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in {P}.",
+                               True, ui_text.BUILD, "Build", True, True, False, False, False)
+
+
+def test_ready_with_the_parts_already_built(ready):
+    record = _record(layout=False)
+    plan = _gearbox(reuse=[_reuse(s, [g]) for s, g in zip(STEMS, ("G1", "G2", "G3", "G4"))])
+    f = _footer(ready, record=record, plan=plan, update=_update(parts=(), moved_shafts=(), replaced=(), layout=None,
+                                                                assembly=""))
+    assert f.text == (f"Ready: Build makes Reducer_12to1_Layout and Reducer_12to1.SLDASM in {P}, reusing the 4 parts "
+                      "already built.")
+    assert (f.build_action, f.build_enabled, f.build_primary) == (ui_text.BUILD, True, True)
+    assert (f.update_shown, f.update_enabled, f.update_primary) == (True, True, False)
+
+
+def test_ready_to_carry_on_after_the_assembly_failed(ready):
+    plan = _gearbox(layout="reuse", reuse=[_reuse(s, [g]) for s, g in zip(STEMS, ("G1", "G2", "G3", "G4"))])
+    f = _footer(ready, record=_record(assembly=False), plan=plan)
+    assert f.text == (f"Ready: Build makes Reducer_12to1.SLDASM in {P}, reusing Reducer_12to1_Layout and the 4 parts "
+                      "already built.")
+    assert f.build_action == ui_text.BUILD and f.build_enabled and not f.update_primary
+
+
+def test_ready_at_a_later_revision_says_why(ready):
+    plan = _gearbox("Reducer_12to1_r2", revision=2, revision_reason="Reducer_12to1.SLDASM is already there, with no "
+                                                                    "record of it", **FULL)
+    assert _footer(ready, plan=plan).text.endswith(
+        f"Reducer_12to1_r2.SLDASM in {P}. Reducer_12to1.SLDASM is already there, with no record of it.")
+
+
+def test_a_refused_plan_holds_build_back(ready):
+    f = _footer(ready, plan=_gearbox(refusal=f"{P}\\Reducer_12to1.SLDASM already exists.", **FULL))
+    assert (f.text, f.ok, f.build_enabled) == (f"{P}\\Reducer_12to1.SLDASM already exists.", False, False)
+
+
+def test_build_parts_while_a_later_phase_holds_the_layout_back(with_bevel):
+    f = _footer(with_bevel, plan=_gearbox(layout=None, assembly=False, **FULL))
+    assert f.text == (f"Ready: Build parts makes 4 parts in {P}; the layout and assembly wait for a later "
+                             "phase: Gears!A6: G6 is a bevel gear: right-angle stages are built in phase W6.")
+    assert (f.ok, f.build_action, f.build_label, f.build_enabled, f.build_primary) == (
+        True, ui_text.BUILD_PARTS, "Build parts", True, True)
+    plan = _gearbox(layout=None, assembly=False, build=[_job(STEMS[3], ["G4"])],
+                    reuse=[_reuse(s, [g]) for s, g in zip(STEMS[:3], ("G1", "G2", "G3"))])
+    f = _footer(with_bevel, plan=plan, record=_record(layout=False))
+    assert f.text.startswith(f"Ready: Build parts makes 1 part in {P}, reusing the 3 parts already built; the layout")
+    assert f.update_shown and not f.update_primary
+    nothing = _gearbox(layout=None, assembly=False, reuse=plan.reuse + (_reuse(STEMS[3], ["G4"]),))
+    f = _footer(with_bevel, plan=nothing, record=_record(layout=False))
+    assert f.text.startswith("The 4 parts are built already, so Build parts has nothing to make; the layout and ")
+    assert f.ok and not f.build_enabled
+
+
+def test_built_and_changed_since_offers_update(ready):
+    f = _footer(ready, record=_record(), plan=_again(), update=_update())
+    assert f == ui_text.Footer(
+        "Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and "
+        "re-place G2, G3 and G4.", True, ui_text.BUILD_AGAIN, "Build again…", True, False, True, True, True)
+
+
+def test_built_and_matching_keeps_update_enabled(ready):
+    f = _footer(ready, record=_record(), update=_update(parts=(), moved_shafts=(), replaced=()))
+    assert f.text.startswith("SolidWorks already matches the workbook on record") and f.update_enabled
+
+
+def test_a_structural_change_offers_to_build_again(ready):
+    update = _update(structural=("G2's bore was added, which its built part cannot take.",))
+    f = _footer(ready, record=_record(), plan=_again(), update=update)
+    assert (f.text, f.ok, f.update_enabled, f.build_enabled) == (
+        "G2's bore was added, which its built part cannot take: Update SolidWorks offers to build again as "
+        "Reducer_12to1_r2.", True, True, True)
+    blocked = _footer(ready, record=_record(), plan=dataclasses.replace(
+        _again(), refusal="Gear_m1.5_N17 has changes from Update SolidWorks that are not saved: save it first."),
+        update=update)
+    assert blocked.text.endswith("Reducer_12to1_r2. Gear_m1.5_N17 has changes from Update SolidWorks that are not "
+                                 "saved: save it first.")
+    assert (blocked.ok, blocked.update_enabled, blocked.build_enabled) == (False, False, False)
+
+
+def test_a_missing_file_offers_to_build_again_and_stands_out(ready):
+    f = _footer(ready, record=_record(), plan=_again(), update=_update(missing=(_path("Gear_m1.5_N68"),)))
+    assert f.text.endswith("offers to build again as Reducer_12to1_r2.") and not f.ok and f.update_enabled
+
+
+def test_an_update_left_unsaved_is_said_until_it_is_saved(ready):
+    update = _update(unsaved=(_path("Gear_m1.5_N68"), _path("Reducer_12to1_Layout")))
+    f = _footer(ready, record=_record(), update=update)
+    assert f.text.endswith("re-place G2, G3 and G4. Gear_m1.5_N68 and Reducer_12to1_Layout have changes from Update "
+                           "SolidWorks that are not saved: save them in SolidWorks to keep them.")
+    f = _footer(ready, record=_record(unsaved={_path("Gear_m1.5_N68"): 1.0}), update=None)
+    assert "Gear_m1.5_N68 has changes from Update SolidWorks that are not saved: save it" in f.text
+
+
+def test_a_job_running_holds_both_buttons(ready):
+    step = swbuild.Step("part", "Gear_m1.5_N68", 2, 4)
+    f = _footer(ready, record=_record(), update=_update(), building=True, progress=step)
+    assert (f.text, f.ok, f.build_enabled, f.update_enabled, f.update_shown) == (
+        "Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…", True, False, False, True)
+    f = _footer(ready, record=_record(), update=_update(), updating=True)
+    assert f.text == "Updating SolidWorks…" and not f.update_enabled
+
+
+def test_the_window_own_troubles_come_first(ready):
+    gone = f"The workbook is no longer at {P}\\Reducer_12to1.xlsx."
+    f = _footer(ready, record=_record(), update=_update(), error=gone)
+    assert (f.text, f.ok, f.build_enabled, f.update_enabled) == (gone, False, False, False)
+    f = _footer(dataclasses.replace(ready, chosen=("a fix",)), record=_record(), update=_update())
+    assert f.text == ("1 fix chosen: Export writes it into the workbook, and Build and Update SolidWorks wait for "
+                      "that, so the workbook and SolidWorks agree.") and not f.update_enabled
+    f = _footer(dataclasses.replace(ready, provisional=True), record=_record(), update=_update())
+    assert f.text == ui_text.RECALC_WAIT_UPDATE and f.ok and not (f.build_enabled or f.update_enabled)
+    f = _footer(dataclasses.replace(ready, provisional=True), plan=_gearbox(**FULL))
+    assert f.text == ui_text.RECALC_WAIT
+
+
+def test_a_workbook_error_holds_build_and_update(ready, tmp_path):
+    spec = model.replace(reducer(), gears=(reducer().gears[0], model.replace(reducer().gears[1], teeth="68.5"))
+                         + reducer().gears[2:])
+    read, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec, "Bad.xlsx")))
+    bad = assess.assess(read, diagnostics, P)
+    f = _footer(bad, record=_record(), update=_update())
+    assert f.text.startswith("Fix the workbook before building: Gears!F3") and not f.ok
+    assert (f.build_action, f.build_enabled, f.update_shown, f.update_enabled) == (ui_text.BUILD_AGAIN, False, True,
+                                                                                   False)
+
+
+def test_a_missing_output_folder_holds_build_but_not_update(ready):
+    f = _footer(ready, plan=_gearbox(**FULL), folder_exists=False)
+    assert (f.text, f.ok, f.build_enabled) == (
+        f"The output folder {P} does not exist; make it, or change it on the Box sheet.", False, False)
+    f = _footer(ready, record=_record(), plan=_again(), update=_update(), folder_exists=False)
+    assert f.text.startswith("Update SolidWorks will change") and f.update_enabled and not f.build_enabled
+    unset = dataclasses.replace(ready, folder="")
+    f = ui_text.workbook_footer(unset, record=_record(), plan=_again(), update=_update())
+    assert f.update_enabled and not f.build_enabled
+
+
+def test_a_newer_record_holds_build_and_update(ready, tmp_path):
+    (tmp_path / "R.workbook.json").write_text('{"link_schema_version": 3}')
+    with pytest.raises(store.UnknownSchema) as caught:
+        store.read_link_record(str(tmp_path / "R.xlsx"))
+    f = _footer(ready, record_problem=str(caught.value), plan=_gearbox(**FULL))
+    assert (f.text, f.ok, f.build_enabled, f.update_shown) == (str(caught.value), False, False, False)
+
+
+def test_a_broken_record_lets_build_go_ahead_and_says_so(ready, tmp_path):
+    (tmp_path / "R.workbook.json").write_text("{half")
+    with pytest.raises(store.StoreError) as caught:
+        store.read_link_record(str(tmp_path / "R.xlsx"))
+    f = _footer(ready, record_problem=str(caught.value), plan=_gearbox(**FULL))
+    assert f.text.startswith("Ready: Build makes 4 parts") and f.text.endswith(
+        "R.workbook.json, cannot be read: it is not JSON (Expecting property name enclosed in double quotes: line 1 "
+        "column 2 (char 1)). The next Build sets it aside and starts a new one.")
+    assert (f.ok, f.build_enabled) == (False, True)
+
+
+def test_a_finished_jobs_sentence_stays_until_something_goes_wrong(ready, tmp_path):
+    built = ("Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM. Check: G1 and G2 interfere, 1 mm³; look "
+             "at their mesh in Reducer_12to1.SLDASM.", False)
+    f = _footer(ready, record=_record(), plan=_again(), update=_update(parts=(), moved_shafts=(), replaced=()),
+                note=built)
+    assert (f.text, f.ok, f.build_enabled, f.update_enabled) == (built[0], False, True, True)
+    f = _footer(ready, record=_record(), update=_update(), note=("Updated SolidWorks: … Save in SolidWorks to keep "
+                                                                 "it.", True), results_due=True)
+    assert f.text == "Updated SolidWorks: … Save in SolidWorks to keep it." + ui_text.RESULTS_DUE and f.ok
+    f = _footer(ready, record=_record(), plan=_again(), update=_update(), note=built, folder_exists=False,
+                error="")
+    assert f.text.startswith(built[0])
+    spec = model.replace(reducer(), gears=(reducer().gears[0], model.replace(reducer().gears[1], teeth="68.5"))
+                         + reducer().gears[2:])
+    read, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec, "Bad.xlsx")))
+    f = _footer(assess.assess(read, diagnostics, P), record=_record(), update=_update(), note=built)
+    assert f.text.startswith(built[0] + " Since then: Fix the workbook before building:") and not f.update_enabled
+
+
+def test_the_gear_table_says_what_is_built_and_what_update_changes(ready):
+    rows = {r[0]: r for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, ready.diagnostics,
+                                                         record=_record(), update=_update())}
+    assert rows["G1"][6:] == ("Gear_m1.5_N17", ui_text.GEAR_STATE_BUILT, "built")
+    assert rows["G2"][6:] == ("Gear_m1.5_N68", ui_text.GEAR_STATE_CHANGES, "built · changes on Update")
+    structural = _update(structural=("G4's bore was added, which its built part cannot take.",),
+                         missing=(_path("Gear_m2_N17"),))
+    rows = {r[0]: r for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, ready.diagnostics,
+                                                         record=_record(), update=structural)}
+    assert rows["G4"][7:] == (ui_text.GEAR_STATE_NEW_PART, "needs a new part")
+    assert rows["G3"][7:] == (ui_text.GEAR_STATE_NEW_PART, "needs a new part")
+    assert rows["G1"][7] == ui_text.GEAR_STATE_BUILT
+    plain = {r[0]: r for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, ready.diagnostics)}
+    assert plain["G1"][7:] == (ui_text.GEAR_STATE_BUILDS, "to build")
