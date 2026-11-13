@@ -32,8 +32,9 @@ Suite: `.venv/bin/python -m pytest -q` → 881 passed, 1 skipped (Mac).
 
 ## Small loose ends (Mac-side, optional)
 
-- `design/UI-DESIGN.md` §9 still describes the W2 single-column window plus a "W3 adds" list. Rewrite it for the two-column window and mention the `WorkbookFix` and `WorkbookChosen` boards (renders in `design/renders/`).
-- In the end view, a shaft label can sit on top of the origin arrows (the S1 label in the renders). This is cosmetic, and the app draws it the same way.
+- ~~`design/UI-DESIGN.md` §9 still describes the W2 single-column window plus a "W3 adds" list. Rewrite it for the two-column window and mention the `WorkbookFix` and `WorkbookChosen` boards (renders in `design/renders/`).~~ Done in `dd39d41`.
+- ~~In the end view, a shaft label can sit on top of the origin arrows (the S1 label in the renders). This is cosmetic, and the app draws it the same way.~~ Done in `6716126`: `preview.layout_gearbox` places each name clear of the arrows, for the window and the boards.
+- ~~README.md and `docs/PLAN-GEARBOX.md` §1 do not mention the workbook (PLAN-WORKBOOK, Critical files).~~ Done in `af59668` and `d2b82a9`.
 
 ## Next: W4 (on Windows)
 
