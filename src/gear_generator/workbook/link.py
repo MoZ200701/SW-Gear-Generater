@@ -131,9 +131,28 @@ def _value(text: str) -> str:
     return text if text != "" else "blank"
 
 
+def renamed(old, new) -> Dict[str, str]:
+    """Rows whose name changed and nothing else about where they are: old name -> new name.
+
+    A row is taken as renamed when the name it had is gone from the sheet and
+    the name now on its row is new to it — G4 typed over as G4b, or cleared.
+    Inserting a row above it is not a rename: the name it pushed down is still
+    there."""
+    old_ids = {item.id for item in old}
+    new_ids = {item.id for item in new}
+    old_at = {item.row: item.id for item in old}
+    out: Dict[str, str] = {}
+    for item in new:
+        was = old_at.get(item.row)
+        if was is not None and was != item.id and was not in new_ids and item.id not in old_ids:
+            out[was] = item.id
+    return out
+
+
 def _rows_changed(sheet: str, sheet_def: schema.SheetDef, old, new, spec: GearboxSpec, noun: str) -> List[str]:
     out: List[str] = []
-    old_by = {item.id: item for item in old}
+    names = renamed(old, new)
+    old_by = {names.get(item.id, item.id): item for item in old}
     new_by = {item.id: item for item in new}
     for item in new:
         before = old_by.get(item.id)
@@ -141,14 +160,12 @@ def _rows_changed(sheet: str, sheet_def: schema.SheetDef, old, new, spec: Gearbo
             out.append(f"{noun} {item.id} added ({sheet} row {item.row})")
             continue
         for column in sheet_def.columns:
-            if column.key == "id":
-                continue
             a, b = getattr(before, column.key), getattr(item, column.key)
             if a != b:
-                out.append(f"{spec.cell(sheet, item.row, column.key)} {item.id} {column.header} "
+                out.append(f"{spec.cell(sheet, item.row, column.key)} {item.id or before.id} {column.header} "
                            f"{_value(a)} → {_value(b)}")
     for item in old:
-        if item.id not in new_by:
+        if names.get(item.id, item.id) not in new_by:
             out.append(f"{noun} {item.id} removed")
     return out
 
@@ -225,7 +242,7 @@ _CELL = re.compile(r"\b[A-Z][A-Za-z]*!\$?[A-Z]{1,3}\$?\d+\b|\b[A-Z][A-Za-z]* row
 _FIELD = re.compile(r"^([A-Za-z]+)(?:!\$?([A-Z]{1,3})\$?(\d+)| row (\d+))$")
 
 
-def _where(spec: GearboxSpec, place: str) -> Tuple[str, ...]:
+def _where(spec: GearboxSpec, place: str, names: Optional[Dict[str, str]] = None) -> Tuple[str, ...]:
     """A diagnostic's cell as what it is about, so moving rows does not move it: ``Gears!F3`` on G2's row is
     ``("Gears", "G2", "teeth")``. A sheet-level field (``Meshes``), or a row that names nothing, stays as it is."""
     match = _FIELD.match(place or "")
@@ -237,6 +254,8 @@ def _where(spec: GearboxSpec, place: str) -> Tuple[str, ...]:
     item = next((name for r, name in items.get(sheet, []) if r == row), None)
     if item is None:
         return (place,)
+    if names:
+        item = names.get(item, item) if sheet != "Meshes" else "–".join(names.get(g, g) for g in item.split("–"))
     if letters is None:
         return sheet, item, ""
     column = xlsx.column_index(letters)
@@ -244,10 +263,15 @@ def _where(spec: GearboxSpec, place: str) -> Tuple[str, ...]:
     return sheet, item, key
 
 
-def _problem(spec: GearboxSpec, d: Diagnostic) -> Tuple:
+def _problem(spec: GearboxSpec, d: Diagnostic, names: Optional[Dict[str, str]] = None) -> Tuple:
     """A problem as the same problem however its row or its numbers moved: G2's teeth from 68.5 to 68.7 is
-    still the one error on G2's Teeth, and so is it after a row was inserted above G2's."""
-    return d.level, _where(spec, d.field), _NUMBER.sub("#", _CELL.sub("@", d.message))
+    still the one error on G2's Teeth, and so is it after a row was inserted above G2's. ``names`` maps an
+    old read's renamed rows to their new names, so G4's bore error is G4b's once G4 is renamed G4b."""
+    message = d.message
+    for was, now in (names or {}).items():
+        if was:
+            message = re.sub(rf"(?<![\w-]){re.escape(was)}(?![\w-])", now, message)
+    return d.level, _where(spec, d.field, names), _NUMBER.sub("#", _CELL.sub("@", message))
 
 
 def _off_by(report: Optional[Report]) -> Dict[frozenset, Tuple[str, str, float]]:
@@ -279,7 +303,8 @@ def consequence(before, after) -> Consequence:
         if moved:
             out.meshes.append((a, b, abs(off) if now_off else None))
     said = list(before.report.off_centre) + list(after.report.off_centre)
-    old = [(d, _problem(before.read, d)) for d in before.diagnostics if d not in said]
+    names = {**renamed(before.read.shafts, after.read.shafts), **renamed(before.read.gears, after.read.gears)}
+    old = [(d, _problem(before.read, d, names)) for d in before.diagnostics if d not in said]
     new = [(d, _problem(after.read, d)) for d in after.diagnostics if d not in said]
     old_keys = {key for _, key in old}
     new_keys = {key for _, key in new}

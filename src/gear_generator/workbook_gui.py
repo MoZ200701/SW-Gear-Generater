@@ -308,14 +308,17 @@ class WorkbookWindow(tk.Toplevel):
     def _plan(self) -> None:
         """The parts and the gearbox checks, from the last good read with the chosen fixes made, and the output
         folder as it is now (it can change on the strip)."""
-        self.state = state = self._assess(self.reading.spec, self.reading.diagnostics, self.chosen)
+        self.state = state = self._assess(self.reading.spec, self.reading.diagnostics, self.chosen,
+                                          provisional=self.recalc)
         self.effective, self.parts, self.report, self.diagnostics = (state.spec, state.parts, state.report,
                                                                      state.diagnostics)
 
     def _assess(self, spec: wb_model.GearboxSpec, read_diagnostics: List[Diagnostic],
-                chosen=()) -> wb_assess.Assessment:
-        """A read worked through by :func:`workbook.assess.assess`, the one pipeline the boards and W4 share."""
-        return wb_assess.assess(spec, read_diagnostics, self._folder(spec), self._template(spec), chosen)
+                chosen=(), provisional: bool = False) -> wb_assess.Assessment:
+        """A read worked through by :func:`workbook.assess.assess`, the one pipeline the boards and W4 share.
+        ``provisional`` while Excel has yet to recalculate the app's own Export (``recalc``): no fixes then."""
+        return wb_assess.assess(spec, read_diagnostics, self._folder(spec), self._template(spec), chosen,
+                                provisional=provisional)
 
     def _folder(self, spec: wb_model.GearboxSpec) -> str:
         return spec.box.output_folder or self.app.out_folder.get().strip()
@@ -334,7 +337,8 @@ class WorkbookWindow(tk.Toplevel):
         text, ok, enabled = self._state()
         self._set_status(text, ok)
         self.build_button.configure(state="normal" if enabled else "disabled")
-        can_export = self.reading is not None and not self.error and self._pending is None
+        # Not from a provisional read either: anything written from Excel's old formula values would be wrong.
+        can_export = self.reading is not None and not self.error and self._pending is None and not self.recalc
         self.export_button.configure(state="normal" if can_export else "disabled")
         self.export_as_button.configure(state="normal" if can_export else "disabled")
 
@@ -389,9 +393,12 @@ class WorkbookWindow(tk.Toplevel):
             tk.Label(self.table, text="No gears yet: add rows to the Gears sheet and save.", bg=theme.WHITE,
                      fg=theme.MUTED, font=f.hint, anchor="w").grid(row=1, column=0, columnspan=8, sticky="w")
 
-        self.checks_readout.set(ui_text.workbook_checks_readout(self.diagnostics))
+        self.checks_readout.set(ui_text.workbook_checks_readout(self.diagnostics, provisional=self.recalc))
         self._clear(self.checks_body)
         r = 0
+        if self.recalc:
+            self._line(self.checks_body, r, ui_text.CHECKS_PROVISIONAL, theme.INK)
+            r += 1
         for fix in self.chosen:
             line = tk.Frame(self.checks_body, bg=theme.WHITE)
             line.grid(row=r, column=0, sticky="w", pady=(0, px(4)))
@@ -414,7 +421,7 @@ class WorkbookWindow(tk.Toplevel):
                          wraplength=px(LEFT_WIDTH - 70), justify="left", anchor="w").grid(
                     row=1, column=0, sticky="w", pady=(px(2), 0))
                 r += 1
-        if not ordered and not self.chosen:
+        if not ordered and not self.chosen and not self.recalc:
             self._line(self.checks_body, 0, "No problems: every row reads, and every gear works out.", theme.MUTED)
         self._draw_end_view()
         self._paint_speeds()
@@ -457,7 +464,7 @@ class WorkbookWindow(tk.Toplevel):
             c.create_line(ox, oy, ox + px(preview.ORIGIN_ARROW), oy, fill=theme.ERROR, arrow="last")
             c.create_line(ox, oy, ox, oy - px(preview.ORIGIN_ARROW), fill=theme.OK, arrow="last")
             c.create_oval(ox - px(2.5), oy - px(2.5), ox + px(2.5), oy + px(2.5), fill=theme.INK, outline="")
-        self.view_readout.set(ui_text.end_view_readout(view))
+        self.view_readout.set(ui_text.end_view_readout(view) + ui_text.provisional_tag(self.recalc))
 
     def _paint_speeds(self) -> None:
         self._clear(self.speeds_body)
@@ -472,7 +479,7 @@ class WorkbookWindow(tk.Toplevel):
             else:
                 tk.Label(self.speeds_body, text=text, bg=theme.WHITE, fg=colour, font=self.fonts.mono_tiny,
                          anchor="w").grid(row=r, column=0, sticky="w")
-        self.speeds_readout.set(readout)
+        self.speeds_readout.set(readout + (ui_text.provisional_tag(self.recalc) if readout else ""))
 
     def _recheck_chosen(self, reading: wb_link.Reading) -> None:
         """After an outside save, keep a chosen fix only if the new read still offers exactly that fix.
@@ -489,6 +496,8 @@ class WorkbookWindow(tk.Toplevel):
 
     def choose(self, fix: wb_fixes.Fix) -> None:
         """Take a fix: the window checks the gearbox with it at once; Export writes it."""
+        if self.recalc:
+            return                            # none is offered from a provisional read; never take one from it
         if fix not in self.chosen:
             self.chosen.append(fix)
         self.note = None
@@ -503,10 +512,11 @@ class WorkbookWindow(tk.Toplevel):
 
     def export(self, out_path: str = "") -> None:
         """Write the chosen fixes and the Results sheet: into the workbook, or a copy at ``out_path``."""
-        if self.reading is None or self.error or self._pending is not None:
+        if self.reading is None or self.error or self._pending is not None or self.recalc:
             # Export as… can be pressed before a read fails (its file dialog keeps the poll running): say so.
             why = ("a build is running in SolidWorks; export when it has finished." if self._pending is not None
-                   else self.error or "the workbook has not been read yet.")
+                   else self.error or ("the workbook has not been read yet." if self.reading is None
+                                       else ui_text.EXPORT_WAITS))
             self._set_status(f"Nothing was exported: {why}", ok=False)
             return
         try:
@@ -522,11 +532,14 @@ class WorkbookWindow(tk.Toplevel):
         if not out_path:
             # The app's own write, whether or not Results went in after the cells: never an outside save.
             self.link.own_digest = done.digest
-            self.chosen = []
+            if done.written or not done.refused:
+                self.chosen = []
+            # else nothing reached the file (every cell the fix names holds a formula): the fix stays chosen,
+            # with Undo, so nothing on screen moves but the sentence saying why
             self.recalc = done.has_formulas and bool(done.written)
             if done.results:
                 self._results_waiting = self.results_due = False
-            elif done.formulas:
+            elif done.formulas and done.written:
                 self._results_waiting, self.results_due = True, False
             record = store.load_link_record(self.link.path) or store.LinkRecord(workbook=self.link.path)
             record.own_digest, record.recalc = done.digest, self.recalc

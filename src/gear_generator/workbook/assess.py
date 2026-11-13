@@ -6,15 +6,23 @@ builds share: the read's own diagnostics, each gear through the strip's checks
 what is left, with any chosen fixes made first. Its answers are the gates:
 
 - :func:`build_refusal` — may **Build parts** go ahead? Not while anything is
-  an error; rows a later phase builds do not hold it back, their parts are left
-  out.
+  an error, nor without an output folder; rows a later phase builds do not
+  hold it back, their parts are left out.
 - :meth:`Assessment.lay_out_refusal` — may the layout part and the assembly
-  (phase W4) be built? Everything Build parts asks, and also: no fix waiting for
-  Export, a gearbox that was checked at all, no row a later phase builds, and
-  every gear placed and planned, so an assembly is never made without one.
+  (phase W4) be built? Everything Build parts asks, and also: a read that is
+  not provisional, no fix waiting for Export, a gearbox that was checked at
+  all, no row a later phase builds, and every gear placed and planned, so an
+  assembly is never made without one.
 
-Each answers with the sentence that refuses, or ``""``. Nothing here touches Tk
-or COM.
+**Provisional.** After Export has written cells into a workbook with formulas,
+the file holds Excel's old values for every formula until Excel recalculates
+and saves it. A read of it then is provisional: its checks may report errors
+that are not real, so it offers no fixes (a fix worked from an old value lands
+wrong once Excel recalculates), and nothing may be built or exported from it.
+Only the window knows this state (it wrote the file); it passes it in.
+
+Each gate answers with the sentence that refuses, or ``""``. Nothing here
+touches Tk, COM or the file system.
 """
 
 from __future__ import annotations
@@ -28,6 +36,10 @@ from .build import PartsPlan
 from .checks import Report
 from .fixes import Fix
 from .model import GearboxSpec
+
+PROVISIONAL = ("The workbook's formulas still hold Excel's old values, since Export wrote cells they may depend "
+               "on: open and save it in Excel so they recalculate.")
+NO_FOLDER = "Choose an output folder (the Box sheet's, or the strip's Output) before building."
 
 
 def _plural(count: int, one: str, many: str = "") -> str:
@@ -47,24 +59,36 @@ class Assessment:
     parts: PartsPlan = field(default_factory=PartsPlan)
     report: Report = field(default_factory=Report)
     diagnostics: List[Diagnostic] = field(default_factory=list)    # all of it, as Checks lists it
+    folder: str = ""                        # where the parts go: the Box sheet's, or the strip's
+    provisional: bool = False               # formulas hold Excel's old values (see the module's docstring)
 
     @property
     def errors(self) -> List[Diagnostic]:
         return [d for d in self.diagnostics if d.is_error]
 
     def build_refusal(self) -> str:
-        """Why Build parts may not go ahead, or ``""``. A fix waiting for Export is the window's to say."""
-        return build_refusal(self.parts, self.diagnostics)
+        """Why Build parts may not go ahead, or ``""``. A fix waiting for Export, and a provisional read, are
+        the window's footer to say first (``ui_text.workbook_state``)."""
+        return build_refusal(self.parts, self.diagnostics, self.folder)
 
     def lay_out_refusal(self) -> str:
         """Why the layout part and the static assembly (W4) may not be built from this workbook, or ``""``.
 
-        The one gate for W4: it reads everything — the read, every gear's own
-        checks, the gearbox checks, the rows a later phase builds and the fixes
-        chosen but not exported. It does not know the window's own state (a
-        file gone or half-saved, an Export that Excel has yet to recalculate, a
-        build running): the window asks those first, as it does for Build parts.
+        The one gate for W4. It reads everything the workbook says — whether the
+        read is provisional, the fixes chosen but not exported, the read, every
+        gear's own checks, the gearbox checks, the rows a later phase builds —
+        and the output folder being set.
+
+        **The caller must still check** what only it knows, before this: that
+        the file is there and read whole (not gone, half-saved or unreadable),
+        that no build is running, that the output folder exists on disk, and
+        that it passed ``provisional=True`` to :func:`assess` while Excel has
+        yet to recalculate an Export (the window's ``recalc``). The window asks
+        those in ``ui_text.workbook_state`` for Build parts; W4's button asks
+        the same.
         """
+        if self.provisional:
+            return PROVISIONAL
         if self.chosen:
             n = len(self.chosen)
             return (f"{_plural(n, 'fix', 'fixes')} chosen: Export writes {'it' if n == 1 else 'them'} into the "
@@ -88,24 +112,30 @@ class Assessment:
         return ""
 
 
-def build_refusal(parts: PartsPlan, diagnostics: Sequence[Diagnostic]) -> str:
-    """Why Build parts may not go ahead, from the parts and every diagnostic, or ``""``."""
+def build_refusal(parts: PartsPlan, diagnostics: Sequence[Diagnostic], folder: str) -> str:
+    """Why Build parts may not go ahead — any error, nothing to build, no output folder — or ``""``.
+
+    Whether the folder exists on disk is the caller's to check: nothing here
+    touches the file system."""
     errors = [d for d in diagnostics if d.is_error]
     if errors:
         return f"Fix the workbook before building: {errors[0].message}{_more(errors)}"
     if not parts.jobs:
         return "Nothing in this workbook can be built yet: " + (parts.later[0][1] if parts.later
                                                                 else "it has no gears.")
+    if not folder:
+        return NO_FOLDER
     return ""
 
 
 def assess(read: GearboxSpec, read_diagnostics: Sequence[Diagnostic], folder: str, part_template: str = "",
-           chosen: Sequence[Fix] = ()) -> Assessment:
+           chosen: Sequence[Fix] = (), provisional: bool = False) -> Assessment:
     """The read worked through: the chosen fixes made, every gear planned, the gearbox checked.
 
     A gear with an error of its own — from the read or the strip's checks — is
     left out of the parts and the gearbox checks (the error says where), and
-    then out of the layout too (:attr:`geometry.Layout.left_out`).
+    then out of the layout too (:attr:`geometry.Layout.left_out`). A
+    ``provisional`` read offers no fixes (``report.fixes`` is empty).
     """
     spec = read
     for fix in chosen:
@@ -115,5 +145,8 @@ def assess(read: GearboxSpec, read_diagnostics: Sequence[Diagnostic], folder: st
     parts = build.plan_parts(spec, folder, part_template, skip_rows=skip_rows)
     bad_rows = skip_rows | build.rows_with_errors(parts.diagnostics)
     report = checks.check(spec, {g.id for g in spec.gears if g.row in bad_rows})
+    if provisional:
+        report.fixes = {}
     return Assessment(read=read, read_diagnostics=read_diagnostics, spec=spec, chosen=tuple(chosen), parts=parts,
-                      report=report, diagnostics=read_diagnostics + parts.diagnostics + report.diagnostics)
+                      report=report, diagnostics=read_diagnostics + parts.diagnostics + report.diagnostics,
+                      folder=folder, provisional=provisional)

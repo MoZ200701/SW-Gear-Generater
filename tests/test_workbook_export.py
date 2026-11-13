@@ -309,19 +309,111 @@ def test_results_failing_after_the_cells_still_says_what_was_written(tmp_path, m
                                "open in Excel, so it cannot be saved from here. Export again to write it.")
 
 
+def excel_saved(source, path, cells):
+    """``source`` as Excel would save it with Shafts ``cells`` ({ref: value}) given new values: a formula keeps its
+    formula and gets the value Excel would work out for it (passed in), a plain cell just the value. The cached
+    values Excel writes cannot be made by write_cells, which never touches a formula cell."""
+    import re
+    import zipfile
+    with zipfile.ZipFile(source) as zin, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename == "xl/worksheets/sheet2.xml":            # Shafts, in both Excel fixtures
+                text = data.decode()
+                for ref, value in cells.items():
+                    text, n = re.subn(rf'(<c r="{ref}"[^>]*>(?:<f>[^<]*</f>)?)<v>[^<]*</v>', rf"\g<1><v>{value}</v>",
+                                      text)
+                    assert n == 1, ref
+                data = text.encode()
+            zout.writestr(info, data)
+    return path
+
+
+def with_formula(source, path, ref, formula, value):
+    """``source`` with Shafts ``ref`` made a formula, as typed in Excel and saved there."""
+    import re
+    import zipfile
+    with zipfile.ZipFile(source) as zin, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename == "xl/worksheets/sheet2.xml":
+                text, n = re.subn(rf'<c r="{ref}"([^>]*)><v>[^<]*</v></c>',
+                                  rf'<c r="{ref}"\1><f>{formula}</f><v>{value}</v></c>', data.decode())
+                assert n == 1, ref
+                data = text.encode()
+            zout.writestr(info, data)
+    return path
+
+
 @pytest.mark.parametrize("folder", ["excel", "excel-windows"])
 def test_a_formula_target_is_named_with_the_value_the_fix_wants(tmp_path, folder):
-    """Review item 7a: the formula may land on the fix's value by itself once Excel recalculates; the sentence
-    says what to look for, never to type over it, and that Results wait for that save."""
+    """Review item 7a, on the state Excel really saves: S2 typed at 64, so S3's =C3+68 is 132. The move wants
+    S3 at 131.75, which is exactly where the formula lands once S2 is 63.75 — the sentence gives that value and
+    says what to look for, never to type over the formula, and that Results wait for that save."""
     from gear_generator import ui_text
-    path = tmp_path / "excel.xlsx"
-    shutil.copy(FIXTURES / folder / "Reducer_12to1.xlsx", path)
-    xlsx.write_cells(str(path), {"Shafts": {"C3": 64}})
+    path = excel_saved(FIXTURES / folder / "Reducer_12to1.xlsx", tmp_path / "excel.xlsx", {"C3": 64, "C4": 132})
     spec, _ = read(path)
     report = checks.check(spec)
+    assert [d.field for d in report.diagnostics if d.is_error] == ["Meshes!A2"]    # only stage 1 is off
     done = export.export(str(path), spec, [report.fixes["Meshes!A2"][0]], report)
-    assert done.formulas == [("Shafts!C4", "S3", "X", "131.5")] and not done.results
+    assert done.written == ["Shafts!C3"] and done.formulas == [("Shafts!C4", "S3", "X", "131.75")]
     assert ui_text.export_note(done) == (
-        "Exported 1 cell. Shafts!C4 (S3 X) holds a formula, so it was not written (the fix would make it 131.5): "
+        "Exported 1 cell. Shafts!C4 (S3 X) holds a formula, so it was not written (the fix would make it 131.75): "
         "once Excel has recalculated, Checks will say whether S3 sits where its meshes need it. The Results sheet "
         "was left out until then: Export again after Excel's save to write it.", True)
+
+
+def test_nothing_written_when_every_cell_the_fix_names_is_a_formula(tmp_path):
+    """Re-review N2 (repro v5): S2 is =C2+64 and S3 =C3+68, so the move names two formulas and writes nothing.
+    Nothing they read changed, so recalculating cannot help: said plainly, and not as a success."""
+    from gear_generator import ui_text
+    source = excel_saved(FIXTURES / "excel-windows" / "Reducer_12to1.xlsx", tmp_path / "s.xlsx", {"C4": 132})
+    path = with_formula(source, tmp_path / "f.xlsx", "C3", "C2+64", 64)
+    spec, _ = read(path)
+    report = checks.check(spec)
+    move = report.fixes["Meshes!A2"][0]
+    done = export.export(str(path), spec, [move], report)
+    assert done.written == [] and not done.results and len(done.formulas) == 2
+    assert ui_text.export_note(done) == (
+        "Nothing was written: every cell the fix would change holds a formula — Shafts!C3 (S2 X, the fix would "
+        "make it 63.75); Shafts!C4 (S3 X, the fix would make it 131.75) — and Excel recalculating cannot move them, "
+        "since nothing they read has changed. Change the formula, or a cell it reads, in Excel; the fix stays "
+        "chosen until then.", False)
+
+
+def test_two_trains_have_no_ratio_between_them(tmp_path):
+    """Re-review nit (repro v4): S1 drives S2, S3 drives S4. The ratio is from S1 to an output the meshes join to
+    it, never S1 to S4, whatever their speeds divide to."""
+    from gear_generator.workbook.model import Box, Gear, GearboxSpec, Mesh, Shaft
+    shafts = (Shaft("S1", "frame", "0", "0", "0", "Z+", "input", "", "1500", "10"),
+              Shaft("S3", "frame", "0", "200", "0", "Z+", "input", "", "100", "10"),
+              Shaft("S4", "frame", "63.75", "200", "0", "Z+", "output"),
+              Shaft("S2", "frame", "63.75", "0", "0", "Z+", "output"))
+    gears = (Gear("G1", "S1", "7.5", "spur", "external", "17", "1.5", "", "15", "8"),
+             Gear("G2", "S2", "7.5", "spur", "external", "68", "1.5", "", "15", "12"),
+             Gear("G3", "S3", "7.5", "spur", "external", "17", "1.5", "", "15", "8", part_name="B1"),
+             Gear("G4", "S4", "7.5", "spur", "external", "68", "1.5", "", "15", "12", part_name="B2"))
+    two = GearboxSpec(box=Box(name="T"), shafts=shafts, gears=gears, meshes=(Mesh("G1", "G2"), Mesh("G3", "G4")))
+    spec, _ = read(write(tmp_path, two, "two.xlsx"))
+    report = checks.check(spec)
+    assert checks.overall_ratio(spec, report) == (4.0, "S1 to S2", "")
+    one_output = model.replace(two, shafts=shafts[:3] + (model.replace(shafts[3], role=""),))
+    spec, _ = read(write(tmp_path, one_output, "one.xlsx"))
+    report = checks.check(spec)
+    assert checks.overall_ratio(spec, report) == (None, "", "no meshes join S1 to the output, S4")
+    assert report.worked_out_as == "Parallel train · 2 meshes · no overall ratio: no meshes join S1 to the output, S4"
+
+
+def test_a_gear_without_a_name_or_sharing_one_is_named_by_its_row(tmp_path):
+    """Re-review nit: a blank Gear cell listed as " (an error of its own)", and two rows named G3 as one."""
+    path = write(tmp_path, reducer())
+    xlsx.write_cells(str(path), {"Gears": {"A5": ""}})
+    spec, _ = read(path)
+    assert export.box_left_out(spec, checks.check(spec)) == "Gears row 5 (an error of its own)"
+    path = write(tmp_path, reducer(), "dup.xlsx")
+    xlsx.write_cells(str(path), {"Gears": {"A5": "G3"}})
+    spec, diagnostics = read(path)
+    from gear_generator.workbook import assess
+    state = assess.assess(spec, diagnostics, "C:\\Parts")
+    assert export.box_left_out(state.spec, state.report) == ("G3 on Gears row 4 (an error of its own), "
+                                                             "G3 on Gears row 5 (an error of its own)")

@@ -285,13 +285,44 @@ def _check_motion(report: Report, spec: GearboxSpec) -> None:
             _warning(report, where, f"nothing drives {shaft.id}: no input reaches it through the meshes.")
 
 
+def _driven_from(spec: GearboxSpec, start: str) -> set:
+    """Every shaft the meshes join to ``start``: gears on one shaft are one body, and a mesh joins two shafts."""
+    shaft_of = {g.id: g.shaft for g in spec.gears}
+    joins: Dict[str, set] = {}
+    for mesh in spec.meshes:
+        a, b = shaft_of.get(mesh.a), shaft_of.get(mesh.b)
+        if a and b:
+            joins.setdefault(a, set()).add(b)
+            joins.setdefault(b, set()).add(a)
+    seen, todo = {start}, [start]
+    while todo:
+        for other in joins.get(todo.pop(), ()):
+            if other not in seen:
+                seen.add(other)
+                todo.append(other)
+    return seen
+
+
+NO_ENDS = "no input and output that both turn"
+
+
 def _ends(spec: GearboxSpec, motion: kinematics.Motion):
-    """The first input and the first output whose speeds are known, or None when there is no such pair."""
+    """(the first input that turns, the first output the meshes join to it and that turns, why there is no pair).
+
+    The output is looked for among those the meshes reach from that input: two
+    separate trains in one workbook have no ratio between them, whatever their
+    speeds divide to."""
     inputs = [s for s in spec.shafts if s.role == "input" and s.id in motion.speeds]
-    outputs = [s for s in spec.shafts if s.role == "output" and s.id in motion.speeds]
-    if inputs and outputs and motion.speeds[outputs[0].id] != 0:
-        return inputs[0], outputs[0]
-    return None
+    outputs = [s for s in spec.shafts if s.role == "output" and motion.speeds.get(s.id)]
+    if not inputs or not outputs:
+        return None, None, NO_ENDS
+    reached = _driven_from(spec, inputs[0].id)
+    joined = [s for s in outputs if s.id in reached]
+    if not joined:
+        named = ", ".join(s.id for s in outputs)
+        which = "the output" if len(outputs) == 1 else "an output"
+        return None, None, f"no meshes join {inputs[0].id} to {which}, {named}"
+    return inputs[0], joined[0], ""
 
 
 MODE_KINDS = ("sleeve", "dog")
@@ -301,7 +332,7 @@ def overall_ratio(spec: GearboxSpec, report: Report) -> Tuple[Optional[float], s
     """(input speed ÷ output speed, which shafts it is between, why there is none).
 
     ``(12.0, "S1 to S3", "")`` for the 12 : 1 reducer: the first input to the
-    first output. It is withheld — ``(None, "", why)`` — whenever a gear that
+    first output the meshes join to it. It is withheld — ``(None, "", why)`` — whenever a gear that
     would change it is not in the sums: a gearbox not checked yet, a meshing
     gear that was not laid out (an error of its own, or a later phase's kind),
     or a box whose power path changes with its modes (sleeves, dogs, sliding
@@ -317,10 +348,10 @@ def overall_ratio(spec: GearboxSpec, report: Report) -> Tuple[Optional[float], s
     if spec.modes or any(g.kind_word() in MODE_KINDS or g.slides.strip() for g in spec.gears):
         return None, "", "it changes with the modes, worked out in phase W8"
     motion = report.motion
-    ends = _ends(spec, motion)
-    if ends is None:
-        return None, "", "no input and output that both turn"
-    return abs(float(motion.speeds[ends[0].id] / motion.speeds[ends[1].id])), f"{ends[0].id} to {ends[1].id}", ""
+    first, last, why = _ends(spec, motion)
+    if first is None:
+        return None, "", why
+    return abs(float(motion.speeds[first.id] / motion.speeds[last.id])), f"{first.id} to {last.id}", ""
 
 
 def _worked_out_as(spec: GearboxSpec, report: Report) -> str:
@@ -330,7 +361,9 @@ def _worked_out_as(spec: GearboxSpec, report: Report) -> str:
     if any(p.internal for p in report.layout.placed.values()):
         pieces[0] = "Parallel train with a ring"
     motion = report.motion
-    ratio, _, _ = overall_ratio(spec, report)
+    ratio, _, why = overall_ratio(spec, report)
+    if ratio is None and why != NO_ENDS:
+        pieces.append(f"no overall ratio: {why}")       # said, so a ratio's absence is never read as an oversight
     if ratio is not None:
         ends = _ends(spec, motion)
         pieces.append(f"{ratio:.3f} : 1")

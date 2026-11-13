@@ -32,7 +32,7 @@ def test_each_row_builds_exactly_the_strips_part(tmp_path):
     spec = from_file(write(tmp_path, reducer()))
     parts = build.plan_parts(spec, FOLDER)
     assert len(parts.jobs) == 4 and parts.errors == [] and parts.later == []
-    assert assess.build_refusal(parts, parts.diagnostics) == ""
+    assert assess.build_refusal(parts, parts.diagnostics, FOLDER) == ""
     # The strip's own warnings come through too, each pointing at its cell (here the fillet's, column Q).
     assert {d.field for d in parts.diagnostics} == {"Gears!Q3", "Gears!Q5"}
     assert [j.stem for j in parts.jobs] == ["Gear_m1.5_N17", "Gear_m1.5_N68", "Gear_m2_N17", "OutputGear"]
@@ -63,7 +63,7 @@ def test_two_gears_one_name_is_caught(tmp_path):
     spec = model.replace(spec, gears=spec.gears + (wider,))
     parts = build.plan_parts(from_file(write(tmp_path, spec)), FOLDER)
     # Build waits for the error...
-    assert assess.build_refusal(parts, parts.diagnostics).startswith("Fix the workbook before building: Gears!T6")
+    assert assess.build_refusal(parts, parts.diagnostics, FOLDER).startswith("Fix the workbook before building: Gears!T6")
     assert [j.gear_ids for j in parts.jobs] == [("G1",), ("G2",), ("G3",), ("G4",)]   # ...the good gears still plan
     (error,) = parts.errors
     assert error.field == "Gears!T6"
@@ -73,7 +73,7 @@ def test_two_gears_one_name_is_caught(tmp_path):
 def test_kinds_a_later_phase_builds_are_set_aside(tmp_path):
     spec = from_file(write(tmp_path, transfer_case(), "tc.xlsx"))
     parts = build.plan_parts(spec, FOLDER)
-    assert parts.jobs == [] and assess.build_refusal(parts, parts.diagnostics).startswith("Nothing in this")
+    assert parts.jobs == [] and assess.build_refusal(parts, parts.diagnostics, FOLDER).startswith("Nothing in this")
     assert [g for g, _ in parts.later] == ["InDog", "LoDog", "RangeSlv", "FrontDog", "ModeSlv"]
     assert parts.later[0][1] == "InDog is a dog ring: dog rings are built in phase W8, with modes."
     # The modes are refused too, after the rows, and every refusal is listed under Checks at its cell.
@@ -163,7 +163,7 @@ def test_the_strips_own_checks_name_the_cell(tmp_path):
     assert errors and all(d.message.startswith(d.field + ": G1: ") for d in errors)
     assert errors[0].field.startswith("Gears!")
     parts = build.plan_parts(spec, FOLDER)
-    assert assess.build_refusal(parts, parts.diagnostics).startswith("Fix the workbook before building: Gears!")
+    assert assess.build_refusal(parts, parts.diagnostics, FOLDER).startswith("Fix the workbook before building: Gears!")
 
 
 def test_the_boxs_part_template_wins(tmp_path):
@@ -244,11 +244,16 @@ def test_rows_added_and_removed_are_named(tmp_path):
     path = write(tmp_path, reducer())
     watch = link.Link(str(path), Clock())
     watch.read()
-    xlsx.write_cells(str(path), {"Gears": {"A5": "G9"}, "Meshes": {"A4": "G1", "B4": "G9"}})
+    xlsx.write_cells(str(path), {"Gears": {"A6": "G9", "B6": "S3"}, "Meshes": {"A4": "G1", "B4": "G9"}})
     touch_later(path)
     changes = watch.poll().changes
-    assert "gear G9 added (Gears row 5)" in changes and "gear G4 removed" in changes
-    assert "mesh G1–G9 added (Meshes row 4)" in changes
+    assert "gear G9 added (Gears row 6)" in changes and "mesh G1–G9 added (Meshes row 4)" in changes
+    spec = reducer()
+    assert link.describe_changes(spec, model.replace(spec, gears=spec.gears[:3])) == ["gear G4 removed"]
+    # A name typed over in its own row, the name gone from the sheet: a rename, said as the cell it is.
+    xlsx.write_cells(str(path), {"Gears": {"A5": "G4b"}})
+    touch_later(path, 4)
+    assert watch.poll().changes == ["Gears!A5 G4b Gear G4 → G4b"]
 
 
 def test_a_file_caught_mid_save_waits_then_says_so(tmp_path):
@@ -542,7 +547,7 @@ def test_one_gears_error_leaves_the_others_planned(tmp_path):
     bad = Gear("G5", "S3", "47", "spur", "external", "3", "1.5", "", "15", "8")     # three teeth: the strip refuses
     read_spec = from_file(write(tmp_path, model.replace(spec, gears=spec.gears + (bad,))))
     parts = build.plan_parts(read_spec, FOLDER)
-    assert parts.errors and assess.build_refusal(parts, parts.diagnostics) and len(parts.jobs) == 4
+    assert parts.errors and assess.build_refusal(parts, parts.diagnostics, FOLDER) and len(parts.jobs) == 4
     rows = {r[0]: r for r in ui_text.workbook_gear_rows(read_spec, parts, parts.diagnostics)}
     assert rows["G1"][7] == ui_text.GEAR_STATE_BUILDS and rows["G5"][7] == ui_text.GEAR_STATE_ERROR
 
@@ -614,7 +619,7 @@ def test_an_export_into_formulas_waits_for_excel_to_recalculate(tmp_path):
                                                note=("Wrote 1 cell.", True))
     assert ok and not enabled
     assert text == ("Wrote 1 cell. Export wrote cells that formulas in the workbook may depend on: open and save it "
-                    "in Excel so they recalculate; Build waits for that save.")
+                    "in Excel so they recalculate; Build and Export wait for that save.")
     assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True)[0].startswith("Export wrote cells")
 
 
@@ -825,6 +830,113 @@ def test_the_window_knows_its_own_export_when_results_fail_after_the_cells(tmp_p
         window._tick()
         assert window.reading.own and "set aside" not in window.status.get()
         assert window.chosen == [] and not any(d.is_error for d in window.diagnostics)
+    finally:
+        window.close()
+        root.destroy()
+
+
+# -- the re-review (2026-11-13): a provisional read, a fix that writes nothing, renames ------------------------
+
+
+def excel_saved_s2_at_64(tmp_path, name="excel.xlsx"):
+    """The Windows fixture as Excel saves it after S2 is typed at 64: S3's =C3+68 is then 132."""
+    from test_workbook_export import excel_saved
+    from test_workbook_model import FIXTURES
+    return excel_saved(FIXTURES / "excel-windows" / "Reducer_12to1.xlsx", tmp_path / name, {"C3": 64, "C4": 132})
+
+
+def test_a_provisional_read_offers_no_fix_and_lays_nothing_out(tmp_path):
+    """Re-review N1 (repro v6): after the move wrote S2 = 63.75, S3 still holds Excel's old 132 until Excel
+    recalculates, and the read shows G3–G4 0.25 off. Fixes worked from that would land wrong, so none is
+    offered, and the W4 gate refuses before anything else."""
+    from gear_generator.workbook import export
+    path = excel_saved_s2_at_64(tmp_path)
+    read_spec, diagnostics = model.from_book(xlsx.read(path))
+    first = assess.assess(read_spec, diagnostics, FOLDER)
+    move = first.report.fixes["Meshes!A2"][0]
+    done = export.export(str(path), read_spec, [move], assess.assess(read_spec, diagnostics, FOLDER, chosen=[move]).report)
+    assert done.written == ["Shafts!C3"] and done.has_formulas            # the window's recalc wait starts
+    read_spec, diagnostics = model.from_book(xlsx.read(path))
+    stale = assess.assess(read_spec, diagnostics, FOLDER)
+    assert stale.report.fixes and stale.errors[0].field == "Meshes!A3"      # what the old read offered: wrong
+    held = assess.assess(read_spec, diagnostics, FOLDER, provisional=True)
+    assert held.report.fixes == {} and held.errors                          # still shown, never offered a fix
+    assert held.lay_out_refusal() == assess.PROVISIONAL
+
+
+def test_the_layout_gate_asks_for_an_output_folder_as_build_does(tmp_path):
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, reducer())))
+    assert assess.assess(read_spec, diagnostics, "").lay_out_refusal() == assess.NO_FOLDER
+    assert ui_text.workbook_status(build.plan_parts(read_spec, ""), diagnostics, folder="") == (assess.NO_FOLDER, False)
+
+
+def test_a_renamed_gear_keeps_its_problems(tmp_path):
+    """Re-review nit: G4 renamed G4b read as one new error and two cleared at the same cells. The rename is now
+    a cell change, and G4's problems are G4b's; what the rename really breaks (Meshes still names G4) is new."""
+    spec = reducer()
+    before = model.replace(spec, gears=spec.gears[:3] + (model.replace(spec.gears[3], bore="200"),))
+    after = model.replace(before, gears=before.gears[:3] + (model.replace(before.gears[3], id="G4b"),))
+    old, new = assessed(tmp_path, before, "a.xlsx"), assessed(tmp_path, after, "b.xlsx")
+    assert ui_text.workbook_change_lines(link.describe_changes(old.read, new.read), link.consequence(old, new)) == [
+        "Gears!A5 G4b Gear G4 → G4b · 1 new error (Meshes!B3) · 1 new warning (Shafts!A4)"]
+    both = model.replace(after, meshes=(after.meshes[0], model.Mesh("G3", "G4b")))
+    new = assessed(tmp_path, both, "c.xlsx")
+    assert ui_text.workbook_change_lines(link.describe_changes(old.read, new.read), link.consequence(old, new)) == [
+        "Gears!A5 G4b Gear G4 → G4b", "mesh G3–G4b added (Meshes row 3)", "mesh G3–G4 removed"]
+
+
+def recalculated(path, s3):
+    """Excel's save after it recalculates S3's =C3+68: the same file with C4's value brought up to date."""
+    from test_workbook_export import excel_saved
+    tmp = path.with_name("~recalc.xlsx")
+    excel_saved(path, tmp, {"C4": s3})
+    tmp.replace(path)
+    touch_later(path)
+
+
+def test_the_window_holds_checks_fixes_and_export_while_excel_recalculates(tmp_path):
+    """Re-review N1 in the window: between the Export and Excel's save the read is provisional — said in Checks,
+    no fix offered, Export and Export as… held — and after the save it is all live again, Results due."""
+    path = excel_saved_s2_at_64(tmp_path)
+    root, window = window_for(tmp_path, path)
+    try:
+        window.choose(window.report.fixes["Meshes!A2"][0])
+        window.export()
+        assert window.recalc and window.reading.own
+        texts = [w.cget("text") for w in window.checks_body.winfo_children() if isinstance(w, __import__("tkinter").Label)]
+        assert texts[0] == ui_text.CHECKS_PROVISIONAL
+        assert window.report.fixes == {} and window.checks_readout.get().startswith("provisional")
+        assert window.speeds_readout.get().endswith(" · provisional")
+        assert not window.export_button._enabled and not window.export_as_button._enabled
+        assert window.status.get().endswith(ui_text.RECALC_WAIT)
+        window.export(out_path=str(tmp_path / "copy.xlsx"))          # what Export as… would do: refused
+        assert not (tmp_path / "copy.xlsx").exists()
+        assert window.status.get() == "Nothing was exported: " + ui_text.EXPORT_WAITS
+        recalculated(path, 131.75)
+        window._tick()
+        assert not window.recalc and window.export_button._enabled
+        assert not any(d.is_error for d in window.diagnostics)            # 131.75 is where G4 needs S3
+        assert window.status.get().endswith(ui_text.RESULTS_DUE.strip())
+    finally:
+        window.close()
+        root.destroy()
+
+
+def test_the_window_keeps_the_fix_when_nothing_could_be_written(tmp_path):
+    """Re-review N2 (repro v5): both targets are formulas, nothing is written, so the fix stays chosen, the
+    sentence is a fault, and nothing waits for Excel."""
+    from test_workbook_export import excel_saved, with_formula
+    from test_workbook_model import FIXTURES
+    source = excel_saved(FIXTURES / "excel-windows" / "Reducer_12to1.xlsx", tmp_path / "s.xlsx", {"C4": 132})
+    path = with_formula(source, tmp_path / "f.xlsx", "C3", "C2+64", 64)
+    root, window = window_for(tmp_path, path)
+    try:
+        fix = window.report.fixes["Meshes!A2"][0]
+        window.choose(fix)
+        window.export()
+        assert window.chosen == [fix] and not window.recalc and not window.results_due
+        assert window.status.get().startswith("Nothing was written: every cell the fix would change holds a formula")
+        assert window.status_label.cget("fg") == __import__("gear_generator.theme", fromlist=["ERROR"]).ERROR
     finally:
         window.close()
         root.destroy()

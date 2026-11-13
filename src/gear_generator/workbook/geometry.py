@@ -109,7 +109,8 @@ class Layout:
     placed: Dict[str, Placed] = field(default_factory=dict)
     later: List[str] = field(default_factory=list)     # sentences: what this phase does not lay out, and why
     problems: Dict[str, str] = field(default_factory=dict)   # gear -> why it could not be placed
-    # gear -> why it is not in ``placed`` at all, a few words: every gear of the workbook is either placed or here
+    # each gear not in ``placed`` -> why, a few words: every gear row is either placed or here. Keyed by its
+    # name, or by its row when it has none (``Gears row 5``) or shares it (``G3 on Gears row 5``).
     left_out: Dict[str, str] = field(default_factory=dict)
 
 
@@ -127,25 +128,32 @@ def layout(spec: GearboxSpec, skip_gears=()) -> Layout:
         elif (shaft.axis or "Z+") not in AXES:
             out.later.append(f"{shaft.id}'s axis is {shaft.axis}: axes other than Z+ and Z- are laid out in "
                              f"phase W6.")
+    names = [g.id for g in spec.gears]
+
+    def label(gear: Gear) -> str:
+        if not gear.id:
+            return f"Gears row {gear.row}"
+        return f"{gear.id} on Gears row {gear.row}" if names.count(gear.id) > 1 else gear.id
+
     if out.later:
-        out.left_out = {g.id: "not laid out until a later phase" for g in spec.gears}
+        out.left_out = {label(g): "not laid out until a later phase" for g in spec.gears}
         return out
     for gear in spec.gears:
         if gear.kind_word() in LATER_KINDS:
-            out.left_out[gear.id] = LATER_KINDS[gear.kind_word()]
+            out.left_out[label(gear)] = LATER_KINDS[gear.kind_word()]
             continue
-        if gear.id in skip_gears:
-            out.left_out[gear.id] = "an error of its own"
+        if gear.id in skip_gears or not gear.id or names.count(gear.id) > 1:
+            out.left_out[label(gear)] = "an error of its own"     # a blank or shared name is the read's error
             continue
         shaft = shafts.get(gear.shaft)
         if shaft is None:
-            out.left_out[gear.id] = "no such shaft"
+            out.left_out[label(gear)] = "no such shaft"
             continue
         try:
             out.placed[gear.id] = _place(spec, gear, shaft)
         except (ValueError, TypeError) as exc:
             out.problems[gear.id] = str(exc)
-            out.left_out[gear.id] = "could not be placed"
+            out.left_out[label(gear)] = "could not be placed"
     return out
 
 

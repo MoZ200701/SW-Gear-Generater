@@ -817,7 +817,21 @@ def workbook_parts_readout(parts) -> str:
     return " · ".join(pieces)
 
 
-def workbook_checks_readout(diagnostics: Sequence[Diagnostic]) -> str:
+CHECKS_PROVISIONAL = ("Provisional: the workbook's formulas still hold Excel's old values, so these checks may "
+                      "change once Excel recalculates and saves it, and no fixes are offered until then.")
+EXPORT_WAITS = ("the workbook's formulas still hold Excel's old values; open and save it in Excel first, so what is "
+                "exported is worked out from what they now give.")
+
+
+def provisional_tag(provisional: bool) -> str:
+    """`` · provisional`` after a readout worked out from a read whose formulas Excel has yet to recalculate."""
+    return " · provisional" if provisional else ""
+
+
+def workbook_checks_readout(diagnostics: Sequence[Diagnostic], provisional: bool = False) -> str:
+    if provisional:
+        rest = workbook_checks_readout(diagnostics)
+        return "provisional" + ("" if rest == "no problems" else f" · {rest}")
     errors = sum(1 for d in diagnostics if d.is_error)
     warnings = len(diagnostics) - errors
     if not diagnostics:
@@ -893,11 +907,9 @@ def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", f
     from .workbook.assess import build_refusal         # the one rule for Build parts; the words for it are its
     if error:
         return error, False
-    refusal = build_refusal(parts, diagnostics)
+    refusal = build_refusal(parts, diagnostics, folder)
     if refusal:
         return refusal, False
-    if not folder:
-        return "Choose an output folder (the Box sheet's, or the strip's Output) before building.", False
     files = _plural(len(parts.jobs), "part")
     return f"Ready: Build makes {files} in {short_path(folder, 48)}." + _left_for_later(parts), True
 
@@ -942,13 +954,25 @@ def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
     formula may well land on the fix's value once Excel recalculates — S3's X
     as ``=C3+68`` follows S2 — so the sentence says what to look for rather than
     asking for the formula to be typed over, and Results wait for that save.
-    The fix's own value is given, but Checks are the test: the value it was
-    worked out from may itself be a formula's stale result."""
+    The fix's own value is given (no fix is offered from a provisional read,
+    so it is worked from what Excel last calculated), but Checks are the test.
+    When every cell the fix names is a formula nothing reaches the file, so
+    nothing a formula reads has changed: that is said as a fault, and the
+    formula, or a cell it reads, is what has to change."""
+    formula_cells = {cell for cell, *_ in done.formulas}
+    if not done.written and done.formulas and all(cell in formula_cells for cell, _ in done.refused):
+        # Nothing reached the file, so nothing a formula reads changed: recalculating cannot move them.
+        cells = "; ".join(f"{cell} ({item} {header}, the fix would make it {value})"
+                          for cell, item, header, value in done.formulas)
+        where = f"changed in the copy, {copy_name}" if copy_name else "written"
+        return (f"Nothing was {where}: every cell the fix would change "
+                f"holds a formula — {cells} — and Excel recalculating cannot move them, since nothing they read "
+                "has changed. Change the formula, or a cell it reads, in Excel; the fix stays chosen until "
+                "then."), False
     what = _plural(len(done.written), "cell") + (" and the Results sheet" if done.results else "")
     parts = [f"Exported {what}" + (f" to {copy_name}" if copy_name else "") + "."]
     if done.added_headers:
         parts.append("Added the column " + ", ".join(done.added_headers) + ".")
-    formula_cells = {cell for cell, *_ in done.formulas}
     for cell, item, header, value in done.formulas:
         parts.append(f"{cell} ({item} {header}) holds a formula, so it was not written (the fix would make it "
                      f"{value}): once Excel has recalculated, Checks will say whether {item} sits where its meshes "
@@ -967,7 +991,7 @@ def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
 
 
 RECALC_WAIT = ("Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they "
-               "recalculate; Build waits for that save.")
+               "recalculate; Build and Export wait for that save.")
 RESULTS_DUE = " Export again to write the Results sheet: it waited for Excel to recalculate."
 
 
