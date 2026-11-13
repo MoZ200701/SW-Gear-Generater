@@ -322,3 +322,112 @@ GEAR_MATE_EXTERNAL_FLIP = False
 # The crossed frame's mates held its rotation; a point's distance from a plane is
 # measured along the plane's normal, so a negative offset is mated flipped.
 CROSSED_ROUTE = "mates"
+
+# -- the workbook's layout part and static assembly (tier 7) -----------------
+#
+# Probe tier 7 (p7_workbook), PLAN-WORKBOOK §4.2, on SolidWorks 2026 (34.0.0)
+# and 2024 (32.5.0) with the same answers; tests/test_findings.py pins each one
+# against both versions' latest.json.
+
+# layout_planes: InsertRefPlane(8 | flip 256, 7 mm) from the Right plane put the
+# unflipped plane at x = +7 and the flipped one at -7, both facing +X; from the
+# Top plane, y = +7 and -7, both facing +Y. The sketch transform and
+# IRefPlane.Transform agreed. The offset was the plane's only dimension, D1, and
+# linked to a global it followed 7 -> 23. So, as from Front, unflipped is the plus side.
+LAYOUT_PLUS_FLIP = {"right": False, "top": False}
+LAYOUT_OFFSET_DIM = "D1"
+# A plane on the minus side keeps a positive offset; linked as
+# "Offset@<plane>"= - "<global>" it followed a negative global (-7 -> -11), so a
+# shaft's X and Y globals can keep their sign. The first form tried was taken.
+LAYOUT_NEGATED_LINK = "minus"
+
+# layout_plane_negative_global: a plus-side plane's offset linked to a global set
+# to -9 did NOT cross zero. The Equation Manager took the value (it read -9),
+# ForceRebuild3 returned True and the plane's error code was 0, yet the offset
+# stayed 7 mm and the plane at x = +7: the change was dropped without a word.
+# So a shaft whose X or Y changes sign is a structural change, and the layout
+# must never rely on a global to carry a plane across its base plane.
+OFFSET_GLOBAL_CROSSES_ZERO = False
+
+# axis_through_named_planes: InsertAxis2(True) through two planes made in the
+# same part, selected by IFeature.Select2 on the feature found by name (the
+# route the app's _select_feature takes first), by SelectByID2 "<name>", "PLANE",
+# and by Select2 on the RefPlane InsertRefPlane returned: all three made the axis
+# where the planes cross, and it followed both planes' globals on a rebuild.
+AXIS_PLANE_SELECT_ROUTE = "Select2 on the feature found by name"
+# Every axis made this way, from a Right-parallel and a Top-parallel plane in
+# that order, read along -Z from GetRefAxisParams (its second point below the first).
+# The order of selection sets it: each gear part's "Gear Axis", made from Top then
+# Right (swcom.insert_axis, planes 2 and 3), read +Z in the parts built by
+# probe/gear_pairs_check.py on 2026. A layout axis that a gear's axis is to be
+# mated to (W5) can be made Top-parallel first so the two agree.
+LAYOUT_AXIS_Z_SIGN = -1
+# axis_through_base_planes: with the Right or Top plane itself in place of an
+# offset plane (a shaft at X = 0, Y = 0, or both), the axis lay on it and the
+# other coordinate still followed its global.
+AXIS_THROUGH_BASE_PLANE = True
+
+# layout_assembly_five / layout_assembly_reopen: five components (one part twice,
+# named "<part>-1" and "<part>-2"), each set by a Transform2 put, then fixed by
+# Select4 + FixComponent(), saved, closed and opened again by OpenDoc6: each was
+# where it was left and still fixed, found by IAssemblyDoc.GetComponentByName
+# (GetComponents(True), the root component's GetChildren and FeatureByName ->
+# GetSpecificFeature2 found all five too). A Transform2 put moved a FIXED
+# component without unfixing it, and the new frames survived a save and reopen.
+COMPONENT_FIND_ROUTE = "GetComponentByName"
+REPLACE_FIXED_ROUTE = "Transform2 put"
+OPEN_ASSEMBLY_ROUTE = "OpenDoc6"
+
+# open_and_activate_part: OpenDoc6(path, 1, swOpenDocOptions_Silent 1, "", out,
+# out) returned the document itself, not a tuple, with errors 0, and made a
+# closed part active over another document. On a part already open it returned
+# the same document with warning 128 (swFileLoadWarning_AlreadyOpen) and did NOT
+# bring it forward, so ActivateDoc3 always follows; swbuild.update_variables
+# then accepted it. open_part_from_assembly: the same for a part loaded only as
+# a component of an open assembly (listed among the open documents, opened with
+# warning 128, activated, and changed by update_variables).
+UPDATE_OPEN_ROUTE = "open and activate"
+OPEN_DOC_ROUTE = "OpenDoc6"
+OPEN_DOC_SILENT = 1              # swOpenDocOptions_e.swOpenDocOptions_Silent, read from swconst.tlb
+OPEN_DOC_ALREADY_OPEN_WARNING = 128
+OPEN_PART_BESIDE_ASSEMBLY = True
+
+# layout_part_without_body: the layout part as W4 makes it, planes and named axes
+# and no solid body, inserted by AddComponent5 at (12, -7, 3) mm landed with its
+# ORIGIN there (a solid part lands with the middle of its box there, see
+# PLACE_ROUTE), was placed at identity, fixed, and saved with no error or warning;
+# interference detection ran with it in the assembly and found nothing. Reopened,
+# it was found by GetComponentByName at identity, fixed and fully resolved, and
+# each named axis selected in the assembly both by FeatureByName + Select2 and by
+# SelectByID2 "<axis>@<component>@<assembly>", "AXIS".
+LAYOUT_PART_WITHOUT_BODY = True
+BODILESS_LANDS_ORIGIN_AT_POINT = True
+
+# add_component_opened_part: AddComponent5 of a part saved and CLOSED returned
+# None, though the API help's "the file must be loaded" is about exactly this;
+# the same part opened by OpenDoc6 first (and left the active document) went in.
+# So a part reused from an earlier build is opened before it is inserted. The
+# same file inserted twice is "<stem>-1" and "<stem>-2".
+REUSE_ADD_ROUTE = "opened"
+# add_component_same_name_elsewhere (extra): with "<stem>.SLDPRT" in the assembly,
+# OpenDoc6 of another folder's "<stem>.SLDPRT" returned nothing with error 65536
+# (swFileWithSameTitleAlreadyOpen) and AddComponent5 of it returned None. No
+# dialog. Two parts of one file name cannot be in one session, so the build must
+# refuse a reused part whose name clashes with one it makes.
+SAME_NAME_ELSEWHERE_INSERTED = False
+SAME_NAME_OPEN_ERROR = 65536
+
+# interference_components (extra): IInterference.Components, read as a property
+# through late binding, gave a tuple of the two components; their Name2s named the
+# two overlapping cylinders and not the third, with the lens's volume. So a CHECK
+# can say which gears interfere.
+INTERFERENCE_NAMES_ROUTE = "Components (property)"
+
+# layout_assembly_reopen: every component of a reopened assembly came back fully
+# resolved (GetSuppression2 2, swComponentFullyResolved), on 2026 and in the
+# user's own 2024 session, so finding and re-placing them need no resolve step.
+COMPONENTS_RESOLVED_AFTER_REOPEN = True
+
+# Items 1-4 of PLAN-WORKBOOK §4.2 and the body-less layout part all passed, so the
+# layout part and the static assembly are built.
+WORKBOOK_LAYOUT_ROUTE = "layout"

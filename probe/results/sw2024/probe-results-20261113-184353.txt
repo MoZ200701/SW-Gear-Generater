@@ -1,0 +1,914 @@
+attach  SolidWorks 2024 (revision 32.5.0), PID 68820
+scratch C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754
+pass    attach  (0.0 s)
+  fact   revision = '32.5.0'
+  fact   version = 'SolidWorks 2024 (revision 32.5.0)'
+  ok     revision 32.5.0 is SolidWorks 2024 or newer
+  fact   open_at_start = ['<user document 1>']
+pass    templates  (0.1 s)
+  try    GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  try    GetUserPreferenceStringValue(8): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  ok     a part template exists on disk
+  fact   part_template_route = 'GetDocumentTemplate'
+  fact   part_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  ok     the part template is a .prtdot file
+  try    GetDocumentTemplate(2, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  try    GetUserPreferenceStringValue(9): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  ok     a assembly template exists on disk
+  fact   assembly_template_route = 'GetDocumentTemplate'
+  fact   assembly_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  ok     the assembly template is a .asmdot file
+pass    new_document  (2.5 s)
+  fact   new_part_title = 'Part66'
+  ok     NewDocument from the part template makes a part
+  ok     the new part is the active document
+  fact   plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']
+  ok     the part has exactly three reference planes
+  fact   new_part_features = [('Comments', 'CommentsFolder'), ('Favorites', 'FavoriteFolder'), ('History', 'HistoryFolder'), ('Selection Sets', 'SelectionSetFolder'), ('Sensors', 'SensorFolder'), ('Design Binder', 'DocsFolder'), ('Annotations', 'DetailCabinet'), ('Surface Bodies', 'SurfaceBodyFolder'), ('Solid Bodies', 'SolidBodyFolder'), ('Lights and Cameras', 'EnvFolder'), ('Markups', 'InkMarkupFolder'), ('Equations', 'EqnFolder'), ('Material <not specified>', 'MaterialFolder'), ('Front Plane', 'RefPlane'), ('Top Plane', 'RefPlane'), ('Right Plane', 'RefPlane'), ('Origin', 'OriginProfileFeature')]
+  fact   new_part_path = ''
+pass    activate_document  (3.6 s)
+  ok     the second new part is active
+  try    ActivateDoc3(title, False, 0, out long): returned 'CDispatch'
+  fact   activate_doc3_returns_shape = 'CDispatch'
+  ok     ActivateDoc3 made the first part active again
+pass    equation_add  (1.8 s)
+  ok     GetEquationMgr returns an equation manager
+  try    AngularEquationUnits: returned 1
+  fact   angular_equation_units_property = 1
+  fact   equations_in_new_part = 0
+  try    Add2: returned 0
+  ok     some documented way of adding a global works
+  fact   add3_form = 'Add2'
+  ok     Add2 at index -1 appends, returning 0
+  ok     GetCount goes up by one
+  fact   equation_text_readback = '"Probe A"= 2.5'
+  ok     Equation(i) reads back '"Probe A"= 2.5'
+  ok     Value(i) reads back 2.5
+  ok     GlobalVariable(i) says it is a global
+  fact   delete_returns = 0
+  ok     Delete(i) removes it again
+  try    Add3 on a one-configuration part, all configurations, None: returned -1
+  fact   add3_single_configuration_returns = -1
+pass    equation_set  (2.1 s)
+  ok     two linked globals are added
+  try    indexed put Equation(i): returned None
+  ok     indexed put Equation(i): the dependent global follows to 10.0
+  try    SetEquationAndConfigurationOption: returned -1
+  note   SetEquationAndConfigurationOption: the dependent global reads 10.0 (does not follow)
+  fact   equation_set_routes = ['indexed put Equation(i)']
+  ok     at least one way of changing a global's value works
+pass    document_units  (1.7 s)
+  note   C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\Part.PRTDOT is from a newer release than this session; not tried
+  fact   units_default = {'path': 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot', 'linear': 0, 'system': 5}
+  fact   mm_templates = ['C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot']
+  fact   default_template_is_mm = True
+  fact   set_mmgs_works = False
+  ok     a new part can be had in millimetres
+pass    sketch_open_close  (5.2 s)
+  try    IFeature.Select2(False, 0) on the first RefPlane: returned True
+  fact   select2_plane = {'returned': True, 'selected': 1}
+  try    SelectByID2("Front Plane", "PLANE", ...) with the name read from the tree: returned True
+  fact   select_by_id2_plane_tree_name = {'returned': True, 'selected': 1}
+  ok     the first RefPlane in tree order can be selected by one of the two routes
+  fact   add_to_db_reads_back = True
+  ok     InsertSketch(True) opens a sketch
+  ok     CreateCircleByRadius returns the new segment
+  ok     a second InsertSketch(True) closes it
+  ok     the new sketch feature renames and reads back 'Probe Sketch'
+  fact   rename_onto_taken_name_reads_back = 'Sketch2'
+  ok     renaming onto a taken name does not take it, and read-back shows so
+  fact   select_routes_used = {'Select2': 2}
+pass    sketch_entities  (4.4 s)
+  ok     CreateCircleByRadius makes a circle
+  fact   circle_segment_type = 1
+  try    circle.GetCenterPoint2: returned 'CDispatch'
+  ok     a circle's centre reads back from the segment itself: (10.0, 20.0)
+  try    circle.GetRadius: returned 0.004999999999999999
+  ok     GetRadius reads the radius in metres
+  try    CreateCircle(centre, point).GetRadius: returned 0.005999999999999998
+  ok     CreateCircle takes a centre and a point on it
+  try    CreateArc direction +1.GetLength: returned 0.047123889803846894
+  fact   arc_direction_+1 = {'length_mm': 47.12388980384689, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction +1 runs counter-clockwise from its start
+  try    CreateArc direction -1.GetLength: returned 0.1413716694115407
+  fact   arc_direction_-1 = {'length_mm': 141.3716694115407, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction -1 runs clockwise from its start
+  try    three-point arc.GetCenterPoint2: returned 'CDispatch'
+  ok     Create3PointArc passes through its three points: centre (90.0, -5.204170427930421e-15)
+  ok     a line's ends read back: (1.0, 2.0), (31.0, 42.0)
+  ok     GetLength is in metres
+  fact   line_segment_type = 0
+  fact   centreline_is_construction = True
+  ok     ConstructionGeometry sets and reads back on a line
+  ok     CreatePoint puts a point where asked
+  fact   segments_after_close = 7
+  ok     all seven segments are still in the sketch once it is closed
+pass    relations  (5.2 s)
+  fact   origin_point_mm = (0.0, 0.0)
+  ok     sgCOINCIDENT pulls a line's start onto the origin: (0.0, 0.0)
+  ok     sgHORIZONTAL2D levels the line: (0.0, 0.0) (26.925824035672523, 0.0)
+  ok     the origin and a line made coincident put the origin on the line's extension: (25.0, 25.0) (45.00000000000001, 45.0)
+  ok     sgCOINCIDENT puts a point on a circle: (89.66234939601246, 2.576626505603322)
+  ok     sgTANGENT makes the line touch the arc: 10.0 vs 10.0
+  ok     sgSYMMETRIC mirrors two points about a centreline: (140.0, 20.0) (159.99999999999997, 20.0)
+  try    sgEQUAL on two circles: returned None
+  fact   after sgEQUAL the radii are (0.0040000000000000036, 0.007000000000000006)
+  fact   equal_radius_constraint = 'sgSAMELENGTH'
+  ok     some constant makes two radii equal: ['sgSAMELENGTH'] (0.0040000000000000036, 0.003999999999999992)
+  ok     an arc's centre point goes onto a circle: (60.0, 60.0)
+  fact   select_routes_so_far = {'Select2': 4, 'Select4': 18}
+pass    dimensions  (4.7 s)
+  ok     AddDimension2 makes the OD dimension
+  ok     the OD dimension renames and reads back
+  fact   a circle's dimension reads 0.02 m: its diameter
+  fact   full_name_while_open = 'OD@Sketch1@Part75.Part'
+  ok     setting SystemValue in metres drives the circle
+  ok     AddDimension2 makes the R dimension
+  ok     the R dimension renames and reads back
+  fact   an arc's dimension reads 0.009999999999999995 m: its radius
+  ok     AddDimension2 makes the HalfSpace dimension
+  ok     the HalfSpace dimension renames and reads back
+  fact   angle_dimension_system_value = 0.34906585039886595
+  ok     an angle dimension's SystemValue is radians: 0.34906585039886595
+  fact   dimension_names_after_close = ['OD', 'R', 'HalfSpace']
+  ok     names set while the sketch was open survive closing it
+  fact   full_name_after_close = 'OD@Probe Dims@Part75.Part'
+pass    dimension_link  (4.6 s)
+  try    link before the dimension exists: "OD@Probe Link"= 30: returned -1
+  fact   link_before_dimension_returns = -1
+  ok     the global is added
+  ok     the link "OD@Probe Link"= "Probe D" is accepted once the dimension exists
+  fact   link_text_reads_back = '"OD@Probe Link"= "Probe D"'
+  fact   a global of 30 drives the dimension to 0.03 m
+  ok     equations are in millimetres in this document
+  ok     changing the global and rebuilding moves the dimension to 0.04 m
+pass    extrude  (6.3 s)
+  fact   extrude_type_name = 'Extrusion'
+  ok     the extrusion renames and reads back
+  fact   blank_volume_mm3 = 12566.370614359175
+  ok     the blank's volume is 12566.371 mm³ (expected 12566.371)
+  fact   extrude_dimensions = [('D1', 0.01), ('OD', 0.04)]
+  ok     the depth dimension is found by its value
+  fact   depth_dimension_default_name = 'D1'
+  ok     the depth dimension renames to Width
+  fact   depth_full_name = 'Width@Blank@Part77.Part'
+  ok     a width global is added
+  ok     the link "Width@Blank"= "Probe W" is accepted
+  ok     linked to 12 mm the blank is 15079.645 mm³
+pass    axis  (3.6 s)
+  ok     planes 2 and 3 select together
+  fact   insert_axis2_returns = True
+  fact   axis_new_features = [('Axis1', 'RefAxis')]
+  ok     InsertAxis2 adds exactly one feature
+  ok     the axis renames and reads back
+  fact   axis_type_name = 'RefAxis'
+  ok     the axis can be selected again
+pass    center_of_mass  (6.0 s)
+  ok     the boss sketch selects
+  ok     the boss is extruded
+  fact   boss_centre_of_mass_mm = (12.0, 5.000000000000001, 5.000000000000001)
+  ok     x and y of the centre are the sketch's, in metres: (12.0, 5.000000000000001, 5.000000000000001)
+  ok     the centre is half the depth off the plane: 5.000000000000001
+  fact   a blank from the Front plane extrudes toward +Z
+  fact   top_sketch_axes_in_model = {'x': [1.0, 0.0, 0.0], 'y': [0.0, 0.0, -1.0]}
+  ok     one of the Top sketch's axes is the model's Z axis
+pass    ref_plane_offset  (8.4 s)
+  try    InsertRefPlane distance 5 mm, flip False: returned 'CDispatch'
+  fact   plane_flip_False = {'origin_z_mm': 5.0, 'normal': [0.0, 0.0, 1.0]}
+  try    InsertRefPlane distance 5 mm, flip True: returned 'CDispatch'
+  fact   plane_flip_True = {'origin_z_mm': -5.0, 'normal': [0.0, 0.0, 1.0]}
+  ok     both flips make a plane
+  ok     the two flips are 5 mm either side: {'False': 5.0, 'True': -5.0}
+  fact   flip False puts the plane on the +Z side
+  fact   ref_plane_on_extrude_side_flip = False
+  fact   ref_plane_type_name = 'RefPlane'
+  ok     the plane renames and reads back
+  fact   ref_plane_dimensions = [('D1', 0.005)]
+  ok     the offset dimension is found by its value
+  fact   ref_plane_offset_dim_default_name = 'D1'
+  ok     the offset dimension renames to Offset
+  ok     a global is added
+  ok     the link "Offset@Probe Plane"= "Probe Off" is accepted
+  ok     linked to 7 the plane moves to z 7.0
+pass    save_as  (4.3 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-183754'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe Save.SLDPRT does not exist yet
+  try    SaveAs3(path, current version, silent, null, null, out long, out long): returned True
+  fact   save_as3_result = 'True'
+  fact   save_as3_result_is_tuple = False
+  ok     SaveAs3 says it saved
+  ok     the file is on disk
+  fact   title_after_save = 'Probe Save.SLDPRT'
+  fact   path_after_save = 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-183754\\Probe Save.SLDPRT'
+  ok     GetPathName now names the new file
+  try    SaveAs3 onto the same path: returned True
+  fact   save_as3_onto_existing_file = {'flag': True, 'size_before': 33762, 'size_after': 35090}
+  try    IModelDoc2.SaveAs3 on another new part: returned 'dict'
+  fact   imodeldoc2_save_as3 = {'returned': 0, 'on_disk': True}
+pass    assembly_components_and_mates  (22.8 s)
+  ok     there is a scratch folder to save parts in
+  fact   assembly_units_before_setting = 0
+  ok     NewDocument from the assembly template is an assembly
+  try    AddComponent5(part A at the origin): returned 'CDispatch'
+  try    AddComponent5(part B at 60 mm): returned 'CDispatch'
+  ok     both components are inserted
+  fact   component_names = ('Probe Add A-1', 'Probe Add B-1')
+  fact   component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)
+  try    IsFixed of the first component: returned True
+  fact   first_component_fixed_on_insert = True
+  ok     the first component selects
+  try    FixComponent() on the already fixed first component: returned None
+  ok     the first component is fixed
+  ok     the two front planes select
+  try    AddMate5 coincident fronts: returned 'CDispatch'
+  fact   mate coincident fronts = {'returned': 'CDispatch', 'status': None}
+  ok     coincident fronts: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 axis on top plane: returned 'CDispatch'
+  fact   mate axis on top plane = {'returned': 'CDispatch', 'status': None}
+  ok     axis on top plane: one mate appears under Mates
+  ok     B's axis and A's right plane select
+  try    AddMate5 distance axis to right plane: returned 'CDispatch'
+  fact   mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     distance axis to right plane: one mate appears under Mates
+  ok     the two top planes select
+  try    AddMate5 angle between top planes: returned 'CDispatch'
+  fact   mate angle between top planes = {'returned': 'CDispatch', 'status': None}
+  ok     angle between top planes: one mate appears under Mates
+  fact   component_b_translation_mm_mated = (60.0, 0.0, -5.0)
+  ok     B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)
+  ok     the distance mate is found in the tree
+  ok     the distance mate renames and reads back
+  fact   distance_mate_dimensions = [('D1', 0.06)]
+  fact   mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]
+  fact   second_component_fixed_before_fix_component = False
+  ok     the second component selects
+  try    FixComponent() on the free second component: returned None
+  fact   second_component_fixed_after_fix_component = True
+  ok     FixComponent() fixes the selected component
+pass    interference  (22.9 s)
+  ok     there is a scratch folder to save parts in
+  try    overlap: IAssemblyDoc.InterferenceDetectionManager: returned 'CDispatch'
+  try    overlap: set TreatCoincidenceAsInterference = False: returned None
+  try    overlap: set TreatSubAssembliesAsComponents = True: returned None
+  try    overlap: set IncludeMultibodyPartInterferences = True: returned None
+  try    overlap: set MakeInterferingPartsTransparent = False: returned None
+  try    overlap: set CreateFastenersFolder = False: returned None
+  try    overlap: set IgnoreHiddenBodies = True: returned None
+  try    overlap: set ShowIgnoredInterferences = False: returned None
+  try    overlap: set UseTransform = False: returned None
+  try    overlap: GetInterferenceCount: returned 'tuple'
+  try    overlap: GetInterferences: returned 'tuple'
+  try    overlap: IInterference.Volume: returned 'tuple'
+  try    overlap: Done: returned 'tuple'
+  fact   interference_overlap = {'count': 1, 'count_form': 'property', 'listed': 1, 'list_form': 'property', 'volumes_mm3': [1813.2470159104396], 'done_form': 'method'}
+  ok     overlap: one interference is counted and listed (1, 1)
+  ok     overlap: its volume is the lens, 1813.247 mm³ (expected 1813.247)
+  try    apart: IAssemblyDoc.InterferenceDetectionManager: returned 'CDispatch'
+  try    apart: set TreatCoincidenceAsInterference = False: returned None
+  try    apart: set TreatSubAssembliesAsComponents = True: returned None
+  try    apart: set IncludeMultibodyPartInterferences = True: returned None
+  try    apart: set MakeInterferingPartsTransparent = False: returned None
+  try    apart: set CreateFastenersFolder = False: returned None
+  try    apart: set IgnoreHiddenBodies = True: returned None
+  try    apart: set ShowIgnoredInterferences = False: returned None
+  try    apart: set UseTransform = False: returned None
+  try    apart: GetInterferenceCount: returned 'tuple'
+  try    apart: GetInterferences: returned 'tuple'
+  try    apart: Done: returned 'tuple'
+  fact   interference_apart = {'count': 0, 'count_form': 'property', 'listed': 0, 'list_form': 'property', 'volumes_mm3': [], 'done_form': 'method'}
+  ok     apart: nothing interferes (0, 0)
+  fact   interference_route = {'count': 'property', 'list': 'property', 'done': 'method'}
+pass    nonparallel_mates  (28.7 s)
+  ok     there is a scratch folder to save parts in
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 2.22e-16, origin by 0.00e+00 mm
+  fact   place_route = 'Transform2 put'
+  fact   transform_array_order = 'columns'
+  fact   create_transform_argument = 'Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8'
+  ok     a component's frame is set by Transform2 put with ArrayData in columns
+  try    select origin of Probe Skew B-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  try    select origin of Probe Skew A-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  ok     both origins select by the same route
+  fact   origin_select_route = 'SelectByID2 EXTSKETCHPOINT Point1@Origin'
+  fact   origin_select_types = [25, 25]
+  try    AddMate5 bevel: origins coincident: returned 'CDispatch'
+  fact   mate bevel: origins coincident = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: origins coincident: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 bevel: axis in top plane: returned 'CDispatch'
+  fact   mate bevel: axis in top plane = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: axis in top plane: one mate appears under Mates
+  ok     the two axes select
+  try    AddMate5 bevel: angle between axes: returned 'CDispatch'
+  fact   mate bevel: angle between axes = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: angle between axes: one mate appears under Mates
+  fact   axis_angle_mate_dimensions = [('D1', 1.2217304763960306)]
+  ok     the two top planes select
+  try    AddMate5 bevel: spin by the top planes: returned 'CDispatch'
+  fact   mate bevel: spin by the top planes = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: spin by the top planes: one mate appears under Mates
+  fact   bevel_frame_error = {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0, 'mates': [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Angle1', 'MatePlanarAngleDim'), ('Angle2', 'MatePlanarAngleDim')]}
+  ok     the point and axis-angle mates are made
+  ok     mated, B holds the bevel frame (rotation off 2.22e-16, origin 0.00e+00 mm)
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 2.22e-16, origin by 0.00e+00 mm
+  ok     B's axis and A's right plane select
+  try    AddMate5 crossed: axis to right plane: returned 'CDispatch'
+  fact   mate crossed: axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     crossed: axis to right plane: one mate appears under Mates
+  ok     the two axes select
+  try    AddMate5 crossed: angle between axes: returned 'CDispatch'
+  fact   mate crossed: angle between axes = {'returned': 'CDispatch', 'status': None}
+  ok     crossed: angle between axes: one mate appears under Mates
+  try    select origin of Probe Skew B-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  ok     A's Top Plane selects
+  try    AddMate5 crossed: origin to Top Plane (flip True): returned 'CDispatch'
+  ok     crossed: origin to Top Plane: one mate appears under Mates
+  try    select origin of Probe Skew B-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  ok     A's Front Plane selects
+  try    AddMate5 crossed: origin to Front Plane (flip False): returned 'CDispatch'
+  ok     crossed: origin to Front Plane: one mate appears under Mates
+  fact   point_distance_mate_dimensions = {'Top Plane': [('D1', 0.008)], 'Front Plane': [('D1', 0.012)]}
+  fact   crossed_spin_mate_angle = 97.00000000000001
+  ok     B's top and A's right planes select
+  try    AddMate5 crossed: spin by B's top to A's right: returned 'CDispatch'
+  fact   mate crossed: spin by B's top to A's right = {'returned': 'CDispatch', 'status': None}
+  ok     crossed: spin by B's top to A's right: one mate appears under Mates
+  fact   crossed_first_frame_error = (0.0, 0.0)
+  fact   crossed_second_origin_mm = (60.0, -8.0, 12.0)
+  fact   point_distance_flip_below_plane = True
+  fact   crossed_frame_error = {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0, 'mates': [('Distance1', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim'), ('Distance2', 'MateDistanceDim'), ('Distance3', 'MateDistanceDim'), ('Angle2', 'MatePlanarAngleDim')]}
+  ok     the distance mates are made
+  ok     mated, B holds the crossed frame (rotation off 2.22e-16, origin 0.00e+00 mm)
+pass    layout_planes  (24.7 s)
+  ok     Part89 is in millimetres
+  fact   plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']
+  fact   base_plane_normals = {'front': [0.0, 0.0, 1.0], 'top': [0.0, 1.0, 0.0], 'right': [1.0, 0.0, 0.0]}
+  ok     plane 3 is square to X: [1.0, 0.0, 0.0]
+  ok     plane 2 is square to Y: [0.0, 1.0, 0.0]
+  try    IRefPlane.Transform of Plane1: returned 'list'
+  try    IRefPlane.Transform of Plane2: returned 'list'
+  ok     from right the two flips put the plane 7 mm either side: {'False': 7.0, 'True': -7.0}
+  try    IRefPlane.Transform of Plane3: returned 'list'
+  try    IRefPlane.Transform of Plane4: returned 'list'
+  ok     from top the two flips put the plane 7 mm either side: {'False': 7.0, 'True': -7.0}
+  fact   layout_plane_positions = {'right': {'False': {'origin_mm': [7.0, 0.0, 0.0], 'normal': [1.0, 0.0, 0.0], 'transform_origin_mm': [7.0, 0.0, 0.0], 'transform_normal': [1.0, 0.0, 0.0]}, 'True': {'origin_mm': [-7.0, 0.0, 0.0], 'normal': [1.0, 0.0, 0.0], 'transform_origin_mm': [-7.0, 0.0, 0.0], 'transform_normal': [1.0, 0.0, 0.0]}}, 'top': {'False': {'origin_mm': [0.0, 7.0, 0.0], 'normal': [0.0, 1.0, 0.0], 'transform_origin_mm': [0.0, 7.0, 0.0], 'transform_normal': [0.0, 1.0, 0.0]}, 'True': {'origin_mm': [0.0, -7.0, 0.0], 'normal': [0.0, 1.0, 0.0], 'transform_origin_mm': [-0.0, -7.0, 0.0], 'transform_normal': [0.0, 1.0, 0.0]}}}
+  fact   ref_plane_transform_agrees_with_sketch = {'right False': True, 'right True': True, 'top False': True, 'top True': True}
+  ok     both base planes have a plus-side flip
+  fact   flip False is +X from Right; flip False is +Y from Top
+  ok     renamed 'Probe S1 X Plane', it reads back 'Probe S1 X Plane'
+  ok     Probe S1 X Plane's offset dimension is found by its value
+  ok     Probe S1 X Plane's offset dimension renames to Offset
+  ok     the global "Probe S1 X" is added
+  ok     the link "Offset@Probe S1 X Plane"= "Probe S1 X" is accepted
+  try    IRefPlane.Transform of Probe S1 X Plane: returned 'list'
+  ok     its global set to 23, the X plane moves to 23.0
+  ok     renamed 'Probe S1 Y Plane', it reads back 'Probe S1 Y Plane'
+  ok     Probe S1 Y Plane's offset dimension is found by its value
+  ok     Probe S1 Y Plane's offset dimension renames to Offset
+  ok     the global "Probe S1 Y" is added
+  ok     the link "Offset@Probe S1 Y Plane"= "Probe S1 Y" is accepted
+  try    IRefPlane.Transform of Probe S1 Y Plane: returned 'list'
+  ok     its global set to 23, the Y plane moves to 23.0
+  fact   layout_offset_dim_default_names = {'right': 'D1', 'top': 'D1'}
+  fact   layout_offset_follows_global = {'right': {'set': '"Probe S1 X"= 23', 'plane_at_mm': 23.0}, 'top': {'set': '"Probe S1 Y"= 23', 'plane_at_mm': 23.0}}
+  ok     renamed 'Probe S2 X Plane', it reads back 'Probe S2 X Plane'
+  ok     Probe S2 X Plane's offset dimension is found by its value
+  ok     Probe S2 X Plane's offset dimension renames to Offset
+  ok     the global "Probe S2 X" is added at -7
+  try    negated link, minus: "Offset@Probe S2 X Plane"= - "Probe S2 X": returned 5
+  try    IRefPlane.Transform of Probe S2 X Plane: returned 'list'
+  fact   negated_global_link = {'minus': {'accepted': True, 'global': -11.0, 'plane_at_mm': -11.0}}
+  fact   negated_global_link_form = 'minus'
+pass    axis_through_named_planes  (22.5 s)
+  ok     Part90 is in millimetres
+  ok     renamed 'Probe S1 X Plane', it reads back 'Probe S1 X Plane'
+  ok     renamed 'Probe S1 Y Plane', it reads back 'Probe S1 Y Plane'
+  ok     renamed 'Probe S2 X Plane', it reads back 'Probe S2 X Plane'
+  ok     renamed 'Probe S2 Y Plane', it reads back 'Probe S2 Y Plane'
+  ok     renamed 'Probe S3 X Plane', it reads back 'Probe S3 X Plane'
+  ok     renamed 'Probe S3 Y Plane', it reads back 'Probe S3 Y Plane'
+  fact   returned_by_insert_ref_plane = 'RefPlane'
+  try    Select2 on the feature found by name: Probe S1 X Plane: returned True
+  try    Select2 on the feature found by name: Probe S1 Y Plane: returned True
+  try    InsertAxis2(True) for Probe S1 Axis: returned True
+  ok     InsertAxis2 makes one axis for Probe S1 Axis
+  ok     renamed 'Probe S1 Axis', it reads back 'Probe S1 Axis'
+  ok     S1's axis, by Select2 on the feature found by name lies along Z through (20, 12): it crosses at (20.000000000, 12.000000000) along (0.0, 0.0, -1.0)
+  try    SelectByID2 by name: Probe S2 X Plane: returned True
+  try    SelectByID2 by name: Probe S2 Y Plane: returned True
+  try    InsertAxis2(True) for Probe S2 Axis: returned True
+  ok     InsertAxis2 makes one axis for Probe S2 Axis
+  ok     renamed 'Probe S2 Axis', it reads back 'Probe S2 Axis'
+  ok     S2's axis, by SelectByID2 by name lies along Z through (-15, 30): it crosses at (-15.000000000, 30.000000000) along (0.0, 0.0, -1.0)
+  try    Select2 on what InsertRefPlane returned: Probe S3 X Plane: returned True
+  try    Select2 on what InsertRefPlane returned: Probe S3 Y Plane: returned True
+  try    InsertAxis2(True) for Probe S3 Axis: returned True
+  ok     InsertAxis2 makes one axis for Probe S3 Axis
+  ok     renamed 'Probe S3 Axis', it reads back 'Probe S3 Axis'
+  ok     S3's axis, by Select2 on what InsertRefPlane returned lies along Z through (35, -8): it crosses at (35.000000000, -8.000000000) along (0.0, 0.0, -1.0)
+  fact   axis_plane_select_routes = {'Select2 on the feature found by name': True, 'SelectByID2 by name': True, 'Select2 on what InsertRefPlane returned': True}
+  fact   named_axes = {'S1': {'at_mm': [20.0, 12.0], 'direction': [0.0, 0.0, -1.0]}, 'S2': {'at_mm': [-15.0, 30.0], 'direction': [0.0, 0.0, -1.0]}, 'S3': {'at_mm': [35.0, -8.0], 'direction': [0.0, 0.0, -1.0]}}
+  ok     the planes select by name or by the feature found by name, and an axis is made
+  fact   axis_plane_select_route = 'Select2 on the feature found by name'
+  ok     Probe S1 X Plane's offset dimension is found by its value
+  ok     Probe S1 X Plane's offset dimension renames to Offset
+  ok     the global "Probe S1 X" is added
+  ok     the link "Offset@Probe S1 X Plane"= "Probe S1 X" is accepted
+  ok     Probe S1 Y Plane's offset dimension is found by its value
+  ok     Probe S1 Y Plane's offset dimension renames to Offset
+  ok     the global "Probe S1 Y" is added
+  ok     the link "Offset@Probe S1 Y Plane"= "Probe S1 Y" is accepted
+  ok     Probe S2 X Plane's offset dimension is found by its value
+  ok     Probe S2 X Plane's offset dimension renames to Offset
+  ok     the global "Probe S2 X" is added
+  ok     the link "Offset@Probe S2 X Plane"= "Probe S2 X" is accepted
+  ok     Probe S2 Y Plane's offset dimension is found by its value
+  ok     Probe S2 Y Plane's offset dimension renames to Offset
+  ok     the global "Probe S2 Y" is added
+  ok     the link "Offset@Probe S2 Y Plane"= "Probe S2 Y" is accepted
+  ok     Probe S3 X Plane's offset dimension is found by its value
+  ok     Probe S3 X Plane's offset dimension renames to Offset
+  ok     the global "Probe S3 X" is added
+  ok     the link "Offset@Probe S3 X Plane"= "Probe S3 X" is accepted
+  ok     Probe S3 Y Plane's offset dimension is found by its value
+  ok     Probe S3 Y Plane's offset dimension renames to Offset
+  ok     the global "Probe S3 Y" is added
+  ok     the link "Offset@Probe S3 Y Plane"= "Probe S3 Y" is accepted
+  ok     S1's axis, moved lies along Z through (26, 9): it crosses at (26.000000000, 9.000000000) along (0.0, 0.0, -1.0)
+  ok     after S1 moved, S2's axis lies along Z through (-15, 30): it crosses at (-15.000000000, 30.000000000) along (0.0, 0.0, -1.0)
+  ok     after S1 moved, S3's axis lies along Z through (35, -8): it crosses at (35.000000000, -8.000000000) along (0.0, 0.0, -1.0)
+  fact   named_axes_after_globals = {'S1': {'at_mm': [26.0, 9.0], 'direction': [0.0, 0.0, -1.0]}, 'S2': {'at_mm': [-15.0, 30.0], 'direction': [0.0, 0.0, -1.0]}, 'S3': {'at_mm': [35.0, -8.0], 'direction': [0.0, 0.0, -1.0]}}
+pass    axis_through_base_planes  (14.0 s)
+  ok     axis_through_named_planes decided how planes are selected
+  ok     Part91 is in millimetres
+  ok     renamed 'Probe B1 Y Plane', it reads back 'Probe B1 Y Plane'
+  try    Select2 on the feature found by name: Right Plane: returned True
+  try    Select2 on the feature found by name: Probe B1 Y Plane: returned True
+  ok     B1: the two planes select by Select2 on the feature found by name
+  try    InsertAxis2(True) for Probe B1 Axis: returned True
+  ok     InsertAxis2 makes one axis for Probe B1 Axis
+  ok     renamed 'Probe B1 Axis', it reads back 'Probe B1 Axis'
+  ok     B1's axis lies along Z through (0, 15): it crosses at (0.000000000, 15.000000000) along (0.0, 0.0, -1.0)
+  ok     renamed 'Probe B2 X Plane', it reads back 'Probe B2 X Plane'
+  try    Select2 on the feature found by name: Probe B2 X Plane: returned True
+  try    Select2 on the feature found by name: Top Plane: returned True
+  ok     B2: the two planes select by Select2 on the feature found by name
+  try    InsertAxis2(True) for Probe B2 Axis: returned True
+  ok     InsertAxis2 makes one axis for Probe B2 Axis
+  ok     renamed 'Probe B2 Axis', it reads back 'Probe B2 Axis'
+  ok     B2's axis lies along Z through (25, 0): it crosses at (25.000000000, 0.000000000) along (0.0, 0.0, -1.0)
+  try    Select2 on the feature found by name: Right Plane: returned True
+  try    Select2 on the feature found by name: Top Plane: returned True
+  ok     B3: the two planes select by Select2 on the feature found by name
+  try    InsertAxis2(True) for Probe B3 Axis: returned True
+  ok     InsertAxis2 makes one axis for Probe B3 Axis
+  ok     renamed 'Probe B3 Axis', it reads back 'Probe B3 Axis'
+  ok     B3's axis lies along Z through (0, 0): it crosses at (0.000000000, 0.000000000) along (0.0, 0.0, -1.0)
+  fact   base_plane_axes = {'B1': {'at_mm': [0.0, 15.0], 'direction': [0.0, 0.0, -1.0]}, 'B2': {'at_mm': [25.0, 0.0], 'direction': [0.0, 0.0, -1.0]}, 'B3': {'at_mm': [0.0, 0.0], 'direction': [0.0, 0.0, -1.0]}}
+  ok     every base-plane shaft has its axis
+  ok     Probe B1 Y Plane's offset dimension is found by its value
+  ok     Probe B1 Y Plane's offset dimension renames to Offset
+  ok     the global "Probe B1 Y" is added
+  ok     the link "Offset@Probe B1 Y Plane"= "Probe B1 Y" is accepted
+  ok     Probe B2 X Plane's offset dimension is found by its value
+  ok     Probe B2 X Plane's offset dimension renames to Offset
+  ok     the global "Probe B2 X" is added
+  ok     the link "Offset@Probe B2 X Plane"= "Probe B2 X" is accepted
+  ok     after the globals moved, B1's axis lies along Z through (0, 18): it crosses at (0.000000000, 18.000000000) along (0.0, 0.0, -1.0)
+  ok     after the globals moved, B2's axis lies along Z through (31, 0): it crosses at (31.000000000, 0.000000000) along (0.0, 0.0, -1.0)
+  ok     after the globals moved, B3's axis lies along Z through (0, 0): it crosses at (0.000000000, 0.000000000) along (0.0, 0.0, -1.0)
+  fact   base_plane_axes_after_globals = {'B1': {'at_mm': [0.0, 18.0], 'direction': [0.0, 0.0, -1.0]}, 'B2': {'at_mm': [31.0, 0.0], 'direction': [0.0, 0.0, -1.0]}, 'B3': {'at_mm': [0.0, 0.0], 'direction': [0.0, 0.0, -1.0]}}
+pass    layout_assembly_five  (37.0 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-183754'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe W7 Gearbox.SLDASM does not exist yet
+  ok     Assem14 is in millimetres
+  try    AddComponent5(Probe W7 Layout): returned 'CDispatch'
+  ok     Probe W7 Layout is inserted
+  try    AddComponent5(Probe W7 A): returned 'CDispatch'
+  ok     Probe W7 A is inserted
+  try    AddComponent5(Probe W7 B): returned 'CDispatch'
+  ok     Probe W7 B is inserted
+  try    AddComponent5(Probe W7 C): returned 'CDispatch'
+  ok     Probe W7 C is inserted
+  try    AddComponent5(Probe W7 C): returned 'CDispatch'
+  ok     Probe W7 C is inserted
+  fact   component_names = ['Probe W7 Layout-1', 'Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2']
+  fact   component_instances = {'Probe W7 Layout': ['Probe W7 Layout-1'], 'Probe W7 A': ['Probe W7 A-1'], 'Probe W7 B': ['Probe W7 B-1'], 'Probe W7 C': ['Probe W7 C-1', 'Probe W7 C-2']}
+  ok     every component has a name of its own: ['Probe W7 Layout-1', 'Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2']
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 2.22e-16, origin by 0.00e+00 mm
+  fact   place_routes = ['Transform2 put (columns)']
+  fact   fixed_on_insert = {'Probe W7 Layout-1': True, 'Probe W7 A-1': False, 'Probe W7 B-1': False, 'Probe W7 C-1': False, 'Probe W7 C-2': False}
+  ok     Probe W7 A-1 selects
+  try    FixComponent() on Probe W7 A-1: returned None
+  ok     Probe W7 B-1 selects
+  try    FixComponent() on Probe W7 B-1: returned None
+  ok     Probe W7 C-1 selects
+  try    FixComponent() on Probe W7 C-1: returned None
+  ok     Probe W7 C-2 selects
+  try    FixComponent() on Probe W7 C-2: returned None
+  fact   fixed_after_fix_component = {'Probe W7 Layout-1': True, 'Probe W7 A-1': True, 'Probe W7 B-1': True, 'Probe W7 C-1': True, 'Probe W7 C-2': True}
+  ok     every component is fixed: {'Probe W7 Layout-1': True, 'Probe W7 A-1': True, 'Probe W7 B-1': True, 'Probe W7 C-1': True, 'Probe W7 C-2': True}
+  ok     Probe W7 Layout-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 A-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 B-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-2 keeps its frame once fixed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  fact   frames_after_fix = {'Probe W7 Layout-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 A-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 B-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 C-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 C-2': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0}}
+  try    SaveAs3(the assembly, current version, silent): returned True
+  ok     the assembly is saved at C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe W7 Gearbox.SLDASM: True
+  fact   assembly_title_after_save = 'Probe W7 Gearbox.SLDASM'
+  ok     the assembly and its parts are all closed
+pass    layout_assembly_reopen  (8.1 s)
+  ok     layout_assembly_five left an assembly to reopen
+  ok     none of its files is open
+  fact   swconst_path = 'C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS (2)\\swconst.tlb'
+  fact   open_doc_options = {'swOpenDocOptions_Silent': 1, 'swOpenDocOptions_ReadOnly': 2, 'swOpenDocOptions_ViewOnly': 4, 'swOpenDocOptions_RapidDraft': 8, 'swOpenDocOptions_LoadModel': 16, 'swOpenDocOptions_AutoMissingConfig': 32, 'swOpenDocOptions_OverrideDefaultLoadLightweight': 64, 'swOpenDocOptions_LoadLightweight': 128, 'swOpenDocOptions_DontLoadHiddenComponents': 256, 'swOpenDocOptions_LoadExternalReferencesInMemory': 512, 'swOpenDocOptions_OpenDetailingMode': 1024, 'swOpenDocOptions_LDR_EditAssembly': 2048, 'swOpenDocOptions_SpeedPak': 4096, 'swOpenDocOptions_AdvancedConfig': 8192}
+  try    OpenDoc6(Probe W7 Gearbox.SLDASM): returned 'CDispatch'
+  fact   open Probe W7 Gearbox.SLDASM = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  fact   open_assembly_route = 'OpenDoc6'
+  fact   opened_assembly_is_active = True
+  try    GetComponentCount(True): returned 5
+  fact   component_count_after_reopen = 5
+  try    GetComponentByName(Probe W7 Layout-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 A-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 B-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-2): returned 'CDispatch'
+  try    GetComponents(True): returned 'dict'
+  try    GetActiveConfiguration, GetRootComponent3(True), GetChildren: returned 'dict'
+  try    FeatureByName(Probe W7 Layout-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 A-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 B-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-2).GetSpecificFeature2: returned 'CDispatch'
+  fact   component_find_routes = {'GetComponentByName': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'GetComponents(True) by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'root component GetChildren by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'FeatureByName then GetSpecificFeature2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1']}
+  ok     some route finds all 5 components by name: {'GetComponentByName': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'GetComponents(True) by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'root component GetChildren by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'FeatureByName then GetSpecificFeature2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1']}
+  fact   component_find_route = 'GetComponentByName'
+  try    GetSuppression2 of Probe W7 Layout-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 A-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 B-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 C-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 C-2: returned 'tuple'
+  fact   suppression_after_reopen = {'Probe W7 Layout-1': 2, 'Probe W7 A-1': 2, 'Probe W7 B-1': 2, 'Probe W7 C-1': 2, 'Probe W7 C-2': 2}
+  fact   swconst_path = 'C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS (2)\\swconst.tlb'
+  fact   suppression_states = {'swComponentSuppressed': 0, 'swComponentLightweight': 1, 'swComponentFullyResolved': 2, 'swComponentResolved': 3, 'swComponentFullyLightweight': 4, 'swComponentInternalIdMismatch': 5}
+  ok     Probe W7 Layout-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 A-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 B-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-2 is where it was left, and fixed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  fact   frames_after_reopen = {'Probe W7 Layout-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 A-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 B-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 C-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 C-2': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0, 'fixed': True}}
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 A-1 (fixed): returned None
+  ok     Probe W7 A-1 is re-placed: Transform2 put
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 B-1 (fixed): returned None
+  ok     Probe W7 B-1 is re-placed: Transform2 put
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 C-1 (fixed): returned None
+  ok     Probe W7 C-1 is re-placed: Transform2 put
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 C-2 (fixed): returned None
+  ok     Probe W7 C-2 is re-placed: Transform2 put
+  fact   replace_routes = {'Probe W7 A-1': 'Transform2 put', 'Probe W7 B-1': 'Transform2 put', 'Probe W7 C-1': 'Transform2 put', 'Probe W7 C-2': 'Transform2 put'}
+  ok     every gear re-places by one route: {'Probe W7 A-1': 'Transform2 put', 'Probe W7 B-1': 'Transform2 put', 'Probe W7 C-1': 'Transform2 put', 'Probe W7 C-2': 'Transform2 put'}
+  fact   replace_fixed_route = 'Transform2 put'
+  ok     Probe W7 Layout-1, not re-placed, did not move
+  fact   frames_not_replaced = {'Probe W7 Layout-1': {'rotation': 0.0, 'origin_mm': 0.0}}
+  try    SaveAs3 the re-placed assembly to Probe W7 Gearbox.SLDASM: returned True
+  ok     the re-placed assembly saves
+  try    OpenDoc6(Probe W7 Gearbox.SLDASM): returned 'CDispatch'
+  fact   open Probe W7 Gearbox.SLDASM = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  try    GetComponentByName(Probe W7 A-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 B-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-2): returned 'CDispatch'
+  try    GetComponents(True): returned 'dict'
+  try    GetActiveConfiguration, GetRootComponent3(True), GetChildren: returned 'dict'
+  try    FeatureByName(Probe W7 A-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 B-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-2).GetSpecificFeature2: returned 'CDispatch'
+  ok     opened again, Probe W7 A-1 is found by the same route
+  ok     opened again, Probe W7 A-1 is where it was re-placed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  ok     opened again, Probe W7 B-1 is found by the same route
+  ok     opened again, Probe W7 B-1 is where it was re-placed (rotation off 2.2e-16, origin 3.7e-15 mm)
+  ok     opened again, Probe W7 C-1 is found by the same route
+  ok     opened again, Probe W7 C-1 is where it was re-placed (rotation off 1.1e-16, origin 0.0e+00 mm)
+  ok     opened again, Probe W7 C-2 is found by the same route
+  ok     opened again, Probe W7 C-2 is where it was re-placed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  fact   replaced_frames_after_second_open = {'Probe W7 A-1': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0}, 'Probe W7 B-1': {'rotation': 2.220446049250313e-16, 'origin_mm': 3.66205343881779e-15}, 'Probe W7 C-1': {'rotation': 1.1102230246251565e-16, 'origin_mm': 0.0}, 'Probe W7 C-2': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0}}
+  ok     the assembly and its parts are all closed
+pass    open_and_activate_part  (7.5 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-183754'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe W7 Open.SLDPRT does not exist yet
+  ok     Part96 is in millimetres
+  ok     the global "Probe Teeth" is added
+  try    SaveAs3 the part to Probe W7 Open.SLDPRT: returned True
+  ok     the part is saved
+  ok     the part is on disk at C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe W7 Open.SLDPRT
+  ok     the part is closed
+  ok     another document is active, as the user's would be
+  try    OpenDoc6(Probe W7 Open.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Open.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  fact   open_doc_route = 'OpenDoc6'
+  fact   opened_part_title = 'Probe W7 Open.SLDPRT'
+  fact   open_doc_makes_active = True
+  try    ActivateDoc3(Probe W7 Open.SLDPRT): returned 'CDispatch'
+  ok     ActivateDoc3 makes the opened part active
+  ok     the active document's path is the part's
+  try    swbuild.update_variables(Probe Teeth = 13): returned 'UpdateResult'
+  fact   update_after_open = {'ok': True, 'changed': ['Probe Teeth'], 'failures': [], 'rebuilt': True, 'document': 'Probe W7 Open.SLDPRT'}
+  ok     update_variables accepts the opened part and changes the global: {'ok': True, 'changed': ['Probe Teeth'], 'failures': [], 'rebuilt': True, 'document': 'Probe W7 Open.SLDPRT'}
+  ok     "Probe Teeth" reads 13.0
+  try    ActivateDoc3(Part97): returned 'CDispatch'
+  ok     the other document is active again
+  try    OpenDoc6(Probe W7 Open.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Open.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  fact   open_doc_on_open_part = {'route': 'OpenDoc6', 'title': 'Probe W7 Open.SLDPRT', 'same_title': True, 'made_active': False}
+  ok     opening an open part gives back the same document
+  try    ActivateDoc3(Probe W7 Open.SLDPRT): returned 'CDispatch'
+  ok     ActivateDoc3 brings the open part forward
+  try    swbuild.update_variables(Probe Teeth = 14): returned 'UpdateResult'
+  fact   update_after_reactivate = {'ok': True, 'changed': ['Probe Teeth'], 'failures': [], 'rebuilt': True, 'document': 'Probe W7 Open.SLDPRT'}
+  ok     update_variables accepts it again: {'ok': True, 'changed': ['Probe Teeth'], 'failures': [], 'rebuilt': True, 'document': 'Probe W7 Open.SLDPRT'}
+pass    open_part_from_assembly  (6.1 s)
+  ok     layout_assembly_five left an assembly
+  try    OpenDoc6(Probe W7 Gearbox.SLDASM): returned 'CDispatch'
+  fact   open Probe W7 Gearbox.SLDASM = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  fact   component_part_listed_open_with_assembly = True
+  try    OpenDoc6(Probe W7 A.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 A.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  fact   open_component_part = {'route': 'OpenDoc6', 'title': 'Probe W7 A.SLDPRT', 'made_active': False, 'assembly': 'Probe W7 Gearbox.SLDASM'}
+  try    ActivateDoc3(Probe W7 A.SLDPRT): returned 'CDispatch'
+  ok     ActivateDoc3 makes the component's part active
+  ok     the active document's path is the part's
+  ok     a global is added to the part
+  try    swbuild.update_variables(Probe Teeth = 21): returned 'UpdateResult'
+  fact   update_component_part = {'ok': True, 'changed': ['Probe Teeth'], 'failures': [], 'rebuilt': True, 'document': 'Probe W7 A.SLDPRT'}
+  ok     update_variables accepts a part the assembly has open: {'ok': True, 'changed': ['Probe Teeth'], 'failures': [], 'rebuilt': True, 'document': 'Probe W7 A.SLDPRT'}
+  ok     "Probe Teeth" reads 21
+  ok     the assembly and its parts are all closed
+pass    layout_part_without_body  (33.0 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-183754'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe W7 Bodiless.SLDASM does not exist yet
+  ok     Part98 is in millimetres
+  ok     renamed 'S1 X Plane', it reads back 'S1 X Plane'
+  ok     renamed 'S1 Y Plane', it reads back 'S1 Y Plane'
+  try    Select2 on the feature found by name: S1 X Plane: returned True
+  try    Select2 on the feature found by name: S1 Y Plane: returned True
+  ok     S1's planes select by Select2 on the feature found by name
+  try    InsertAxis2(True) for S1 Axis: returned True
+  ok     InsertAxis2 makes one axis for S1 Axis
+  ok     renamed 'S1 Axis', it reads back 'S1 Axis'
+  ok     S1 Axis is made
+  ok     S1 Axis in the layout part lies along Z through (20, 12): it crosses at (20.000000000, 12.000000000) along (0.0, 0.0, -1.0)
+  ok     renamed 'S2 X Plane', it reads back 'S2 X Plane'
+  ok     renamed 'S2 Y Plane', it reads back 'S2 Y Plane'
+  try    Select2 on the feature found by name: S2 X Plane: returned True
+  try    Select2 on the feature found by name: S2 Y Plane: returned True
+  ok     S2's planes select by Select2 on the feature found by name
+  try    InsertAxis2(True) for S2 Axis: returned True
+  ok     InsertAxis2 makes one axis for S2 Axis
+  ok     renamed 'S2 Axis', it reads back 'S2 Axis'
+  ok     S2 Axis is made
+  ok     S2 Axis in the layout part lies along Z through (-15, 30): it crosses at (-15.000000000, 30.000000000) along (0.0, 0.0, -1.0)
+  fact   bodiless_solid_bodies = 0
+  ok     the layout part has no solid body
+  try    SaveAs3 the layout part to Probe W7 Bodiless Layout.SLDPRT: returned True
+  ok     the layout part saves
+  try    OpenDoc6(Probe W7 Bodiless Layout.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Bodiless Layout.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  ok     Assem15 is in millimetres
+  try    AddComponent5(the body-less layout part): returned 'CDispatch'
+  ok     the body-less part is inserted
+  fact   bodiless_insert = {'asked_mm': [12.0, -7.0, 3.0], 'landed_mm': [12.0, -7.0, 3.0], 'rotation_off_identity': 0.0, 'fixed_on_insert': True}
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  ok     the layout component is fixed
+  ok     a gear is inserted beside it
+  try    IMathUtility.CreateTransform(list): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised DISP_E_MEMBERNOTFOUND — Member not found.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    with a body-less component: IAssemblyDoc.InterferenceDetectionManager: returned 'CDispatch'
+  try    with a body-less component: set TreatCoincidenceAsInterference = False: returned None
+  try    with a body-less component: set TreatSubAssembliesAsComponents = True: returned None
+  try    with a body-less component: set IncludeMultibodyPartInterferences = True: returned None
+  try    with a body-less component: set MakeInterferingPartsTransparent = False: returned None
+  try    with a body-less component: set CreateFastenersFolder = False: returned None
+  try    with a body-less component: set IgnoreHiddenBodies = True: returned None
+  try    with a body-less component: set ShowIgnoredInterferences = False: returned None
+  try    with a body-less component: set UseTransform = False: returned None
+  try    with a body-less component: GetInterferenceCount: returned 'tuple'
+  try    with a body-less component: GetInterferences: returned 'tuple'
+  try    with a body-less component: Done: returned 'tuple'
+  fact   bodiless_interference = {'count': 0, 'count_form': 'property', 'listed': 0, 'list_form': 'property', 'volumes_mm3': [], 'done_form': 'method'}
+  ok     interference detection runs and finds nothing: {'count': 0, 'count_form': 'property', 'listed': 0, 'list_form': 'property', 'volumes_mm3': [], 'done_form': 'method'}
+  try    SaveAs3 the assembly with a body-less component: returned True
+  fact   bodiless_save = {'returned': True, 'errors': 0, 'warnings': 0}
+  ok     the assembly is saved
+  try    OpenDoc6(Probe W7 Bodiless.SLDASM): returned 'CDispatch'
+  fact   open Probe W7 Bodiless.SLDASM = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  try    GetComponentByName(Probe W7 Bodiless Layout-1): returned 'CDispatch'
+  ok     Probe W7 Bodiless Layout-1 is found by name after the reopen
+  try    GetSuppression2 of Probe W7 Bodiless Layout-1: returned 'tuple'
+  fact   bodiless_after_reopen = {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True, 'suppression': 2}
+  ok     Probe W7 Bodiless Layout-1 is at identity and fixed after the reopen
+  fact   bodiless_axes_reachable = {'S1 Axis': {'FeatureByName then Select2': True, 'SelectByID2 S1 Axis@<component>@<assembly>': True}, 'S2 Axis': {'FeatureByName then Select2': True, 'SelectByID2 S2 Axis@<component>@<assembly>': True}}
+  ok     each named axis selects in the assembly: {'S1 Axis': {'FeatureByName then Select2': True, 'SelectByID2 S1 Axis@<component>@<assembly>': True}, 'S2 Axis': {'FeatureByName then Select2': True, 'SelectByID2 S2 Axis@<component>@<assembly>': True}}
+  ok     everything this probe opened is closed
+pass    add_component_opened_part  (21.8 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-183754'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\Probe W7 Reuse.SLDASM does not exist yet
+  ok     both parts are saved and closed
+  ok     Assem16 is in millimetres
+  try    AddComponent5(a part saved and closed): returned None
+  fact   add a part saved and closed = {'inserted': False, 'error': 'returned nothing'}
+  fact   closed_part_listed_open_after_insert = False
+  try    OpenDoc6(Probe W7 Reuse.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Reuse.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  fact   active_after_opening_the_part = 'Probe W7 Reuse.SLDPRT'
+  try    AddComponent5(a part opened by path, the part active): returned 'CDispatch'
+  fact   add a part opened by path, the part active = {'inserted': True, 'name': 'Probe W7 Reuse-1', 'landed_mm': [25.0, 10.0, -5.0]}
+  try    AddComponent5(the same file a second time): returned 'CDispatch'
+  fact   add the same file a second time = {'inserted': True, 'name': 'Probe W7 Reuse-2', 'landed_mm': [25.0, 10.0, -5.0]}
+  fact   same_file_twice_names = ['Probe W7 Reuse-1', 'Probe W7 Reuse-2']
+  fact   add_component_routes = {'closed': False, 'opened': True}
+  ok     a part not built this session can be added somehow: {'closed': False, 'opened': True}
+  fact   reuse_add_route = 'opened'
+  try    SaveAs3 the assembly to Probe W7 Reuse.SLDASM: returned True
+  ok     the assembly saves
+  ok     everything this probe opened is closed
+pass    layout_plane_negative_global  (4.9 s)
+  ok     layout_planes said which flip is +X
+  ok     Part102 is in millimetres
+  ok     renamed 'Probe N X Plane', it reads back 'Probe N X Plane'
+  ok     Probe N X Plane's offset dimension is found by its value
+  ok     Probe N X Plane's offset dimension renames to Offset
+  ok     the global "Probe N X" is added
+  ok     the link "Offset@Probe N X Plane"= "Probe N X" is accepted
+  try    ForceRebuild3 with the global below zero: returned True
+  try    GetErrorCode2 of the plane: returned 0
+  try    IRefPlane.Transform of Probe N X Plane: returned 'list'
+  try    measure the plane: returned 7.0
+  fact   negative_global = {'equation': '"Probe N X"= -9', 'global_value': -9.0, 'rebuild': True, 'error_code': 0, 'offset_mm': 7.0, 'plane_x_mm': 7.0}
+  fact   crosses_zero = False
+  ok     where the plane went could be read: 7.0
+pass    interference_components  (27.8 s)
+  ok     there is a scratch folder to save parts in
+  ok     Assem17 is in millimetres
+  ok     Probe W7 Clash A.SLDPRT is inserted at x 0
+  ok     Probe W7 Clash B.SLDPRT is inserted at x 30
+  ok     Probe W7 Clash C.SLDPRT is inserted at x 80
+  fact   clash_component_names = ['Probe W7 Clash A-1', 'Probe W7 Clash B-1', 'Probe W7 Clash C-1']
+  ok     the assembly has an interference detection manager
+  try    interference 0: GetComponentCount: returned 'tuple'
+  try    interference 0: Components: returned 'tuple'
+  fact   interference_entries = [{'volume_mm3': 1813.2470159104396, 'component_count': 2, 'names': ['Probe W7 Clash A-1', 'Probe W7 Clash B-1'], 'route': 'Components (property)', 'shape': 'tuple'}]
+  ok     one interference, the lens of 1813.247 mm³: [{'volume_mm3': 1813.2470159104396, 'component_count': 2, 'names': ['Probe W7 Clash A-1', 'Probe W7 Clash B-1'], 'route': 'Components (property)', 'shape': 'tuple'}]
+  ok     the interference's components can be read: [{'volume_mm3': 1813.2470159104396, 'component_count': 2, 'names': ['Probe W7 Clash A-1', 'Probe W7 Clash B-1'], 'route': 'Components (property)', 'shape': 'tuple'}]
+  ok     it is between ['Probe W7 Clash A-1', 'Probe W7 Clash B-1'], not Probe W7 Clash C-1: ['Probe W7 Clash A-1', 'Probe W7 Clash B-1']
+  fact   interference_components_route = 'Components (property)'
+pass    add_component_same_name_elsewhere  (13.4 s)
+  ok     add_component_opened_part left a part to clash with
+  ok     the clash part is at C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-183754\other\Probe W7 Reuse.SLDPRT
+  ok     Assem18 is in millimetres
+  try    OpenDoc6(Probe W7 Reuse.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Reuse.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  try    AddComponent5(the original): returned 'CDispatch'
+  fact   add the original = {'inserted': True, 'name': 'Probe W7 Reuse-1', 'landed_mm': [25.0, 10.0, -5.0]}
+  ok     the original part is inserted
+  try    OpenDoc6 of the same file name from another folder: returned None
+  fact   same_name_open = {'returned': False, 'path': None, 'errors': 65536, 'warnings': 0}
+  fact   swconst_path = 'C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS (2)\\swconst.tlb'
+  fact   same_name_open_error_names = ['swFileWithSameTitleAlreadyOpen']
+  try    ActivateDoc3(Assem18): returned 'CDispatch'
+  try    AddComponent5(a part of the same file name from another folder): returned None
+  fact   add a part of the same file name from another folder = {'inserted': False, 'error': 'returned nothing'}
+  fact   same_name_elsewhere = {'inserted': False}
+decide  flank_recipe = STOP
+decide  trig_default = None
+decide  equation_add_call = Add2
+decide  equation_set_route = indexed put Equation(i)
+decide  set_units_mmgs_after_new = False
+decide  plane_select_route = Select2 checked by count, then SelectByID2 by tree name
+decide  equal_constraint = sgSAMELENGTH
+decide  circle_dimension = diameter
+decide  arc_dimension = radius
+decide  curve_trig = None
+decide  curves_are_fixed = None
+decide  shared_ends_are_one_point = None
+decide  cut_end_condition = None
+decide  pattern_count_dim_index = None
+decide  save_as_overwrites = True
+decide  first_component_fixed = True
+decide  end_to_end = False
+decide  helix_route = STOP
+decide  herringbone_route = STOP
+decide  inverse_tangent = None
+decide  extrude_z_sign = 1
+decide  top_sketch_y_is_minus_z = True
+decide  ref_plane_unflipped_is_plus_z = True
+decide  twist_turn = None
+decide  twist_reverse_flips = None
+decide  mirror_body_route = None
+decide  helical_end_to_end = False
+decide  annulus_extrudes = None
+decide  interference_route = {'count': 'property', 'list': 'property', 'done': 'method'}
+decide  internal_end_to_end = False
+decide  revolve_axis_mark = None
+decide  bevel_section_x_sign = None
+decide  bevel_crown_section_x_sign = None
+decide  bevel_internal_section_x_sign = None
+decide  loft_cut_route = None
+decide  loft_cut_type = None
+decide  place_route = Transform2 put
+decide  transform_array_order = columns
+decide  origin_select_route = SelectByID2 EXTSKETCHPOINT Point1@Origin
+decide  bevel_mate_route = mates
+decide  crossed_route = mates
+decide  custom_property_route = None
+decide  custom_info_text = None
+decide  custom_property_replace = None
+decide  property_read_route = None
+decide  property_links_globals = None
+decide  gear_mate_route = None
+decide  mate_gear_type = None
+decide  gear_mate_numerator_first = None
+decide  gear_mate_external_flip = None
+decide  bevel_end_to_end = False
+decide  crossed_end_to_end = False
+decide  workbook_layout_route = layout
+decide  layout_plus_flip = {'right': False, 'top': False}
+decide  layout_negated_link = minus
+decide  axis_plane_select_route = Select2 on the feature found by name
+decide  axis_through_base_plane = True
+decide  component_find_route = GetComponentByName
+decide  replace_fixed_route = Transform2 put
+decide  open_assembly_route = OpenDoc6
+decide  update_open_route = open and activate
+decide  open_doc_route = OpenDoc6
+decide  open_doc_makes_active = True
+decide  open_part_beside_assembly = True
+decide  offset_global_crosses_zero = False
+decide  components_resolved_after_reopen = True
+decide  reuse_add_route = opened
+decide  interference_names_route = Components (property)
+decide  same_name_elsewhere_inserted = False
+decide  manual_steps = ['material', 'link the centre distance mate in Equations']
+done    32 pass

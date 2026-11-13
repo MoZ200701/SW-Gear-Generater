@@ -15,15 +15,29 @@ with `<user document N>`. The probe's own documents keep their names.
 | 20261102-211723 | 36 pass, 1 HUNG, 7 NOT RUN | `assembly_distance_link` hung on a modal "Save Modified Documents" when the probe closed its scratch assembly. 2026 never asked. Fixed in the probe: `scaffold.save_created_parts` saves the probe's own parts first. The app never closes documents, so it is not affected. |
 | 20261103-130406 | **44 pass** | In a freshly started SolidWorks: every end-to-end build (spur, helical, internal, bevel, crossed) passes through `swbuild.build`, with the same decisions as 2026. |
 | 20261113-165651 | **24 pass** | The three probes written without SolidWorks, `bevel_planes_beyond_90`, `custom_properties` and `gear_mate` (with what they need), in the user's own session with one of their documents open. Every fact matches the 2026 run of the same day (`../probe-results-20261113-164531`): the same signs, enum values, read route and turns. Run in the user's session rather than a fresh one, because the probe attaches to the newest session and cannot be pointed at a second 2024. |
+| 20261113-184353 | **32 pass** | Probe tier 7 (`p7_workbook`, PLAN-WORKBOOK §4.2) with its extras and what it needs, in the user's session: the workbook's layout part and static assembly. Every decision matches the 2026 full run (`../probe-results-20261113-183654`). The one difference is the template's: the first component of a new assembly came in fixed here, floating on 2026. Components came back fully resolved after a reopen. `tests/test_findings.py` pins tier 7 against this file and 2026's `latest.json` alike. The session grew from 6.9 to 10.3 GB. |
+| 20261113-184630 | **16 pass** | `gear_mate` again, now fixing its first cylinder before unfixing it, so `UnfixComponent` is really exercised (here the cylinder came in fixed anyway). Same findings: numerator first, Flip False turns an external pair opposite ways. |
+| `gear-pairs-20261113-184641.log` | spur, ring ok | `probe/gear_pairs_check.py`: a 20 / 40 spur pair and a 20-tooth pinion in a 60-tooth ring, built through `pair.assembly_plan` to turn, gear 1 driven 30°. Spur 1 : 2 opposite ways; ring and pinion 3 : 1 the same way with Flip False, no interference after the turn. With Flip True (what `pair.py` used to give a ring) the pinion turned against the ring and the teeth clashed (2026, `../gear-pairs-20261113-173157-ring-flip-true-before-the-fix.log`; fixed, `../gear-pairs-20261113-173930.log`). The crown and internal bevel pairs were not built here: the session was at 12 GB with 3.9 GB free. They built clean on 2026. |
 
-Two decisions read differently, and neither changes the build:
+Where 2024 and 2026 differ (2026-11-13; the 2026 evidence is `../latest.json`):
 
-- `set_units_mmgs_after_new` is False because this machine's 2024 default template
-  is already millimetres, so there was nothing to set. The build skips setting
-  units when a part is already in millimetres. Setting an inch template to MMGS
-  has not been exercised on 2024.
+- `first_component_fixed` is True on 2024 and False on 2026. Not a version
+  difference but a template one: this machine's 2026 default assembly template
+  is now `MMGS 8 Decimals.asmdot`, with which the first component comes in
+  floating; the stock template fixed it on 2026 too (2026-09-15). The build fixes
+  or unfixes each component itself, so it does not depend on either.
+- `set_units_mmgs_after_new` no longer differs: both defaults are millimetres,
+  so there is nothing to set. Setting an inch template to MMGS is pinned by the
+  2026-09-15 run (`../probe-results-20260915-023929.json`) and has not been
+  exercised on 2024.
 - `shared_ends_are_one_point` is None in 20261103-130406 only because that probe
   was not among those run; it matched 2026 in 20261102-194425.
+
+`latest.json` here is the last FULL 2024 run, 20261103-130406 (44 pass, every
+end-to-end build). Shorter runs made since, in the user's own session, are kept
+as their timestamped files and listed in the table, but do not replace it: a
+partial run's decisions (`flank_recipe` STOP, `end_to_end` False) are what the
+probes it left out would have said, not what 2024 does.
 
 The end-to-end builds are memory-hungry on 2024: SolidWorks went from 0.3 GB to
 12 GB during the helical build and gave most of it back afterwards. A session

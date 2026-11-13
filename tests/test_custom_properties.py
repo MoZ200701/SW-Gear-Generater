@@ -38,7 +38,7 @@ def _props(plan):
 
 @pytest.fixture
 def settled(monkeypatch):
-    for name, value in (("CUSTOM_PROPERTY_ROUTE", "Add3"), ("CUSTOM_INFO_TEXT", 30), ("CUSTOM_PROPERTY_REPLACE", 1),
+    for name, value in (("CUSTOM_PROPERTY_ROUTE", "Add3"), ("CUSTOM_INFO_TEXT", 30), ("CUSTOM_PROPERTY_REPLACE", 2),
                         ("PROPERTY_READ_ROUTE", "Get6 with by-reference outs"), ("PROPERTY_LINKS_GLOBALS", False)):
         monkeypatch.setattr(findings, name, value)
 

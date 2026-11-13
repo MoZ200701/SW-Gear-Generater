@@ -76,6 +76,25 @@ def test_units(evidence):
         assert units["set_mmgs_default"]["linear_after"] == findings.LENGTH_MM
 
 
+INCH_DEFAULT_RUN = LATEST.parent / "probe-results-20260915-023929.json"
+
+
+def test_an_inch_default_template_is_set_to_millimetres():
+    """Probe document_units on the stock 2026 templates (2026-09-15), whose default part was inches.
+
+    The machine's defaults are millimetres now, so latest.json no longer shows
+    the inch route the build still takes for an inch template; this run does.
+    """
+    data = json.loads(INCH_DEFAULT_RUN.read_text(encoding="utf-8"))
+    assert data["meta"]["version"] == "SolidWorks 2026 (revision 34.0.0)"
+    units = facts({r["name"]: r for r in data["records"]}, "document_units")
+    assert units["default_template_is_mm"] is False
+    assert units["units_default"]["linear"] == 3          # swLengthUnit_e.swINCHES
+    assert units["set_mmgs_works"] is True
+    assert units["set_mmgs_default"]["linear_after"] == findings.LENGTH_MM
+    assert decide.decide({r["name"]: r for r in data["records"]})["set_units_mmgs_after_new"] is True
+
+
 def test_constrained_status(evidence):
     _, records, _ = evidence
     status = facts(records, "constrained_status")
@@ -180,3 +199,109 @@ def test_custom_property_decisions(evidence):
     assert decided["custom_property_replace"] == findings.CUSTOM_PROPERTY_REPLACE
     assert decided["property_read_route"] == findings.PROPERTY_READ_ROUTE
     assert decided["property_links_globals"] is findings.PROPERTY_LINKS_GLOBALS
+
+
+# -- tier 7, on both versions: W4's layout and assembly must build on 2024 and 2026 alike
+
+# The 2024 tier-7 run, in the user's own session; sw2024/latest.json stays that folder's last FULL run.
+SW2024 = LATEST.parent / "sw2024" / "probe-results-20261113-184353.json"
+
+
+@pytest.fixture(scope="module", params=["2026", "2024"])
+def tier_seven(request):
+    path = LATEST if request.param == "2026" else SW2024
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["meta"]["version"].startswith(f"SolidWorks {request.param} ")
+    records = {r["name"]: r for r in data["records"]}
+    return records, decide.decide(records)
+
+
+def test_layout_planes_from_right_and_top(tier_seven):
+    """Probes layout_planes and layout_plane_negative_global: unflipped is the plus side; a global cannot cross zero."""
+    records, decided = tier_seven
+    planes = facts(records, "layout_planes")
+    assert decided["layout_plus_flip"] == findings.LAYOUT_PLUS_FLIP
+    for base, axis in (("right", 0), ("top", 1)):
+        plus = str(findings.LAYOUT_PLUS_FLIP[base])
+        assert planes["layout_plane_positions"][base][plus]["origin_mm"][axis] == pytest.approx(7.0)
+        assert planes["layout_offset_follows_global"][base]["plane_at_mm"] == pytest.approx(23.0)
+        assert planes["layout_offset_dim_default_names"][base] == findings.LAYOUT_OFFSET_DIM
+    assert decided["layout_negated_link"] == findings.LAYOUT_NEGATED_LINK
+    assert planes["negated_global_link"][findings.LAYOUT_NEGATED_LINK]["plane_at_mm"] == pytest.approx(-11.0)
+    if "layout_plane_negative_global" in records:     # an extra, left off in the user's 2024 session
+        assert decided["offset_global_crosses_zero"] is findings.OFFSET_GLOBAL_CROSSES_ZERO
+        dropped = facts(records, "layout_plane_negative_global")["negative_global"]
+        assert dropped["global_value"] == -9.0 and dropped["rebuild"] is True and dropped["error_code"] == 0
+        assert dropped["plane_x_mm"] == pytest.approx(7.0)            # silently left where it was
+
+
+def test_layout_axes(tier_seven):
+    """Probes axis_through_named_planes and axis_through_base_planes: every route made the axis where the planes cross."""
+    records, decided = tier_seven
+    assert decided["axis_plane_select_route"] == findings.AXIS_PLANE_SELECT_ROUTE
+    named = facts(records, "axis_through_named_planes")
+    assert all(named["axis_plane_select_routes"].values())
+    assert named["named_axes_after_globals"]["S1"]["at_mm"] == pytest.approx([26.0, 9.0])
+    base = facts(records, "axis_through_base_planes")
+    assert decided["axis_through_base_plane"] is findings.AXIS_THROUGH_BASE_PLANE
+    assert base["base_plane_axes_after_globals"]["B1"]["at_mm"] == pytest.approx([0.0, 18.0])
+    assert base["base_plane_axes_after_globals"]["B2"]["at_mm"] == pytest.approx([31.0, 0.0])
+    for axis in list(named["named_axes"].values()) + list(base["base_plane_axes"].values()):
+        assert axis["direction"] == pytest.approx([0.0, 0.0, float(findings.LAYOUT_AXIS_Z_SIGN)])
+
+
+def test_layout_assembly(tier_seven):
+    """Probes layout_assembly_five and layout_assembly_reopen: found by name after a reopen, re-placed while fixed."""
+    records, decided = tier_seven
+    assert decided["workbook_layout_route"] == findings.WORKBOOK_LAYOUT_ROUTE
+    assert decided["component_find_route"] == findings.COMPONENT_FIND_ROUTE
+    assert decided["replace_fixed_route"] == findings.REPLACE_FIXED_ROUTE
+    assert decided["open_assembly_route"] == findings.OPEN_ASSEMBLY_ROUTE
+    five = facts(records, "layout_assembly_five")
+    assert five["component_instances"]["Probe W7 C"] == ["Probe W7 C-1", "Probe W7 C-2"]
+    assert all(five["fixed_after_fix_component"].values())
+    reopened = facts(records, "layout_assembly_reopen")
+    assert all(v["fixed"] for v in reopened["frames_after_reopen"].values())
+    assert all(v["origin_mm"] < 1e-6 for v in reopened["replaced_frames_after_second_open"].values())
+
+
+def test_opening_a_part_for_update(tier_seven):
+    """Probes open_and_activate_part and open_part_from_assembly: OpenDoc6, then ActivateDoc3, then update_variables."""
+    records, decided = tier_seven
+    assert decided["update_open_route"] == findings.UPDATE_OPEN_ROUTE
+    assert decided["open_doc_route"] == findings.OPEN_DOC_ROUTE
+    assert decided["open_part_beside_assembly"] is findings.OPEN_PART_BESIDE_ASSEMBLY
+    opened = facts(records, "open_and_activate_part")
+    assert opened["open Probe W7 Open.SLDPRT"]["errors"] == 0
+    again = opened["open_doc_on_open_part"]
+    assert again["same_title"] is True and again["made_active"] is False       # so ActivateDoc3 always follows
+    assert facts(records, "open_part_from_assembly")["open Probe W7 A.SLDPRT"]["warnings"] == \
+        findings.OPEN_DOC_ALREADY_OPEN_WARNING
+    assert opened["update_after_reactivate"]["changed"] == ["Probe Teeth"]
+
+
+def test_layout_part_and_reused_parts(tier_seven):
+    """Probes layout_part_without_body and add_component_opened_part: a body-less part works; a closed one is opened first."""
+    records, decided = tier_seven
+    bodiless = facts(records, "layout_part_without_body")
+    assert bodiless["bodiless_solid_bodies"] == 0 and findings.LAYOUT_PART_WITHOUT_BODY is True
+    assert (bodiless["bodiless_insert"]["landed_mm"] == bodiless["bodiless_insert"]["asked_mm"]) is \
+        findings.BODILESS_LANDS_ORIGIN_AT_POINT
+    assert bodiless["bodiless_interference"]["count"] == 0
+    assert bodiless["bodiless_save"] == {"returned": True, "errors": 0, "warnings": 0}
+    after = bodiless["bodiless_after_reopen"]
+    assert after["fixed"] is True and after["origin_mm"] < 1e-6 and after["rotation"] < 1e-6
+    assert all(all(routes.values()) for routes in bodiless["bodiless_axes_reachable"].values())
+    reuse = facts(records, "add_component_opened_part")
+    assert decided["reuse_add_route"] == findings.REUSE_ADD_ROUTE
+    assert reuse["add_component_routes"] == {"closed": False, "opened": True}
+    assert reuse["same_file_twice_names"] == ["Probe W7 Reuse-1", "Probe W7 Reuse-2"]
+    assert decided["components_resolved_after_reopen"] is findings.COMPONENTS_RESOLVED_AFTER_REOPEN
+    if "add_component_same_name_elsewhere" in records:     # extras
+        assert decided["same_name_elsewhere_inserted"] is findings.SAME_NAME_ELSEWHERE_INSERTED
+        clash = facts(records, "add_component_same_name_elsewhere")["same_name_open"]
+        assert clash["returned"] is False and clash["errors"] == findings.SAME_NAME_OPEN_ERROR
+    if "interference_components" in records:
+        entries = facts(records, "interference_components")["interference_entries"]
+        assert decided["interference_names_route"] == findings.INTERFERENCE_NAMES_ROUTE
+        assert [e["names"] for e in entries] == [["Probe W7 Clash A-1", "Probe W7 Clash B-1"]]

@@ -1,0 +1,422 @@
+attach  SolidWorks 2024 (revision 32.5.0), PID 68820
+scratch C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-184416
+pass    attach  (0.0 s)
+  fact   revision = '32.5.0'
+  fact   version = 'SolidWorks 2024 (revision 32.5.0)'
+  ok     revision 32.5.0 is SolidWorks 2024 or newer
+  fact   open_at_start = ['<user document 1>']
+pass    templates  (0.0 s)
+  try    GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  try    GetUserPreferenceStringValue(8): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  ok     a part template exists on disk
+  fact   part_template_route = 'GetDocumentTemplate'
+  fact   part_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot'
+  ok     the part template is a .prtdot file
+  try    GetDocumentTemplate(2, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  try    GetUserPreferenceStringValue(9): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  ok     a assembly template exists on disk
+  fact   assembly_template_route = 'GetDocumentTemplate'
+  fact   assembly_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.asmdot'
+  ok     the assembly template is a .asmdot file
+pass    new_document  (2.4 s)
+  fact   new_part_title = 'Part107'
+  ok     NewDocument from the part template makes a part
+  ok     the new part is the active document
+  fact   plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']
+  ok     the part has exactly three reference planes
+  fact   new_part_features = [('Comments', 'CommentsFolder'), ('Favorites', 'FavoriteFolder'), ('History', 'HistoryFolder'), ('Selection Sets', 'SelectionSetFolder'), ('Sensors', 'SensorFolder'), ('Design Binder', 'DocsFolder'), ('Annotations', 'DetailCabinet'), ('Surface Bodies', 'SurfaceBodyFolder'), ('Solid Bodies', 'SolidBodyFolder'), ('Lights and Cameras', 'EnvFolder'), ('Markups', 'InkMarkupFolder'), ('Equations', 'EqnFolder'), ('Material <not specified>', 'MaterialFolder'), ('Front Plane', 'RefPlane'), ('Top Plane', 'RefPlane'), ('Right Plane', 'RefPlane'), ('Origin', 'OriginProfileFeature')]
+  fact   new_part_path = ''
+pass    equation_add  (1.7 s)
+  ok     GetEquationMgr returns an equation manager
+  try    AngularEquationUnits: returned 1
+  fact   angular_equation_units_property = 1
+  fact   equations_in_new_part = 0
+  try    Add2: returned 0
+  ok     some documented way of adding a global works
+  fact   add3_form = 'Add2'
+  ok     Add2 at index -1 appends, returning 0
+  ok     GetCount goes up by one
+  fact   equation_text_readback = '"Probe A"= 2.5'
+  ok     Equation(i) reads back '"Probe A"= 2.5'
+  ok     Value(i) reads back 2.5
+  ok     GlobalVariable(i) says it is a global
+  fact   delete_returns = 0
+  ok     Delete(i) removes it again
+  try    Add3 on a one-configuration part, all configurations, None: returned -1
+  fact   add3_single_configuration_returns = -1
+pass    equation_set  (2.0 s)
+  ok     two linked globals are added
+  try    indexed put Equation(i): returned None
+  ok     indexed put Equation(i): the dependent global follows to 10.0
+  try    SetEquationAndConfigurationOption: returned -1
+  note   SetEquationAndConfigurationOption: the dependent global reads 10.0 (does not follow)
+  fact   equation_set_routes = ['indexed put Equation(i)']
+  ok     at least one way of changing a global's value works
+pass    document_units  (1.7 s)
+  note   C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\Part.PRTDOT is from a newer release than this session; not tried
+  fact   units_default = {'path': 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot', 'linear': 0, 'system': 5}
+  fact   mm_templates = ['C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\MMGS 8 Decimals.prtdot']
+  fact   default_template_is_mm = True
+  fact   set_mmgs_works = False
+  ok     a new part can be had in millimetres
+pass    sketch_open_close  (5.0 s)
+  try    IFeature.Select2(False, 0) on the first RefPlane: returned True
+  fact   select2_plane = {'returned': True, 'selected': 1}
+  try    SelectByID2("Front Plane", "PLANE", ...) with the name read from the tree: returned True
+  fact   select_by_id2_plane_tree_name = {'returned': True, 'selected': 1}
+  ok     the first RefPlane in tree order can be selected by one of the two routes
+  fact   add_to_db_reads_back = True
+  ok     InsertSketch(True) opens a sketch
+  ok     CreateCircleByRadius returns the new segment
+  ok     a second InsertSketch(True) closes it
+  ok     the new sketch feature renames and reads back 'Probe Sketch'
+  fact   rename_onto_taken_name_reads_back = 'Sketch2'
+  ok     renaming onto a taken name does not take it, and read-back shows so
+  fact   select_routes_used = {'Select2': 2}
+pass    sketch_entities  (3.9 s)
+  ok     CreateCircleByRadius makes a circle
+  fact   circle_segment_type = 1
+  try    circle.GetCenterPoint2: returned 'CDispatch'
+  ok     a circle's centre reads back from the segment itself: (10.0, 20.0)
+  try    circle.GetRadius: returned 0.004999999999999999
+  ok     GetRadius reads the radius in metres
+  try    CreateCircle(centre, point).GetRadius: returned 0.005999999999999998
+  ok     CreateCircle takes a centre and a point on it
+  try    CreateArc direction +1.GetLength: returned 0.047123889803846894
+  fact   arc_direction_+1 = {'length_mm': 47.12388980384689, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction +1 runs counter-clockwise from its start
+  try    CreateArc direction -1.GetLength: returned 0.1413716694115407
+  fact   arc_direction_-1 = {'length_mm': 141.3716694115407, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction -1 runs clockwise from its start
+  try    three-point arc.GetCenterPoint2: returned 'CDispatch'
+  ok     Create3PointArc passes through its three points: centre (90.0, -5.204170427930421e-15)
+  ok     a line's ends read back: (1.0, 2.0), (31.0, 42.0)
+  ok     GetLength is in metres
+  fact   line_segment_type = 0
+  fact   centreline_is_construction = True
+  ok     ConstructionGeometry sets and reads back on a line
+  ok     CreatePoint puts a point where asked
+  fact   segments_after_close = 7
+  ok     all seven segments are still in the sketch once it is closed
+pass    relations  (5.7 s)
+  fact   origin_point_mm = (0.0, 0.0)
+  ok     sgCOINCIDENT pulls a line's start onto the origin: (0.0, 0.0)
+  ok     sgHORIZONTAL2D levels the line: (0.0, 0.0) (26.925824035672523, 0.0)
+  ok     the origin and a line made coincident put the origin on the line's extension: (25.0, 25.0) (45.00000000000001, 45.0)
+  ok     sgCOINCIDENT puts a point on a circle: (89.66234939601246, 2.576626505603322)
+  ok     sgTANGENT makes the line touch the arc: 10.0 vs 10.0
+  ok     sgSYMMETRIC mirrors two points about a centreline: (140.0, 20.0) (159.99999999999997, 20.0)
+  try    sgEQUAL on two circles: returned None
+  fact   after sgEQUAL the radii are (0.0040000000000000036, 0.007000000000000006)
+  fact   equal_radius_constraint = 'sgSAMELENGTH'
+  ok     some constant makes two radii equal: ['sgSAMELENGTH'] (0.0040000000000000036, 0.003999999999999992)
+  ok     an arc's centre point goes onto a circle: (60.0, 60.0)
+  fact   select_routes_so_far = {'Select2': 4, 'Select4': 18}
+pass    dimensions  (4.5 s)
+  ok     AddDimension2 makes the OD dimension
+  ok     the OD dimension renames and reads back
+  fact   a circle's dimension reads 0.02 m: its diameter
+  fact   full_name_while_open = 'OD@Sketch1@Part114.Part'
+  ok     setting SystemValue in metres drives the circle
+  ok     AddDimension2 makes the R dimension
+  ok     the R dimension renames and reads back
+  fact   an arc's dimension reads 0.009999999999999995 m: its radius
+  ok     AddDimension2 makes the HalfSpace dimension
+  ok     the HalfSpace dimension renames and reads back
+  fact   angle_dimension_system_value = 0.34906585039886595
+  ok     an angle dimension's SystemValue is radians: 0.34906585039886595
+  fact   dimension_names_after_close = ['OD', 'R', 'HalfSpace']
+  ok     names set while the sketch was open survive closing it
+  fact   full_name_after_close = 'OD@Probe Dims@Part114.Part'
+pass    extrude  (6.0 s)
+  fact   extrude_type_name = 'Extrusion'
+  ok     the extrusion renames and reads back
+  fact   blank_volume_mm3 = 12566.370614359175
+  ok     the blank's volume is 12566.371 mm³ (expected 12566.371)
+  fact   extrude_dimensions = [('D1', 0.01), ('OD', 0.04)]
+  ok     the depth dimension is found by its value
+  fact   depth_dimension_default_name = 'D1'
+  ok     the depth dimension renames to Width
+  fact   depth_full_name = 'Width@Blank@Part115.Part'
+  ok     a width global is added
+  ok     the link "Width@Blank"= "Probe W" is accepted
+  ok     linked to 12 mm the blank is 15079.645 mm³
+pass    axis  (3.8 s)
+  ok     planes 2 and 3 select together
+  fact   insert_axis2_returns = True
+  fact   axis_new_features = [('Axis1', 'RefAxis')]
+  ok     InsertAxis2 adds exactly one feature
+  ok     the axis renames and reads back
+  fact   axis_type_name = 'RefAxis'
+  ok     the axis can be selected again
+pass    save_as  (4.3 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-184416'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261113-184416\Probe Save.SLDPRT does not exist yet
+  try    SaveAs3(path, current version, silent, null, null, out long, out long): returned True
+  fact   save_as3_result = 'True'
+  fact   save_as3_result_is_tuple = False
+  ok     SaveAs3 says it saved
+  ok     the file is on disk
+  fact   title_after_save = 'Probe Save.SLDPRT'
+  fact   path_after_save = 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261113-184416\\Probe Save.SLDPRT'
+  ok     GetPathName now names the new file
+  try    SaveAs3 onto the same path: returned True
+  fact   save_as3_onto_existing_file = {'flag': True, 'size_before': 34230, 'size_after': 34235}
+  try    IModelDoc2.SaveAs3 on another new part: returned 'dict'
+  fact   imodeldoc2_save_as3 = {'returned': 0, 'on_disk': True}
+pass    assembly_components_and_mates  (25.2 s)
+  ok     there is a scratch folder to save parts in
+  fact   assembly_units_before_setting = 0
+  ok     NewDocument from the assembly template is an assembly
+  try    AddComponent5(part A at the origin): returned 'CDispatch'
+  try    AddComponent5(part B at 60 mm): returned 'CDispatch'
+  ok     both components are inserted
+  fact   component_names = ('Probe Add A-1', 'Probe Add B-1')
+  fact   component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)
+  try    IsFixed of the first component: returned True
+  fact   first_component_fixed_on_insert = True
+  ok     the first component selects
+  try    FixComponent() on the already fixed first component: returned None
+  ok     the first component is fixed
+  ok     the two front planes select
+  try    AddMate5 coincident fronts: returned 'CDispatch'
+  fact   mate coincident fronts = {'returned': 'CDispatch', 'status': None}
+  ok     coincident fronts: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 axis on top plane: returned 'CDispatch'
+  fact   mate axis on top plane = {'returned': 'CDispatch', 'status': None}
+  ok     axis on top plane: one mate appears under Mates
+  ok     B's axis and A's right plane select
+  try    AddMate5 distance axis to right plane: returned 'CDispatch'
+  fact   mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     distance axis to right plane: one mate appears under Mates
+  ok     the two top planes select
+  try    AddMate5 angle between top planes: returned 'CDispatch'
+  fact   mate angle between top planes = {'returned': 'CDispatch', 'status': None}
+  ok     angle between top planes: one mate appears under Mates
+  fact   component_b_translation_mm_mated = (60.0, 0.0, -5.0)
+  ok     B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)
+  ok     the distance mate is found in the tree
+  ok     the distance mate renames and reads back
+  fact   distance_mate_dimensions = [('D1', 0.06)]
+  fact   mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]
+  fact   second_component_fixed_before_fix_component = False
+  ok     the second component selects
+  try    FixComponent() on the free second component: returned None
+  fact   second_component_fixed_after_fix_component = True
+  ok     FixComponent() fixes the selected component
+pass    assembly_distance_link  (24.6 s)
+  ok     there is a scratch folder to save parts in
+  fact   assembly_units_before_setting = 0
+  ok     NewDocument from the assembly template is an assembly
+  try    AddComponent5(part A at the origin): returned 'CDispatch'
+  try    AddComponent5(part B at 60 mm): returned 'CDispatch'
+  ok     both components are inserted
+  fact   component_names = ('Probe Link A-1', 'Probe Link B-1')
+  fact   component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)
+  try    IsFixed of the first component: returned True
+  fact   first_component_fixed_on_insert = True
+  ok     the first component selects
+  try    FixComponent() on the already fixed first component: returned None
+  ok     the first component is fixed
+  ok     the two front planes select
+  try    AddMate5 coincident fronts: returned 'CDispatch'
+  fact   mate coincident fronts = {'returned': 'CDispatch', 'status': None}
+  ok     coincident fronts: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 axis on top plane: returned 'CDispatch'
+  fact   mate axis on top plane = {'returned': 'CDispatch', 'status': None}
+  ok     axis on top plane: one mate appears under Mates
+  ok     B's axis and A's right plane select
+  try    AddMate5 distance axis to right plane: returned 'CDispatch'
+  fact   mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     distance axis to right plane: one mate appears under Mates
+  ok     the two top planes select
+  try    AddMate5 angle between top planes: returned 'CDispatch'
+  fact   mate angle between top planes = {'returned': 'CDispatch', 'status': None}
+  ok     angle between top planes: one mate appears under Mates
+  fact   component_b_translation_mm_mated = (60.0, 0.0, -5.0)
+  ok     B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)
+  ok     the distance mate is found in the tree
+  ok     the distance mate renames and reads back
+  fact   distance_mate_dimensions = [('D1', 0.06)]
+  ok     the distance mate's dimension is found by value
+  ok     an assembly global is added
+  ok     the link "D1@Centre Distance"= "Centre Distance" is accepted
+  fact   component_b_translation_mm_after_global_70 = (70.0, 0.0, -5.0)
+  ok     changing the global moves B to 70 mm: (70.0, 0.0, -5.0)
+  fact   mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]
+pass    gear_mate  (43.4 s)
+  fact   swconst_path = 'C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS (2)\\swconst.tlb'
+  fact   swconst_reader_positive_control = {'swMateCOINCIDENT': 0, 'swMateDISTANCE': 5, 'swMateANGLE': 6}
+  ok     the swconst reader gives back the three mate types already verified
+  ok     swMateType_e has swMateGEAR
+  fact   mate_gear_type = 10
+  ok     there is a scratch folder to save parts in
+  ok     flip off: both cylinders are inserted
+  fact   first_component_fixed_on_insert_plain = True
+  ok     flip off: the first cylinder is fixed before it is unfixed
+  ok     flip off: the first cylinder selects
+  try    flip off: UnfixComponent() on the first cylinder: returned None
+  ok     flip off: the first cylinder floats after UnfixComponent
+  ok     flip off: A's front and the assembly's front select
+  try    AddMate5 flip off: A's front on the assembly's: returned 'CDispatch'
+  fact   mate flip off: A's front on the assembly's = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: A's front on the assembly's: one mate appears under Mates
+  ok     flip off: A's axis and the assembly's top select
+  try    AddMate5 flip off: A's axis in the assembly's top plane: returned 'CDispatch'
+  fact   mate flip off: A's axis in the assembly's top plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: A's axis in the assembly's top plane: one mate appears under Mates
+  ok     flip off: A's axis and the assembly's right select
+  try    AddMate5 flip off: A's axis in the assembly's right plane: returned 'CDispatch'
+  fact   mate flip off: A's axis in the assembly's right plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: A's axis in the assembly's right plane: one mate appears under Mates
+  ok     flip off: A's top and the assembly's top select
+  try    AddMate5 flip off: the drive angle: returned 'CDispatch'
+  fact   mate flip off: the drive angle = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: the drive angle: one mate appears under Mates
+  ok     flip off: the drive angle mate is made
+  ok     flip off: B's front and the assembly's front select
+  try    AddMate5 flip off: B's front on the assembly's: returned 'CDispatch'
+  fact   mate flip off: B's front on the assembly's = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: B's front on the assembly's: one mate appears under Mates
+  ok     flip off: B's axis and the assembly's top select
+  try    AddMate5 flip off: B's axis in the assembly's top plane: returned 'CDispatch'
+  fact   mate flip off: B's axis in the assembly's top plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: B's axis in the assembly's top plane: one mate appears under Mates
+  ok     flip off: B's axis and the assembly's right select
+  try    AddMate5 flip off: B's axis 60.0 mm from the assembly's right plane: returned 'CDispatch'
+  fact   mate flip off: B's axis 60.0 mm from the assembly's right plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip off: B's axis 60.0 mm from the assembly's right plane: one mate appears under Mates
+  ok     flip off: the two axes select
+  try    flip off: AddMate5 gear 20:40: returned 'CDispatch'
+  fact   gear_mate_made_plain = [('GearMate1', 'MateGearDim')]
+  ok     flip off: one gear mate appears under Mates
+  ok     flip off: the Mates folder is found
+  ok     flip off: the drive mate is found
+  ok     flip off: the drive's dimension is found by value
+  ok     flip off: the drive is linked to a global
+  fact   gear_mate_turn_plain = {'a': -30.000000000000114, 'b': 15.000000000000057, 'a_from': -10.0, 'b_from': 0.0}
+  ok     flip on: both cylinders are inserted
+  fact   first_component_fixed_on_insert_flipped = True
+  ok     flip on: the first cylinder is fixed before it is unfixed
+  ok     flip on: the first cylinder selects
+  try    flip on: UnfixComponent() on the first cylinder: returned None
+  ok     flip on: the first cylinder floats after UnfixComponent
+  ok     flip on: A's front and the assembly's front select
+  try    AddMate5 flip on: A's front on the assembly's: returned 'CDispatch'
+  fact   mate flip on: A's front on the assembly's = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: A's front on the assembly's: one mate appears under Mates
+  ok     flip on: A's axis and the assembly's top select
+  try    AddMate5 flip on: A's axis in the assembly's top plane: returned 'CDispatch'
+  fact   mate flip on: A's axis in the assembly's top plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: A's axis in the assembly's top plane: one mate appears under Mates
+  ok     flip on: A's axis and the assembly's right select
+  try    AddMate5 flip on: A's axis in the assembly's right plane: returned 'CDispatch'
+  fact   mate flip on: A's axis in the assembly's right plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: A's axis in the assembly's right plane: one mate appears under Mates
+  ok     flip on: A's top and the assembly's top select
+  try    AddMate5 flip on: the drive angle: returned 'CDispatch'
+  fact   mate flip on: the drive angle = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: the drive angle: one mate appears under Mates
+  ok     flip on: the drive angle mate is made
+  ok     flip on: B's front and the assembly's front select
+  try    AddMate5 flip on: B's front on the assembly's: returned 'CDispatch'
+  fact   mate flip on: B's front on the assembly's = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: B's front on the assembly's: one mate appears under Mates
+  ok     flip on: B's axis and the assembly's top select
+  try    AddMate5 flip on: B's axis in the assembly's top plane: returned 'CDispatch'
+  fact   mate flip on: B's axis in the assembly's top plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: B's axis in the assembly's top plane: one mate appears under Mates
+  ok     flip on: B's axis and the assembly's right select
+  try    AddMate5 flip on: B's axis 60.0 mm from the assembly's right plane: returned 'CDispatch'
+  fact   mate flip on: B's axis 60.0 mm from the assembly's right plane = {'returned': 'CDispatch', 'status': None}
+  ok     flip on: B's axis 60.0 mm from the assembly's right plane: one mate appears under Mates
+  ok     flip on: the two axes select
+  try    flip on: AddMate5 gear 20:40: returned 'CDispatch'
+  fact   gear_mate_made_flipped = [('GearMate1', 'MateGearDim')]
+  ok     flip on: one gear mate appears under Mates
+  ok     flip on: the Mates folder is found
+  ok     flip on: the drive mate is found
+  ok     flip on: the drive's dimension is found by value
+  ok     flip on: the drive is linked to a global
+  fact   gear_mate_turn_flipped = {'a': -30.000000000000114, 'b': -15.000000000000085, 'a_from': -10.0, 'b_from': 0.0}
+  ok     both assemblies turned
+  ok     flip False: the drive turned A 30.0°: {'a': -30.000000000000114, 'b': 15.000000000000057, 'a_from': -10.0, 'b_from': 0.0}
+  ok     flip True: the drive turned A 30.0°: {'a': -30.000000000000114, 'b': -15.000000000000085, 'a_from': -10.0, 'b_from': 0.0}
+  ok     the ratio went the same way both times
+  fact   gear_mate_numerator_first = True
+  fact   gear_mate_opposite_by_flip = {'False': True, 'True': False}
+  ok     Flip turns B the other way
+  fact   gear_mate_external_flip = False
+decide  flank_recipe = STOP
+decide  trig_default = None
+decide  equation_add_call = Add2
+decide  equation_set_route = indexed put Equation(i)
+decide  set_units_mmgs_after_new = False
+decide  plane_select_route = Select2 checked by count, then SelectByID2 by tree name
+decide  equal_constraint = sgSAMELENGTH
+decide  circle_dimension = diameter
+decide  arc_dimension = radius
+decide  curve_trig = None
+decide  curves_are_fixed = None
+decide  shared_ends_are_one_point = None
+decide  cut_end_condition = None
+decide  pattern_count_dim_index = None
+decide  save_as_overwrites = True
+decide  first_component_fixed = True
+decide  end_to_end = False
+decide  helix_route = STOP
+decide  herringbone_route = STOP
+decide  inverse_tangent = None
+decide  extrude_z_sign = None
+decide  top_sketch_y_is_minus_z = None
+decide  ref_plane_unflipped_is_plus_z = None
+decide  twist_turn = None
+decide  twist_reverse_flips = None
+decide  mirror_body_route = None
+decide  helical_end_to_end = False
+decide  annulus_extrudes = None
+decide  interference_route = None
+decide  internal_end_to_end = False
+decide  revolve_axis_mark = None
+decide  bevel_section_x_sign = None
+decide  bevel_crown_section_x_sign = None
+decide  bevel_internal_section_x_sign = None
+decide  loft_cut_route = None
+decide  loft_cut_type = None
+decide  place_route = None
+decide  transform_array_order = None
+decide  origin_select_route = None
+decide  bevel_mate_route = None
+decide  crossed_route = None
+decide  custom_property_route = None
+decide  custom_info_text = None
+decide  custom_property_replace = None
+decide  property_read_route = None
+decide  property_links_globals = None
+decide  gear_mate_route = mates
+decide  mate_gear_type = 10
+decide  gear_mate_numerator_first = True
+decide  gear_mate_external_flip = False
+decide  bevel_end_to_end = False
+decide  crossed_end_to_end = False
+decide  workbook_layout_route = STOP
+decide  layout_plus_flip = None
+decide  layout_negated_link = None
+decide  axis_plane_select_route = None
+decide  axis_through_base_plane = None
+decide  component_find_route = None
+decide  replace_fixed_route = None
+decide  open_assembly_route = None
+decide  update_open_route = ask
+decide  open_doc_route = None
+decide  open_doc_makes_active = None
+decide  open_part_beside_assembly = None
+decide  offset_global_crosses_zero = None
+decide  components_resolved_after_reopen = None
+decide  reuse_add_route = None
+decide  interference_names_route = None
+decide  same_name_elsewhere_inserted = None
+decide  manual_steps = ['material']
+done    16 pass
