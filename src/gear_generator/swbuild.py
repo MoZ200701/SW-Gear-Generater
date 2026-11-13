@@ -504,6 +504,54 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
     return pair
 
 
+@dataclass
+class ManyResult:
+    """A batch of parts (a workbook's, phase W2): each one's result in order, and what was not reached."""
+
+    built: List[BuildResult] = field(default_factory=list)
+    skipped: List[str] = field(default_factory=list)      # paths not attempted, after a failure
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.built) and all(r.ok for r in self.built) and not self.skipped
+
+    def log_lines(self) -> List[str]:
+        lines: List[str] = []
+        for result in self.built:
+            lines.extend(result.log_lines())
+        if self.skipped:
+            lines.append(f"SKIPPED {len(self.skipped)} part(s) after a failure: "
+                         + ", ".join(os.path.basename(p) for p in self.skipped))
+        return lines
+
+
+def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
+               exists: Callable[[str], bool] = os.path.exists) -> ManyResult:
+    """Every plan's part in order, each by :func:`build`; the first that fails stops the rest.
+
+    Every path is checked before anything is made, so a batch either starts
+    with nothing in the way or does not start: a build never overwrites a file
+    (``findings.SAVE_AS_OVERWRITES`` is True, so this check is the only guard).
+    """
+    paths = []
+    for plan in plans:
+        save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
+        path = save.path if save is not None else ""
+        if path and exists(path):
+            raise BuildError(f"{path} already exists, and a build never overwrites a file.")
+        if path and any(same_path(path, p) for p in paths):
+            raise BuildError(f"Two parts in this batch would both be saved as {path}.")
+        paths.append(path)
+    many = ManyResult()
+    for index, plan in enumerate(plans):
+        result = build(sw, plan, exists)
+        many.built.append(result)
+        if not (result.ok and result.saved):
+            many.skipped = [p for p in paths[index + 1:]]
+            break
+    return many
+
+
 # -- changing values in a built part ----------------------------------------
 
 

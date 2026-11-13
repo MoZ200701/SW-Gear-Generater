@@ -153,6 +153,14 @@ class GearboxSpec:
     modes: Tuple[Mode, ...] = ()
     sliders: Tuple[str, ...] = ()                   # the Modes sheet's middle columns, in order
     source_path: str = ""
+    # Where each column was found, sheet -> key -> column number, so a later check names the right cell.
+    # Not part of what the gearbox *is*: two reads with columns in another order compare equal.
+    columns: Mapping[str, Mapping[str, int]] = field(default_factory=dict, compare=False, hash=False)
+
+    def cell(self, sheet: str, row: int, key: str) -> str:
+        """``Gears!F3`` for a key on a row, or ``Gears row 3`` when the column is not in the workbook."""
+        col = self.columns.get(sheet, {}).get(key)
+        return f"{sheet}!{make_ref(row, col)}" if col and row else f"{sheet} row {row}"
 
     def shaft(self, name: str) -> Optional[Shaft]:
         return next((s for s in self.shafts if s.id == name), None)
@@ -162,7 +170,7 @@ class GearboxSpec:
 
     def without_rows(self) -> "GearboxSpec":
         """The same gearbox with every row number zeroed and no source: what two reads compare on."""
-        return replace(self, source_path="",
+        return replace(self, source_path="", columns={},
                        shafts=tuple(replace(s, row=0) for s in self.shafts),
                        gears=tuple(replace(g, row=0) for g in self.gears),
                        meshes=tuple(replace(m, row=0) for m in self.meshes),
@@ -381,7 +389,8 @@ def from_book(book: Book) -> Tuple[GearboxSpec, List[Diagnostic]]:
 
     modes, sliders = _read_modes(reader, book.sheet("Modes"))
     spec = GearboxSpec(box=box, shafts=tuple(shafts), gears=tuple(gears), meshes=tuple(meshes),
-                       modes=tuple(modes), sliders=tuple(sliders), source_path=book.path)
+                       modes=tuple(modes), sliders=tuple(sliders), source_path=book.path,
+                       columns={k: dict(v) for k, v in reader.columns.items()})
     _check_references(reader, spec)
     return spec, reader.diagnostics
 
