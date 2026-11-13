@@ -564,18 +564,23 @@ def chosen_row(pair, test):
     return row_, PairSpec(**values)
 
 
-# -------------------------------------------------------------------- the Workbook window (W2)
+# -------------------------------------------------------------------- the Workbook window (W3)
 #
 # Drawn from a real workbook: written by the app's writer, read by its reader,
-# checked and planned by workbook.build, and every line of text from ui_text —
-# so the board says what the window would for the same file.
+# planned by workbook.build, checked by workbook.checks with any chosen fixes
+# made, the end view laid out by preview.layout_gearbox, and every line of text
+# from ui_text — so the board says what the window would for the same file.
+# The sizes are the window's own (workbook_gui), so the two cannot drift.
 
 import tempfile
-from gear_generator.workbook import build as wb_build, link as wb_link, model as wb_model, xlsx as wb_xlsx
+from gear_generator import workbook_gui as wb_gui
+from gear_generator.workbook import build as wb_build, checks as wb_checks, fixes as wb_fixes, \
+    link as wb_link, model as wb_model, xlsx as wb_xlsx
 
-WINDOW_WIDTH = 720
+WINDOW_WIDTH = wb_gui.WINDOW_WIDTH
 STATE_COLOURS = {ui_text.GEAR_STATE_BUILDS: OK, ui_text.GEAR_STATE_SHARES: OK,
                  ui_text.GEAR_STATE_LATER: READOUT, ui_text.GEAR_STATE_ERROR: ERR}
+MONO_TINY = f"font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 20px; white-space: nowrap;"
 
 
 def read_workbook(spec):
@@ -587,64 +592,129 @@ def read_workbook(spec):
 
 
 def gears_table(rows):
-    widths = "52px 52px 72px 48px 58px 48px minmax(0, 1fr) 170px"
-    head = ["Gear", "Shaft", "Kind", "Teeth", "Module", "Face", "Part", ""]
-    cells = [f'<span style="font-size: 11px; color: {READOUT}; line-height: 18px;">{h}</span>' for h in head]
+    widths = " ".join("minmax(0, 1fr)" if w == 0 else f"{w}px" for w in wb_gui.TABLE_WIDTHS)
+    cells = [f'<span style="font-size: 11px; color: {READOUT}; line-height: 18px;">{h}</span>' for h in wb_gui.TABLE_HEAD]
     for gear, shaft, kind, teeth, module, face, part, state, what in rows:
-        mono = f'font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 20px; white-space: nowrap;'
-        cells += [f'<span style="{mono}">{v}</span>' for v in (gear, shaft)]
+        cells += [f'<span style="{MONO_TINY}">{v}</span>' for v in (gear, shaft)]
         cells.append(f'<span style="font-size: 12px; color: {LABEL}; line-height: 20px;">{kind}</span>')
-        cells += [f'<span style="{mono}">{v}</span>' for v in (teeth, module, face)]
-        cells.append(f'<span style="{mono} overflow: hidden; text-overflow: ellipsis;">{part or "—"}</span>')
-        colour = STATE_COLOURS[state]
+        cells += [f'<span style="{MONO_TINY}">{v}</span>' for v in (teeth, module, face)]
+        cells.append(f'<span style="{MONO_TINY} overflow: hidden; text-overflow: ellipsis;">{part or "—"}</span>')
         cells.append(f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; '
-                     f'color: {ERR if state == ui_text.GEAR_STATE_ERROR else MUTED}; line-height: 20px;">'
-                     f'{dot(colour)}{what}</span>')
+                     f'color: {ERR if state == ui_text.GEAR_STATE_ERROR else MUTED}; line-height: 20px; white-space: nowrap;">'
+                     f'{dot(STATE_COLOURS[state])}{what}</span>')
     return (f'<div style="display: grid; grid-template-columns: {widths}; column-gap: 10px; align-items: center;">'
             + "".join(cells) + '</div>')
 
 
-def check_lines(diagnostics):
-    if not diagnostics:
-        return [warning("No problems: every row reads, and every gear works out.")]
+def check_lines(diagnostics, offered, chosen):
+    """The Checks panel as _paint draws it: chosen fixes with Undo, errors first, each error's fix buttons."""
+    out = [row(f'<span style="font-size: 12px; color: {INK};">Chosen, not yet written: {fix.title}</span>',
+               button("Undo", h=20)) for fix in chosen]
     ordered = [d for d in diagnostics if d.is_error] + [d for d in diagnostics if not d.is_error]
-    return [warning(d.message, d.is_error) for d in ordered]
+    for d in ordered:
+        out.append(warning(d.message, d.is_error))
+        for fix in offered.get(d.field, []) if d.is_error else []:
+            out.append(f'<div style="display: flex; flex-direction: column; gap: 2px; padding: 2px 0 2px 14px;">'
+                       f'<div style="display: flex;">{button(fix.title, h=22)}</div>'
+                       f'<span style="font-family: {MONO}; font-size: 11px; color: {MUTED};">{fix.detail}</span></div>')
+    if not ordered and not chosen:
+        out.append(warning("No problems: every row reads, and every gear works out."))
+    return out
 
 
-def workbook_board(spec, *, changes, clock="14:02:31", open_in_excel=True, before=None):
-    path, (read_spec, diagnostics) = read_workbook(spec)
-    if before is not None:
-        changes = wb_link.describe_changes(read_workbook(before)[1][0], read_spec)
-    parts = wb_build.plan_parts(read_spec, read_spec.box.output_folder,
-                                skip_rows=wb_build.rows_with_errors(diagnostics))
-    diagnostics = diagnostics + parts.diagnostics
+def end_view_svg(report):
+    w, h = wb_gui.END_VIEW
+    if not report.layout.placed:
+        reason = report.layout.later[0] if report.layout.later else "Nothing to draw yet."
+        return (f'<div style="width: {w}px; height: {h}px; background: #ffffff; font-size: 12px; color: {MUTED}; '
+                f'padding: 12px; box-sizing: border-box;">{reason}</div>'), ""
+    view = layout_of.layout_gearbox(report.layout.placed, report.theta, w, h, step=2)
+    body = []
+    for _, plane, points in view.outlines:
+        colour = wb_gui.PLANE_COLOURS[plane % len(wb_gui.PLANE_COLOURS)]
+        body.append(f'<polygon points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in points)}" fill="none" '
+                    f'stroke="{colour}" stroke-width="1"></polygon>')
+    for _, plane, x, y, r in view.rims:
+        body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="none" '
+                    f'stroke="{wb_gui.PLANE_COLOURS[plane % len(wb_gui.PLANE_COLOURS)]}"></circle>')
+    for name, x, y in view.shafts:
+        body.append(f'<path d="M{x - 5:.1f} {y:.1f}H{x + 5:.1f}M{x:.1f} {y - 5:.1f}V{y + 5:.1f}" stroke="{INK}"></path>'
+                    f'<text x="{x + 6:.1f}" y="{y + 16:.1f}" font-family="{MONO}" font-size="11" fill="{INK}">{name}</text>')
+    if view.origin is not None:
+        ox, oy = view.origin
+        body.append(f'<path d="M{ox:.1f} {oy:.1f}h26m-5 -3l5 3l-5 3" fill="none" stroke="{ERR}"></path>'
+                    f'<path d="M{ox:.1f} {oy:.1f}v-26m-3 5l3 -5l3 5" fill="none" stroke="{OK}"></path>'
+                    f'<circle cx="{ox:.1f}" cy="{oy:.1f}" r="2.5" fill="{INK}"></circle>')
+    svg = (f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" style="display: block; background: #ffffff;">'
+           + "".join(body) + '</svg>')
+    return svg, ui_text.end_view_readout(view)
+
+
+def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, choose=None, note=None):
+    """The window after reading ``spec`` (changes listed against ``before``); ``choose`` picks offered fixes
+    (``(field, index)``) as if their buttons were pressed."""
+    path, (read_spec, read_diagnostics) = read_workbook(spec)
+    changes = wb_link.describe_changes(read_workbook(before)[1][0], read_spec) if before is not None else []
+    folder = read_spec.box.output_folder
+
+    def plan(chosen):                                                   # WorkbookWindow._plan
+        effective = read_spec
+        for fix in chosen:
+            effective = wb_fixes.apply(effective, fix)
+        skip_rows = wb_build.rows_with_errors(read_diagnostics)
+        parts = wb_build.plan_parts(effective, folder, skip_rows=skip_rows)
+        bad_rows = skip_rows | wb_build.rows_with_errors(parts.diagnostics)
+        report = wb_checks.check(effective, {g.id for g in effective.gears if g.row in bad_rows})
+        return effective, parts, report, read_diagnostics + parts.diagnostics + report.diagnostics
+
+    chosen = []
+    effective, parts, report, diagnostics = plan(chosen)
+    for field_, index in choose or ():
+        chosen.append(report.fixes[field_][index])
+        effective, parts, report, diagnostics = plan(chosen)
     name = os.path.basename(path)
-    status, ok = ui_text.workbook_status(parts, diagnostics, folder=read_spec.box.output_folder)
+    status, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=folder, chosen=len(chosen), note=note)
+
     header = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
               f'<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">'
               f'<span style="font-size: 15px; font-weight: 600; color: {INK};">{name}</span>'
               f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: {READOUT};">'
               f'{dot(OK)}linked · {ui_text.workbook_read_line(clock, open_in_excel)}</span></div>'
               f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Open in Excel")}{button("Re-read")}</div></div>')
-    box = panel("Workbook", ui_text.workbook_counts(read_spec), [
-        row(label("File"), f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK};">C:\\Parts\\{name}</span>'),
-        row(label("Name"), f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK};">{read_spec.box.name}</span>'),
-        row(label("Output folder"), f'<span style="font-family: {MONO}; font-size: 11.5px; color: {INK};">'
-                                    f'{read_spec.box.output_folder}</span>', hint("from the Box sheet")),
-    ])
+    mono = f'font-family: {MONO}; font-size: 11.5px; color: {INK};'
+    file_text = ui_text.short_path(f"C:\\Parts\\{name}", wb_gui.PATH_CHARS)
+    box = panel("Workbook", ui_text.workbook_counts(effective), [
+        row(label("File"), f'<span style="{mono}">{file_text}</span>'),
+        row(label("Name"), f'<span style="{mono}">{effective.box.name}</span>'),
+        row(label("Output folder"), f'<span style="{mono}">{ui_text.short_path(folder, wb_gui.PATH_CHARS - 20)}</span>',
+            hint("from the Box sheet")),
+        row(label("Worked out as"), f'<span style="font-size: 12.5px; color: {INK};">{report.worked_out_as or "—"}</span>'),
+    ], gap=2)
     gears = panel("Gears", ui_text.workbook_parts_readout(parts),
-                  [gears_table(ui_text.workbook_gear_rows(read_spec, parts, diagnostics))])
-    checks = panel("Checks", ui_text.workbook_checks_readout(diagnostics), check_lines(diagnostics), gap=4)
+                  [gears_table(ui_text.workbook_gear_rows(effective, parts, diagnostics))])
+    checks = panel("Checks", ui_text.workbook_checks_readout(diagnostics),
+                   check_lines(diagnostics, report.fixes, chosen), gap=4)
     since = panel("Since the last read", ui_text.workbook_changes_readout(changes, clock),
-                  [f'<div style="font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 1.5;">{c}</div>'
-                   for c in changes] or [warning("Nothing changed.")], gap=2)
+                  [f'<div style="{mono} line-height: 1.5;">{c}</div>' for c in changes] or [warning("Nothing changed.")],
+                  gap=2)
+    svg, view_readout = end_view_svg(report)
+    view = panel("End view, from your origin", view_readout, [svg])
+    lines, speeds_readout = ui_text.workbook_speed_lines(effective, report.motion)
+    speeds = panel("Speeds", speeds_readout,
+                   [f'<div style="{mono} white-space: pre; line-height: 1.5;">{line}</div>' for line in lines], gap=0)
+
     colour = OK if ok else ERR
-    foot = (f'<div style="margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
-            f'<div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: {colour}; min-width: 0;">'
-            f'{dot(colour, 8)}<span style="line-height: 1.35;">{status}</span></div>'
-            f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Build parts", primary=ok, disabled=not ok, h=32)}'
-            f'</div></div>')
-    return HEAD + column("\n".join([header, box, gears, checks, since, foot]), width=WINDOW_WIDTH) + "\n" + TAIL
+    foot = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
+            f'<div style="display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: {colour}; '
+            f'min-width: 0; max-width: {WINDOW_WIDTH - 420}px;">'
+            f'<span style="padding-top: 5px; display: flex;">{dot(colour, 8)}</span><span style="line-height: 1.35;">{status}</span></div>'
+            f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Export", h=32)}{button("Export as…", h=32)}'
+            f'{button("Build parts", primary=enabled, disabled=not enabled, h=32)}</div></div>')
+    left = (f'<div style="width: {wb_gui.LEFT_WIDTH}px; flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;">'
+            + "".join([box, gears, checks, since]) + '</div>')
+    right = (f'<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;">' + view + speeds + '</div>')
+    body = (header + f'<div style="display: flex; gap: 8px; align-items: flex-start;">{left}{right}</div>' + foot)
+    return HEAD + column(body, width=WINDOW_WIDTH) + "\n" + TAIL
 
 
 # -------------------------------------------------------------------- the boards
@@ -725,9 +795,10 @@ cards.append(caption("Each card is worked out for a gear that has the field: the
                      "(m 1.5, 20 : 60 at C 60) unless it belongs to a shifted, helical, grooved, ring, bevel or crossed one."))
 boards["FieldGuide"] = ("Field explainers · every card", page("\n".join(cards)))
 
-# The Workbook window: the 12 : 1 reducer after a save that made G4 wider, and after one that broke a cell.
+# The Workbook window: the 12 : 1 reducer after a save that made G4 wider, after one that broke a cell, and
+# after one that moved S2 off its centres, with the two fixes offered and then the move chosen.
 reducer = wb_model.GearboxSpec(
-    box=wb_model.Box(name="Reducer_12to1", output_folder="C:\\Parts\\Reducer_12to1\\"),
+    box=wb_model.Box(name="Reducer_12to1", output_folder="C:\\Parts\\Reducer_12to1\\", efficiency="98"),
     shafts=(wb_model.Shaft("S1", "frame", "0", "0", "0", "Z+", "input", "", "1500", "10"),
             wb_model.Shaft("S2", "frame", "63.75", "0", "0", "Z+"),
             wb_model.Shaft("S3", "frame", "131.75", "0", "0", "Z+", "output")),
@@ -737,14 +808,18 @@ reducer = wb_model.GearboxSpec(
            wb_model.Gear("G4", "S3", "27", "spur", "external", "51", "2", "", "20", "16", part_name="OutputGear")),
     meshes=(wb_model.Mesh("G1", "G2"), wb_model.Mesh("G3", "G4")))
 wider = wb_model.replace(reducer, gears=reducer.gears[:3] + (wb_model.replace(reducer.gears[3], face_width="22"),))
-boards["WorkbookReady"] = ("Workbook · linked, after a save", workbook_board(wider, changes=None, before=reducer),
-                           WINDOW_WIDTH)
+boards["WorkbookReady"] = ("Workbook · linked, after a save", workbook_board(wider, before=reducer), WINDOW_WIDTH)
 broken = wb_model.replace(reducer, gears=(
     reducer.gears[0], wb_model.replace(reducer.gears[1], teeth="68.5"), reducer.gears[2], reducer.gears[3],
     wb_model.Gear("G5", "S3", "47", "spur", "external", "17", "1.5", "", "15", "8"),
     wb_model.Gear("G6", "S2", "60", "bevel", "external", "20", "3", "", "14", "10")))
-boards["WorkbookError"] = ("Workbook · a save with an error", workbook_board(broken, changes=None, before=reducer),
-                           WINDOW_WIDTH)
+boards["WorkbookError"] = ("Workbook · a save with an error", workbook_board(broken, before=reducer), WINDOW_WIDTH)
+off = wb_model.replace(reducer, shafts=(reducer.shafts[0], wb_model.replace(reducer.shafts[1], x="64"),
+                                        wb_model.replace(reducer.shafts[2], x="132")))
+boards["WorkbookFix"] = ("Workbook · a mesh off its centres, two fixes offered", workbook_board(off, before=reducer),
+                         WINDOW_WIDTH)
+boards["WorkbookChosen"] = ("Workbook · the move chosen, waiting for Export",
+                            workbook_board(off, before=reducer, choose=[("Meshes!A2", 0)]), WINDOW_WIDTH)
 
 layout = []
 x = 0

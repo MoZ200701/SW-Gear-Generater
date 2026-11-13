@@ -914,6 +914,28 @@ def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "",
     return text, ok, ok
 
 
+def workbook_speed_lines(spec, motion) -> Tuple[List[str], str]:
+    """The Speeds panel: one line per shaft (speed, way round, torque), and its header readout. A gearbox a
+    later phase drives gives the one sentence saying so, and no readout."""
+    if motion.later:
+        return [motion.later], ""
+    lines = []
+    for shaft in spec.shafts:
+        speed = motion.speeds.get(shaft.id)
+        if speed is None:
+            lines.append(f"{shaft.id:<4}  not driven")
+            continue
+        torque = motion.torques.get(shaft.id)
+        torque_text = f" · {torque:.2f} N·m" if torque is not None else ""
+        lines.append(f"{shaft.id:<4}  {abs(float(speed)):.1f} rpm {motion.turns(shaft.id)}{torque_text}")
+    return lines, ("seen from +Z" if motion.speeds else "no input")
+
+
+def end_view_readout(view) -> str:
+    """The end view's header: the face heights it colours apart, and whether the origin is in sight."""
+    return " · ".join(f"z {_n(z, 1)}" for z in view.planes) + (" · origin" if view.origin else " · origin off view")
+
+
 def many_status(result) -> Tuple[str, bool]:
     """One sentence for a batch of parts: how many were built, or the first thing that went wrong."""
     built = [r for r in result.built if r.ok and r.saved]

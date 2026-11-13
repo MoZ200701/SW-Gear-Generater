@@ -60,7 +60,7 @@ def test_s2_at_64_is_caught_with_both_fixes(tmp_path):
     (error,) = errors(report)
     assert error.startswith("Meshes!A2: G1 and G2 are 64 apart; their teeth make 63.75 (+0.25 mm).")
     move, shift = report.fixes["Meshes!A2"]
-    assert move.title == "Move S2 and the 1 shaft beyond it by -0.25 mm"
+    assert move.title == "Move S2 and S3 beyond it by -0.25 mm"
     assert move.detail == "S2 X 64 → 63.75 · S3 X 132 → 131.75"
     assert [(e.sheet, e.item, e.key, e.value) for e in move.edits] == [
         ("Shafts", "S2", "x", "63.75"), ("Shafts", "S3", "x", "131.75")]

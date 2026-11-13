@@ -128,9 +128,13 @@ def move_fix(spec: GearboxSpec, a: Placed, b: Placed, required: float) -> Option
             edits.append(Edit("Shafts", shaft_id, "y", _text(y)))
         moves.append(f"{shaft_id} X {_text(float(shaft.x), 3)} → {_text(x, 3)}"
                      + (f", Y {_text(float(shaft.y), 3)} → {_text(y, 3)}" if abs(dy) > 1e-12 else ""))
-    others = len(moving) - 1
-    title = f"Move {far.shaft}" + (f" and the {others} shaft{'s' if others != 1 else ''} beyond it" if others else "") \
-        + f" by {_text(required - actual, 3)} mm"
+    others = sorted(moving - {far.shaft}, key=lambda s: shafts[s].row)
+    beyond = ""
+    if len(others) == 1:
+        beyond = f" and {others[0]} beyond it"
+    elif others:
+        beyond = f" and the {len(others)} shafts beyond it"
+    title = f"Move {far.shaft}{beyond} by {_text(required - actual, 3)} mm"
     return Fix(title, " · ".join(moves), tuple(edits))
 
 

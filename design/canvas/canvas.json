@@ -68,14 +68,28 @@
       "title": "Workbook · linked, after a save",
       "x": 5076,
       "y": 0,
-      "w": 720
+      "w": 1080
     },
     {
       "file": "WorkbookError.dc.html",
       "title": "Workbook · a save with an error",
-      "x": 5876,
+      "x": 6236,
       "y": 0,
-      "w": 720
+      "w": 1080
+    },
+    {
+      "file": "WorkbookFix.dc.html",
+      "title": "Workbook · a mesh off its centres, two fixes offered",
+      "x": 7396,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookChosen.dc.html",
+      "title": "Workbook · the move chosen, waiting for Export",
+      "x": 8556,
+      "y": 0,
+      "w": 1080
     }
   ],
   "annotations": [

@@ -431,32 +431,22 @@ class WorkbookWindow(tk.Toplevel):
             c.create_line(ox, oy, ox + px(26), oy, fill=theme.ERROR, arrow="last")
             c.create_line(ox, oy, ox, oy - px(26), fill=theme.OK, arrow="last")
             c.create_oval(ox - px(2.5), oy - px(2.5), ox + px(2.5), oy + px(2.5), fill=theme.INK, outline="")
-        self.view_readout.set(" · ".join(f"z {ui_text._n(z, 1)}" for z in view.planes)
-                              + (" · origin" if view.origin else " · origin off view"))
+        self.view_readout.set(ui_text.end_view_readout(view))
 
     def _paint_speeds(self) -> None:
         self._clear(self.speeds_body)
         report = self.report
         if report is None:
             return
-        motion = report.motion
-        if motion.later:
-            self._line(self.speeds_body, 0, motion.later, theme.MUTED)
-            self.speeds_readout.set("")
-            return
-        r = 0
-        for shaft in (self.effective or self.reading.spec).shafts:
-            speed = motion.speeds.get(shaft.id)
-            if speed is None:
-                text = f"{shaft.id:<4}  not driven"
+        lines, readout = ui_text.workbook_speed_lines(self.effective or self.reading.spec, report.motion)
+        colour = theme.MUTED if report.motion.later else theme.INK
+        for r, text in enumerate(lines):
+            if report.motion.later:
+                self._line(self.speeds_body, r, text, colour)
             else:
-                torque = motion.torques.get(shaft.id)
-                torque_text = f" · {torque:.2f} N·m" if torque is not None else ""
-                text = f"{shaft.id:<4}  {abs(float(speed)):.1f} rpm {motion.turns(shaft.id)}{torque_text}"
-            tk.Label(self.speeds_body, text=text, bg=theme.WHITE, fg=theme.INK, font=self.fonts.mono_tiny,
-                     anchor="w").grid(row=r, column=0, sticky="w")
-            r += 1
-        self.speeds_readout.set("seen from +Z" if motion.speeds else "no input")
+                tk.Label(self.speeds_body, text=text, bg=theme.WHITE, fg=colour, font=self.fonts.mono_tiny,
+                         anchor="w").grid(row=r, column=0, sticky="w")
+        self.speeds_readout.set(readout)
 
     def _recheck_chosen(self, reading: wb_link.Reading) -> None:
         """After an outside save, keep a chosen fix only if the new read still offers exactly that fix.
