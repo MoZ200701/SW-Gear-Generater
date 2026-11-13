@@ -22,7 +22,8 @@ from .geometry import Layout, Placed
 from .model import GearboxSpec
 
 CENTRE_TOLERANCE = 0.005      # mm: half the last digit of a distance typed to two decimals
-NEAR_MESH = 0.5               # × module: two unlisted gears this close to their mesh distance would mesh
+NEAR_MESH_BAND = 0.1          # × module: two unlisted gears this near their mesh distance would mesh (a warning);
+                              # nearer than that they jam, and that is a clash
 CLASH_GAP = 0.5               # × module: the least room between gears that do not mesh
 
 
@@ -77,7 +78,11 @@ def check(spec: GearboxSpec, skip_gears=()) -> Report:
     _check_clearances(report, spec, placed, listed)
     _check_shafts(report, spec, placed)
     _check_motion(report, spec)
-    report.theta = geometry.phases(spec, placed)
+    report.theta, conflicts = geometry.phases(spec, placed, with_conflicts=True)
+    for gear_id, other in conflicts:
+        _warning(report, spec.cell("Gears", gears[gear_id].row, "id"),
+                 f"{gear_id}'s teeth cannot sit in the spaces of every gear it meshes with at once (the turn "
+                 f"{other} asks of it disagrees): a loop of meshes that does not close; check the tooth counts.")
     report.worked_out_as = _worked_out_as(spec, report)
     return report
 
@@ -115,13 +120,20 @@ def _check_mesh(report: Report, spec: GearboxSpec, mesh, a: Placed, b: Placed, w
             return
         ring = a.internal or b.internal
         same = (ga.hand or "right") == (gb.hand or "right")
-        if ring and not same:
-            _error(report, where, f"{a.gear} and {b.gear} have opposite hands; a pinion in a ring takes the same "
-                                  "hand as the ring.")
+        # A herringbone's hand names its half nearest its own front face. Turned over on a Z- shaft, that half
+        # sits at the other end, so against a gear on Z+ it presents the other hand: the typed hands then pair
+        # the other way. A helical gear's helix reads the same from either end, so its hand never flips.
+        flipped = kind_a == "herringbone" and a.sigma != b.sigma
+        want_same = ring != flipped
+        if want_same and not same:
+            why = ("a pinion in a ring takes the same hand as the ring" if ring else
+                   "herringbones on shafts facing opposite ways take the same typed hand, since one is turned over")
+            _error(report, where, f"{a.gear} and {b.gear} have opposite hands; {why}.")
             return
-        if not ring and same:
-            _error(report, where, f"{a.gear} and {b.gear} are both {ga.hand or 'right'}-handed; gears on parallel "
-                                  "shafts take opposite hands.")
+        if not want_same and same:
+            why = ("a ring and its pinion facing opposite ways take opposite typed hands, since one is turned over"
+                   if ring else "gears on parallel shafts take opposite hands")
+            _error(report, where, f"{a.gear} and {b.gear} are both {ga.hand or 'right'}-handed; {why}.")
             return
 
     pinion, other = (a, b) if not a.internal else (b, a)
@@ -154,8 +166,7 @@ def _check_mesh(report: Report, spec: GearboxSpec, mesh, a: Placed, b: Placed, w
         move = fixes_mod.move_fix(spec, a, b, needed)
         if move is not None:
             offered.append(move)
-        shift = fixes_mod.shift_fix(spec, a, b, {g.id: g.row for g in spec.gears}[a.gear],
-                                    {g.id: g.row for g in spec.gears}[b.gear])
+        shift = fixes_mod.shift_fix(spec, a, b)
         if shift is not None:
             offered.append(shift)
         if offered:
@@ -184,9 +195,12 @@ def _check_clearances(report: Report, spec: GearboxSpec, placed: Dict[str, Place
             continue
         if a.internal or b.internal:
             ring, g = (a, b) if a.internal else (b, a)
-            if d - g.outer_radius >= ring.outer_radius:
-                continue                                    # wholly outside the ring
-            near = abs(d - (ring.derived.d - g.derived.d) / 2.0) < NEAR_MESH * g.module
+            if d - g.outer_radius >= ring.outer_radius + gap:
+                continue                                    # wholly outside the ring, with room to spare
+            if d - g.outer_radius >= ring.outer_radius - gap and d > ring.outer_radius:
+                _error(report, where, f"{g.gear} is less than {_n(gap)} mm from {ring.gear}'s rim.")
+                continue
+            near = abs(d - (ring.derived.d - g.derived.d) / 2.0) < NEAR_MESH_BAND * g.module
             if near and abs(ring.module - g.module) < 1e-9:
                 _warning(report, where, f"{g.gear} sits where it would mesh inside {ring.gear}: list them on "
                                         "Meshes, or move one.")
@@ -194,7 +208,7 @@ def _check_clearances(report: Report, spec: GearboxSpec, placed: Dict[str, Place
                 _error(report, where, f"{g.gear} reaches {ring.gear}'s teeth: there is less than {_n(gap)} mm "
                                       f"between them.")
             continue
-        near = abs(d - (a.derived.d + b.derived.d) / 2.0) < NEAR_MESH * max(a.module, b.module)
+        near = abs(d - (a.derived.d + b.derived.d) / 2.0) < NEAR_MESH_BAND * max(a.module, b.module)
         if near and abs(a.module - b.module) < 1e-9:
             _warning(report, where, f"{a.gear} and {b.gear} sit where they would mesh: list them on Meshes, or "
                                     "move one.")
@@ -237,10 +251,23 @@ def _check_motion(report: Report, spec: GearboxSpec) -> None:
     if motion.jammed:
         _error(report, "Meshes", motion.jammed)
         return
+    if not spec.meshes:
+        return                                  # parts only: nothing turns anything, and that is fine
+    if not any(s.role == "input" and s.speed for s in spec.shafts):
+        _error(report, "Shafts", "the gears mesh, but no shaft is an input with a speed: set one shaft's Role to "
+                                 "input and give it a Speed.")
+        return
+    gears_meshed = {g for m in spec.meshes for g in (m.a, m.b)}
+    meshed_shafts = {g.shaft for g in spec.gears if g.id in gears_meshed}
     for shaft in spec.shafts:
-        if shaft.id in motion.free and shaft.role == "output":
-            _warning(report, spec.cell("Shafts", shaft.row, "id"),
-                     f"nothing drives {shaft.id}: no input reaches it through the meshes.")
+        if shaft.id not in motion.free:
+            continue
+        where = spec.cell("Shafts", shaft.row, "id")
+        if shaft.id in meshed_shafts:
+            _error(report, where, f"nothing settles {shaft.id}'s speed: no input reaches it through the meshes, "
+                                  "so the box needs another input (or a fixed shaft) to be driven.")
+        elif shaft.role == "output":
+            _warning(report, where, f"nothing drives {shaft.id}: no input reaches it through the meshes.")
 
 
 def _worked_out_as(spec: GearboxSpec, report: Report) -> str:

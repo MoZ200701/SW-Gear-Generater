@@ -336,6 +336,8 @@ class LinkRecord:
     last_built: str = ""
     schema_version: int = SCHEMA_VERSION
     written_by: str = ""
+    own_digest: str = ""              # the workbook as the app last wrote it (Export)
+    recalc: bool = False              # that write left formulas for Excel to recalculate before Build
 
 
 def save_link_record(record: LinkRecord, path: Optional[str] = None) -> str:
@@ -359,8 +361,10 @@ def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
         record = LinkRecord(**_known(LinkRecord, raw))
         if not isinstance(record.parts, list) or not all(isinstance(p, dict) for p in record.parts):
             return None
-        if not all(isinstance(getattr(record, k), str) for k in ("workbook", "digest", "assembly", "last_built")):
+        if not all(isinstance(getattr(record, k), str) for k in ("workbook", "digest", "assembly", "last_built",
+                                                                 "own_digest")):
             return None
+        record.recalc = bool(record.recalc)
         return record
     except Exception:  # noqa: BLE001 - a missing or broken record means "not built from here yet"
         return None

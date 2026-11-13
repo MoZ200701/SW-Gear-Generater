@@ -382,6 +382,34 @@ def test_after_a_build_the_note_shows_and_build_follows_the_file(tmp_path):
     assert text.startswith("Built 4 parts. Since then: Fix the workbook before building: Gears!F2")
 
 
+def test_a_chosen_fix_holds_build_until_export_and_a_refused_export_shows(tmp_path):
+    parts, diagnostics = ready(tmp_path)
+    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=2)
+    assert ok and not enabled and text.startswith("2 fixes chosen: Export writes them")
+    # The last Export was refused with the fix still chosen: that sentence wins, shown as a fault.
+    refused = ("Nothing was written: the workbook changed since it was last read.", False)
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=1, note=refused) == (
+        refused[0], False, False)
+    # A good note does not hide the fix still waiting.
+    text, _, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=1,
+                                              note=("Built 4 parts.", True))
+    assert text.startswith("1 fix chosen: Export writes it") and not enabled
+    # Building and a failed read still come first.
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=1, building=True)[0].startswith(
+        "Building")
+    assert ui_text.workbook_state(parts, diagnostics, error="Gone.", chosen=1, note=refused)[0] == "Gone."
+
+
+def test_an_export_into_formulas_waits_for_excel_to_recalculate(tmp_path):
+    parts, diagnostics = ready(tmp_path)
+    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True,
+                                               note=("Wrote 1 cell.", True))
+    assert ok and not enabled
+    assert text == ("Wrote 1 cell. Open and save the workbook in Excel so its formulas recalculate; Build waits "
+                    "for that save.")
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True)[0].startswith("Open and save")
+
+
 def test_short_path_fits_even_one_long_name():
     path = "C:\\Parts\\" + "X" * 80 + ".xlsx"
     short = ui_text.short_path(path, 62)

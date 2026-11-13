@@ -892,6 +892,8 @@ def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "",
         return f"Building {_plural(len(parts.jobs), 'part')} in SolidWorks…", True, False
     if error:
         return error, False, False
+    if note is not None and not note[1] and chosen:
+        return note[0], False, False          # a refused Export must show, even with a fix still chosen
     if chosen:
         return (f"{_plural(chosen, 'fix', 'fixes')} chosen: Export writes "
                 f"{'it' if chosen == 1 else 'them'} into the workbook, and Build waits for that, so the workbook "

@@ -143,3 +143,63 @@ def test_a_bevel_pair_meets_at_the_apex_with_the_pitch_cones_along_one_line():
     assert made.dimension.text == "R 67.082 mm · Σ 90°"
     single = preview.layout([a])
     assert single.dimension.text == "OD 67.218 mm" and len(single.polylines) == 2
+
+
+# -- the Workbook window's end view: every placed gear, turned to its phase ------------------
+
+
+def _workbook_view(width=392, height=300):
+    from gear_generator.workbook import geometry
+    from gear_generator.workbook.model import Box, Gear, GearboxSpec, Mesh, Shaft
+    from gear_generator.gears import pair as pairs
+    centre = pairs.describe(2.0, 17, 30)[0]
+    ring_centre = 2.0 * (60 - 17) / 2.0
+    spec = GearboxSpec(
+        box=Box(name="T"),
+        shafts=(Shaft("A", x="0", y="0"), Shaft("B", x="0", y=str(centre), axis="Z-"),
+                Shaft("R", x=str(ring_centre), y="0")),
+        gears=(Gear("P", "A", "5", teeth="17", module="2", face_width="10"),
+               Gear("Q", "B", "-5", teeth="30", module="2", face_width="10"),
+               Gear("Ring", "R", "20", side="internal", teeth="60", module="2", face_width="10", rim="140"),
+               Gear("P2", "A", "20", teeth="17", module="2", face_width="10")),
+        meshes=(Mesh("P", "Q"), Mesh("P2", "Ring")))
+    lay = geometry.layout(spec)
+    assert lay.problems == {}
+    theta = geometry.phases(spec, lay.placed)
+    return lay, theta, preview.layout_gearbox(lay.placed, theta, width, height)
+
+
+def test_the_end_view_fits_the_canvas_with_y_up():
+    lay, _, view = _workbook_view()
+    points = [pt for _, _, outline in view.outlines for pt in outline]
+    assert all(0 <= x <= 392 and 0 <= y <= 300 for x, y in points)
+    shafts = {name: (x, y) for name, x, y in view.shafts}
+    assert set(shafts) == {"A", "B", "R"}
+    assert shafts["B"][1] < shafts["A"][1]                  # B is at +Y: higher on the screen
+    assert shafts["R"][0] > shafts["A"][0]                  # R is at +X: to the right
+    assert view.origin == pytest.approx(shafts["A"])
+
+
+def test_the_end_view_groups_by_plane_and_rings_get_their_rim():
+    _, _, view = _workbook_view()
+    assert view.planes == [5.0, 20.0]
+    planes = {gear: plane for gear, plane, _ in view.outlines}
+    assert planes == {"P": 0, "Q": 0, "Ring": 1, "P2": 1}
+    assert [o[0] for o in view.outlines][-2:] in (["Ring", "P2"], ["P2", "Ring"])    # nearest +Z drawn last
+    (gear, plane, cx, cy, r), = view.rims
+    assert gear == "Ring" and plane == 1 and r == pytest.approx(70.0 * view.scale)
+
+
+def test_the_end_view_draws_meshed_gears_clear_of_each_other():
+    """The view turns each gear by geometry's phase, and mirrors the Z- one: drawn, they do not cross."""
+    import math
+    lay, theta, view = _workbook_view(800, 600)
+
+    def crossing(view):
+        outlines = {gear: outline for gear, _, outline in view.outlines}
+        p, q = outlines["P"], outlines["Q"]
+        return sum(_inside(pt, q) for pt in p) + sum(_inside(pt, p) for pt in q)
+
+    assert crossing(view) == 0
+    wrong = dict(theta, Q=theta["Q"] + math.pi / 30)
+    assert crossing(preview.layout_gearbox(lay.placed, wrong, 800, 600)) > 0

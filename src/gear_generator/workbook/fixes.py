@@ -28,8 +28,11 @@ from .xlsx import number_text
 
 @dataclass(frozen=True)
 class Edit:
+    """One cell to change, named by the shaft or gear it belongs to, never by row: rows move when the user
+    inserts, deletes or sorts in Excel, and a fix chosen before that must still land on the right item."""
+
     sheet: str           # "Shafts" or "Gears"
-    row: int             # the item's row in that sheet
+    item: str            # the shaft's or gear's name
     key: str             # the column's key (schema)
     value: str           # the new text
 
@@ -45,36 +48,48 @@ def _text(value: float, places: int = 6) -> str:
     return number_text(repr(round(value, places)))
 
 
-def _shaft_graph(spec: GearboxSpec) -> Dict[str, Set[str]]:
+def _shaft_graph(spec: GearboxSpec) -> Dict[str, List[str]]:
+    """Shaft -> the shafts it meshes with, once per mesh: two gear pairs between the same two shafts are two
+    edges, a loop — moving either shaft mends one pair and breaks the other."""
     gears = {g.id: g for g in spec.gears}
-    graph: Dict[str, Set[str]] = {s.id: set() for s in spec.shafts}
+    graph: Dict[str, List[str]] = {s.id: [] for s in spec.shafts}
     for mesh in spec.meshes:
         a, b = gears.get(mesh.a), gears.get(mesh.b)
         if a is None or b is None or a.shaft == b.shaft or a.shaft not in graph or b.shaft not in graph:
             continue
-        graph[a.shaft].add(b.shaft)
-        graph[b.shaft].add(a.shaft)
+        graph[a.shaft].append(b.shaft)
+        graph[b.shaft].append(a.shaft)
     return graph
 
 
-def _is_tree(graph: Dict[str, Set[str]], start: str) -> bool:
-    seen, edges, queue = {start}, 0, deque([start])
+def _component(graph: Dict[str, List[str]], start: str) -> Set[str]:
+    seen, queue = {start}, deque([start])
     while queue:
-        node = queue.popleft()
-        for other in graph[node]:
-            edges += 1
+        for other in graph[queue.popleft()]:
             if other not in seen:
                 seen.add(other)
                 queue.append(other)
-    return edges // 2 == len(seen) - 1
+    return seen
+
+
+def _is_tree(graph: Dict[str, List[str]], start: str) -> bool:
+    nodes = _component(graph, start)
+    edges = sum(len(graph[n]) for n in nodes) // 2
+    return edges == len(nodes) - 1
 
 
 def move_fix(spec: GearboxSpec, a: Placed, b: Placed, required: float) -> Optional[Fix]:
     """Move the shaft farther from the input (and all beyond it) so ``a`` and ``b`` sit ``required`` apart."""
     graph = _shaft_graph(spec)
-    inputs = [s.id for s in spec.shafts if s.role == "input"]
-    root = inputs[0] if inputs else a.shaft
-    if root not in graph or not _is_tree(graph, root):
+    if a.shaft not in graph:
+        return None
+    # The tree grows from the input when this train has one, else from its first shaft: a train the input does
+    # not reach is mended the same way.
+    component = _component(graph, a.shaft)
+    order = {s.id: i for i, s in enumerate(spec.shafts)}
+    inputs = [s.id for s in spec.shafts if s.role == "input" and s.id in component]
+    root = inputs[0] if inputs else min(component, key=lambda s: order[s])
+    if not _is_tree(graph, root):
         return None
     depth = {root: 0}
     queue = deque([root])
@@ -108,9 +123,9 @@ def move_fix(spec: GearboxSpec, a: Placed, b: Placed, required: float) -> Option
         shaft = shafts[shaft_id]
         x, y = float(shaft.x) + dx, float(shaft.y) + dy
         if abs(dx) > 1e-12:
-            edits.append(Edit("Shafts", shaft.row, "x", _text(x)))
+            edits.append(Edit("Shafts", shaft_id, "x", _text(x)))
         if abs(dy) > 1e-12:
-            edits.append(Edit("Shafts", shaft.row, "y", _text(y)))
+            edits.append(Edit("Shafts", shaft_id, "y", _text(y)))
         moves.append(f"{shaft_id} X {_text(float(shaft.x), 3)} → {_text(x, 3)}"
                      + (f", Y {_text(float(shaft.y), 3)} → {_text(y, 3)}" if abs(dy) > 1e-12 else ""))
     others = len(moving) - 1
@@ -119,9 +134,15 @@ def move_fix(spec: GearboxSpec, a: Placed, b: Placed, required: float) -> Option
     return Fix(title, " · ".join(moves), tuple(edits))
 
 
-def shift_fix(spec: GearboxSpec, a: Placed, b: Placed, a_row: int, b_row: int) -> Optional[Fix]:
-    """Keep the shafts where they are: profile-shift two outside spur or helical gears to meet their distance."""
+def shift_fix(spec: GearboxSpec, a: Placed, b: Placed) -> Optional[Fix]:
+    """Keep the shafts where they are: profile-shift two outside spur or helical gears to meet their distance.
+
+    Not offered when either gear meshes with a third: shifting it moves that mesh's centre too (an idler).
+    """
     if a.internal or b.internal or a.herringbone != b.herringbone:
+        return None
+    in_meshes = [m for m in spec.meshes if a.gear in (m.a, m.b) or b.gear in (m.a, m.b)]
+    if len(in_meshes) > 1:
         return None
     da, db = a.derived, b.derived
     beta = getattr(da, "helix_angle_deg", 0.0)
@@ -136,7 +157,7 @@ def shift_fix(spec: GearboxSpec, a: Placed, b: Placed, a_row: int, b_row: int) -
     alpha_t = getattr(da, "pressure_angle_deg", normal)
     working = pairs.working_pressure_angle(a.module, a.teeth, b.teeth, alpha_t, x1, x2, mt)
     detail = (f"x {x1:+.6f} / {x2:+.6f} → {centre:.3f} exact · working angle {working:.2f}° · ε {epsilon:.2f}")
-    edits = (Edit("Gears", a_row, "profile_shift", _text(x1)), Edit("Gears", b_row, "profile_shift", _text(x2)))
+    edits = (Edit("Gears", a.gear, "profile_shift", _text(x1)), Edit("Gears", b.gear, "profile_shift", _text(x2)))
     return Fix(f"Keep your positions: profile-shift {a.gear} and {b.gear}", detail, edits)
 
 
@@ -147,6 +168,6 @@ def apply(spec: GearboxSpec, fix: Fix) -> GearboxSpec:
     for edit in fix.edits:
         items = shafts if edit.sheet == "Shafts" else gears
         for index, item in enumerate(items):
-            if item.row == edit.row:
+            if item.id == edit.item:
                 items[index] = replace(item, **{edit.key: edit.value})
     return replace(spec, shafts=tuple(shafts), gears=tuple(gears))

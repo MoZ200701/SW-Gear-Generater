@@ -94,6 +94,14 @@ class WorkbookWindow(tk.Toplevel):
         self.status = tk.StringVar(value="")
         self.view_readout = tk.StringVar(value="")
         self.speeds_readout = tk.StringVar(value="")
+        self._last_digest = ""
+        record = store.load_link_record(self.link.path)
+        if record is not None and record.own_digest:
+            # After an Export into a workbook with formulas, Build waits for Excel's save — across a reopen too.
+            self.link.own_digest = record.own_digest
+            self._pending_recalc = record.recalc
+        else:
+            self._pending_recalc = False
         self._layout()
         self.reread()
         self._after = self.after(self.poll_ms, self._tick)
@@ -260,14 +268,15 @@ class WorkbookWindow(tk.Toplevel):
             self.changes, self.changes_at = reading.changes, self.read_at
         elif not self.changes_at:
             self.changes_at = self.read_at
-        if not reading.own:
+        if reading.own and self._pending_recalc:
+            self.recalc, self._pending_recalc = True, False      # reopened on the app's own unrecalculated write
+        moved_on = bool(self._last_digest) and reading.digest != self._last_digest
+        self._last_digest = reading.digest
+        if not reading.own and moved_on:
             self.recalc = False               # an outside save: Excel has recalculated whatever it holds
-            if reading.changes:
-                self.note = None              # the file has moved on from the last build's or export's sentence
-                if self.chosen:
-                    self.chosen = []
-                    self.note = ("The workbook changed, so the fix you chose was set aside; choose it again if it "
-                                 "still applies.", False)
+            self.note = None                  # the file has moved on from the last build's or export's sentence
+            if self.chosen:
+                self._recheck_chosen(reading)
         elif not self.changes_at:
             self.changes_at = self.read_at
         self._plan()
@@ -449,6 +458,22 @@ class WorkbookWindow(tk.Toplevel):
             r += 1
         self.speeds_readout.set("seen from +Z" if motion.speeds else "no input")
 
+    def _recheck_chosen(self, reading: wb_link.Reading) -> None:
+        """After an outside save, keep a chosen fix only if the new read still offers exactly that fix.
+
+        Compared on the save itself, not on the change list: inserting or sorting rows changes no value, and
+        a fix's own edits name items, not rows, so an unchanged fix is still right however the rows moved.
+        """
+        spec = reading.spec
+        skip_rows = wb_build.rows_with_errors(reading.diagnostics)
+        skip_gears = {g.id for g in spec.gears if g.row in skip_rows}
+        offered = [f for fs in wb_checks.check(spec, skip_gears).fixes.values() for f in fs]
+        kept = [f for f in self.chosen if f in offered]
+        if len(kept) < len(self.chosen):
+            self.note = ("The workbook changed, so the fix you chose no longer applies as it was and was set "
+                         "aside; choose again from Checks.", False)
+        self.chosen = kept
+
     def choose(self, fix: wb_fixes.Fix) -> None:
         """Take a fix: the window checks the gearbox with it at once; Export writes it."""
         if fix not in self.chosen:
@@ -469,24 +494,33 @@ class WorkbookWindow(tk.Toplevel):
             return
         try:
             done = wb_export.export(self.link.path, self.reading.spec, list(self.chosen), self.report,
-                                    out_path=out_path)
+                                    out_path=out_path, expected_digest=self.reading.digest)
         except (xlsx.XlsxError, OSError) as exc:
             self.note = (str(exc), False)
+            if "changed since it was last read" in str(exc):
+                self.reread()
             self._refresh_state()
             return
-        parts = [f"Exported {ui_text._plural(len(done.written), 'cell')} and the Results sheet"
-                 + (f" to {os.path.basename(out_path)}" if out_path else "") + "."]
+        what = ui_text._plural(len(done.written), 'cell') + (" and the Results sheet" if done.results else "")
+        parts = [f"Exported {what}" + (f" to {os.path.basename(out_path)}" if out_path else "") + "."]
         if done.added_headers:
             parts.append("Added the column " + ", ".join(done.added_headers) + ".")
         if done.refused:
-            parts.append("Not written, as they hold formulas — change them in Excel: "
-                         + ", ".join(cell for cell, _ in done.refused) + ".")
+            parts.append("Not written — change them in Excel: "
+                         + "; ".join(f"{cell} ({why})" for cell, why in done.refused)
+                         + ". Results were not written, since the fix is only partly in the workbook.")
         if out_path:
             self.note = (" ".join(parts), not done.refused)
         else:
             self.link.own_digest = done.digest
             self.chosen = []
             self.recalc = done.has_formulas and bool(done.written)
+            record = store.load_link_record(self.link.path) or store.LinkRecord(workbook=self.link.path)
+            record.own_digest, record.recalc = done.digest, self.recalc
+            try:
+                store.save_link_record(record)
+            except OSError:
+                pass                          # only a convenience: this session still knows
             self.note = (" ".join(parts), not done.refused)
             self.reread()
             return
@@ -582,9 +616,9 @@ class WorkbookWindow(tk.Toplevel):
             built_parts.append({"path": result.saved, "gears": list(job.gear_ids)})
         store.save_recent(self.app.recent)    # _write_sidecar remembered each record; keep them
         if built_parts:
-            record = store.LinkRecord(workbook=self.link.path, digest=context.get("digest", ""),
-                                      parts=built_parts, last_built=store.now(),
-                                      written_by=f"gear-generator {__version__}")
+            record = store.load_link_record(self.link.path) or store.LinkRecord(workbook=self.link.path)
+            record.digest, record.parts, record.last_built = context.get("digest", ""), built_parts, store.now()
+            record.written_by = f"gear-generator {__version__}"
             try:
                 store.save_link_record(record)
             except OSError as exc:

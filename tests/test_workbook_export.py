@@ -92,3 +92,72 @@ def test_a_percentage_cell_takes_a_fraction():
     assert export._value(column, "97", percent=True) == pytest.approx(0.97)
     assert export._value(column, "97", percent=False) == 97
     assert export._value(schema.GEARS.column("part_name"), "007", percent=False) == "007"
+
+
+def without_shift_column(spec, path):
+    sheets = model.to_sheets(spec)
+    shift_col = [c.key for c in schema.GEARS.columns].index("profile_shift")
+    sheets[2] = xlsx.NewSheet("Gears", [r[:shift_col] + r[shift_col + 1:] for r in sheets[2].rows])
+    xlsx.write_new(str(path), sheets)
+    return path
+
+
+def test_two_fixes_needing_the_same_missing_column_add_one_header(tmp_path):
+    path = without_shift_column(moved(reducer(), S2="64", S3="132.5"), tmp_path / "two.xlsx")
+    spec, _ = read(path)
+    report = checks.check(spec)
+    shifts = [report.fixes[m][1] for m in ("Meshes!A2", "Meshes!A3")]
+    assert all(shifts)
+    done = export.export(str(path), spec, shifts, None)
+    assert done.added_headers == ["Gears!U1 Profile shift (× m)"] and done.refused == []
+    again, diagnostics = read(path)
+    assert diagnostics == [] and all(g.profile_shift for g in again.gears)
+    assert [d.message for d in checks.check(again).diagnostics if d.is_error] == []
+
+
+def resave(path, spec):
+    """The workbook saved again as Excel saves: a new file renamed over the old."""
+    new = path.with_name("~resave.xlsx")
+    xlsx.write_new(str(new), model.to_sheets(spec))
+    new.replace(path)
+
+
+def test_a_fix_lands_on_its_shaft_after_the_rows_are_sorted(tmp_path):
+    """Chosen against one read, exported after the user sorted the Shafts sheet in Excel: the edit names S2,
+    and S2 is found where it is now."""
+    spec = moved(reducer(), S2="64", S3="132")
+    path = write(tmp_path, spec)
+    first, _ = read(path)
+    move = checks.check(first).fixes["Meshes!A2"][0]
+    resave(path, model.replace(spec, shafts=tuple(reversed(spec.shafts))))         # S3, S2, S1
+    now, _ = read(path)
+    assert [s.id for s in now.shafts] == ["S3", "S2", "S1"]
+    done = export.export(str(path), now, [move], None)
+    assert sorted(done.written) == ["Shafts!C2", "Shafts!C3"]
+    again, _ = read(path)
+    assert again.shaft("S1").x == "0" and again.shaft("S2").x == "63.75" and again.shaft("S3").x == "131.75"
+
+
+def test_a_fix_for_an_item_since_deleted_is_refused_and_results_not_written(tmp_path):
+    spec = moved(reducer(), S2="64", S3="132")
+    path = write(tmp_path, spec)
+    first, _ = read(path)
+    move = checks.check(first).fixes["Meshes!A2"][0]
+    resave(path, model.replace(spec, shafts=spec.shafts[:2]))                       # S3 deleted
+    now, _ = read(path)
+    done = export.export(str(path), now, [move], checks.check(now))
+    assert ("Shafts S3", "S3 is no longer on the Shafts sheet") in done.refused
+    assert not done.results and xlsx.read(path).sheet(schema.RESULTS) is None
+
+
+def test_a_save_since_the_last_read_is_not_written_over(tmp_path):
+    import hashlib
+    path = write(tmp_path, moved(reducer(), S2="64", S3="132"))
+    spec, _ = read(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    move = checks.check(spec).fixes["Meshes!A2"][0]
+    xlsx.write_cells(str(path), {"Box": {"B2": "Edited in Excel"}})                 # a save inside the poll
+    saved = path.read_bytes()
+    with pytest.raises(xlsx.XlsxError, match="changed since it was last read"):
+        export.export(str(path), spec, [move], None, expected_digest=digest)
+    assert path.read_bytes() == saved

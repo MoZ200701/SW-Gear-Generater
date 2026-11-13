@@ -15,7 +15,9 @@ global angle
     g(Z) = σ · (θ + s · 2π · z_local(Z) / L),   z_local = σ · (Z − Z_front)
 
 where σ is +1 for an axis along Z+ and −1 for Z- (a part on a Z- axis is the
-same part turned over, which mirrors its angles in the global view). Meshing is
+same part turned over, which mirrors its angles in the global view). A
+herringbone's section is drawn at its apex instead, so its ``z_local`` is
+counted from the mid-face and folds there. Meshing is
 a condition on these global angles at a plane both faces share:
 
 - external, gear q at direction φ from gear p:  g_q = φ + π − π/z_q − (g_p − φ)·z_p/z_q
@@ -87,8 +89,10 @@ class Placed:
             return 0.0
         z_local = self.sigma * (z_global - self.z_front)
         if self.herringbone:
-            half = self.face / 2.0              # the hand names the half nearest the front; the other mirrors it
-            z_local = z_local if z_local <= half else self.face - z_local
+            # Built as half and mirrored: the section is drawn at the apex (the mid-face), the hand names the
+            # half nearest the front, and the other half mirrors it (helical.face_rotations).
+            half = self.face / 2.0
+            z_local = min(z_local, self.face - z_local) - half
         return self.hand_sign * 2.0 * math.pi * z_local / self.lead
 
     def space_angle(self, theta: float, z_global: float) -> float:
@@ -176,22 +180,27 @@ def mesh_plane(a: Placed, b: Placed) -> float:
     return (lo + hi) / 2.0
 
 
-def phases(spec: GearboxSpec, placed: Dict[str, Placed]) -> Dict[str, float]:
-    """θ for every gear reachable through the meshes from the first one placed (θ = 0), radians.
+def phases(spec: GearboxSpec, placed: Dict[str, Placed], with_conflicts: bool = False):
+    """θ for every gear reachable through the meshes, radians; with ``with_conflicts``, also the loops that
+    do not close.
 
-    Gears on one shaft turn together but each part keeps its own θ: a compound
-    pair's second gear is placed by the mesh it is in, not by the first gear,
-    since nothing fixes one to the other until W5's lock. A gear reached twice
-    must agree both ways; one that does not is left at its first value (the
-    planetary's assembly condition, W7, is where that is checked).
+    Each train starts from a gear on an input shaft when it has one (θ = 0),
+    else its first gear. Gears on one shaft turn together but each part keeps
+    its own θ: a compound pair's second gear is placed by the mesh it is in,
+    since nothing fixes one to the other until W5's lock. A gear reached a
+    second way must agree, to a hundredth of its pitch; one that does not is
+    a loop that does not close, reported as ``(gear, the gear asking otherwise)``.
     """
     meshes: Dict[str, List[str]] = {}
     for mesh in spec.meshes:
         if mesh.a in placed and mesh.b in placed:
             meshes.setdefault(mesh.a, []).append(mesh.b)
             meshes.setdefault(mesh.b, []).append(mesh.a)
+    inputs = {s.id for s in spec.shafts if s.role == "input"}
+    starts = [g for g in placed if placed[g].shaft in inputs] + list(placed)
     theta: Dict[str, float] = {}
-    for start in placed:
+    conflicts: List[Tuple[str, str]] = []
+    for start in starts:
         if start in theta:
             continue
         theta[start] = 0.0
@@ -199,11 +208,16 @@ def phases(spec: GearboxSpec, placed: Dict[str, Placed]) -> Dict[str, float]:
         while queue:
             p = queue.popleft()
             for q in meshes.get(p, []):
+                wanted = place_against(placed[p], theta[p], placed[q])
                 if q in theta:
+                    pitch = 2.0 * math.pi / placed[q].teeth
+                    off = (wanted - theta[q]) % pitch
+                    if min(off, pitch - off) > pitch / 100.0 and (q, p) not in conflicts and (p, q) not in conflicts:
+                        conflicts.append((q, p))
                     continue
-                theta[q] = place_against(placed[p], theta[p], placed[q])
+                theta[q] = wanted
                 queue.append(q)
-    return theta
+    return (theta, conflicts) if with_conflicts else theta
 
 
 def place_against(p: Placed, theta_p: float, q: Placed) -> float:

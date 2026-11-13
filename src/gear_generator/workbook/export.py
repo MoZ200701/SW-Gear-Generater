@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from . import schema, xlsx
 from .checks import Report
 from .fixes import Fix
-from .model import GearboxSpec
+from .model import GearboxSpec, from_book as model_from_book
 from .xlsx import NewSheet, make_ref
 
 SHEET_DEFS = {"Shafts": schema.SHAFTS, "Gears": schema.GEARS, "Meshes": schema.MESHES}
@@ -36,6 +36,7 @@ class Exported:
     added_headers: List[str] = field(default_factory=list)
     digest: str = ""                       # the file as written, so the live link knows its own write
     has_formulas: bool = False             # Excel must recalculate and save before the values can be trusted
+    results: bool = False                  # the Results sheet was written (not when a cell was refused)
 
 
 def results_sheet(spec: GearboxSpec, report: Report, when: Optional[str] = None) -> NewSheet:
@@ -75,9 +76,26 @@ def _value(column: Optional[schema.Column], text: str, percent: bool):
 
 
 def export(path: str, spec: GearboxSpec, chosen: Sequence[Fix], report: Optional[Report],
-           out_path: str = "") -> Exported:
-    """Write the chosen fixes' cells and the Results sheet into ``path`` (or a copy at ``out_path``)."""
-    book = xlsx.read(path)
+           out_path: str = "", expected_digest: str = "") -> Exported:
+    """Write the chosen fixes' cells and the Results sheet into ``path`` (or a copy at ``out_path``).
+
+    Each edit names a shaft or gear, and its row is found in the file as it is
+    now, so rows inserted or sorted since the fix was chosen do not misdirect
+    it. ``expected_digest`` is the file as the window last read it: a save in
+    Excel since then (inside the one-second poll) is refused rather than
+    written over. If any cell is refused (a formula), the Results sheet is not
+    written: the fix is then only partly in the workbook, and Results would
+    describe a gearbox the file does not hold.
+    """
+    with open(path, "rb") as handle:
+        data = handle.read()
+    if expected_digest and hashlib.sha256(data).hexdigest() != expected_digest:
+        raise xlsx.XlsxError("The workbook changed since it was last read, so nothing was written; it is read "
+                             "again now. Choose the fix again if it still applies.")
+    book = xlsx.read_bytes(data, path)
+    current, _ = model_from_book(book)
+    rows = {("Shafts", s.id): s.row for s in current.shafts}
+    rows.update({("Gears", g.id): g.row for g in current.gears})
     changes: Dict[str, Dict[str, object]] = {}
     out = Exported(path=out_path or path)
     for fix in chosen:
@@ -85,10 +103,12 @@ def export(path: str, spec: GearboxSpec, chosen: Sequence[Fix], report: Optional
             sheet = book.sheet(edit.sheet)
             sheet_def = SHEET_DEFS[edit.sheet]
             column = sheet_def.column(edit.key)
-            if sheet is None:
-                out.refused.append((f"{edit.sheet}!{edit.row}", f"there is no {edit.sheet} sheet"))
+            row = rows.get((edit.sheet, edit.item))
+            if sheet is None or row is None:
+                out.refused.append((f"{edit.sheet} {edit.item}", f"{edit.item} is no longer on the {edit.sheet} "
+                                                                 "sheet"))
                 continue
-            headers = {col: cell.text for (row, col), cell in sheet.cells.items() if row == 1 and cell.text}
+            headers = {col: cell.text for (r, col), cell in sheet.cells.items() if r == 1 and cell.text}
             found, _, _ = schema.match_headers(sheet_def, headers)
             col = found.get(edit.key)
             cells = changes.setdefault(sheet.name, {})
@@ -98,11 +118,14 @@ def export(path: str, spec: GearboxSpec, chosen: Sequence[Fix], report: Optional
                 cells[make_ref(1, col)] = column.title
                 out.added_headers.append(f"{sheet.name}!{make_ref(1, col)} {column.title}")
                 sheet.cells[(1, col)] = xlsx.Cell(make_ref(1, col), 1, col, column.title)
-            existing = sheet.cell(edit.row, col)
-            cells[make_ref(edit.row, col)] = _value(column, edit.value, bool(existing and existing.percent))
-    replace = [results_sheet(spec, report)] if report is not None else []
-    written = xlsx.write_cells(path, changes, replace_sheets=replace, out_path=out_path)
+            existing = sheet.cell(row, col)
+            cells[make_ref(row, col)] = _value(column, edit.value, bool(existing and existing.percent))
+    written = xlsx.write_cells(path, changes, out_path=out_path)
     out.written, out.refused = written.written, out.refused + written.refused
+    if report is not None and not out.refused:
+        target = out_path or path
+        xlsx.write_cells(target, {}, replace_sheets=[results_sheet(spec, report)])
+        out.results = True
     target = out_path or path
     with open(target, "rb") as handle:
         out.digest = hashlib.sha256(handle.read()).hexdigest()

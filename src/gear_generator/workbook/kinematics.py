@@ -158,31 +158,58 @@ def _reduce(rows: List[List[Fraction]], width: int) -> Tuple[Dict[int, Fraction]
 
 
 def _torques(spec: GearboxSpec, motion: Motion, inputs, meshes) -> None:
-    """Torque along the power path from the first input, through each mesh's efficiency; none past a split."""
+    """Torque along the power path from the first input, gear to gear, through each mesh's efficiency.
+
+    A gear passes ``T · z_out / z_in · η`` to the gear it drives. A shaft takes the torque of the gear driven on
+    it and hands it to its other gear; an idler — one gear meshing on both sides, alone on its shaft — passes
+    the tooth force straight on and its shaft carries none (0). Where power splits (two onward meshes) the
+    share each takes depends on the loads, so nothing past the split is given.
+    """
     first = inputs[0]
     if not first.torque:
         return
-    efficiency = {}
     box_eta = float(spec.box.efficiency_text())
+    links: Dict[str, List] = {}               # gear -> [(the gear it meshes with, η)]
+    teeth: Dict[str, int] = {}
+    shaft_of: Dict[str, str] = {}
     for mesh, a, b, za, zb in meshes:
-        eta = float(mesh.efficiency) if mesh.efficiency else box_eta
-        efficiency[(a.id, b.id)] = efficiency[(b.id, a.id)] = eta / 100.0
-    by_shaft: Dict[str, List] = {}
-    for mesh, a, b, za, zb in meshes:
-        by_shaft.setdefault(a.shaft, []).append((a, b, za, zb))
-        by_shaft.setdefault(b.shaft, []).append((b, a, zb, za))
+        eta = (float(mesh.efficiency) if mesh.efficiency else box_eta) / 100.0
+        links.setdefault(a.id, []).append((b.id, eta))
+        links.setdefault(b.id, []).append((a.id, eta))
+        teeth[a.id], teeth[b.id] = za, zb
+        shaft_of[a.id], shaft_of[b.id] = a.shaft, b.shaft
+    on_shaft: Dict[str, List[str]] = {}
+    for gear_id, shaft in shaft_of.items():
+        on_shaft.setdefault(shaft, []).append(gear_id)
     torque = {first.id: abs(float(_fraction(first.torque)))}
-    queue = deque([first.id])
-    came_from: Dict[str, str] = {first.id: ""}
+
+    def onward_from_shaft(shaft: str, came_in: str) -> List:
+        return [(g, h, eta) for g in on_shaft.get(shaft, []) for h, eta in links.get(g, [])
+                if not (g == came_in or h == came_in)]
+
+    queue = deque()
+    start = onward_from_shaft(first.id, "")
+    if len(start) == 1:
+        g, h, eta = start[0]
+        queue.append((h, torque[first.id] * teeth[h] / teeth[g] * eta, g))
     while queue:
-        shaft = queue.popleft()
-        onward = [(g, h, zg, zh) for g, h, zg, zh in by_shaft.get(shaft, []) if h.shaft != came_from[shaft]]
-        if len(onward) > 1:
-            continue                        # power splits here: each branch's share depends on its load
-        for g, h, zg, zh in onward:
-            if h.shaft in torque:
-                continue
-            torque[h.shaft] = torque[shaft] * zh / zg * efficiency[(g.id, h.id)]
-            came_from[h.shaft] = shaft
-            queue.append(h.shaft)
+        gear, gear_torque, came_from = queue.popleft()
+        shaft = shaft_of[gear]
+        if shaft in torque:
+            continue
+        through_gear = [(h, eta) for h, eta in links.get(gear, []) if h != came_from]
+        others = [g for g in on_shaft.get(shaft, []) if g != gear]
+        if through_gear and not others:
+            torque[shaft] = 0.0                  # an idler: the force passes the gear, the shaft carries none
+            if len(through_gear) == 1:
+                h, eta = through_gear[0]
+                queue.append((h, gear_torque * teeth[h] / teeth[gear] * eta, gear))
+            continue
+        if through_gear:
+            continue                             # a gear both idling and driving its shaft: the split is unknown
+        torque[shaft] = gear_torque
+        onward = onward_from_shaft(shaft, gear)
+        if len(onward) == 1:
+            g, h, eta = onward[0]
+            queue.append((h, gear_torque * teeth[h] / teeth[g] * eta, g))
     motion.torques = torque

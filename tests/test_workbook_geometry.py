@@ -3,8 +3,8 @@
 The phase formulas are not trusted on their algebra: two outlines placed by
 them must not overlap, and the same two with one turned half a pitch must.
 That is tried at awkward directions and turns, for outside meshes, a pinion in
-a ring, helical gears whose faces are offset along the axis, and a gear on a
-Z- shaft.
+a ring, helical gears whose faces are offset along the axis, herringbones of
+different widths on both halves, and gears and rings on Z- shafts.
 """
 
 import math
@@ -121,7 +121,12 @@ def section(placed, theta, plane, gear_spec):
     z_local = placed.sigma * (plane - front)
     twist = 0.0
     if gear_spec.kind in ("helical", "herringbone"):
-        twist = derived.hand_sign * 2.0 * math.pi * z_local / derived.lead
+        # The part says how its Front-plane face is turned from the section drawn; from there the helix turns
+        # hand · 360/lead degrees per mm, and a herringbone's far half is the near half mirrored at mid-face.
+        front_turn = math.radians(derived.face_rotations()[0])
+        if gear_spec.kind == "herringbone":
+            z_local = min(z_local, face - z_local)
+        twist = front_turn + derived.hand_sign * 2.0 * math.pi * z_local / derived.lead
     angle = placed.sigma * (theta + twist)
     return turned(outline(gear_spec), angle, placed.x, placed.y, mirror=placed.sigma < 0)
 
@@ -164,18 +169,74 @@ def helical_pair(offset, axis_q="Z+"):
                [Mesh("A", "B")])
 
 
-@pytest.mark.parametrize("offset", [0.0, 4.0, -7.5])
-def test_helical_gears_offset_along_the_axis_mesh_at_every_shared_height(offset):
-    spec = helical_pair(offset)
+def meshes_at_every_shared_height(spec, a_id, b_id, ring=False):
+    """Placed and turned by geometry, the two sections clear at heights across the shared face, and clash
+    turned half a pitch; returns the heights tried."""
     lay = geometry.layout(spec)
+    assert lay.later == [] and lay.problems == {}
     theta = geometry.phases(spec, lay.placed)
-    a, b = lay.placed["A"], lay.placed["B"]
+    a, b = lay.placed[a_id], lay.placed[b_id]
     g = specs(spec)
     lo, hi = max(a.z_range[0], b.z_range[0]), min(a.z_range[1], b.z_range[1])
-    for plane in (lo + 0.5, (lo + hi) / 2, hi - 0.5):
-        assert interference(section(a, theta["A"], plane, g["A"]), section(b, theta["B"], plane, g["B"])) == 0
-        assert interference(section(a, theta["A"], plane, g["A"]),
-                            section(b, theta["B"] + math.pi / b.teeth, plane, g["B"])) > 0
+    planes = [lo + 0.5, lo + (hi - lo) * 0.3, (lo + hi) / 2, lo + (hi - lo) * 0.7, hi - 0.5]
+    for plane in planes:
+        sa = section(a, theta[a_id], plane, g[a_id])
+        right = section(b, theta[b_id], plane, g[b_id])
+        wrong = section(b, theta[b_id] + math.pi / b.teeth, plane, g[b_id])
+        if ring:
+            assert ring_interference(sa, right) == 0, plane
+            assert ring_interference(sa, wrong) > 0, plane
+        else:
+            assert interference(sa, right) == 0, plane
+            assert interference(sa, wrong) > 0, plane
+    return planes
+
+
+@pytest.mark.parametrize("axis_q", ["Z+", "Z-"])
+@pytest.mark.parametrize("offset", [0.0, 4.0, -7.5])
+def test_helical_gears_offset_along_the_axis_mesh_at_every_shared_height(offset, axis_q):
+    meshes_at_every_shared_height(helical_pair(offset, axis_q), "A", "B")
+
+
+def herringbone_pair(axis_q, hand_q, faces=("20", "30"), groove=""):
+    m, beta, zp, zq = 2.0, 30.0, 20, 31
+    centre = pairs.describe(m, zp, zq, 20.0, beta)[0]
+    at_q = "15" if axis_q == "Z+" else "-15"           # both apexes at Z = 15
+    return box([Shaft("P", x="0", y="0"), Shaft("Q", x=str(centre * 0.8), y=str(-centre * 0.6), axis=axis_q)],
+               [Gear("A", "P", "15", "herringbone", teeth=str(zp), module="2", face_width=faces[0],
+                     helix_angle="30", hand="right", groove=groove),
+                Gear("B", "Q", at_q, "herringbone", teeth=str(zq), module="2", face_width=faces[1],
+                     helix_angle="30", hand=hand_q, groove=groove)],
+               [Mesh("A", "B")])
+
+
+@pytest.mark.parametrize("axis_q,hand_q", [("Z+", "left"), ("Z-", "right")])
+def test_herringbones_of_different_widths_mesh_on_both_halves(axis_q, hand_q):
+    """The section is drawn at the apex, so a herringbone's phase does not depend on its width; turned over
+    onto a Z- axis, the half nearest its front is at the other end, so its hand must be the same as its mate's."""
+    planes = meshes_at_every_shared_height(herringbone_pair(axis_q, hand_q), "A", "B")
+    assert min(planes) < 15 < max(planes)              # both halves were tried
+
+
+@pytest.mark.parametrize("axis_q,hand_q", [("Z+", "right"), ("Z-", "left")])
+def test_herringbones_with_the_wrong_hands_do_not_mesh_across_the_face(axis_q, hand_q):
+    """The hand rule the checks enforce, held to the outlines: one half meshes, the other cannot."""
+    with pytest.raises(AssertionError):
+        meshes_at_every_shared_height(herringbone_pair(axis_q, hand_q), "A", "B")
+
+
+@pytest.mark.parametrize("ring_axis,pinion_axis", [("Z-", "Z+"), ("Z+", "Z-"), ("Z-", "Z-")])
+def test_a_pinion_in_a_ring_with_z_minus_axes(ring_axis, pinion_axis):
+    zr, zp = 60, 19
+    centre = 2.0 * (zr - zp) / 2.0
+    spec = box([Shaft("R", x="0", y="0", axis=ring_axis),
+                Shaft("P", x=str(centre * math.cos(2.2)), y=str(centre * math.sin(2.2)), axis=pinion_axis)],
+               [Gear("Ring", "R", "5" if ring_axis == "Z+" else "-5", side="internal", teeth=str(zr), module="2",
+                     face_width="10"),
+                Gear("Pin", "P", "5" if pinion_axis == "Z+" else "-5", teeth=str(zp), module="2",
+                     face_width="10")],
+               [Mesh("Ring", "Pin")])
+    meshes_at_every_shared_height(spec, "Ring", "Pin", ring=True)
 
 
 def test_a_spur_on_a_z_minus_shaft_is_mirrored_and_meshes():
@@ -191,6 +252,8 @@ def test_a_spur_on_a_z_minus_shaft_is_mirrored_and_meshes():
     plane = geometry.mesh_plane(lay.placed["A"], b)
     g = specs(spec)
     assert interference(section(lay.placed["A"], theta["A"], plane, g["A"]), section(b, theta["B"], plane, g["B"])) == 0
+    assert interference(section(lay.placed["A"], theta["A"], plane, g["A"]),
+                        section(b, theta["B"] + math.pi / b.teeth, plane, g["B"])) > 0
 
 
 def test_shafts_a_later_phase_lays_out_are_said_not_guessed():
