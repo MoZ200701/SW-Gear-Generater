@@ -1,0 +1,28 @@
+16:24:55 excel started 56996 16.0 build 20430.0
+16:24:57 open fixture-ours {"path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\workbook-win-20261113\\fixture\\Reducer_12to1.xlsx", "tag": "fixture-ours", "opened": true, "seconds": 0.42, "dialogs": [], "new_error_logs": [], "caption": "Reducer_12to1.xlsx - Excel", "window_caption": "Reducer_12to1.xlsx", "name": "Reducer_12to1.xlsx", "repaired": false}
+16:24:57 saved {"excel": "16.0 build 20430.0", "os": "Windows (64-bit) NT 10.00", "C4": ["=C3+68", 131.75], "W5": ["=F5*2", 102.0], "Meshes C2 text": "98%"}
+16:25:00 excel gone 56996
+part [Content_Types].xml 1840
+part _rels/.rels 588
+part xl/workbook.xml 2301
+part xl/_rels/workbook.xml.rels 1395
+part xl/worksheets/sheet1.xml 2410
+part xl/worksheets/sheet2.xml 3220
+part xl/worksheets/sheet3.xml 5004
+part xl/worksheets/sheet4.xml 1705
+part xl/worksheets/sheet5.xml 1277
+part xl/theme/theme1.xml 8661
+part xl/styles.xml 2050
+part xl/sharedStrings.xml 2319
+part xl/calcChain.xml 237
+part docProps/core.xml 494
+part docProps/app.xml 869
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><cp:lastModifiedBy>Mo Zhou</cp:lastModifiedBy><dcterms:modified xsi:type="dcterms:W3CDTF">2026-11-13T21:24:57Z</dcterms:modified></cp:coreProperties>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>Microsoft Excel</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop><HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>5</vt:i4></vt:variant></vt:vector></HeadingPairs><TitlesOfParts><vt:vector size="5" baseType="lpstr"><vt:lpstr>Box</vt:lpstr><vt:lpstr>Shafts</vt:lpstr><vt:lpstr>Gears</vt:lpstr><vt:lpstr>Meshes</vt:lpstr><vt:lpstr>Modes</vt:lpstr></vt:vector></TitlesOfParts><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc><HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0300</AppVersion></Properties>
+['<c r="W1" t="s"><v>77</v></c>', '<c r="W2"><f>F2*2</f><v>34</v></c>', '<c r="W3"><f t="shared" ref="W3:W5" si="0">F3*2</f><v>136</v></c>', '<c r="W4"><f t="shared" si="0"/><v>34</v></c>', '<c r="W5"><f t="shared" si="0"/><v>102</v></c>']
+['<c r="C4"><f>C3+68</f><v>131.75</v></c>']
+['absPath url="C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\workbook-win-20261113\\fixture\\" xmlns:x15ac="http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"/>', '<calcPr calcId="191029"/>']
+diagnostics []
+S3 x 131.75 mesh eff 98 shafts ['S1', 'S2', 'S3']

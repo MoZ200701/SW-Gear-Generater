@@ -344,9 +344,15 @@ def test_a_workbook_saved_by_excel_reads_the_same(tmp_path, saved_by):
     percentage, a Cost column was added to Gears (V), a "Double teeth" column was filled down as =F2*2
     (W2:W5, which Excel stores with shared formulas), and Shafts row 6 is a # comment row.
 
-    Checked by hand on 2026-11-13 (Mac) and by COM on 2026-11-13 (Windows): this file, edited by write_cells
-    (S2 to 64, G2 to 70 teeth, a Results sheet added), opened in that Excel with no repair prompt, and C4
-    recalculated on opening.
+    What was checked in Excel itself, beyond this test:
+    - Mac, by hand, 2026-11-13: the Mac file, edited by write_cells (S2 to 64, G2 to 70 teeth, a Results sheet
+      added), opened in Excel for Mac with no repair prompt, and C4 recalculated on opening.
+    - Windows, 2026-11-13, by probe/excel (record: probe/results/excel-windows-20261113/README.md): the Windows
+      file with S2 typed at 64 and saved in Excel; then, through export.export as the window calls it, the
+      profile-shift fix with Results, the move fix (C4 refused as a formula), Export as… a new file, and a
+      write_new template. Each opened as a person opens it (EXCEL.EXE <file>) with no repair prompt, while two
+      files broken on purpose did raise one; C4 recalculated on opening, and a copy without fullCalcOnLoad did
+      not; and each file Excel then saved read back clean.
     """
     folder, shared_cells = EXCEL_FIXTURES[saved_by]
     path = FIXTURES / folder / "Reducer_12to1.xlsx"

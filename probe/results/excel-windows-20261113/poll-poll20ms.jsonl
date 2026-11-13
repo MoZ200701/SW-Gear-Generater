@@ -1,0 +1,19 @@
+{"kind": "first", "ok": true, "error": "", "t": 1794609041.799532}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14192, 1794609044620299100], "t": 1794609044.6491964}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794609047987299300], "t": 1794609048.01615}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14192, 1794609051267687200], "t": 1794609051.2882075}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14192, 1794609054858834600], "t": 1794609054.8693519}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794609058556434500], "t": 1794609058.5674067}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794609062328886000], "t": 1794609062.3458984}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794609065626102100], "t": 1794609065.6515725}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794609068855311700], "t": 1794609068.8797717}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14192, 1794609072649800400], "t": 1794609072.6582856}
+{"kind": "notready", "why": "Reducer_12to1.xlsx cannot be opened right now.", "t": 1794609076.1907492}
+{"kind": "absent", "t": 1794609076.1907926}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14191, 1794609076184326500], "t": 1794609076.2138648}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794609080195731300], "t": 1794609080.2201374}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794609083621977900], "t": 1794609083.634938}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794609086964555100], "t": 1794609086.9875932}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14192, 1794609090932766900], "t": 1794609090.9531193}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14191, 1794609094057261400], "t": 1794609094.082321}
+{"kind": "end", "t": 1794609115.3063223}

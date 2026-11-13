@@ -1,0 +1,128 @@
+{
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-etree.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-etree.xlsx",
+  "pid": 54172,
+  "caption": "Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-control-etree.png",
+  "dialogs": [
+   {
+    "class": "NUIDialog",
+    "title": "Microsoft Excel",
+    "texts": [],
+    "rect": [
+     -1907,
+     587,
+     -1532,
+     805
+    ],
+    "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\dialog-control-etree-0.png",
+    "at": 1794608901.4569132
+   }
+  ],
+  "new_error_logs": [],
+  "attached": false,
+  "exited": true,
+  "repaired": true
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-bad-string.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-bad-string.xlsx",
+  "pid": 72484,
+  "caption": "Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-control-bad-string.png",
+  "dialogs": [
+   {
+    "class": "NUIDialog",
+    "title": "Microsoft Excel",
+    "texts": [],
+    "rect": [
+     -1907,
+     587,
+     -1532,
+     805
+    ],
+    "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\dialog-control-bad-string-0.png",
+    "at": 1794608913.9346786
+   }
+  ],
+  "new_error_logs": [],
+  "attached": false,
+  "exited": true,
+  "repaired": true
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-shift.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-shift.xlsx",
+  "pid": 71692,
+  "caption": "export-shift.xlsx - Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-export-shift.png",
+  "dialogs": [],
+  "new_error_logs": [],
+  "workbooks": [
+   "export-shift.xlsx"
+  ],
+  "window_captions": [
+   "export-shift.xlsx"
+  ],
+  "dirty_after_open": [
+   false
+  ],
+  "exited": true,
+  "repaired": false
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-move.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-move.xlsx",
+  "pid": 19096,
+  "caption": "export-move.xlsx - Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-export-move.png",
+  "dialogs": [],
+  "new_error_logs": [],
+  "workbooks": [
+   "export-move.xlsx"
+  ],
+  "window_captions": [
+   "export-move.xlsx"
+  ],
+  "dirty_after_open": [
+   false
+  ],
+  "exited": true,
+  "repaired": false
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-as (fixed).xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-as (fixed).xlsx",
+  "pid": 75716,
+  "caption": "export-as (fixed).xlsx - Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-export-as_(fixed).png",
+  "dialogs": [],
+  "new_error_logs": [],
+  "workbooks": [
+   "export-as (fixed).xlsx"
+  ],
+  "window_captions": [
+   "export-as (fixed).xlsx"
+  ],
+  "dirty_after_open": [
+   false
+  ],
+  "exited": true,
+  "repaired": false
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\Gearbox.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\Gearbox.xlsx",
+  "pid": 17848,
+  "caption": "Gearbox.xlsx - Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-Gearbox.png",
+  "dialogs": [],
+  "new_error_logs": [],
+  "workbooks": [
+   "Gearbox.xlsx"
+  ],
+  "window_captions": [
+   "Gearbox.xlsx"
+  ],
+  "dirty_after_open": [
+   false
+  ],
+  "exited": true,
+  "repaired": false
+ }
+}

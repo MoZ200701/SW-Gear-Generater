@@ -1,0 +1,596 @@
+{
+ "setup C4 after typing": 132.0,
+ "S2-64 read": {
+  "diagnostics": [],
+  "errors": [
+   "Meshes!A2: G1 and G2 are 64 apart; their teeth make 63.75 (+0.25 mm). Check the X and Y of S1 and S2 (Shafts rows 2 and 3); a shaft at an angle is best placed by formula."
+  ],
+  "S2 x": "64",
+  "S3 x": "132",
+  "fixes": {
+   "Meshes!A2": [
+    [
+     "Move S2 and S3 beyond it by -0.25 mm",
+     "S2 X 64 → 63.75 · S3 X 132 → 131.75",
+     [
+      {
+       "sheet": "Shafts",
+       "item": "S2",
+       "key": "x",
+       "value": "63.75"
+      },
+      {
+       "sheet": "Shafts",
+       "item": "S3",
+       "key": "x",
+       "value": "131.75"
+      }
+     ]
+    ],
+    [
+     "Keep your positions: profile-shift G1 and G2",
+     "x +0.084550 / +0.084550 → 64.000 exact · working angle 20.61° · ε 1.62",
+     [
+      {
+       "sheet": "Gears",
+       "item": "G1",
+       "key": "profile_shift",
+       "value": "0.08455"
+      },
+      {
+       "sheet": "Gears",
+       "item": "G2",
+       "key": "profile_shift",
+       "value": "0.08455"
+      }
+     ]
+    ]
+   ]
+  }
+ },
+ "export shift": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-shift.xlsx",
+  "written": [
+   "Gears!O2",
+   "Gears!O3"
+  ],
+  "refused": [],
+  "added_headers": [],
+  "digest": "aea407aed4b28a945457db26609e9e60e0b842bc184f3e6c6943baecf0d19be4",
+  "has_formulas": true,
+  "results": true
+ },
+ "export move": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-move.xlsx",
+  "written": [
+   "Shafts!C3"
+  ],
+  "refused": [
+   [
+    "Shafts!C4",
+    "it holds a formula"
+   ]
+  ],
+  "added_headers": [],
+  "digest": "e73013a3110c454aef5eea7604b81214f71ac15d5a36ad812a0807038c9ed881",
+  "has_formulas": true,
+  "results": false
+ },
+ "export as": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-as (fixed).xlsx",
+  "written": [
+   "Gears!O2",
+   "Gears!O3"
+  ],
+  "refused": [],
+  "added_headers": [],
+  "digest": "aea407aed4b28a945457db26609e9e60e0b842bc184f3e6c6943baecf0d19be4",
+  "has_formulas": true,
+  "results": true,
+  "source_untouched": true
+ },
+ "C4 xml in export-shift.xlsx": [
+  "<c r=\"C4\"><f>C3+68</f><v>132</v></c>",
+  true
+ ],
+ "calcPr in export-shift.xlsx": [
+  "<calcPr calcId=\"191029\" fullCalcOnLoad=\"1\"/>"
+ ],
+ "C4 xml in export-move.xlsx": [
+  "<c r=\"C4\"><f>C3+68</f><v>132</v></c>",
+  true
+ ],
+ "calcPr in export-move.xlsx": [
+  "<calcPr calcId=\"191029\" fullCalcOnLoad=\"1\"/>"
+ ],
+ "C4 xml in export-as (fixed).xlsx": [
+  "<c r=\"C4\"><f>C3+68</f><v>132</v></c>",
+  true
+ ],
+ "calcPr in export-as (fixed).xlsx": [
+  "<calcPr calcId=\"191029\" fullCalcOnLoad=\"1\"/>"
+ ],
+ "in Excel: export-shift.xlsx": {
+  "Shafts C3": 64.0,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   132.0
+  ],
+  "Gears W3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "Gears O1..O3": [
+   "Profile shift (× m)",
+   0.08455,
+   0.08455
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes",
+   "Results"
+  ],
+  "Results": [
+   [
+    "Written by Gear Generator, 2026-11-13 17:28, from this workbook. Edits here are ignored and replaced on the next Export.",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Shaft",
+    "Speed (rpm)",
+    "Turns, seen from +Z",
+    "Torque (N·m)",
+    "",
+    ""
+   ],
+   [
+    "S1",
+    "1500",
+    "anticlockwise",
+    "10",
+    "",
+    ""
+   ],
+   [
+    "S2",
+    "-375",
+    "clockwise",
+    "39.2",
+    "",
+    ""
+   ],
+   [
+    "S3",
+    "125",
+    "anticlockwise",
+    "115.248",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Mesh",
+    "Ratio",
+    "Centres needed (mm)",
+    "Centres placed (mm)",
+    "Off by (mm)",
+    "Contact ratio"
+   ],
+   [
+    "G1–G2",
+    "4",
+    "64",
+    "64",
+    "0",
+    "1.6185"
+   ],
+   [
+    "G3–G4",
+    "3",
+    "68",
+    "68",
+    "0",
+    "1.6364"
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Overall",
+    "Value",
+    "",
+    "",
+    "",
+    ""
+   ]
+  ]
+ },
+ "app reads Excel's save of export-shift.xlsx": {
+  "diagnostics": [],
+  "errors": [],
+  "warnings": [],
+  "S2 x": "64",
+  "S3 x": "132",
+  "shifts": [
+   "0.08455",
+   "0.08455",
+   "",
+   ""
+  ],
+  "C4 xml": "<c r=\"C4\"><f>C3+68</f><v>132</v></c>",
+  "speeds": {
+   "S1": "1500",
+   "S2": "-375",
+   "S3": "125"
+  }
+ },
+ "in Excel: export-move.xlsx": {
+  "Shafts C3": 63.75,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   131.75
+  ],
+  "Gears W3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "Gears O1..O3": [
+   "Profile shift (× m)",
+   null,
+   null
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes"
+  ]
+ },
+ "app reads Excel's save of export-move.xlsx": {
+  "diagnostics": [],
+  "errors": [],
+  "warnings": [],
+  "S2 x": "63.75",
+  "S3 x": "131.75",
+  "shifts": [
+   "",
+   "",
+   "",
+   ""
+  ],
+  "C4 xml": "<c r=\"C4\"><f>C3+68</f><v>131.75</v></c>",
+  "speeds": {
+   "S1": "1500",
+   "S2": "-375",
+   "S3": "125"
+  }
+ },
+ "in Excel: export-as (fixed).xlsx": {
+  "Shafts C3": 64.0,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   132.0
+  ],
+  "Gears W3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "Gears O1..O3": [
+   "Profile shift (× m)",
+   0.08455,
+   0.08455
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes",
+   "Results"
+  ],
+  "Results": [
+   [
+    "Written by Gear Generator, 2026-11-13 17:28, from this workbook. Edits here are ignored and replaced on the next Export.",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Shaft",
+    "Speed (rpm)",
+    "Turns, seen from +Z",
+    "Torque (N·m)",
+    "",
+    ""
+   ],
+   [
+    "S1",
+    "1500",
+    "anticlockwise",
+    "10",
+    "",
+    ""
+   ],
+   [
+    "S2",
+    "-375",
+    "clockwise",
+    "39.2",
+    "",
+    ""
+   ],
+   [
+    "S3",
+    "125",
+    "anticlockwise",
+    "115.248",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Mesh",
+    "Ratio",
+    "Centres needed (mm)",
+    "Centres placed (mm)",
+    "Off by (mm)",
+    "Contact ratio"
+   ],
+   [
+    "G1–G2",
+    "4",
+    "64",
+    "64",
+    "0",
+    "1.6185"
+   ],
+   [
+    "G3–G4",
+    "3",
+    "68",
+    "68",
+    "0",
+    "1.6364"
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Overall",
+    "Value",
+    "",
+    "",
+    "",
+    ""
+   ]
+  ]
+ },
+ "in Excel: Gearbox.xlsx": {
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes"
+  ],
+  "validation": {
+   "Shafts!Axis": {
+    "type": 3,
+    "list": "Z+,Z-,X+,X-,Y+,Y-",
+    "dropdown": true,
+    "stop": false
+   },
+   "Shafts!Role": {
+    "type": 3,
+    "list": "input,output,fixed",
+    "dropdown": true,
+    "stop": false
+   },
+   "Gears!Kind": {
+    "type": 3,
+    "list": "spur,helical,herringbone,bevel,sleeve,dog",
+    "dropdown": true,
+    "stop": false
+   },
+   "Gears!Side": {
+    "type": 3,
+    "list": "external,internal",
+    "dropdown": true,
+    "stop": false
+   },
+   "Gears!Flank": {
+    "type": 3,
+    "list": "involute,arcs",
+    "dropdown": true,
+    "stop": false
+   },
+   "Gears!Hand": {
+    "type": 3,
+    "list": "right,left",
+    "dropdown": true,
+    "stop": false
+   }
+  },
+  "Kind 'spur' valid / 'worm' valid": [
+   true,
+   false
+  ],
+  "frozen": null
+ },
+ "app reads Excel's save of Gearbox.xlsx": {
+  "diagnostics": [],
+  "errors": [],
+  "warnings": [],
+  "S2 x": null,
+  "S3 x": null,
+  "shifts": [],
+  "C4 xml": null,
+  "speeds": {}
+ },
+ "in Excel: control-no-fullcalc.xlsx": {
+  "Shafts C3": 63.75,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   132.0
+  ],
+  "Gears W3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "Gears O1..O3": [
+   "Profile shift (× m)",
+   null,
+   null
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes"
+  ]
+ },
+ "opened": {
+  "control-etree.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\control-etree.xlsx",
+   "tag": "control-etree",
+   "opened": false,
+   "error": "(-2147352567, 'Exception occurred.', (0, 'Microsoft Excel', 'Open method of Workbooks class failed', 'xlmain11.chm', 0, -2146827284), None)",
+   "seconds": 0.08,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "repaired": false
+  },
+  "control-bad-string.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\control-bad-string.xlsx",
+   "tag": "control-bad-string",
+   "opened": false,
+   "error": "(-2147352567, 'Exception occurred.', (0, 'Microsoft Excel', 'Open method of Workbooks class failed', 'xlmain11.chm', 0, -2146827284), None)",
+   "seconds": 0.1,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "repaired": false
+  },
+  "export-shift.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-shift.xlsx",
+   "tag": "export-shift",
+   "opened": true,
+   "seconds": 0.26,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "export-shift.xlsx - Excel",
+   "window_caption": "export-shift.xlsx",
+   "name": "export-shift.xlsx",
+   "repaired": false
+  },
+  "export-move.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-move.xlsx",
+   "tag": "export-move",
+   "opened": true,
+   "seconds": 0.19,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "export-move.xlsx - Excel",
+   "window_caption": "export-move.xlsx",
+   "name": "export-move.xlsx",
+   "repaired": false
+  },
+  "export-as (fixed).xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-as (fixed).xlsx",
+   "tag": "export-as_(fixed)",
+   "opened": true,
+   "seconds": 0.16,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "export-as (fixed).xlsx - Excel",
+   "window_caption": "export-as (fixed).xlsx",
+   "name": "export-as (fixed).xlsx",
+   "repaired": false
+  },
+  "Gearbox.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\Gearbox.xlsx",
+   "tag": "Gearbox",
+   "opened": true,
+   "seconds": 0.15,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "Gearbox.xlsx - Excel",
+   "window_caption": "Gearbox.xlsx",
+   "name": "Gearbox.xlsx",
+   "repaired": false
+  },
+  "control-no-fullcalc.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\control-no-fullcalc.xlsx",
+   "tag": "control-no-fullcalc",
+   "opened": true,
+   "seconds": 0.13,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "control-no-fullcalc.xlsx - Excel",
+   "window_caption": "control-no-fullcalc.xlsx",
+   "name": "control-no-fullcalc.xlsx",
+   "repaired": false
+  }
+ }
+}

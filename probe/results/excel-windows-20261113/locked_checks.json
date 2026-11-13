@@ -1,0 +1,363 @@
+{
+ "lock before open": false,
+ "lock file": [
+  "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\locked\\~$Reducer_12to1.xlsx",
+  true
+ ],
+ "folder while open": [
+  "Reducer_12to1.xlsx",
+  "~$Reducer_12to1.xlsx"
+ ],
+ "xlsx.read while open": {
+  "ok": true,
+  "S2 x": "63.75",
+  "diagnostics": 0
+ },
+ "Link.read while open": {
+  "ok": true,
+  "error": "",
+  "open_in_excel": true
+ },
+ "Export while open": {
+  "refused": true,
+  "class": "Locked",
+  "sentence": "Reducer_12to1.xlsx is open in Excel, so it cannot be saved from here. Close it there, or use Export as… to write a new file.",
+  "file untouched": true
+ },
+ "Export while open, lock file ignored": {
+  "refused": true,
+  "class": "Locked",
+  "sentence": "Reducer_12to1.xlsx is open in another program (Excel, most likely), so it could not be saved. Close it there, or use Export as… to write a new file.",
+  "file untouched": true,
+  "temp files left": []
+ },
+ "Export as while open": {
+  "written": [
+   "Gears!O2",
+   "Gears!O3"
+  ],
+  "results": true,
+  "exists": true
+ },
+ "poll 1s": [
+  {
+   "i": 0,
+   "save took": 0.027,
+   "seen after save end": 0.212,
+   "seen after save start": 0.239,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 1,
+   "save took": 0.026,
+   "seen after save end": 0.175,
+   "seen after save start": 0.201,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 2,
+   "save took": 0.029,
+   "seen after save end": 0.434,
+   "seen after save start": 0.463,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 3,
+   "save took": 0.028,
+   "seen after save end": 0.943,
+   "seen after save start": 0.97,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 4,
+   "save took": 0.025,
+   "seen after save end": 0.286,
+   "seen after save start": 0.311,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 5,
+   "save took": 0.026,
+   "seen after save end": 0.051,
+   "seen after save start": 0.077,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 6,
+   "save took": 0.029,
+   "seen after save end": 0.143,
+   "seen after save start": 0.172,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 7,
+   "save took": 0.028,
+   "seen after save end": 0.053,
+   "seen after save start": 0.081,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 8,
+   "save took": 0.029,
+   "seen after save end": 0.445,
+   "seen after save start": 0.475,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 9,
+   "save took": 0.036,
+   "seen after save end": 0.008,
+   "seen after save start": 0.043,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  }
+ ],
+ "poll 1s other events": [],
+ "poll 20ms": [
+  {
+   "i": 0,
+   "save took": 0.032,
+   "seen after save end": 0.012,
+   "seen after save start": 0.044,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 1,
+   "save took": 0.023,
+   "seen after save end": 0.015,
+   "seen after save start": 0.038,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 2,
+   "save took": 0.024,
+   "seen after save end": 0.009,
+   "seen after save start": 0.032,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 3,
+   "save took": 0.025,
+   "seen after save end": -0.003,
+   "seen after save start": 0.022,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 4,
+   "save took": 0.026,
+   "seen after save end": -0.004,
+   "seen after save start": 0.021,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 5,
+   "save took": 0.026,
+   "seen after save end": 0.0,
+   "seen after save start": 0.026,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 6,
+   "save took": 0.023,
+   "seen after save end": 0.011,
+   "seen after save start": 0.034,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 7,
+   "save took": 0.028,
+   "seen after save end": 0.006,
+   "seen after save start": 0.033,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 8,
+   "save took": 0.042,
+   "seen after save end": -0.012,
+   "seen after save start": 0.03,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 9,
+   "save took": 0.022,
+   "seen after save end": 0.017,
+   "seen after save start": 0.039,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": [
+    "Reducer_12to1.xlsx cannot be opened right now.",
+    "absent"
+   ]
+  },
+  {
+   "i": 10,
+   "save took": 0.024,
+   "seen after save end": 0.01,
+   "seen after save start": 0.034,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 11,
+   "save took": 0.022,
+   "seen after save end": -0.0,
+   "seen after save start": 0.022,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 12,
+   "save took": 0.024,
+   "seen after save end": 0.008,
+   "seen after save start": 0.032,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 13,
+   "save took": 0.028,
+   "seen after save end": 0.003,
+   "seen after save start": 0.03,
+   "changes": [
+    "Shafts!C3 S2 X 63.75 → 64",
+    "Shafts!C4 S3 X 131.75 → 132"
+   ],
+   "error": "",
+   "not ready on the way": []
+  },
+  {
+   "i": 14,
+   "save took": 0.023,
+   "seen after save end": 0.012,
+   "seen after save start": 0.035,
+   "changes": [
+    "Shafts!C3 S2 X 64 → 63.75",
+    "Shafts!C4 S3 X 132 → 131.75"
+   ],
+   "error": "",
+   "not ready on the way": []
+  }
+ ],
+ "poll 20ms other events": [
+  {
+   "kind": "notready",
+   "why": "Reducer_12to1.xlsx cannot be opened right now.",
+   "t": 1794609076.1907492
+  },
+  {
+   "kind": "absent",
+   "t": 1794609076.1907926
+  }
+ ],
+ "dialogs while open": [],
+ "lock after close": false
+}
