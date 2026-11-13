@@ -243,3 +243,17 @@ def centre_distance(a: Placed, b: Placed) -> float:
 def faces_overlap(a: Placed, b: Placed) -> float:
     """How much two faces share along Z, mm (negative: the gap between them)."""
     return min(a.z_range[1], b.z_range[1]) - max(a.z_range[0], b.z_range[0])
+
+
+def extent(placed: Dict[str, Placed]) -> Optional[Tuple[Tuple[float, float], ...]]:
+    """The box the gears fill, ``((x from, x to), (y from, y to), (z from, z to))`` in mm from the origin, or None.
+
+    Across X and Y it is each gear's outside diameter — the tip circle, or a
+    ring's rim — and along Z its face. Shafts, bores and a housing are not in it.
+    """
+    if not placed:
+        return None
+    gears = list(placed.values())
+    return ((min(g.x - g.outer_radius for g in gears), max(g.x + g.outer_radius for g in gears)),
+            (min(g.y - g.outer_radius for g in gears), max(g.y + g.outer_radius for g in gears)),
+            (min(g.z_range[0] for g in gears), max(g.z_range[1] for g in gears)))

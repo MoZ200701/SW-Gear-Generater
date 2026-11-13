@@ -437,7 +437,10 @@ still chosen.
 **Export** is enabled whenever a good read is on screen and nothing is
 building. **Export as…** is never greyed: without a good read it asks for a
 file and writes nothing. Export writes the
-chosen fixes' cells and the Results sheet into the workbook, and says so:
+chosen fixes' cells and the Results sheet (each shaft's speed, turning and
+torque; each mesh's ratio, centres needed and placed, how far off, contact
+ratio; what the box was worked out as, its overall ratio, and its size in X, Y
+and Z over the gears' outside diameters and faces) into the workbook, and says so:
 *Exported 2 cells and the Results sheet. Added the column Profile shift.* A
 formula cell is never written: *Not written — change them in Excel: …*, and then
 the Results sheet is not written either. Export refuses, and re-reads, if the

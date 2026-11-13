@@ -38,6 +38,49 @@ def test_a_move_written_back_checks_clean_and_results_follow(tmp_path):
     assert again.without_rows() == model.from_book(xlsx.read(path))[0].without_rows()
 
 
+def results_rows(path):
+    """The Results sheet as rows of cell text, row 1 (the note) first."""
+    sheet = xlsx.read(path).sheet(schema.RESULTS)
+    return [[sheet.cell(r, c).text if sheet.cell(r, c) else "" for c in range(1, sheet.max_col() + 1)]
+            for r in range(1, max(r for r, _ in sheet.cells) + 1)]
+
+
+def test_results_end_with_the_overall_ratio_and_the_box_size(tmp_path):
+    """PLAN-WORKBOOK §1: Results holds "the overall ratio and box size". The 12 : 1 example's gears reach from
+    G1's tip at X −14.25 (Ø28.5 at 0) to G4's at 184.75 (Ø106 at 131.75), ±53 in Y (G4), and their faces
+    from Z 0 (G1, G2: 15 wide at 7.5) to 37 (G3, G4: 20 wide at 27)."""
+    path = write(tmp_path, reducer())
+    spec, _ = read(path)
+    export.export(str(path), spec, [], checks.check(spec))
+    rows = results_rows(path)
+    at = [r[0] for r in rows].index("Overall")
+    assert rows[at][:2] == ["Overall", "Value"]
+    assert rows[at + 1][:2] == ["Worked out as", "Parallel train · 2 meshes · 12.000 : 1 · output turns the same way"]
+    assert rows[at + 2][:2] == ["Overall ratio (input speed ÷ output speed)", "12"]
+    box = [r[0] for r in rows].index(export.RESULTS_BOX)
+    assert "outside diameters" in rows[box][0] and "faces" in rows[box][0]
+    assert rows[box][1:4] == ["Size (mm)", "From (mm)", "To (mm)"]
+    assert rows[box + 1][:4] == ["X", "199", "-14.25", "184.75"]
+    assert rows[box + 2][:4] == ["Y", "106", "-53", "53"]
+    assert rows[box + 3][:4] == ["Z", "37", "0", "37"]
+
+
+def test_results_say_so_when_there_is_no_ratio_or_size(tmp_path):
+    """No output shaft, and nothing laid out (a planet on a carrier is W7's): a dash, never a guess."""
+    spec = reducer()
+    spec = model.replace(spec, shafts=(model.replace(spec.shafts[0], mounted_on="S3"),) + spec.shafts[1:2]
+                         + (model.replace(spec.shafts[2], role=""),))
+    path = write(tmp_path, spec)
+    spec, _ = read(path)
+    report = checks.check(spec)
+    assert report.layout.later and checks.overall_ratio(spec, report.motion) is None
+    rows = export.results_sheet(spec, report, when="now").rows
+    labels = [r[0] if r else "" for r in rows]
+    assert rows[labels.index(export.RESULTS_RATIO)][1] == "—"
+    box = labels.index(export.RESULTS_BOX)
+    assert rows[box + 1:box + 4] == [[axis, "—", "—", "—"] for axis in "XYZ"]
+
+
 def test_a_shift_into_a_workbook_without_the_column_adds_its_header(tmp_path):
     sheets = model.to_sheets(moved(reducer(), S2="64", S3="132"))
     gears = sheets[2]

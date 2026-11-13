@@ -270,6 +270,24 @@ def _check_motion(report: Report, spec: GearboxSpec) -> None:
             _warning(report, where, f"nothing drives {shaft.id}: no input reaches it through the meshes.")
 
 
+def _ends(spec: GearboxSpec, motion: kinematics.Motion):
+    """The first input and the first output whose speeds are known, or None when there is no such pair."""
+    inputs = [s for s in spec.shafts if s.role == "input" and s.id in motion.speeds]
+    outputs = [s for s in spec.shafts if s.role == "output" and s.id in motion.speeds]
+    if inputs and outputs and motion.speeds[outputs[0].id] != 0:
+        return inputs[0], outputs[0]
+    return None
+
+
+def overall_ratio(spec: GearboxSpec, motion: kinematics.Motion) -> Optional[float]:
+    """Input speed ÷ output speed (12.0 for a 12 : 1 reducer), the first input to the first output; None when
+    the box has no input and output that both turn."""
+    ends = _ends(spec, motion)
+    if ends is None:
+        return None
+    return abs(float(motion.speeds[ends[0].id] / motion.speeds[ends[1].id]))
+
+
 def _worked_out_as(spec: GearboxSpec, report: Report) -> str:
     """``Parallel train · 2 meshes · 12.000 : 1`` — what the rows add up to."""
     meshes = len(report.centres)
@@ -277,11 +295,9 @@ def _worked_out_as(spec: GearboxSpec, report: Report) -> str:
     if any(p.internal for p in report.layout.placed.values()):
         pieces[0] = "Parallel train with a ring"
     motion = report.motion
-    inputs = [s for s in spec.shafts if s.role == "input" and s.id in motion.speeds]
-    outputs = [s for s in spec.shafts if s.role == "output" and s.id in motion.speeds]
-    if inputs and outputs and motion.speeds[outputs[0].id] != 0:
-        ratio = float(motion.speeds[inputs[0].id] / motion.speeds[outputs[0].id])
-        pieces.append(f"{abs(ratio):.3f} : 1")
-        same = motion.turns(inputs[0].id) == motion.turns(outputs[0].id)   # as seen from +Z, whatever each axis
+    ends = _ends(spec, motion)
+    if ends is not None:
+        pieces.append(f"{overall_ratio(spec, motion):.3f} : 1")
+        same = motion.turns(ends[0].id) == motion.turns(ends[1].id)   # as seen from +Z, whatever each axis
         pieces.append("output turns the same way" if same else "output turns the other way")
     return " · ".join(pieces)

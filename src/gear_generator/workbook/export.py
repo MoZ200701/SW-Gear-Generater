@@ -19,13 +19,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from . import schema, xlsx
+from . import checks, geometry, schema, xlsx
 from .checks import Report
 from .fixes import Fix
 from .model import GearboxSpec, from_book as model_from_book
 from .xlsx import NewSheet, make_ref
 
 SHEET_DEFS = {"Shafts": schema.SHAFTS, "Gears": schema.GEARS, "Meshes": schema.MESHES}
+RESULTS_RATIO = "Overall ratio (input speed ÷ output speed)"
+RESULTS_BOX = "Box size, over the gears' outside diameters (X, Y) and faces (Z)"
 
 
 @dataclass
@@ -40,7 +42,8 @@ class Exported:
 
 
 def results_sheet(spec: GearboxSpec, report: Report, when: Optional[str] = None) -> NewSheet:
-    """The Results sheet: speeds, turning, torque per shaft; ratio, centres and contact ratio per mesh."""
+    """The Results sheet: speeds, turning, torque per shaft; ratio, centres and contact ratio per mesh; what the
+    box was worked out as, its overall ratio, and the room its gears take (:func:`geometry.extent`)."""
     when = when or time.strftime("%Y-%m-%d %H:%M")
     motion = report.motion
     rows: List[List] = [["Shaft", "Speed (rpm)", "Turns, seen from +Z", "Torque (N·m)"]]
@@ -57,7 +60,16 @@ def results_sheet(spec: GearboxSpec, report: Report, when: Optional[str] = None)
         rows.append([f"{a}–{b}", round(ratio, 6), round(needed, 6), round(placed, 6), round(placed - needed, 6),
                      round(report.contact.get((a, b), 0.0), 4)])
     rows.append([])
-    rows.append(["Overall", report.worked_out_as])
+    rows.append(["Overall", "Value"])
+    rows.append(["Worked out as", report.worked_out_as or "—"])
+    ratio = checks.overall_ratio(spec, motion)
+    rows.append([RESULTS_RATIO, round(ratio, 6) if ratio is not None else "—"])
+    rows.append([])
+    rows.append([RESULTS_BOX, "Size (mm)", "From (mm)", "To (mm)"])
+    box = geometry.extent(report.layout.placed)
+    for axis, span in zip("XYZ", box or ((None, None),) * 3):
+        lo, hi = span
+        rows.append([axis] + ([round(hi - lo, 6), round(lo, 6), round(hi, 6)] if lo is not None else ["—"] * 3))
     note = schema.RESULTS_NOTE.format(when=when)
     return NewSheet(schema.RESULTS, rows, header=False, note=note)
 
