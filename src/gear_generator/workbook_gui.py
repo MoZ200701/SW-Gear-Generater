@@ -8,12 +8,13 @@ and says what changed and what that did to the checks; Export writes the fixes
 taken and the Results sheet back into the workbook (or a copy); and it builds
 the gears as parts through the strip's own SolidWorks worker.
 
-Every decision comes from :mod:`workbook`, and the readouts, the gear table,
-the change list, the speeds and the footer's sentence from :mod:`ui_text` —
-this module lays out widgets and wires handlers, as :mod:`gui` does for the
-strip. A few sentences are still written here: the panels' one-line
-placeholders (*Nothing changed.*), the chosen-fix line, and what Export and
-Build say when they write or refuse. Artboards ``WorkbookReady``,
+Every decision comes from :mod:`workbook` — what is checked and what may be
+built from :func:`workbook.assess.assess` — and the readouts, the gear table,
+the change list, the speeds, what Export wrote and the footer's sentence from
+:mod:`ui_text`; this module lays out widgets and wires handlers, as :mod:`gui`
+does for the strip. A few sentences are still written here: the panels'
+one-line placeholders (*Nothing changed.*), the chosen-fix line, and what
+Build says when it refuses and Export when it cannot start. Artboards ``WorkbookReady``,
 ``WorkbookError``, ``WorkbookFix`` and ``WorkbookChosen`` in ``design/canvas``
 are drawn from the same functions (``gen.py`` repeats the placeholders they show).
 """
@@ -32,8 +33,8 @@ from . import __version__, store, swbuild, swcom, theme, ui_text, widgets
 from .gears.base import Diagnostic
 from .theme import px
 from . import preview
-from .workbook import build as wb_build, checks as wb_checks, export as wb_export, fixes as wb_fixes
-from .workbook import link as wb_link, model as wb_model, xlsx
+from .workbook import assess as wb_assess, build as wb_build, checks as wb_checks, export as wb_export
+from .workbook import fixes as wb_fixes, link as wb_link, model as wb_model, xlsx
 
 WINDOW_WIDTH = 1080          # two columns: the workbook and its checks, and the end view and speeds (W3)
 LEFT_WIDTH = 610
@@ -78,14 +79,17 @@ class WorkbookWindow(tk.Toplevel):
         self.changes: List[str] = []
         self.changes_at = ""
         self.consequence: Optional[wb_link.Consequence] = None    # what the changes did to the checks
-        self._raw: Optional[tuple] = None    # the last good read's (diagnostics, report), no fixes made
+        self._raw: Optional[wb_assess.Assessment] = None    # the last good read worked through, no fixes made
+        self.state: Optional[wb_assess.Assessment] = None   # the last good read with the chosen fixes made
         self.read_at = ""
         self.error = ""                # the last read's trouble ("" once a read is good); Build waits on it
         self.note: Optional[tuple] = None    # (sentence, ok) of the last build, export or fix set aside
         self.chosen: List[wb_fixes.Fix] = []  # fixes taken but not yet written: Export writes them
         self.report: Optional[wb_checks.Report] = None
         self.effective: Optional[wb_model.GearboxSpec] = None    # the read, with the chosen fixes made
-        self.recalc = False            # exported into a workbook with formulas: wait for Excel to recalculate
+        self.recalc = False            # Export wrote cells into a workbook with formulas: wait for Excel's save
+        self._results_waiting = False  # an Export left Results out for a formula cell: due after Excel's save
+        self.results_due = False
         self._pending: Optional[Any] = None
         self._build_context: Dict[str, Any] = {}
         self._after: Optional[str] = None
@@ -285,6 +289,8 @@ class WorkbookWindow(tk.Toplevel):
         if not reading.own and moved_on:
             self.recalc = False               # an outside save: Excel has recalculated whatever it holds
             self.note = None                  # the file has moved on from the last build's or export's sentence
+            if self._results_waiting:
+                self.results_due, self._results_waiting = True, False
             if self.chosen:
                 self._recheck_chosen(reading)
         elif not self.changes_at:
@@ -292,11 +298,7 @@ class WorkbookWindow(tk.Toplevel):
         self._plan()
         # What the save did is read against the file as it was, not as a chosen fix would make it, as the
         # cell list is: a fix set aside by this save is said in the footer, not here.
-        if self.chosen:
-            _, report, diagnostics = self._checked(reading.spec, reading.diagnostics)
-            raw = (diagnostics, report)
-        else:
-            raw = (self.diagnostics, self.report)
+        raw = self._assess(reading.spec, reading.diagnostics) if self.chosen else self.state
         if reading.changes:
             self.consequence = wb_link.consequence(self._raw, raw) if self._raw is not None else None
         self._raw = raw
@@ -306,21 +308,14 @@ class WorkbookWindow(tk.Toplevel):
     def _plan(self) -> None:
         """The parts and the gearbox checks, from the last good read with the chosen fixes made, and the output
         folder as it is now (it can change on the strip)."""
-        spec = self.reading.spec
-        for fix in self.chosen:
-            spec = wb_fixes.apply(spec, fix)
-        self.effective = spec
-        self.parts, self.report, self.diagnostics = self._checked(spec, self.reading.diagnostics)
+        self.state = state = self._assess(self.reading.spec, self.reading.diagnostics, self.chosen)
+        self.effective, self.parts, self.report, self.diagnostics = (state.spec, state.parts, state.report,
+                                                                     state.diagnostics)
 
-    def _checked(self, spec: wb_model.GearboxSpec, read_diagnostics: List[Diagnostic]):
-        """(parts, gearbox report, every diagnostic) for a gearbox: the read's own, the strip's per gear, the
-        gearbox's. A gear with an error of its own is left out of the parts and the gearbox checks."""
-        skip_rows = wb_build.rows_with_errors(read_diagnostics)
-        parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec), skip_rows=skip_rows)
-        bad_rows = skip_rows | wb_build.rows_with_errors(parts.diagnostics)
-        skip_gears = {g.id for g in spec.gears if g.row in bad_rows}
-        report = wb_checks.check(spec, skip_gears)
-        return parts, report, read_diagnostics + parts.diagnostics + report.diagnostics
+    def _assess(self, spec: wb_model.GearboxSpec, read_diagnostics: List[Diagnostic],
+                chosen=()) -> wb_assess.Assessment:
+        """A read worked through by :func:`workbook.assess.assess`, the one pipeline the boards and W4 share."""
+        return wb_assess.assess(spec, read_diagnostics, self._folder(spec), self._template(spec), chosen)
 
     def _folder(self, spec: wb_model.GearboxSpec) -> str:
         return spec.box.output_folder or self.app.out_folder.get().strip()
@@ -333,7 +328,7 @@ class WorkbookWindow(tk.Toplevel):
         return ui_text.workbook_state(self.parts, self.diagnostics, error=self.error, folder=folder,
                                       folder_exists=bool(folder) and os.path.isdir(folder),
                                       building=self._pending is not None, note=self.note,
-                                      chosen=len(self.chosen), recalc=self.recalc)
+                                      chosen=len(self.chosen), recalc=self.recalc, results_due=self.results_due)
 
     def _refresh_state(self) -> None:
         text, ok, enabled = self._state()
@@ -356,6 +351,7 @@ class WorkbookWindow(tk.Toplevel):
         self.name_label.configure(text=os.path.basename(path))
         self.changes, self.changes_at = [], ""
         self.consequence, self._raw = None, None
+        self._results_waiting = self.results_due = False
         self.reread()
 
     # ---------------------------------------------------------------- painting
@@ -425,7 +421,8 @@ class WorkbookWindow(tk.Toplevel):
 
         self.changes_readout.set(ui_text.workbook_changes_readout(self.changes, self.changes_at))
         self._clear(self.changes_body)
-        for r, change in enumerate(ui_text.workbook_change_lines(self.changes, self.consequence)):
+        covered = wb_link.covered_by_fix(self.consequence, self.report) if self.chosen else []
+        for r, change in enumerate(ui_text.workbook_change_lines(self.changes, self.consequence, covered)):
             self._line(self.changes_body, r, change, theme.INK, mono=True)
         if not self.changes:
             self._line(self.changes_body, 0, "Nothing changed.", theme.MUTED)
@@ -483,10 +480,7 @@ class WorkbookWindow(tk.Toplevel):
         Compared on the save itself, not on the change list: inserting or sorting rows changes no value, and
         a fix's own edits name items, not rows, so an unchanged fix is still right however the rows moved.
         """
-        spec = reading.spec
-        skip_rows = wb_build.rows_with_errors(reading.diagnostics)
-        skip_gears = {g.id for g in spec.gears if g.row in skip_rows}
-        offered = [f for fs in wb_checks.check(spec, skip_gears).fixes.values() for f in fs]
+        offered = [f for fs in self._assess(reading.spec, reading.diagnostics).report.fixes.values() for f in fs]
         kept = [f for f in self.chosen if f in offered]
         if len(kept) < len(self.chosen):
             self.note = ("The workbook changed, so the fix you chose no longer applies as it was and was set "
@@ -524,27 +518,22 @@ class WorkbookWindow(tk.Toplevel):
                 self.reread()
             self._refresh_state()
             return
-        what = ui_text._plural(len(done.written), 'cell') + (" and the Results sheet" if done.results else "")
-        parts = [f"Exported {what}" + (f" to {os.path.basename(out_path)}" if out_path else "") + "."]
-        if done.added_headers:
-            parts.append("Added the column " + ", ".join(done.added_headers) + ".")
-        if done.refused:
-            parts.append("Not written — change them in Excel: "
-                         + "; ".join(f"{cell} ({why})" for cell, why in done.refused)
-                         + ". Results were not written, since the fix is only partly in the workbook.")
-        if out_path:
-            self.note = (" ".join(parts), not done.refused)
-        else:
+        self.note = ui_text.export_note(done, os.path.basename(out_path) if out_path else "")
+        if not out_path:
+            # The app's own write, whether or not Results went in after the cells: never an outside save.
             self.link.own_digest = done.digest
             self.chosen = []
             self.recalc = done.has_formulas and bool(done.written)
+            if done.results:
+                self._results_waiting = self.results_due = False
+            elif done.formulas:
+                self._results_waiting, self.results_due = True, False
             record = store.load_link_record(self.link.path) or store.LinkRecord(workbook=self.link.path)
             record.own_digest, record.recalc = done.digest, self.recalc
             try:
                 store.save_link_record(record)
             except OSError:
                 pass                          # only a convenience: this session still knows
-            self.note = (" ".join(parts), not done.refused)
             self.reread()
             return
         self._refresh_state()

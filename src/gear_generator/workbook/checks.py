@@ -39,6 +39,17 @@ class Report:
     contact: Dict[Tuple[str, str], float] = field(default_factory=dict)                # mesh -> εα at the needed centre
     off_centre: List[Diagnostic] = field(default_factory=list)   # the "not where the teeth put them" errors
     worked_out_as: str = ""
+    # Why the gearbox was not checked at all ("" when it was): a carrier or a turned axis, laid out in a later
+    # phase. Then ``diagnostics`` is empty because nothing was looked at, not because nothing is wrong.
+    unchecked: str = ""
+
+    @property
+    def checked(self) -> bool:
+        return not self.unchecked
+
+    @property
+    def errors(self) -> List[Diagnostic]:
+        return [d for d in self.diagnostics if d.is_error]
 
 
 def _error(report: Report, where: str, message: str) -> None:
@@ -60,9 +71,12 @@ def check(spec: GearboxSpec, skip_gears=()) -> Report:
     report.motion = kinematics.solve(spec, skip_gears)
     if lay.later:
         # A carrier or a turned axis: nothing here is checked until its phase. Each such row is said, at its
-        # cell, by workbook.build.later_rows, with the rows Build refuses.
+        # cell, by workbook.build.later_rows, with the rows Build refuses; the report says it was not checked.
+        report.unchecked = lay.later[0]
         report.worked_out_as = "Not laid out yet: " + lay.later[0].split(":")[0]
         return report
+    # From here every shaft is on the frame along Z+ or Z-: kinematics.solve has worked out what it can
+    # (its ``later`` is set only for the layouts returned above).
     gears = {g.id: g for g in spec.gears}
     placed = lay.placed
     for gear_id, why in lay.problems.items():
@@ -249,9 +263,6 @@ def _check_shafts(report: Report, spec: GearboxSpec, placed: Dict[str, Placed]) 
 
 def _check_motion(report: Report, spec: GearboxSpec) -> None:
     motion = report.motion
-    if motion.later:
-        _warning(report, "Shafts", f"not worked out yet: {motion.later}")
-        return
     if motion.jammed:
         _error(report, "Meshes", motion.jammed)
         return
@@ -283,13 +294,33 @@ def _ends(spec: GearboxSpec, motion: kinematics.Motion):
     return None
 
 
-def overall_ratio(spec: GearboxSpec, motion: kinematics.Motion) -> Optional[float]:
-    """Input speed ÷ output speed (12.0 for a 12 : 1 reducer), the first input to the first output; None when
-    the box has no input and output that both turn."""
+MODE_KINDS = ("sleeve", "dog")
+
+
+def overall_ratio(spec: GearboxSpec, report: Report) -> Tuple[Optional[float], str, str]:
+    """(input speed ÷ output speed, which shafts it is between, why there is none).
+
+    ``(12.0, "S1 to S3", "")`` for the 12 : 1 reducer: the first input to the
+    first output. It is withheld — ``(None, "", why)`` — whenever a gear that
+    would change it is not in the sums: a gearbox not checked yet, a meshing
+    gear that was not laid out (an error of its own, or a later phase's kind),
+    or a box whose power path changes with its modes (sleeves, dogs, sliding
+    gears, the Modes sheet), so it is never a confident wrong number.
+    """
+    if report.unchecked:
+        return None, "", "the gearbox is not checked yet"
+    meshed = {g for m in spec.meshes for g in (m.a, m.b)}
+    missing = [g.id for g in spec.gears if g.id in meshed and g.id not in report.layout.placed]
+    if missing:
+        one = len(missing) == 1
+        return None, "", f"{', '.join(missing)} {'meshes but is' if one else 'mesh but are'} not laid out"
+    if spec.modes or any(g.kind_word() in MODE_KINDS or g.slides.strip() for g in spec.gears):
+        return None, "", "it changes with the modes, worked out in phase W8"
+    motion = report.motion
     ends = _ends(spec, motion)
     if ends is None:
-        return None
-    return abs(float(motion.speeds[ends[0].id] / motion.speeds[ends[1].id]))
+        return None, "", "no input and output that both turn"
+    return abs(float(motion.speeds[ends[0].id] / motion.speeds[ends[1].id])), f"{ends[0].id} to {ends[1].id}", ""
 
 
 def _worked_out_as(spec: GearboxSpec, report: Report) -> str:
@@ -299,9 +330,10 @@ def _worked_out_as(spec: GearboxSpec, report: Report) -> str:
     if any(p.internal for p in report.layout.placed.values()):
         pieces[0] = "Parallel train with a ring"
     motion = report.motion
-    ends = _ends(spec, motion)
-    if ends is not None:
-        pieces.append(f"{overall_ratio(spec, motion):.3f} : 1")
+    ratio, _, _ = overall_ratio(spec, report)
+    if ratio is not None:
+        ends = _ends(spec, motion)
+        pieces.append(f"{ratio:.3f} : 1")
         same = motion.turns(ends[0].id) == motion.turns(ends[1].id)   # as seen from +Z, whatever each axis
         pieces.append("output turns the same way" if same else "output turns the other way")
     return " · ".join(pieces)

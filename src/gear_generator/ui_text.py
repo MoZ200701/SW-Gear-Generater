@@ -845,14 +845,20 @@ def _cells(fields: Sequence[str]) -> str:
     return f" ({shown})" if shown else ""
 
 
-def workbook_consequence(consequence) -> str:
+COVERED_BY_FIX = ", covered by the chosen fix"
+
+
+def workbook_consequence(consequence, covered: Sequence[Tuple[str, str]] = ()) -> str:
     """What a save did to the checks, in one line: ``G1–G2 now 0.25 mm off · 1 new error (Gears!F3)``.
 
     ``consequence`` is a :class:`workbook.link.Consequence`. Empty when the
-    checks say what they said before; the Checks panel has the sentences."""
+    checks say what they said before; the Checks panel has the sentences.
+    ``covered``: meshes said to be off that a chosen, unexported fix puts back
+    on centres (:func:`workbook.link.covered_by_fix`)."""
     if not consequence:
         return ""
-    pieces = [f"{a}–{b} now on centres" if off is None else f"{a}–{b} now {_n(off)} mm off"
+    pieces = [f"{a}–{b} now on centres" if off is None
+              else f"{a}–{b} now {_n(off)} mm off" + (COVERED_BY_FIX if (a, b) in covered else "")
               for a, b, off in consequence.meshes]
     if consequence.new_errors:
         pieces.append(_plural(len(consequence.new_errors), "new error") + _cells(consequence.new_errors))
@@ -863,13 +869,14 @@ def workbook_consequence(consequence) -> str:
     return " · ".join(pieces)
 
 
-def workbook_change_lines(changes: Sequence[str], consequence=None) -> List[str]:
+def workbook_change_lines(changes: Sequence[str], consequence=None,
+                          covered: Sequence[Tuple[str, str]] = ()) -> List[str]:
     """The Since the last read panel: one line per changed cell, and what they did.
 
     One cell changed: what it did follows it on its line, *Gears!F3 G2 Teeth
     68 → 70 · G1–G2 now 1.5 mm off*. Several: no one cell did it, so it is a
     line of its own after them."""
-    did = workbook_consequence(consequence) if consequence is not None else ""
+    did = workbook_consequence(consequence, covered) if consequence is not None else ""
     if not did:
         return list(changes)
     if len(changes) == 1:
@@ -883,25 +890,26 @@ def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", f
     Rows a later phase builds (``parts.refused``) do not hold Build back — the
     other gears' parts still build — but the sentence names the first of them,
     since none is checked or placed before its phase."""
+    from .workbook.assess import build_refusal         # the one rule for Build parts; the words for it are its
     if error:
         return error, False
-    errors = [d for d in diagnostics if d.is_error]
-    if errors:
-        first = errors[0].message
-        more = f" ({len(errors) - 1} more under Checks)" if len(errors) > 1 else ""
-        return f"Fix the workbook before building: {first}{more}", False
-    if not parts.jobs:
-        return "Nothing in this workbook can be built yet: " + (parts.later[0][1] if parts.later
-                                                                 else "it has no gears."), False
+    refusal = build_refusal(parts, diagnostics)
+    if refusal:
+        return refusal, False
     if not folder:
         return "Choose an output folder (the Box sheet's, or the strip's Output) before building.", False
     files = _plural(len(parts.jobs), "part")
-    text = f"Ready: Build makes {files} in {short_path(folder, 48)}."
-    if parts.refused:
-        # Never a bare "Ready" while rows wait for a later phase: they are not checked, and nothing places them.
-        more = f" ({len(parts.refused) - 1} more under Checks)" if len(parts.refused) > 1 else ""
-        text += f" Left for a later phase: {parts.refused[0].message}{more}"
-    return text, True
+    return f"Ready: Build makes {files} in {short_path(folder, 48)}." + _left_for_later(parts), True
+
+
+def _left_for_later(parts) -> str:
+    """`` Left for a later phase: Gears!A6: G5 is a bevel gear: …`` — never a bare "Ready" or "Built" while rows
+    wait for a later phase: they are not checked, and nothing places them."""
+    refused = getattr(parts, "refused", [])
+    if not refused:
+        return ""
+    more = f" ({len(refused) - 1} more under Checks)" if len(refused) > 1 else ""
+    return f" Left for a later phase: {refused[0].message}{more}"
 
 
 def _shared_steps(results) -> List[str]:
@@ -926,10 +934,47 @@ def _shared_steps(results) -> List[str]:
     return out
 
 
+def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
+    """What an Export did, for the footer: (sentence, shown as good). ``done`` is a
+    :class:`workbook.export.Exported`; ``copy_name`` the file Export as… wrote, or ``""``.
+
+    A formula cell is never written over. When it is a fix's target the
+    formula may well land on the fix's value once Excel recalculates — S3's X
+    as ``=C3+68`` follows S2 — so the sentence says what to look for rather than
+    asking for the formula to be typed over, and Results wait for that save.
+    The fix's own value is given, but Checks are the test: the value it was
+    worked out from may itself be a formula's stale result."""
+    what = _plural(len(done.written), "cell") + (" and the Results sheet" if done.results else "")
+    parts = [f"Exported {what}" + (f" to {copy_name}" if copy_name else "") + "."]
+    if done.added_headers:
+        parts.append("Added the column " + ", ".join(done.added_headers) + ".")
+    formula_cells = {cell for cell, *_ in done.formulas}
+    for cell, item, header, value in done.formulas:
+        parts.append(f"{cell} ({item} {header}) holds a formula, so it was not written (the fix would make it "
+                     f"{value}): once Excel has recalculated, Checks will say whether {item} sits where its meshes "
+                     "need it.")
+    others = [(cell, why) for cell, why in done.refused if cell not in formula_cells]
+    if others:
+        parts.append("Not written: " + "; ".join(f"{cell} ({why})" for cell, why in others)
+                     + ". Results were not written, since the fix is only partly in the workbook.")
+    elif done.formulas:
+        parts.append("The Results sheet was left out until then: Export again after Excel's save to write it."
+                     if not copy_name else "The Results sheet was left out of the copy, since the fix is only "
+                                           "partly in it.")
+    if done.results_error:
+        parts.append(f"The Results sheet could not be written: {done.results_error} Export again to write it.")
+    return " ".join(parts), not others and not done.results_error
+
+
+RECALC_WAIT = ("Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they "
+               "recalculate; Build waits for that save.")
+RESULTS_DUE = " Export again to write the Results sheet: it waited for Excel to recalculate."
+
+
 def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "", folder: str = "",
                    folder_exists: bool = True, building: bool = False,
                    note: Optional[Tuple[str, bool]] = None, chosen: int = 0,
-                   recalc: bool = False) -> Tuple[str, bool, bool]:
+                   recalc: bool = False, results_due: bool = False) -> Tuple[str, bool, bool]:
     """The Workbook window's footer, as one decision: (sentence, shown as good, Build enabled).
 
     Every path that changes the window — a read, a read that failed, a build
@@ -937,6 +982,10 @@ def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "",
     button can never be left enabled for a workbook that is broken, half-saved
     or out of date. ``note`` is the last build's own sentence, kept until the
     file next changes; if the workbook has gone wrong since, that is said too.
+    ``recalc``: Export wrote cells into a workbook with formulas, and Build waits
+    for Excel to recalculate and save it. ``results_due``: an Export left the
+    Results sheet out (a formula cell it would not write), and Excel has saved
+    since, so it is time to Export again.
     """
     if building:
         return f"Building {_plural(len(parts.jobs), 'part')} in SolidWorks…", True, False
@@ -950,8 +999,8 @@ def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "",
                 "and the parts agree."), True, False
     if recalc:
         lead = f"{note[0]} " if note is not None else ""
-        return (lead + "Open and save the workbook in Excel so its formulas recalculate; Build waits for that "
-                "save."), True, False
+        return lead + RECALC_WAIT, True, False
+    due = RESULTS_DUE if results_due else ""
     text, ok = workbook_status(parts, diagnostics, error, folder)
     if ok and not folder_exists:
         text, ok = (f"The output folder {short_path(folder, 48)} does not exist; make it, or change it on the Box "
@@ -959,9 +1008,9 @@ def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "",
     if note is not None:
         note_text, note_ok = note
         if ok:
-            return note_text, note_ok, True
-        return f"{note_text} Since then: {text}", False, False
-    return text, ok, ok
+            return note_text + _left_for_later(parts) + due, note_ok, True
+        return f"{note_text} Since then: {text}{due}", False, False
+    return text + due, ok, ok
 
 
 def workbook_speed_lines(spec, motion) -> Tuple[List[str], str]:

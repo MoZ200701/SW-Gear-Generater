@@ -28,6 +28,7 @@ from .xlsx import NewSheet, make_ref
 SHEET_DEFS = {"Shafts": schema.SHAFTS, "Gears": schema.GEARS, "Meshes": schema.MESHES}
 RESULTS_RATIO = "Overall ratio (input speed ÷ output speed)"
 RESULTS_BOX = "Box size, over the gears' outside diameters (X, Y) and faces (Z)"
+RESULTS_LEFT_OUT = "Not in the box size"
 
 
 @dataclass
@@ -39,6 +40,9 @@ class Exported:
     digest: str = ""                       # the file as written, so the live link knows its own write
     has_formulas: bool = False             # Excel must recalculate and save before the values can be trusted
     results: bool = False                  # the Results sheet was written (not when a cell was refused)
+    results_error: str = ""                # the cells were written, but writing Results then failed: why
+    # Refused because the cell holds a formula: (cell, item, column header, the value the fix wants there)
+    formulas: List[Tuple[str, str, str, str]] = field(default_factory=list)
 
 
 def results_sheet(spec: GearboxSpec, report: Report, when: Optional[str] = None) -> NewSheet:
@@ -62,16 +66,28 @@ def results_sheet(spec: GearboxSpec, report: Report, when: Optional[str] = None)
     rows.append([])
     rows.append(["Overall", "Value"])
     rows.append(["Worked out as", report.worked_out_as or "—"])
-    ratio = checks.overall_ratio(spec, motion)
-    rows.append([RESULTS_RATIO, round(ratio, 6) if ratio is not None else "—"])
+    ratio, between, why = checks.overall_ratio(spec, report)
+    rows.append([RESULTS_RATIO, round(ratio, 6), between] if ratio is not None else [RESULTS_RATIO, "—", why])
     rows.append([])
     rows.append([RESULTS_BOX, "Size (mm)", "From (mm)", "To (mm)"])
     box = geometry.extent(report.layout.placed)
     for axis, span in zip("XYZ", box or ((None, None),) * 3):
         lo, hi = span
         rows.append([axis] + ([round(hi - lo, 6), round(lo, 6), round(hi, 6)] if lo is not None else ["—"] * 3))
+    left_out = box_left_out(spec, report)
+    if left_out:
+        rows.append([RESULTS_LEFT_OUT, left_out])
     note = schema.RESULTS_NOTE.format(when=when)
     return NewSheet(schema.RESULTS, rows, header=False, note=note)
+
+
+def box_left_out(spec: GearboxSpec, report: Report) -> str:
+    """What the box size does not count, each gear with why: ``G5 (a bevel gear, phase W6), G6 (a sleeve, phase
+    W8)``; a sliding gear is counted at its At only. ``""`` when it counts every gear where it will be."""
+    pieces = [f"{gear} ({why})" for gear, why in report.layout.left_out.items()]
+    pieces += [f"{g.id} (slides: counted at its At only, phase W8)" for g in spec.gears
+               if g.slides.strip() and g.id in report.layout.placed]
+    return ", ".join(pieces)
 
 
 def _value(column: Optional[schema.Column], text: str, percent: bool):
@@ -97,7 +113,13 @@ def export(path: str, spec: GearboxSpec, chosen: Sequence[Fix], report: Optional
     Excel since then (inside the one-second poll) is refused rather than
     written over. If any cell is refused (a formula), the Results sheet is not
     written: the fix is then only partly in the workbook, and Results would
-    describe a gearbox the file does not hold.
+    describe a gearbox the file does not hold. A formula cell refused is listed
+    in ``formulas`` with the value the fix wants, since after Excel recalculates
+    it may land there by itself.
+
+    The cells and the Results sheet are two writes, one after the other. If the
+    second fails, the first stands: ``results_error`` says why, and ``digest`` is
+    still the file as it now is, so the live link knows the write was the app's.
     """
     with open(path, "rb") as handle:
         data = handle.read()
@@ -109,6 +131,7 @@ def export(path: str, spec: GearboxSpec, chosen: Sequence[Fix], report: Optional
     rows = {("Shafts", s.id): s.row for s in current.shafts}
     rows.update({("Gears", g.id): g.row for g in current.gears})
     changes: Dict[str, Dict[str, object]] = {}
+    targets: Dict[str, Tuple[str, str, str]] = {}     # cell -> (item, column header, value), for a refusal
     out = Exported(path=out_path or path)
     for fix in chosen:
         for edit in fix.edits:
@@ -132,13 +155,17 @@ def export(path: str, spec: GearboxSpec, chosen: Sequence[Fix], report: Optional
                 sheet.cells[(1, col)] = xlsx.Cell(make_ref(1, col), 1, col, column.title)
             existing = sheet.cell(row, col)
             cells[make_ref(row, col)] = _value(column, edit.value, bool(existing and existing.percent))
+            targets[f"{sheet.name}!{make_ref(row, col)}"] = (edit.item, column.header, edit.value)
     written = xlsx.write_cells(path, changes, out_path=out_path)
     out.written, out.refused = written.written, out.refused + written.refused
-    if report is not None and not out.refused:
-        target = out_path or path
-        xlsx.write_cells(target, {}, replace_sheets=[results_sheet(spec, report)])
-        out.results = True
+    out.formulas = [(cell,) + targets[cell] for cell, why in written.refused if "formula" in why and cell in targets]
     target = out_path or path
+    if report is not None and not out.refused:
+        try:
+            xlsx.write_cells(target, {}, replace_sheets=[results_sheet(spec, report)])
+            out.results = True
+        except (xlsx.XlsxError, OSError) as exc:
+            out.results_error = str(exc)
     with open(target, "rb") as handle:
         out.digest = hashlib.sha256(handle.read()).hexdigest()
     out.has_formulas = any(cell.formula for name, sheet in book.sheets.items() if name != schema.RESULTS

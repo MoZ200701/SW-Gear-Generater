@@ -7,7 +7,7 @@ import pytest
 from gear_generator import store, swbuild, ui_text
 from gear_generator.gears import kind_for
 from gear_generator.spec import GearSpec
-from gear_generator.workbook import build, link, model, xlsx
+from gear_generator.workbook import assess, build, link, model, xlsx
 from gear_generator.workbook.model import Gear
 from test_swbuild import FakeSolidWorks, never_exists
 from test_workbook_model import reducer, transfer_case, write
@@ -31,7 +31,8 @@ def strip_plan(spec: GearSpec, path: str):
 def test_each_row_builds_exactly_the_strips_part(tmp_path):
     spec = from_file(write(tmp_path, reducer()))
     parts = build.plan_parts(spec, FOLDER)
-    assert parts.buildable and parts.errors == [] and parts.later == []
+    assert len(parts.jobs) == 4 and parts.errors == [] and parts.later == []
+    assert assess.build_refusal(parts, parts.diagnostics) == ""
     # The strip's own warnings come through too, each pointing at its cell (here the fillet's, column Q).
     assert {d.field for d in parts.diagnostics} == {"Gears!Q3", "Gears!Q5"}
     assert [j.stem for j in parts.jobs] == ["Gear_m1.5_N17", "Gear_m1.5_N68", "Gear_m2_N17", "OutputGear"]
@@ -61,7 +62,8 @@ def test_two_gears_one_name_is_caught(tmp_path):
     wider = Gear("G5", "S3", "47", "spur", "external", "17", "1.5", "", "25", "8")   # G1 but 25 wide
     spec = model.replace(spec, gears=spec.gears + (wider,))
     parts = build.plan_parts(from_file(write(tmp_path, spec)), FOLDER)
-    assert not parts.buildable                               # Build waits for the error...
+    # Build waits for the error...
+    assert assess.build_refusal(parts, parts.diagnostics).startswith("Fix the workbook before building: Gears!T6")
     assert [j.gear_ids for j in parts.jobs] == [("G1",), ("G2",), ("G3",), ("G4",)]   # ...the good gears still plan
     (error,) = parts.errors
     assert error.field == "Gears!T6"
@@ -71,7 +73,7 @@ def test_two_gears_one_name_is_caught(tmp_path):
 def test_kinds_a_later_phase_builds_are_set_aside(tmp_path):
     spec = from_file(write(tmp_path, transfer_case(), "tc.xlsx"))
     parts = build.plan_parts(spec, FOLDER)
-    assert parts.jobs == [] and not parts.buildable
+    assert parts.jobs == [] and assess.build_refusal(parts, parts.diagnostics).startswith("Nothing in this")
     assert [g for g, _ in parts.later] == ["InDog", "LoDog", "RangeSlv", "FrontDog", "ModeSlv"]
     assert parts.later[0][1] == "InDog is a dog ring: dog rings are built in phase W8, with modes."
     # The modes are refused too, after the rows, and every refusal is listed under Checks at its cell.
@@ -104,15 +106,20 @@ def test_a_carrier_is_refused_with_its_phase_and_its_gears_still_build(tmp_path)
     assert refused.message == ("Shafts!A4: P1 is mounted on C, with 3 copies round it: carriers and copies are laid "
                                "out in phase W7, and the gearbox is not checked until then.")
     # The sun's and the planet's parts are ordinary parts: Build parts makes them...
-    assert [j.gear_ids for j in parts.jobs] == [("Sun",), ("Planet",)] and parts.buildable
+    state = assess.assess(read_spec, diagnostics, FOLDER)
+    assert [j.gear_ids for j in parts.jobs] == [("Sun",), ("Planet",)] and state.build_refusal() == ""
     # ...but never says a bare "Ready" for a gearbox it has not checked, and nothing lays it out.
-    assert not parts.can_lay_out
+    assert state.lay_out_refusal() == ("The gearbox cannot be laid out yet, since it is not checked: P1 is mounted "
+                                       "on C: carriers are laid out in phase W7.")
     text, ok, enabled = ui_text.workbook_state(parts, diagnostics + parts.diagnostics, folder=FOLDER)
     assert (ok, enabled) == (True, True)
     assert text == (f"Ready: Build makes 2 parts in {FOLDER}. Left for a later phase: " + refused.message)
-    # The gearbox checks stop at the layout and leave the saying to the refusal, at its cell.
+    # The gearbox checks stop at the layout and leave the saying to the refusal, at its cell — and the report
+    # says it was not checked, so an empty list is never read as a clean gearbox.
     from gear_generator.workbook import checks
-    assert checks.check(read_spec).diagnostics == []
+    report = checks.check(read_spec)
+    assert report.diagnostics == [] and not report.checked
+    assert report.unchecked == "P1 is mounted on C: carriers are laid out in phase W7."
 
 
 def test_every_row_a_later_phase_builds_is_named_with_its_phase(tmp_path):
@@ -133,15 +140,18 @@ def test_every_row_a_later_phase_builds_is_named_with_its_phase(tmp_path):
         "until then.",
         "Gears!A6: G6 is a bevel gear: right-angle stages are built in phase W6.",
     ]
-    assert len(parts.jobs) == 4 and not parts.can_lay_out
+    assert len(parts.jobs) == 4
+    assert assess.assess(read_spec, diagnostics, FOLDER).lay_out_refusal().startswith(
+        "The gearbox cannot be laid out yet, since it is not checked: S3's axis is X+")
     text, ok = ui_text.workbook_status(parts, diagnostics + parts.diagnostics, folder=FOLDER)
     assert ok and text.endswith("Left for a later phase: Shafts!A4: S3's axis is X+: turned axes are laid out in "
                                 "phase W6, and the gearbox is not checked until then. (3 more under Checks)")
 
 
 def test_a_workbook_with_nothing_for_later_can_be_laid_out(tmp_path):
-    parts = build.plan_parts(from_file(write(tmp_path, reducer())), FOLDER)
-    assert parts.refused == [] and parts.can_lay_out
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, reducer())))
+    state = assess.assess(read_spec, diagnostics, FOLDER)
+    assert state.parts.refused == [] and state.lay_out_refusal() == ""
 
 
 def test_the_strips_own_checks_name_the_cell(tmp_path):
@@ -152,7 +162,8 @@ def test_the_strips_own_checks_name_the_cell(tmp_path):
     errors = [d for d in diagnostics if d.is_error]
     assert errors and all(d.message.startswith(d.field + ": G1: ") for d in errors)
     assert errors[0].field.startswith("Gears!")
-    assert not build.plan_parts(spec, FOLDER).buildable
+    parts = build.plan_parts(spec, FOLDER)
+    assert assess.build_refusal(parts, parts.diagnostics).startswith("Fix the workbook before building: Gears!")
 
 
 def test_the_boxs_part_template_wins(tmp_path):
@@ -303,13 +314,8 @@ def test_the_apps_own_write_is_recognised(tmp_path):
 
 
 def checked(reading):
-    """Every diagnostic and the gearbox report for a read, as WorkbookWindow._checked makes them."""
-    from gear_generator.workbook import checks
-    skip_rows = build.rows_with_errors(reading.diagnostics)
-    parts = build.plan_parts(reading.spec, FOLDER, skip_rows=skip_rows)
-    bad_rows = skip_rows | build.rows_with_errors(parts.diagnostics)
-    report = checks.check(reading.spec, {g.id for g in reading.spec.gears if g.row in bad_rows})
-    return reading.diagnostics + parts.diagnostics + report.diagnostics, report
+    """A read worked through, without fixes, as WorkbookWindow._assess does it for the change list."""
+    return assess.assess(reading.spec, reading.diagnostics, FOLDER)
 
 
 def saved(path, watch, cells):
@@ -390,10 +396,11 @@ def test_the_window_shows_what_a_save_did(tmp_path):
         window.reread()
         shown = [w.cget("text") for w in window.changes_body.winfo_children()]
         assert shown == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off"]
-        # A fix chosen does not change what the save did: that is read against the file, as the cells are.
+        # A fix chosen does not change what the save did — that is read against the file, as the cells are —
+        # but the line says the fix covers it.
         window.choose(window.report.fixes["Meshes!A2"][0])
         shown = [w.cget("text") for w in window.changes_body.winfo_children()]
-        assert shown == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off"]
+        assert shown == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off, covered by the chosen fix"]
         window.reread()                                       # nothing new: the list and what it did stay
         assert [w.cget("text") for w in window.changes_body.winfo_children()] == shown
     finally:
@@ -535,7 +542,7 @@ def test_one_gears_error_leaves_the_others_planned(tmp_path):
     bad = Gear("G5", "S3", "47", "spur", "external", "3", "1.5", "", "15", "8")     # three teeth: the strip refuses
     read_spec = from_file(write(tmp_path, model.replace(spec, gears=spec.gears + (bad,))))
     parts = build.plan_parts(read_spec, FOLDER)
-    assert parts.errors and not parts.buildable and len(parts.jobs) == 4
+    assert parts.errors and assess.build_refusal(parts, parts.diagnostics) and len(parts.jobs) == 4
     rows = {r[0]: r for r in ui_text.workbook_gear_rows(read_spec, parts, parts.diagnostics)}
     assert rows["G1"][7] == ui_text.GEAR_STATE_BUILDS and rows["G5"][7] == ui_text.GEAR_STATE_ERROR
 
@@ -606,9 +613,9 @@ def test_an_export_into_formulas_waits_for_excel_to_recalculate(tmp_path):
     text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True,
                                                note=("Wrote 1 cell.", True))
     assert ok and not enabled
-    assert text == ("Wrote 1 cell. Open and save the workbook in Excel so its formulas recalculate; Build waits "
-                    "for that save.")
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True)[0].startswith("Open and save")
+    assert text == ("Wrote 1 cell. Export wrote cells that formulas in the workbook may depend on: open and save it "
+                    "in Excel so they recalculate; Build waits for that save.")
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True)[0].startswith("Export wrote cells")
 
 
 def test_short_path_fits_even_one_long_name():
@@ -634,3 +641,190 @@ def test_the_strip_and_a_workbook_plan_through_one_call():
     from gear_generator import gui
     assert "plan_for(" in inspect.getsource(gui.GearApp._plan_single)
     assert "plan_for(" in inspect.getsource(build.plan_parts)
+
+
+# -- the review of W1–W3 (2026-11-13): one gate for laying out, problems by item, the footer -------------------
+
+
+def assessed(tmp_path, spec, name="R.xlsx", chosen=()):
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec, name)))
+    return assess.assess(read_spec, diagnostics, FOLDER, chosen=chosen)
+
+
+def test_a_gear_with_a_read_error_holds_the_layout_though_the_parts_have_none(tmp_path):
+    """Review repro r4, first half: G2's Teeth 68.5 is the read's error, so G2 is left out of the parts, which
+    then had no error of their own — and the old gate would have laid out an assembly without G2."""
+    spec = reducer()
+    state = assessed(tmp_path, model.replace(spec, gears=(spec.gears[0], model.replace(spec.gears[1], teeth="68.5"))
+                                             + spec.gears[2:]))
+    assert [j.gear_ids for j in state.parts.jobs] == [("G1",), ("G3",), ("G4",)] and state.parts.errors == []
+    assert state.lay_out_refusal().startswith(
+        "Fix the workbook before building: Gears!F3: Teeth must be a whole number (got '68.5').")
+    assert state.lay_out_refusal().startswith(state.build_refusal())
+
+
+def test_a_gearbox_error_holds_the_layout(tmp_path):
+    """Review repro r4, second half: S2 at 64 puts both meshes off — the gearbox's errors, not the parts'."""
+    spec = reducer()
+    state = assessed(tmp_path, model.replace(spec, shafts=(spec.shafts[0], model.replace(spec.shafts[1], x="64"),
+                                                           spec.shafts[2])))
+    assert state.parts.errors == [] and len(state.report.errors) == 2
+    assert state.lay_out_refusal() == ("Fix the workbook before building: Meshes!A2: G1 and G2 are 64 apart; their "
+                                       "teeth make 63.75 (+0.25 mm). Check the X and Y of S1 and S2 (Shafts rows 2 "
+                                       "and 3); a shaft at an angle is best placed by formula. (1 more under Checks)")
+
+
+def test_a_chosen_fix_holds_the_layout_until_it_is_exported(tmp_path):
+    spec = reducer()
+    off = model.replace(spec, shafts=(spec.shafts[0], model.replace(spec.shafts[1], x="64"),
+                                      model.replace(spec.shafts[2], x="132")))
+    move = assessed(tmp_path, off).report.fixes["Meshes!A2"][0]
+    state = assessed(tmp_path, off, "fixed.xlsx", chosen=[move])
+    assert state.errors == []                                   # the fix mends it in memory...
+    assert state.lay_out_refusal() == ("1 fix chosen: Export writes it into the workbook first, so the workbook "
+                                       "and the assembly agree.")   # ...but the file does not have it yet
+
+
+def test_a_gear_left_out_without_an_error_still_holds_the_layout(tmp_path):
+    """The last guard: every gear placed and planned. Every way to leave one out is an error or a refused row
+    today; if one ever is not, the assembly is still not made without it."""
+    state = assessed(tmp_path, reducer())
+    del state.report.layout.placed["G4"]
+    assert state.lay_out_refusal() == ("G4 is not placed, so the assembly would be built without it; see Checks.")
+
+
+def test_the_checks_say_when_they_did_not_run(tmp_path):
+    """The report says it was not checked, and speeds are withheld for exactly the same layouts, so the dropped
+    cell-less "not worked out yet" warning can never be needed."""
+    for name, spec in (("r.xlsx", reducer()), ("p.xlsx", planetary()),
+                       ("x.xlsx", model.replace(reducer(), shafts=reducer().shafts[:2]
+                                                + (model.replace(reducer().shafts[2], axis="X+"),)))):
+        report = assessed(tmp_path, spec, name).report
+        assert bool(report.unchecked) == bool(report.motion.later) == (name != "r.xlsx")
+        assert all(d.field != "Shafts" for d in report.diagnostics)
+
+
+def test_problems_follow_their_rows_when_a_row_is_inserted(tmp_path):
+    """Review repro r2: G4's Bore 200 is an error before and after; a gear row inserted above G2 moves every
+    cell below it, but only G5's clash with G1 is new."""
+    spec = reducer()
+    before = model.replace(spec, gears=spec.gears[:3] + (model.replace(spec.gears[3], bore="200"),))
+    inserted = Gear("G5", "S1", "40", "spur", "external", "17", "1.5", "", "10", "8")
+    after = model.replace(before, gears=before.gears[:1] + (inserted,) + before.gears[1:])
+    old, new = assessed(tmp_path, before, "b.xlsx"), assessed(tmp_path, after, "c.xlsx")
+    did = link.consequence(old, new)
+    changes = link.describe_changes(old.read, new.read)
+    assert ui_text.workbook_change_lines(changes, did) == ["gear G5 added (Gears row 3) · 1 new error (Gears!T3)"]
+
+
+def test_a_mesh_the_chosen_fix_puts_right_says_so(tmp_path):
+    spec = reducer()
+    off = model.replace(spec, shafts=(spec.shafts[0], model.replace(spec.shafts[1], x="64"),
+                                      model.replace(spec.shafts[2], x="132")))
+    old, new = assessed(tmp_path, spec, "a.xlsx"), assessed(tmp_path, off, "b.xlsx")
+    did = link.consequence(old, new)
+    changes = link.describe_changes(old.read, new.read)
+    assert link.covered_by_fix(did, new.report) == []           # nothing chosen: nothing covers it
+    fixed = assess.assess(new.read, new.read_diagnostics, FOLDER, chosen=[new.report.fixes["Meshes!A2"][0]])
+    covered = link.covered_by_fix(did, fixed.report)
+    assert covered == [("G1", "G2")]
+    assert ui_text.workbook_change_lines(changes, did, covered)[-1] == "G1–G2 now 0.25 mm off, covered by the chosen fix"
+
+
+def test_after_a_build_the_footer_still_names_the_rows_left_for_later(tmp_path):
+    """Review item 6: the build's own sentence stood alone, and the later-phase rows went unsaid."""
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, planetary(), "p.xlsx")))
+    state = assess.assess(read_spec, diagnostics, FOLDER)
+    text, ok, enabled = ui_text.workbook_state(state.parts, state.diagnostics, folder=FOLDER,
+                                               note=("Built 2 parts.", True))
+    assert (ok, enabled) == (True, True)
+    assert text == "Built 2 parts. Left for a later phase: " + state.parts.refused[0].message
+
+
+def test_results_left_out_for_a_formula_are_due_after_excels_save(tmp_path):
+    parts, diagnostics = ready(tmp_path)
+    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, results_due=True)
+    assert enabled and text == (f"Ready: Build makes 4 parts in {FOLDER}. Export again to write the Results sheet: "
+                                "it waited for Excel to recalculate.")
+    # While Excel has yet to save, the wait is what is said.
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True, results_due=True)[0] == (
+        ui_text.RECALC_WAIT)
+
+
+def window_for(tmp_path, path):
+    """A Workbook window on ``path``, withdrawn, polled by hand. Needs Tk and a display (run on Windows)."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display for Tk")
+    root.withdraw()
+    from gear_generator import theme, workbook_gui
+    theme.setup(root)
+
+    class App:
+        out_folder = tk.StringVar(root, "")
+        part_template = tk.StringVar(root, "")
+
+    window = workbook_gui.WorkbookWindow(root, App(), str(path), poll_ms=10 ** 6)
+    window.withdraw()
+    return root, window
+
+
+def test_the_window_asks_for_another_export_after_a_formula_held_results_back(tmp_path):
+    """Review item 7a: S3's X is a formula in the Excel fixture; the move writes S2 and leaves S3 to Excel."""
+    import shutil
+    from test_workbook_model import FIXTURES
+    path = tmp_path / "excel.xlsx"
+    shutil.copy(FIXTURES / "excel" / "Reducer_12to1.xlsx", path)
+    xlsx.write_cells(str(path), {"Shafts": {"C3": 64}})
+    root, window = window_for(tmp_path, path)
+    try:
+        window.choose(window.report.fixes["Meshes!A2"][0])
+        window.export()
+        # The fix worked from S3's stale 131.75 and would make it 131.5; Excel's =C3+68 makes it 131.75, which
+        # is where G4 needs it — so Checks, not the fix's value, are the test.
+        assert window.status.get().startswith("Exported 1 cell. Shafts!C4 (S3 X) holds a formula, so it was not "
+                                              "written (the fix would make it 131.5): once Excel has recalculated, "
+                                              "Checks will say whether S3 sits where its meshes need it.")
+        assert window.recalc and not window.results_due
+        xlsx.write_cells(str(path), {"Box": {"C2": "saved in Excel"}})     # Excel's save, after recalculating
+        touch_later(path)
+        window._tick()
+        assert window.status.get().endswith(ui_text.RESULTS_DUE.strip())
+        window.export()                                       # Results now go in, and the prompt goes
+        assert window.status.get().startswith("Exported 0 cells and the Results sheet.")
+        assert not window.results_due
+    finally:
+        window.close()
+        root.destroy()
+
+
+def test_the_window_knows_its_own_export_when_results_fail_after_the_cells(tmp_path, monkeypatch):
+    """Review item 4: the cells were written, then Results failed; the next poll must not take the app's own
+    write for an outside save (which set the fix aside)."""
+    spec = reducer()
+    path = write(tmp_path, model.replace(spec, shafts=(spec.shafts[0], model.replace(spec.shafts[1], x="64"),
+                                                       model.replace(spec.shafts[2], x="132"))))
+    root, window = window_for(tmp_path, path)
+    try:
+        window.choose(window.report.fixes["Meshes!A2"][0])
+        real = xlsx.write_cells
+
+        def results_fail(target, changes, replace_sheets=(), out_path=""):
+            if replace_sheets:
+                raise xlsx.XlsxError("the disk is full.")
+            return real(target, changes, replace_sheets=replace_sheets, out_path=out_path)
+
+        monkeypatch.setattr(xlsx, "write_cells", results_fail)
+        window.export()
+        status = window.status.get()
+        assert status.startswith("Exported 2 cells. The Results sheet could not be written: the disk is full. "
+                                 "Export again to write it.")
+        touch_later(path)
+        window._tick()
+        assert window.reading.own and "set aside" not in window.status.get()
+        assert window.chosen == [] and not any(d.is_error for d in window.diagnostics)
+    finally:
+        window.close()
+        root.destroy()

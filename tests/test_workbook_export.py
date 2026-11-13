@@ -73,10 +73,10 @@ def test_results_say_so_when_there_is_no_ratio_or_size(tmp_path):
     path = write(tmp_path, spec)
     spec, _ = read(path)
     report = checks.check(spec)
-    assert report.layout.later and checks.overall_ratio(spec, report.motion) is None
+    assert report.layout.later and checks.overall_ratio(spec, report) == (None, "", "the gearbox is not checked yet")
     rows = export.results_sheet(spec, report, when="now").rows
     labels = [r[0] if r else "" for r in rows]
-    assert rows[labels.index(export.RESULTS_RATIO)][1] == "—"
+    assert rows[labels.index(export.RESULTS_RATIO)][1:] == ["—", "the gearbox is not checked yet"]
     box = labels.index(export.RESULTS_BOX)
     assert rows[box + 1:box + 4] == [[axis, "—", "—", "—"] for axis in "XYZ"]
 
@@ -239,3 +239,89 @@ def test_export_as_without_a_good_read_is_disabled_and_says_why(tmp_path):
     finally:
         window.close()
         root.destroy()
+
+
+# -- the review of W1–W3 (2026-11-13) ----------------------------------------------------------------------
+
+
+def test_the_box_size_names_what_it_leaves_out(tmp_path):
+    """Review repro r3: a bevel gear and a sleeve are not laid out before W6 and W8, so the size cannot count
+    them — it says so rather than giving 37 mm in Z as the whole box. A sleeve also makes the ratio depend on
+    the modes, so it is withheld."""
+    spec = reducer()
+    gears = spec.gears + (model.Gear("G5", "S3", "80", "bevel", "external", "40", "3", "", "25", "16"),
+                          model.Gear("G6", "S1", "-60", "sleeve", "external", "30", "2", "", "30", ""))
+    spec, _ = read(write(tmp_path, model.replace(spec, gears=gears)))
+    rows = export.results_sheet(spec, checks.check(spec), when="now").rows
+    labels = [r[0] if r else "" for r in rows]
+    assert rows[labels.index(export.RESULTS_LEFT_OUT)] == [export.RESULTS_LEFT_OUT,
+                                                           "G5 (a bevel gear, phase W6), G6 (a sleeve, phase W8)"]
+    assert rows[labels.index(export.RESULTS_RATIO)][1:] == ["—", "it changes with the modes, worked out in phase W8"]
+
+
+def test_a_meshing_gear_with_an_error_withholds_the_ratio_and_is_named(tmp_path):
+    spec = reducer()
+    spec = model.replace(spec, gears=(spec.gears[0], model.replace(spec.gears[1], teeth="68.5")) + spec.gears[2:])
+    spec, diagnostics = read(write(tmp_path, spec))
+    from gear_generator.workbook import assess
+    state = assess.assess(spec, diagnostics, "C:\\Parts")
+    rows = export.results_sheet(state.spec, state.report, when="now").rows
+    labels = [r[0] if r else "" for r in rows]
+    assert rows[labels.index(export.RESULTS_RATIO)][1:] == ["—", "G2 meshes but is not laid out"]
+    assert rows[labels.index(export.RESULTS_LEFT_OUT)][1] == "G2 (an error of its own)"
+
+
+def test_the_ratio_names_its_shafts_and_a_whole_box_leaves_nothing_out(tmp_path):
+    path = write(tmp_path, reducer())
+    spec, _ = read(path)
+    rows = export.results_sheet(spec, checks.check(spec), when="now").rows
+    labels = [r[0] if r else "" for r in rows]
+    assert rows[labels.index(export.RESULTS_RATIO)][1:] == [12.0, "S1 to S3"]
+    assert export.RESULTS_LEFT_OUT not in labels
+
+
+def test_results_failing_after_the_cells_still_says_what_was_written(tmp_path, monkeypatch):
+    """Review item 4: two writes. The first stands when the second fails, and the digest is of the file as it
+    now is, so the live link knows the write was the app's own."""
+    import hashlib
+    from gear_generator import ui_text
+    from gear_generator.workbook import link
+    path = write(tmp_path, moved(reducer(), S2="64", S3="132"))
+    spec, _ = read(path)
+    move = checks.check(spec).fixes["Meshes!A2"][0]
+    real = xlsx.write_cells
+
+    def results_fail(target, changes, replace_sheets=(), out_path=""):
+        if replace_sheets:
+            raise xlsx.Locked("Reducer_12to1.xlsx is open in Excel, so it cannot be saved from here.")
+        return real(target, changes, replace_sheets=replace_sheets, out_path=out_path)
+
+    monkeypatch.setattr(xlsx, "write_cells", results_fail)
+    done = export.export(str(path), spec, [move], checks.check(fixes.apply(spec, move)))
+    assert sorted(done.written) == ["Shafts!C3", "Shafts!C4"] and not done.results
+    assert done.results_error.startswith("Reducer_12to1.xlsx is open in Excel")
+    assert done.digest == hashlib.sha256(path.read_bytes()).hexdigest()
+    watch = link.Link(str(path))
+    watch.own_digest = done.digest
+    assert watch.read().own
+    text, ok = ui_text.export_note(done)
+    assert not ok and text == ("Exported 2 cells. The Results sheet could not be written: Reducer_12to1.xlsx is "
+                               "open in Excel, so it cannot be saved from here. Export again to write it.")
+
+
+@pytest.mark.parametrize("folder", ["excel", "excel-windows"])
+def test_a_formula_target_is_named_with_the_value_the_fix_wants(tmp_path, folder):
+    """Review item 7a: the formula may land on the fix's value by itself once Excel recalculates; the sentence
+    says what to look for, never to type over it, and that Results wait for that save."""
+    from gear_generator import ui_text
+    path = tmp_path / "excel.xlsx"
+    shutil.copy(FIXTURES / folder / "Reducer_12to1.xlsx", path)
+    xlsx.write_cells(str(path), {"Shafts": {"C3": 64}})
+    spec, _ = read(path)
+    report = checks.check(spec)
+    done = export.export(str(path), spec, [report.fixes["Meshes!A2"][0]], report)
+    assert done.formulas == [("Shafts!C4", "S3", "X", "131.5")] and not done.results
+    assert ui_text.export_note(done) == (
+        "Exported 1 cell. Shafts!C4 (S3 X) holds a formula, so it was not written (the fix would make it 131.5): "
+        "once Excel has recalculated, Checks will say whether S3 sits where its meshes need it. The Results sheet "
+        "was left out until then: Export again after Excel's save to write it.", True)

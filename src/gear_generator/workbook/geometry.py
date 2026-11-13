@@ -109,6 +109,12 @@ class Layout:
     placed: Dict[str, Placed] = field(default_factory=dict)
     later: List[str] = field(default_factory=list)     # sentences: what this phase does not lay out, and why
     problems: Dict[str, str] = field(default_factory=dict)   # gear -> why it could not be placed
+    # gear -> why it is not in ``placed`` at all, a few words: every gear of the workbook is either placed or here
+    left_out: Dict[str, str] = field(default_factory=dict)
+
+
+# The kinds no phase before W6 lays out, as a few words for a list of what was left out.
+LATER_KINDS = {"bevel": "a bevel gear, phase W6", "sleeve": "a sleeve, phase W8", "dog": "a dog ring, phase W8"}
 
 
 def layout(spec: GearboxSpec, skip_gears=()) -> Layout:
@@ -122,17 +128,24 @@ def layout(spec: GearboxSpec, skip_gears=()) -> Layout:
             out.later.append(f"{shaft.id}'s axis is {shaft.axis}: axes other than Z+ and Z- are laid out in "
                              f"phase W6.")
     if out.later:
+        out.left_out = {g.id: "not laid out until a later phase" for g in spec.gears}
         return out
     for gear in spec.gears:
-        if gear.id in skip_gears or gear.kind_word() in ("bevel", "sleeve", "dog"):
+        if gear.kind_word() in LATER_KINDS:
+            out.left_out[gear.id] = LATER_KINDS[gear.kind_word()]
+            continue
+        if gear.id in skip_gears:
+            out.left_out[gear.id] = "an error of its own"
             continue
         shaft = shafts.get(gear.shaft)
         if shaft is None:
+            out.left_out[gear.id] = "no such shaft"
             continue
         try:
             out.placed[gear.id] = _place(spec, gear, shaft)
         except (ValueError, TypeError) as exc:
             out.problems[gear.id] = str(exc)
+            out.left_out[gear.id] = "could not be placed"
     return out
 
 
@@ -246,10 +259,13 @@ def faces_overlap(a: Placed, b: Placed) -> float:
 
 
 def extent(placed: Dict[str, Placed]) -> Optional[Tuple[Tuple[float, float], ...]]:
-    """The box the gears fill, ``((x from, x to), (y from, y to), (z from, z to))`` in mm from the origin, or None.
+    """The box the placed gears fill, ``((x from, x to), (y from, y to), (z from, z to))`` in mm from the origin,
+    or None.
 
     Across X and Y it is each gear's outside diameter — the tip circle, or a
-    ring's rim — and along Z its face. Shafts, bores and a housing are not in it.
+    ring's rim — and along Z its face. Shafts, bores and a housing are not in it,
+    nor any gear not placed (:attr:`Layout.left_out`): a caller saying it as the
+    gearbox's size says what that leaves out.
     """
     if not placed:
         return None

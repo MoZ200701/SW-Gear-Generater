@@ -13,7 +13,9 @@ the phase that builds them — not errors. :func:`later_rows` names each one.
 Build parts leaves out the parts of bevel, sleeve and dog rows and builds the
 rest, since a planet or a sliding gear is an ordinary part; but none of these
 rows is laid out, checked or placed before its phase, so the layout part and
-assembly (W4) are refused whole while any is there (:attr:`PartsPlan.can_lay_out`).
+assembly (W4) are refused whole while any is there. Whether anything may be
+built is not decided here, from the parts alone: :mod:`.assess` decides it from
+everything the read, the gears and the gearbox checks say.
 """
 
 from __future__ import annotations
@@ -64,17 +66,8 @@ class PartsPlan:
 
     @property
     def errors(self) -> List[Diagnostic]:
+        """The parts' own errors only — not the read's, nor the gearbox's. Gate on :mod:`.assess`, not on this."""
         return [d for d in self.diagnostics if d.is_error]
-
-    @property
-    def buildable(self) -> bool:
-        return bool(self.jobs) and not self.errors
-
-    @property
-    def can_lay_out(self) -> bool:
-        """Whether the layout part and the assembly (phase W4) may be built from these rows: not while any row is
-        a later phase's, since none of those is laid out, checked or placed yet. W4 refuses with ``refused[0]``."""
-        return self.buildable and not self.refused
 
 
 def _where(spec: GearboxSpec, gear: Gear, field_name: str) -> str:

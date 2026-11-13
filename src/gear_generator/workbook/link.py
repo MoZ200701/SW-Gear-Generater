@@ -18,7 +18,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from ..gears.base import Diagnostic
 from . import schema, xlsx
@@ -206,12 +206,13 @@ def describe_changes(old: Optional[GearboxSpec], new: GearboxSpec) -> List[str]:
 class Consequence:
     """What a save did to the checks: the one line after the changed cells (PLAN-WORKBOOK §5,
     *Gears!F3 Teeth 68 → 70 · G1–G2 now 1.50 off*). The Checks panel has the full sentences; this names
-    only what is new or gone. Each problem is listed by the cell it names, once per problem."""
+    only what is new or gone. Each problem is listed by the cell it names now (a cleared one by the cell it
+    named), once per problem."""
 
     meshes: List[Tuple[str, str, Optional[float]]] = field(default_factory=list)   # (a, b, mm off now; None: on centres)
     new_errors: List[str] = field(default_factory=list)
     new_warnings: List[str] = field(default_factory=list)
-    cleared: List[str] = field(default_factory=list)       # problems gone, from cells that now have none
+    cleared: List[str] = field(default_factory=list)       # problems gone, from items that now have none
 
     def __bool__(self) -> bool:
         return bool(self.meshes or self.new_errors or self.new_warnings or self.cleared)
@@ -219,12 +220,34 @@ class Consequence:
 
 # A number standing alone (64.25, +0.25, −375), not one inside a name or a cell (G1, Gears!F3).
 _NUMBER = re.compile(r"(?<![\w.])[-+−]?\d+(?:\.\d+)?(?![\w.])")
+# A cell or a row a message names: Gears!F3, Gears!$F$3, Shafts row 4, Shafts rows 2 and 3.
+_CELL = re.compile(r"\b[A-Z][A-Za-z]*!\$?[A-Z]{1,3}\$?\d+\b|\b[A-Z][A-Za-z]* rows? \d+(?: and \d+)?")
+_FIELD = re.compile(r"^([A-Za-z]+)(?:!\$?([A-Z]{1,3})\$?(\d+)| row (\d+))$")
 
 
-def _problem(d: Diagnostic) -> Tuple[str, str, str]:
-    """A problem as the same problem however its numbers moved: a gear whose teeth went from 68.5 to 68.7 is
-    still the one error at Gears!F3, not one gone and one new."""
-    return d.level, d.field, _NUMBER.sub("#", d.message)
+def _where(spec: GearboxSpec, place: str) -> Tuple[str, ...]:
+    """A diagnostic's cell as what it is about, so moving rows does not move it: ``Gears!F3`` on G2's row is
+    ``("Gears", "G2", "teeth")``. A sheet-level field (``Meshes``), or a row that names nothing, stays as it is."""
+    match = _FIELD.match(place or "")
+    if not match:
+        return (place,)
+    sheet, letters, row = match.group(1), match.group(2), int(match.group(3) or match.group(4))
+    items = {"Shafts": [(s.row, s.id) for s in spec.shafts], "Gears": [(g.row, g.id) for g in spec.gears],
+             "Meshes": [(m.row, f"{m.a}–{m.b}") for m in spec.meshes], "Modes": [(m.row, m.name) for m in spec.modes]}
+    item = next((name for r, name in items.get(sheet, []) if r == row), None)
+    if item is None:
+        return (place,)
+    if letters is None:
+        return sheet, item, ""
+    column = xlsx.column_index(letters)
+    key = next((k for k, c in spec.columns.get(sheet, {}).items() if c == column), letters)
+    return sheet, item, key
+
+
+def _problem(spec: GearboxSpec, d: Diagnostic) -> Tuple:
+    """A problem as the same problem however its row or its numbers moved: G2's teeth from 68.5 to 68.7 is
+    still the one error on G2's Teeth, and so is it after a row was inserted above G2's."""
+    return d.level, _where(spec, d.field), _NUMBER.sub("#", _CELL.sub("@", d.message))
 
 
 def _off_by(report: Optional[Report]) -> Dict[frozenset, Tuple[str, str, float]]:
@@ -233,19 +256,19 @@ def _off_by(report: Optional[Report]) -> Dict[frozenset, Tuple[str, str, float]]
     return {frozenset(pair): (pair[0], pair[1], placed - needed) for pair, (needed, placed) in report.centres.items()}
 
 
-def consequence(before: Tuple[Sequence[Diagnostic], Optional[Report]],
-                after: Tuple[Sequence[Diagnostic], Optional[Report]]) -> Consequence:
+def consequence(before, after) -> Consequence:
     """What the checks say after a save that they did not before, and what they no longer say.
 
-    ``before`` and ``after`` are each read's every diagnostic (reading, the
-    strip's own per gear, and the gearbox's) with the gearbox :class:`Report`
-    they came from. A mesh that moved off its centres, or back onto them, or
-    by more than the tolerance while off, is said as its distance; that mesh's
-    own "not where the teeth put them" error is then not said twice.
+    ``before`` and ``after`` are each read worked through by
+    :func:`workbook.assess.assess` *without* the chosen fixes — the file as it
+    is, as the cell list reads it. A mesh that moved off its centres, or back
+    onto them, or by more than the tolerance while off, is said as its
+    distance; that mesh's own "not where the teeth put them" error is then not
+    said twice. Problems are matched by the item and column they are about, not
+    by their cell, so inserting, deleting or sorting rows does not make them new.
     """
-    (old_diagnostics, old_report), (new_diagnostics, new_report) = before, after
     out = Consequence()
-    old_off, new_off = _off_by(old_report), _off_by(new_report)
+    old_off, new_off = _off_by(before.report), _off_by(after.report)
     for key, (a, b, off) in new_off.items():
         was = old_off.get(key)
         now_off = abs(off) > CENTRE_TOLERANCE
@@ -255,27 +278,35 @@ def consequence(before: Tuple[Sequence[Diagnostic], Optional[Report]],
             moved = abs(off - was[2]) > CENTRE_TOLERANCE and (now_off or abs(was[2]) > CENTRE_TOLERANCE)
         if moved:
             out.meshes.append((a, b, abs(off) if now_off else None))
-    said = (list(old_report.off_centre) if old_report else []) + (list(new_report.off_centre) if new_report else [])
-
-    def problems(diagnostics):
-        return [d for d in diagnostics if d not in said]
-
-    old = problems(old_diagnostics)
-    new = problems(new_diagnostics)
-    old_keys = {_problem(d) for d in old}
-    new_keys = {_problem(d) for d in new}
+    said = list(before.report.off_centre) + list(after.report.off_centre)
+    old = [(d, _problem(before.read, d)) for d in before.diagnostics if d not in said]
+    new = [(d, _problem(after.read, d)) for d in after.diagnostics if d not in said]
+    old_keys = {key for _, key in old}
+    new_keys = {key for _, key in new}
     seen = set()
-    for d in new:
-        key = _problem(d)
+    for d, key in new:
         if key in old_keys or key in seen:
             continue
         seen.add(key)
         (out.new_errors if d.is_error else out.new_warnings).append(d.field)
-    still = {d.field for d in new_diagnostics}
-    for d in old:
-        key = _problem(d)
-        if key in new_keys or key in seen or d.field in still:
+    still = {_where(after.read, d.field) for d in after.diagnostics}
+    for d, key in old:
+        if key in new_keys or key in seen or key[1] in still:
             continue
         seen.add(key)
         out.cleared.append(d.field)
+    return out
+
+
+def covered_by_fix(consequence: Optional[Consequence], effective: Optional[Report]) -> List[Tuple[str, str]]:
+    """The meshes the change list says are off that the chosen fixes put back on centres (``effective`` is the
+    report with them made), so the line can say the fix covers them."""
+    if not consequence or effective is None:
+        return []
+    now = _off_by(effective)
+    out = []
+    for a, b, off in consequence.meshes:
+        fixed = now.get(frozenset((a, b)))
+        if off is not None and fixed is not None and abs(fixed[2]) <= CENTRE_TOLERANCE:
+            out.append((a, b))
     return out
