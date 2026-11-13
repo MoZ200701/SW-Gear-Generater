@@ -248,14 +248,15 @@ All in `ui_text.py`, tested without a window:
 | File | Holds |
 |---|---|
 | `gui.py` | layout, the variable tables, the poll, the build and update flow |
+| `workbook_gui.py` | the Workbook window (§9): its layout, the live link's poll, Export and Build parts |
 | `ui_text.py` | every readout, status sentence and explainer |
-| `preview.py` | where the Derived panel's gears, and the dimension under them, go |
+| `preview.py` | where the Derived panel's gears, and the dimension under them, go; and the Workbook window's end view (`layout_gearbox`) |
 | `theme.py` | Airfoil Converter's, unchanged |
 | `widgets.py` | Airfoil Converter's, plus `Explainer` and `draw_diagram` |
 | `swbuild.py` | the build, run against the `SolidWorks` protocol |
 | `store.py` | `.gear.json` records and `recent.json` |
-| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field). `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
-| `design/renders/` | each artboard as a PNG at 2×, `<Board>.png`, made by `.venv/bin/python design/canvas/render.py` with headless Chrome (no window opens; a throwaway profile) and trimmed of the empty window ground |
+| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field); and the Workbook window, 1080 px wide, as `WorkbookReady`, `WorkbookError`, `WorkbookFix` and `WorkbookChosen` (§9). `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
+| `design/renders/` | each artboard as a PNG at 2×, `<Board>.png`, made by `.venv/bin/python design/canvas/render.py` with headless Chrome (no window opens; a throwaway profile) and trimmed of the empty window ground. Its `CHROME` is the Mac's path; on Windows or WSL point it at `chrome.exe` and add `--disable-lcd-text`, or the text comes out with colour fringes |
 
 ## 7. Where it differs from the plan
 
@@ -320,69 +321,172 @@ And where the window differs from the artboards, because Tk would not do it:
   gear B turned Σ, dimensioned `R 67.082 mm · Σ 90°`. A crossed pair is drawn as
   a parallel one with `· Σ 90°` after the centre distance.
 
-## 9. The Workbook window (W2, docs/PLAN-WORKBOOK.md §5)
+## 9. The Workbook window (W2–W3, docs/PLAN-WORKBOOK.md §5)
 
-A second window, opened by **Import workbook…** in the Gear panel's header (a
-file dialog first), and by **New workbook…**, which writes a blank template from
-the schema and opens it in Excel. It is a `Toplevel` 720 px wide, sharing the
-strip's theme, widgets and SolidWorks worker; the strip is untouched. Artboards
-`WorkbookReady` and `WorkbookError`, drawn by `gen.py` from a real workbook
-written, read, checked and planned by the app, with every line from `ui_text`.
+A second window for a whole gearbox written in an `.xlsx` workbook, linked to
+the file: it reads it, checks it, re-reads it on every save, and builds its
+gears as parts. It is a `Toplevel`, `Workbook — Reducer_12to1.xlsx`, sharing
+the strip's theme, widgets and SolidWorks worker; the strip is untouched.
 
-Top to bottom:
+**Opening one.** **Import workbook…** in the Gear panel's header opens a menu:
+*Open a workbook…* (a file dialog), *New workbook…*, and below a rule the last
+five workbooks that are still where they were (`Recent.workbooks`), so
+reopening the app re-links in one click. *New workbook…* asks where to save
+(`Gearbox.xlsx`), refuses a file that exists, writes a blank workbook from the
+schema — the Box sheet filled, its Name the file's, every other sheet a header
+row with drop-down lists for the fixed words — opens it in Excel and links it.
+Opening a workbook whose window is already open brings that window forward.
 
-- **Header**: the file's name; `linked · read 14:02:31 · open in Excel`
-  (`ui_text.workbook_read_line`), the dot green while linked, red when the file
-  has gone or will not read; **Open in Excel** and **Re-read**.
-- **Workbook** (readout `3 shafts · 4 gears · 2 meshes · no modes`): the file's
-  path, the Box's Name and the output folder, with where it came from (*from the
-  Box sheet*, or *the strip's Output* when the Box leaves it blank).
-- **Gears** (readout `4 parts to build · 1 later`): one row per gear — gear,
-  shaft, kind, teeth, module, face, the part's name, and a dot with what will
-  happen: *to build*, *the same part as G1*, *later · phase W6*, or *see
-  Checks* in red. Values are shown as typed, a bad one included (`68.5`).
-- **Checks** (readout `1 error · 1 warning`): errors first, in red, then the
-  strip's own warnings, each beginning with the cell it names (`Gears!F3: …`).
-  *No problems: every row reads, and every gear works out.* when clean.
-- **Since the last read** (readout `3 changes · 14:02:31`): what the last save
-  changed, one line per cell, in the mono face (`Gears!F3 G2 Teeth 68 → 68.5`).
-- **Footer**: one sentence (`ui_text.workbook_status`, then `many_status` after
-  a build), green when Build can go ahead, and **Build parts**, disabled while
-  there is an error or nothing to build.
+Artboards `WorkbookReady` (after a save that made G4 wider), `WorkbookError`
+(a save that broke a cell and added a bevel gear), `WorkbookFix` (S2 typed
+0.25 mm off its centres, both fixes offered) and `WorkbookChosen` (the move
+chosen, waiting for Export), each with its render in `design/renders/`. `gen.py`
+draws them from a real workbook written, read, planned and checked by the app,
+with the window's own sizes from `workbook_gui`, the end view from
+`preview.layout_gearbox` and every line from `ui_text`.
 
-The live link polls once a second, as the strip's SolidWorks link does; a
-change appears within about two seconds of a save. Nothing reaches SolidWorks
-until Build parts is pressed.
+### The layout
 
-What the footer says and whether Build parts is enabled is one decision,
-`ui_text.workbook_state`, asked after every read, failed read, build start and
-build end: Build waits for a good current read, an existing output folder and
-no errors, and a save during a build is reported after it (*Built 4 parts.
-Since then: …*). The header adds *· parts built from this version* or *·
-changed since its parts were built* from the `.workbook.json` beside the file.
-A workbook that has gone shows **Locate…**. The window will not close while a
-build is running, and the strip will not start one while a workbook's is.
+**1080 px** wide, in two columns under a header and over a footer that both
+span the width: on the left (at least 610 px, taking any spare width)
+**Workbook**, **Gears**, **Checks** and **Since the last read**; on the right
+**End view, from your origin** and **Speeds**. The window keeps that width —
+paths are shortened in the middle (`ui_text.short_path`, 52 characters, the
+folder 32) so nothing pushes it wider — and grows taller when a save brings
+more lines, never shrinking below what the user dragged it to. Grown, it moves
+left or up rather than off the screen.
 
-**W3 adds**, the window now 1080 px wide in two columns:
+- **Header.** The file's name in bold (13 px; the artboards draw it at 15);
+  under it a dot and `linked · read 14:02:31 · open in Excel`
+  (`ui_text.workbook_read_line`; *open in Excel* while
+  Excel's `~$` lock file is beside it), then *· parts built from this version*
+  or *· changed since its parts were built* once the `.workbook.json` beside the
+  file records a build. The dot is green, red while the file is gone or will not
+  read. At the right **Open in Excel** and **Re-read**, and **Locate…** before
+  them only while the file has gone.
+- **Workbook** (readout `3 shafts · 4 gears · 2 meshes · no modes`): File, Name,
+  Output folder with where it came from (*from the Box sheet*, *the strip's
+  Output*, or *set one on the Box sheet*), and **Worked out as**, what the rows
+  add up to: *Parallel train · 2 meshes · 12.000 : 1 · output turns the same
+  way*, or for a layout this phase does not do, *Not laid out yet: P1 is mounted
+  on C*.
+- **Gears** (readout `4 parts to build · 1 later`): Gear, Shaft, Kind, Teeth,
+  Module, Face, Part (the file's stem; this column takes the room left), and a
+  dot with what will happen — *to build*, *the same part as G1* (identical rows
+  share one file), *later · phase W6* in grey, or *see Checks* in red. Values are
+  shown as typed, a bad one included (`68.5`); a ring's kind reads *Ring*. No
+  gears: *No gears yet: add rows to the Gears sheet and save.*
+- **Checks** (readout `1 error · 2 warnings`, or *no problems*): first any fix
+  chosen and not yet written, *Chosen, not yet written: Move S2 and S3 beyond it
+  by -0.25 mm* with **Undo**; then the errors in red and the warnings in grey,
+  each beginning with the cell it names (`Gears!F3: …`, `Meshes!A2: …`). Under an
+  error that has fixes, indented 14 px, one button per fix with what it changes
+  beneath in mono: **Move S2 and S3 beyond it by -0.25 mm** over `S2 X 64 →
+  63.75 · S3 X 132 → 131.75`, and **Keep your positions: profile-shift G1 and
+  G2** over `x +0.084550 / +0.084550 → 64.000 exact · working angle 20.61° · ε
+  1.62` (`workbook.fixes`, for centres that are off; the move is not offered
+  inside a loop of meshes, nor the shift where it does not apply). Clean: *No problems: every row reads, and every gear works out.*
+- **Since the last read** (readout `2 changes · 14:02:31`, or *nothing changed ·
+  …*): what the last outside save changed, one line per cell in mono, `Shafts!C3
+  S2 X 63.75 → 64`, and rows that came or went, `gear G5 added (Gears row 6)`.
+  *Nothing changed.* when nothing has.
+- **End view, from your origin** (readout `z 7.5 · z 27 · origin`, or *origin off
+  view*): a 392 × 300 px white canvas. Every placed gear's own outline at its
+  phase, seen from +Z as SolidWorks' Front view (+X right, +Y up), each at the
+  middle of its face so a helical gear shows its section there; a ring adds its
+  rim as a circle. One colour per face height, nearest +Z drawn last: ink
+  `#3c3c3c`, then blue `#2f6db5`, orange `#b35c00`, purple `#6a3d9a`, green
+  `#1a7f37`. Each shaft a 10 px cross with its name in mono below right, or on
+  the first side clear of the origin's arrows when that would sit on them (a
+  shaft at the origin has it below left). The origin: X a red arrow and Y a
+  green one, 26 px, and a dot. All of where is `preview.layout_gearbox`, headless
+  and tested; the window only strokes it. A gearbox this phase does not lay out
+  (a carrier, a turned axis) shows that sentence in grey instead, and no readout.
+- **Speeds** (readout *seen from +Z*, or *no input*): one mono line per shaft,
+  `S2    375.0 rpm clockwise · 39.20 N·m` (`ui_text.workbook_speed_lines`),
+  turning as seen from +Z, torque where the power path gives one; *not driven*
+  for a shaft nothing reaches. A gearbox a later phase drives gets one grey
+  sentence instead.
+- **Footer.** A dot and one sentence (wrapped at 660 px), green when all is
+  well, then **Export**, **Export as…** and **Build parts** (primary).
 
-- **Worked out as** in the Workbook panel: what the rows add up to
-  (*Parallel train · 2 meshes · 12.000 : 1 · output turns the same way*).
-- **End view, from your origin** (right column): every gear's own outline at
-  its turn, seen from +Z as SolidWorks' Front view, one colour per face height
-  (ink, then blue, orange…), shafts crossed and named, and the origin's X (red)
-  and Y (green); `preview.layout_gearbox`, headless and tested.
-- **Speeds** (right column): each shaft's speed, turning seen from +Z, and
-  torque where the power path gives one.
-- **Fixes** under the error they mend: a button per fix (*Move S2 and the 1
-  shaft beyond it by -0.25 mm*, *Keep your positions: profile-shift G1 and G2*)
-  with what it changes beneath. A chosen fix is checked at once and listed as
-  *Chosen, not yet written … Undo*; Build waits for Export, so the workbook and
-  the parts agree.
-- **Export** writes the chosen fixes' cells and the Results sheet into the
-  workbook (never over a formula: those are listed to change in Excel);
-  **Export as…** writes a copy. A workbook with formulas waits for Excel to
-  recalculate and save before Build.
+### What the footer says, and what is enabled
 
-The window keeps itself on the screen as it grows. The artboards in
-`design/canvas` show W2's single column; they are redrawn when the W3 review
-settles the window.
+The sentence and whether **Build parts** is enabled are one decision,
+`ui_text.workbook_state`, asked after every read, failed read, choice, export,
+build start and build end. In order:
+
+| State | Sentence | Build parts |
+|---|---|---|
+| a build running | *Building 4 parts in SolidWorks…* | off |
+| the file gone or unreadable | the read's own sentence, red | off |
+| a fix chosen | *1 fix chosen: Export writes it into the workbook, and Build waits for that, so the workbook and the parts agree.* | off |
+| exported into a workbook with formulas | *Open and save the workbook in Excel so its formulas recalculate; Build waits for that save.* | off |
+| an error | *Fix the workbook before building: Gears!F3: … (2 more under Checks)* | off |
+| nothing buildable | *Nothing in this workbook can be built yet: …* | off |
+| no output folder, or one that does not exist | *Choose an output folder …* / *The output folder … does not exist; …* | off |
+| ready | *Ready: Build makes 4 parts in C:\Parts\Reducer_12to1\.* | on |
+
+Warnings never hold Build back, and nor do rows a later phase builds: those
+are left out of the parts and listed as *later*. After a build or an export its
+own sentence stays until the file next changes (*Built 4 parts.* and the steps
+by hand, from `ui_text.many_status`); if the workbook has gone wrong since, it
+reads *… Since then: …* and Build is off. A refused export shows even with a fix
+still chosen.
+
+**Export** is enabled whenever a good read is on screen and nothing is
+building. **Export as…** is never greyed: without a good read it asks for a
+file and writes nothing. Export writes the
+chosen fixes' cells and the Results sheet into the workbook, and says so:
+*Exported 2 cells and the Results sheet. Added the column Profile shift.* A
+formula cell is never written: *Not written — change them in Excel: …*, and then
+the Results sheet is not written either. Export refuses, and re-reads, if the
+file was saved since the window last read it. **Export as…** writes the same to
+a copy (*Reducer_12to1 (fixed).xlsx*) and leaves the fixes chosen, since the
+linked workbook still lacks them.
+
+### The live link
+
+The window polls the file's size and modification time once a second; a save
+in Excel shows within about two seconds. A file caught mid-save is retried
+quietly for up to five seconds before it becomes a sentence. While the file is
+in trouble the last good read stays on screen, and nothing is built from it. A
+file that has gone reads *The workbook is no longer at C:\…\Reducer_12to1.xlsx.*,
+the dot red, with **Locate…** to point the window at it again; nothing in the
+window is lost.
+
+The window's own Export is recognised (by the hash of what it wrote) and not
+listed as an outside change; whether Build is waiting for Excel to recalculate
+is kept in the `.workbook.json`, so it survives a restart. An outside save
+re-checks any fix still chosen against the new read: one no longer offered
+exactly as chosen is set aside, *The workbook changed, so the fix you chose no
+longer applies as it was and was set aside; choose again from Checks.* Nothing
+reaches SolidWorks until **Build parts** is pressed.
+
+### Build parts
+
+Every gear a part, planned by the strip's own planner (`workbook.build`), one
+file for identical rows, and submitted as one batch, `swbuild.build_many`, to
+the strip's worker. Refused before anything is made: a part file that already
+exists, no SolidWorks to reach, or the strip mid-build (and the strip will not
+start a build while a workbook's runs). Each part gets its `.gear.json`, naming
+the workbook and the rows it serves; the `.workbook.json` records the parts and
+the version they were built from. The window will not close while a build is
+running.
+
+Today Build makes **parts only**: the layout part, the assembly and Update
+SolidWorks (PLAN-WORKBOOK §4.2–§4.5) are phase W4, and this window has no
+button for them yet.
+
+### Where it differs from PLAN-WORKBOOK §5
+
+- A fix is a button that takes it at once (checked straight away, listed with
+  **Undo**), not one of E2's radio rows.
+- Checks lists problems only; the plan's *passed checks, one line each* are
+  not shown, and a clean workbook says so in one line.
+- **Re-read** is in the header beside **Open in Excel**, not in the footer, and
+  the counts are the Workbook panel's readout rather than the header's.
+- The change list names each changed cell (`Gears!F3 G2 Teeth 68 → 68.5`) but
+  not what it did to the gearbox (the plan's *· G1–G2 now 1.50 off*); Checks
+  says that.
+- No **Update SolidWorks** yet: it comes with the assembly in W4.
