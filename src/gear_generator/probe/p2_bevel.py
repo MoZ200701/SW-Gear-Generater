@@ -540,8 +540,8 @@ def bevel_planes_beyond_90(px: Px) -> None:
     rather than assumed to carry on. The angle dimension placed on the bisector
     must read the angle meant, not its supplement, past 90° too.
 
-    Written on a machine without SolidWorks: it has never run, and nothing it
-    decides is used until it has.
+    Written without SolidWorks; first run on SolidWorks 2026 (34.0.0) and 2024
+    (32.5.0) on 2026-11-13, where it passed unchanged with the cone's sign on both.
     """
     signs_by_cone: Dict[str, Dict[str, int]] = {}
     for cone in BEYOND_CONES:

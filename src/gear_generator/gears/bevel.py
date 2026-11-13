@@ -968,9 +968,8 @@ def section_sign(form: str) -> Optional[int]:
     """+1 when a heel plane's sketch +x is the way the teeth's tips point, ``(cos δ, 0, −sin δ)``; None if unprobed.
 
     Probe ref_plane_normal measured it on cones of 30° and 50°. A crown gear's
-    plane is square to the X axis and an internal bevel's leans past it, and
-    which way SolidWorks turns those planes' sketches waits on probe
-    bevel_planes_beyond_90.
+    plane is square to the X axis and an internal bevel's leans past it; probe
+    bevel_planes_beyond_90 measured those at 90° and 120°, with the same sign.
     """
     return {FORM_CONE: findings.BEVEL_SECTION_X_SIGN, FORM_CROWN: findings.BEVEL_CROWN_SECTION_X_SIGN,
             FORM_INTERNAL: findings.BEVEL_INTERNAL_SECTION_X_SIGN}[form]

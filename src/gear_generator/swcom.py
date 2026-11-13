@@ -216,12 +216,12 @@ def _out_long() -> Any:
 
 
 def _out_text() -> Any:
-    """A by-reference string for an out parameter. UNVERIFIED: first used by probe custom_properties."""
+    """A by-reference string for an out parameter; ``Get6`` filled it (probe custom_properties)."""
     return VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BSTR, "")
 
 
 def _out_bool() -> Any:
-    """A by-reference boolean for an out parameter. UNVERIFIED: first used by probe custom_properties."""
+    """A by-reference boolean for an out parameter, as ``Get6`` takes them (probe custom_properties)."""
     return VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BOOL, False)
 
 
@@ -1286,9 +1286,9 @@ class Session:
     def unfix_component(self, handle: str) -> None:
         """Let a component move: select it, ``UnfixComponent``, and read back that it floats.
 
-        UNVERIFIED: written from the API help beside ``FixComponent``, which
-        takes no arguments and so is invoked explicitly; probe gear_mate is what
-        settles it. The first component inserted comes in fixed (probe
+        ``UnfixComponent`` takes no arguments and so is invoked explicitly, as
+        ``FixComponent`` is; probe gear_mate saw the selected component float
+        after it. The first component inserted comes in fixed (probe
         assembly_components_and_mates).
         """
         component = self._handles[handle]["component"]
@@ -1307,7 +1307,7 @@ class Session:
         """``gear1:plane2`` or ``gear2:Gear Axis``, selected at mark 1 for a mate; ``asm:plane2`` the assembly's own.
 
         The assembly's own planes are taken by tree order, as a part's are, and
-        selected the same way (UNVERIFIED in an assembly: probe gear_mate).
+        selected the same way; probe gear_mate mated components to them.
         """
         handle, _, target = ref.partition(":")
         if handle == "asm":
@@ -1458,12 +1458,11 @@ class Session:
                    name: str) -> Tuple[str, str]:
         """A gear mate between two axes, ``a`` turning ``ratio[0]`` teeth to ``b``'s ``ratio[1]``.
 
-        UNVERIFIED until probe gear_mate passes: the ``swMateType_e`` value, which
-        of the two ratio arguments goes with the first selection, and which
-        ``Flip`` turns the gears opposite ways are all its findings, and until
-        they are recorded this refuses rather than guess them. The arguments
-        are ``AddMate5``'s own order, the gear ratio being the seventh and
-        eighth, which the verified mates pass as 1 and 1.
+        Probe gear_mate settled the ``swMateType_e`` value, that the ratio's
+        numerator goes with the first selection, and that ``Flip`` off turns
+        the gears opposite ways; without those findings this refuses rather
+        than guess them. The arguments are ``AddMate5``'s own order, the gear
+        ratio being the seventh and eighth, which the other mates pass as 1 and 1.
         """
         if findings.GEAR_MATE_ROUTE is None or findings.MATE_GEAR is None or findings.GEAR_MATE_NUMERATOR_FIRST is None:
             raise SolidWorksError("A gear mate has not been settled on SolidWorks yet; run the gear_mate probe first.")
@@ -1484,9 +1483,9 @@ class Session:
     def set_custom_property(self, name: str, value: str) -> None:
         """A text custom property on the build's part, added or replaced, and read back.
 
-        UNVERIFIED until probe custom_properties passes: ``Add3``'s type and
-        option are its findings (from swconst.tlb), as is the read that gives a
-        value back, and until they are recorded this refuses rather than guess.
+        Probe custom_properties settled ``Add3``'s type and option (from
+        swconst.tlb) and the read that gives a value back; without those
+        findings this refuses rather than guess.
         """
         if findings.CUSTOM_PROPERTY_ROUTE is None or findings.CUSTOM_INFO_TEXT is None:
             raise SolidWorksError("Custom properties have not been settled on SolidWorks yet; "

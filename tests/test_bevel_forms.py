@@ -192,11 +192,20 @@ def test_an_internal_bevels_teeth_point_in_and_its_rim_out():
 
 
 @pytest.mark.parametrize("teeth, mate, shaft", [CROWN, RING])
-def test_a_build_is_refused_until_the_probe_has_run(teeth, mate, shaft):
+def test_a_build_is_refused_while_the_probe_is_unsettled(monkeypatch, teeth, mate, shaft):
+    monkeypatch.setattr(findings, "BEVEL_CROWN_SECTION_X_SIGN", None)
+    monkeypatch.setattr(findings, "BEVEL_INTERNAL_SECTION_X_SIGN", None)
     assert bevel.section_sign(BEVEL.derive(spec(teeth, mate, shaft)).form) is None
     with pytest.raises(InputError, match="bevel_planes_beyond_90"):
         plan_of(spec(teeth, mate, shaft))
     plan_of(spec(*CROWN_PINION))                                    # its pinion is a cone, and builds
+
+
+@pytest.mark.parametrize("teeth, mate, shaft", [CROWN, RING])
+def test_the_probed_signs_let_a_crown_and_an_internal_bevel_plan(teeth, mate, shaft):
+    """Probe bevel_planes_beyond_90 found the cone's sign carries on past 90°, so both forms plan as findings stand."""
+    assert bevel.section_sign(BEVEL.derive(spec(teeth, mate, shaft)).form) == findings.BEVEL_SECTION_X_SIGN == 1
+    assert plan_of(spec(teeth, mate, shaft)).check() == []
 
 
 @pytest.mark.parametrize("teeth, mate, shaft", [CROWN, ("45", "15", "109.471"), RING, STEEP_RING])

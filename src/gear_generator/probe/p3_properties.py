@@ -11,8 +11,8 @@ what would let the sizes stay right after ``"No. of Teeth"`` is edited.
 No enum value is written from memory: ``swCustomInfoType_e`` and
 ``swCustomPropertyAddOption_e`` are read from ``swconst.tlb``
 (:func:`scaffold.swconst`), which is first made to give back a value already
-settled. Written on a machine without SolidWorks: it has never run, and every
-call in it is UNVERIFIED until it does.
+settled. Written without SolidWorks; first run on SolidWorks 2026 (34.0.0) and
+2024 (32.5.0) on 2026-11-13, where it passed unchanged.
 """
 
 from __future__ import annotations

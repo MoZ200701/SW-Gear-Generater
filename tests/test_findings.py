@@ -67,7 +67,13 @@ def test_units(evidence):
     units = facts(records, "document_units")
     assert units["units_2026_folder"] == {"linear": findings.LENGTH_MM, "system": findings.UNIT_SYSTEM_MMGS,
                                           "path": units["units_2026_folder"]["path"]}
-    assert units["set_mmgs_default"]["linear_after"] == findings.LENGTH_MM
+    if units["default_template_is_mm"]:
+        # A millimetre default template leaves nothing to set (probe/results/probe-results-20260915-023929.json
+        # is the run on an inch default, where setting MMGS made a part millimetres).
+        assert units["units_default"]["linear"] == findings.LENGTH_MM
+        assert findings.SET_UNITS_MMGS_AFTER_NEW is False
+    else:
+        assert units["set_mmgs_default"]["linear_after"] == findings.LENGTH_MM
 
 
 def test_constrained_status(evidence):
@@ -129,10 +135,15 @@ def test_bevel_decisions(evidence):
 
 
 def test_bevel_beyond_ninety_decisions(evidence):
-    """None until probe bevel_planes_beyond_90 has passed; then findings.py must say what it found."""
-    _, _, decided = evidence
+    """Probe bevel_planes_beyond_90: a crown's and an internal bevel's heel planes face as a cone's does."""
+    _, records, decided = evidence
     assert decided["bevel_crown_section_x_sign"] == findings.BEVEL_CROWN_SECTION_X_SIGN
     assert decided["bevel_internal_section_x_sign"] == findings.BEVEL_INTERNAL_SECTION_X_SIGN
+    beyond = facts(records, "bevel_planes_beyond_90")
+    assert beyond["beyond_cone_dimension_90"] == pytest.approx(90.0)
+    assert beyond["beyond_cone_dimension_120"] == pytest.approx(120.0)
+    for cone in ("90", "120"):
+        assert beyond["beyond_signs"][cone] == {"x_along_outward": 1, "y_along_plus_y": 1, "normal_along_line": 1}
 
 
 def test_non_parallel_assembly_decisions(evidence):
@@ -146,8 +157,13 @@ def test_non_parallel_assembly_decisions(evidence):
 
 
 def test_gear_mate_decisions(evidence):
-    """None of them until probe gear_mate has passed; then findings.py must say what it found."""
-    _, _, decided = evidence
+    """Probe gear_mate: a 20 : 40 gear mate turned the second axis half as far, opposite ways with Flip off."""
+    _, records, decided = evidence
+    mate = facts(records, "gear_mate")
+    for run, opposite in (("plain", True), ("flipped", False)):
+        turned = mate[f"gear_mate_turn_{run}"]
+        assert abs(turned["a"]) == pytest.approx(30.0)
+        assert turned["b"] / turned["a"] == pytest.approx(-0.5 if opposite else 0.5)
     assert decided["gear_mate_route"] == findings.GEAR_MATE_ROUTE
     assert decided["mate_gear_type"] == findings.MATE_GEAR
     assert decided["gear_mate_numerator_first"] is findings.GEAR_MATE_NUMERATOR_FIRST
@@ -155,8 +171,10 @@ def test_gear_mate_decisions(evidence):
 
 
 def test_custom_property_decisions(evidence):
-    """None of them until probe custom_properties has passed; then findings.py must say what it found."""
-    _, _, decided = evidence
+    """Probe custom_properties: Add3 and Get6 work; a global's quoted name stays text, so sizes are not stamped."""
+    _, records, decided = evidence
+    linked = facts(records, "custom_properties")["linked_property"]
+    assert linked["resolved_after"] == '"No. of Teeth"'
     assert decided["custom_property_route"] == findings.CUSTOM_PROPERTY_ROUTE
     assert decided["custom_info_text"] == findings.CUSTOM_INFO_TEXT
     assert decided["custom_property_replace"] == findings.CUSTOM_PROPERTY_REPLACE

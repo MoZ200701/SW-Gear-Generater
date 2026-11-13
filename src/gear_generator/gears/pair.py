@@ -930,9 +930,9 @@ def _turning_ops(first: GearSpec, second: GearSpec, path_1: str, path_2: str, te
     keeps it there as gear 1 turns, at the tooth ratio, the other way round for
     an external pair and the same way round a ring.
 
-    UNVERIFIED on SolidWorks: the gear mate, ``UnfixComponent`` and mating to the
-    assembly's own planes wait on probe gear_mate, and until it has passed and
-    its findings are recorded this refuses rather than build on a guess.
+    The gear mate, ``UnfixComponent`` and mating to the assembly's own planes
+    are probe gear_mate's; without its findings this refuses rather than build
+    on a guess.
     """
     if findings.GEAR_MATE_ROUTE is None or findings.GEAR_MATE_EXTERNAL_FLIP is None:
         raise InputError("A gear mate has not been settled on SolidWorks yet: run the gear_mate probe on the "

@@ -35,10 +35,15 @@ EQUATION_SET_ROUTE = "indexed put Equation(i)"
 
 # -- documents --------------------------------------------------------------
 
-# document_units: the default templates here are inch documents
-# (swUnitsLinear 3); SetUserPreferenceInteger(swUnitSystem, 0, MMGS) made a
-# new part millimetres, and a global of 30 then drove a dimension to 0.030 m.
-SET_UNITS_MMGS_AFTER_NEW = True
+# document_units: this reads the session's default part template, so it says
+# what that template is rather than anything about the API. In the 2026-09-15
+# run the default was an inch document (swUnitsLinear 3), and
+# SetUserPreferenceInteger(swUnitSystem, 0, MMGS) made a new part millimetres,
+# after which a global of 30 drove a dimension to 0.030 m (that run's results
+# are kept beside latest.json). By 2026-11-13 the default was a millimetre
+# template ("MMGS 8 Decimals"), so there was nothing to set, as on 2024. The
+# build measures every new part and sets MMGS only when it is not millimetres.
+SET_UNITS_MMGS_AFTER_NEW = False
 UNIT_SYSTEM = 263            # swUserPreferenceIntegerValue_e.swUnitSystem
 UNIT_SYSTEM_MMGS = 5         # swUnitSystem_e.swUnitSystem_MMGS
 UNITS_LINEAR = 47            # swUserPreferenceIntegerValue_e.swUnitsLinear
@@ -115,14 +120,17 @@ PATTERN_COUNT_DIM_NAME = "D1"
 
 # -- assemblies -------------------------------------------------------------
 
-# assembly_components_and_mates: AddMate5 returned the mate itself; the first
-# component inserted was already fixed; a distance mate's dimension is D1.
+# assembly_components_and_mates: AddMate5 returned the mate itself; a distance
+# mate's dimension is D1. Whether the first component inserted comes in fixed
+# follows the session's default assembly template: it did with the stock
+# template (2026-09-15, and 2024), and did not with "MMGS 8 Decimals.asmdot"
+# (2026-11-13). The build fixes gear 1 itself (Fix), so it does not rely on it.
 MATE_CALL = "IAssemblyDoc.AddMate5"
 MATE_COINCIDENT = 0          # swMateType_e
 MATE_DISTANCE = 5
 MATE_ANGLE = 6
 MATE_ALIGN_CLOSEST = 2       # swMateAlign_e
-FIRST_COMPONENT_FIXED = True
+FIRST_COMPONENT_FIXED = False
 MATE_DISTANCE_DIM_NAME = "D1"
 
 # -- helical and herringbone ------------------------------------------------
@@ -232,14 +240,14 @@ REF_PLANE_PERPENDICULAR = 2   # swRefPlaneReferenceConstraint_Perpendicular
 REF_PLANE_COINCIDENT = 4      # swRefPlaneReferenceConstraint_Coincident
 BEVEL_SECTION_X_SIGN = 1      # the section's outward radial is the plane's sketch +x
 
-# bevel_planes_beyond_90 (UNVERIFIED — written on a machine without SolidWorks,
-# never run): the same plane made fresh on a pitch cone of 90° (a crown gear's,
-# square to X) and of 120° (an internal bevel's, leaning past it). +1 when the
-# plane's sketch +x is (cos δ, 0, −sin δ), the way the teeth's tips point, as it
-# is below 90°. None until the probe has run: a crown or internal bevel gear is
-# refused at build time until then.
-BEVEL_CROWN_SECTION_X_SIGN = None
-BEVEL_INTERNAL_SECTION_X_SIGN = None
+# bevel_planes_beyond_90: the same plane made fresh on a pitch cone of 90° (a
+# crown gear's, square to X) and of 120° (an internal bevel's, leaning past it).
+# On both, the angle placed on the bisector read the angle meant (90°, 120°, not
+# a supplement), the plane's origin was the line's end, and its sketch +x was
+# (cos δ, 0, −sin δ), the way the teeth's tips point, as it is below 90°; its y
+# was +Y and its normal along the line.
+BEVEL_CROWN_SECTION_X_SIGN = 1
+BEVEL_INTERNAL_SECTION_X_SIGN = 1
 
 # loft_cut_sections: InsertCutBlend (12 arguments) through two similar
 # rectangles on parallel planes, both at mark 1 in order, removed their frustum
@@ -277,29 +285,33 @@ BEVEL_MATE_ROUTE = "mates"
 
 # -- custom properties ------------------------------------------------------
 
-# custom_properties (tier 3) has been written but has not run on SolidWorks yet,
-# so no plan stamps a property. Once it passes these are read off its facts:
-# the route, swCustomInfoText and swCustomPropertyReplaceValue as read from
-# swconst.tlb, which read gave the value back, and whether a property whose
-# value is a global's quoted name followed the global when it changed.
-CUSTOM_PROPERTY_ROUTE = None
-CUSTOM_INFO_TEXT = None
-CUSTOM_PROPERTY_REPLACE = None
-PROPERTY_READ_ROUTE = None
-PROPERTY_LINKS_GLOBALS = None
+# custom_properties: IModelDocExtension.CustomPropertyManager("") gave the
+# part's manager; Add3(name, swCustomInfoText, value, swCustomPropertyReplaceValue)
+# returned 0 and Get6 with by-reference outs read the value back; a second Add3
+# of the same name replaced it. Both enum values were read from swconst.tlb.
+# A property whose value was a global's quoted name, '"No. of Teeth"', resolved
+# to that text itself, before and after the global changed from 25 to 40, so
+# the sizes are not stamped: as plain text they would go stale.
+CUSTOM_PROPERTY_ROUTE = "Add3"
+CUSTOM_INFO_TEXT = 30            # swCustomInfoType_e.swCustomInfoText
+CUSTOM_PROPERTY_REPLACE = 2      # swCustomPropertyAddOption_e.swCustomPropertyReplaceValue
+PROPERTY_READ_ROUTE = "Get6 with by-reference outs"
+PROPERTY_LINKS_GLOBALS = False
 
 # -- gear mate --------------------------------------------------------------
 
-# gear_mate (tier 4, extra) has been written but has not run on SolidWorks yet,
-# so nothing about a gear mate is settled, and an assembly that asks for one is
-# refused. Once it passes, these are read off its facts (probe/decide.py):
-# the route, swMateType_e.swMateGEAR as read from swconst.tlb, whether
-# AddMate5's gear ratio numerator goes with the first selection, and the Flip
-# that turns two external gears opposite ways.
-GEAR_MATE_ROUTE = None
-MATE_GEAR = None
-GEAR_MATE_NUMERATOR_FIRST = None
-GEAR_MATE_EXTERNAL_FLIP = None
+# gear_mate: two cylinders, the first unfixed by IAssemblyDoc.UnfixComponent and
+# held on the assembly's own planes with an angle mate to drive it, the second's
+# axis held 60 mm away, and AddMate5(swMateGEAR, closest, flip, 0, 0, 0, 20, 40,
+# ...) between the two axes made one MateGearDim. Driving the angle mate through
+# a global turned the first 30° and the second 15°: the ratio's numerator goes
+# with the first selection. With Flip off the two turned opposite ways, as an
+# external pair does; with Flip on, the same way. swMateGEAR was read from
+# swconst.tlb, after the reader gave back the three mate types above.
+GEAR_MATE_ROUTE = "mates"
+MATE_GEAR = 10                   # swMateType_e.swMateGEAR
+GEAR_MATE_NUMERATOR_FIRST = True
+GEAR_MATE_EXTERNAL_FLIP = False
 # The crossed frame's mates held its rotation; a point's distance from a plane is
 # measured along the plane's normal, so a negative offset is mated flipped.
 CROSSED_ROUTE = "mates"

@@ -473,8 +473,9 @@ def swconst(px: Px, enum: str) -> Dict[str, int]:
     """Every member of one ``swconst`` enum, read from the type library SolidWorks installs.
 
     What makepy does, done at run time, so a probe never writes an enum value
-    from memory. UNVERIFIED until a probe that uses it has run: each one checks
-    it first against values already settled.
+    from memory. Each probe that uses it checks it first against values already
+    settled; on SolidWorks 2026 and 2024 it gave back swMateCOINCIDENT 0,
+    swMateDISTANCE 5 and swMateANGLE 6, as the assembly probes had found.
     """
     import pythoncom  # noqa: PLC0415 - Windows only, and only ever on the worker
 

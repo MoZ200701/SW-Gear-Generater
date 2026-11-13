@@ -14,6 +14,7 @@ with `<user document N>`. The probe's own documents keep their names.
 | 20261102-195904 | 40 pass, 2 FAIL, 2 SKIP | The helical and bevel builds each had one global refused by `Add2`. Not reproduced in a fresh session (20261103-130406); the session had made ~300 documents and grew to 22.8 GB, and the user was working in it. |
 | 20261102-211723 | 36 pass, 1 HUNG, 7 NOT RUN | `assembly_distance_link` hung on a modal "Save Modified Documents" when the probe closed its scratch assembly. 2026 never asked. Fixed in the probe: `scaffold.save_created_parts` saves the probe's own parts first. The app never closes documents, so it is not affected. |
 | 20261103-130406 | **44 pass** | In a freshly started SolidWorks: every end-to-end build (spur, helical, internal, bevel, crossed) passes through `swbuild.build`, with the same decisions as 2026. |
+| 20261113-165651 | **24 pass** | The three probes written without SolidWorks, `bevel_planes_beyond_90`, `custom_properties` and `gear_mate` (with what they need), in the user's own session with one of their documents open. Every fact matches the 2026 run of the same day (`../probe-results-20261113-164531`): the same signs, enum values, read route and turns. Run in the user's session rather than a fresh one, because the probe attaches to the newest session and cannot be pointed at a second 2024. |
 
 Two decisions read differently, and neither changes the build:
 

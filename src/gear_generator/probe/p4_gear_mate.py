@@ -15,9 +15,9 @@ No enum value is written from memory. ``swMateType_e`` is read from
 ``swconst.tlb`` beside ``sldworks.exe`` at run time, and the reader is believed
 only once it has given back the three mate types :mod:`findings` already holds.
 
-Written on a machine without SolidWorks: it has never run. Every call in it is
-UNVERIFIED until it does, and a failure here is a finding, not a bug to route
-around.
+Written without SolidWorks; first run on SolidWorks 2026 (34.0.0) and 2024
+(32.5.0) on 2026-11-13, where it passed unchanged. A failure here is a finding,
+not a bug to route around.
 """
 
 from __future__ import annotations

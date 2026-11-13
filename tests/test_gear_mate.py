@@ -1,8 +1,9 @@
 """A pair that turns: gear 1 free, a gear mate turning gear 2 — refused until the gear_mate probe has settled it.
 
-Nothing here has run on SolidWorks. The plan is checked for its order and its
-references, the build against the fake, and the decisions against canned probe
-records; whether SolidWorks does what the findings will say is the probe's to find.
+Probe gear_mate has passed (SolidWorks 2026 and 2024) and its findings are set. The
+plan is checked for its order and its references, the build against the fake,
+and the decisions against canned probe records; whether SolidWorks does what the
+findings say is the probe's to find.
 """
 
 import math
@@ -30,8 +31,8 @@ def settled(monkeypatch):
         monkeypatch.setattr(findings, name, value)
 
 
-def test_until_the_probe_has_run_a_gear_mate_is_refused_not_guessed():
-    assert findings.GEAR_MATE_ROUTE is None
+def test_while_the_probe_is_unsettled_a_gear_mate_is_refused_not_guessed(monkeypatch):
+    monkeypatch.setattr(findings, "GEAR_MATE_ROUTE", None)
     with pytest.raises(InputError, match="gear_mate probe"):
         pair.assembly_plan(A, B, *PATHS, motion="gear mate")
     # A fixed pair is what it always was.
