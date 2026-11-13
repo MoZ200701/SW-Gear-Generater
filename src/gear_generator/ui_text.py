@@ -878,7 +878,11 @@ def workbook_change_lines(changes: Sequence[str], consequence=None) -> List[str]
 
 
 def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", folder: str = "") -> Tuple[str, bool]:
-    """The footer's one sentence, and whether Build can go ahead."""
+    """The footer's one sentence, and whether Build can go ahead.
+
+    Rows a later phase builds (``parts.refused``) do not hold Build back — the
+    other gears' parts still build — but the sentence names the first of them,
+    since none is checked or placed before its phase."""
     if error:
         return error, False
     errors = [d for d in diagnostics if d.is_error]
@@ -887,12 +891,17 @@ def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", f
         more = f" ({len(errors) - 1} more under Checks)" if len(errors) > 1 else ""
         return f"Fix the workbook before building: {first}{more}", False
     if not parts.jobs:
-        return "Nothing in this workbook can be built yet: " + (parts.later[0][1] + "." if parts.later
+        return "Nothing in this workbook can be built yet: " + (parts.later[0][1] if parts.later
                                                                  else "it has no gears."), False
     if not folder:
         return "Choose an output folder (the Box sheet's, or the strip's Output) before building.", False
     files = _plural(len(parts.jobs), "part")
-    return f"Ready: Build makes {files} in {short_path(folder, 48)}.", True
+    text = f"Ready: Build makes {files} in {short_path(folder, 48)}."
+    if parts.refused:
+        # Never a bare "Ready" while rows wait for a later phase: they are not checked, and nothing places them.
+        more = f" ({len(parts.refused) - 1} more under Checks)" if len(parts.refused) > 1 else ""
+        text += f" Left for a later phase: {parts.refused[0].message}{more}"
+    return text, True
 
 
 def _shared_steps(results) -> List[str]:

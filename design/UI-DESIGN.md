@@ -385,7 +385,17 @@ left or up rather than off the screen.
   63.75 · S3 X 132 → 131.75`, and **Keep your positions: profile-shift G1 and
   G2** over `x +0.084550 / +0.084550 → 64.000 exact · working angle 20.61° · ε
   1.62` (`workbook.fixes`, for centres that are off; the move is not offered
-  inside a loop of meshes, nor the shift where it does not apply). Clean: *No problems: every row reads, and every gear works out.*
+  inside a loop of meshes, nor the shift where it does not apply). Each row a
+  later phase builds is a grey line at its cell, naming the row and the phase
+  (`workbook.build.later_rows`): *Gears!A7: G6 is a bevel gear: right-angle
+  stages are built in phase W6.*, *Shafts!A4: P1 is mounted on C, with 3 copies
+  round it: carriers and copies are laid out in phase W7, and the gearbox is not
+  checked until then.*, *Shafts!A4: S3's axis is X+: turned axes are laid out in
+  phase W6, and the gearbox is not checked until then.*, *Gears!A5: G4 slides:
+  sliding gears are placed in phase W8, with modes, and it is checked only at
+  its At until then.*, *Modes!A2: 2H, 4H, N and 4L are modes: they become the
+  assembly's configurations in phase W8.* (sleeves and dog rings as the bevel
+  gear, with W8). Clean: *No problems: every row reads, and every gear works out.*
 - **Since the last read** (readout `2 changes · 14:02:31`, or *nothing changed ·
   …*): what the last outside save changed, one line per cell in mono, `Shafts!C3
   S2 X 63.75 → 64`, and rows that came or went, `gear G5 added (Gears row 6)`.
@@ -393,7 +403,8 @@ left or up rather than off the screen.
   `workbook.link.consequence`): a mesh that moved off its centres or back,
   `G1–G2 now 0.25 mm off` / `G1–G2 now on centres`, and the problems the checks
   did not have before and those now gone, by the cells they name, `3 new errors
-  (Gears!F3, Shafts!A3, Shafts!A4) · 1 cleared (Gears!Q3)` (three cells named,
+  (Gears!F3, Shafts!A3, Shafts!A4) · 1 new warning (Gears!A7) · 1 cleared
+  (Gears!Q3)` (three cells named,
   then `…`). A problem whose numbers moved is the same problem, not a new one.
   One cell changed, it follows that cell on its line, `Gears!F3 G2 Teeth 68 → 70
   · G1–G2 now 1.5 mm off`; several, it is a line of its own after them. It is
@@ -433,12 +444,21 @@ build start and build end. In order:
 | a fix chosen | *1 fix chosen: Export writes it into the workbook, and Build waits for that, so the workbook and the parts agree.* | off |
 | exported into a workbook with formulas | *Open and save the workbook in Excel so its formulas recalculate; Build waits for that save.* | off |
 | an error | *Fix the workbook before building: Gears!F3: … (2 more under Checks)* | off |
-| nothing buildable | *Nothing in this workbook can be built yet: …* | off |
+| nothing buildable | *Nothing in this workbook can be built yet: InDog is a dog ring: dog rings are built in phase W8, with modes.* (or *… it has no gears.*) | off |
 | no output folder, or one that does not exist | *Choose an output folder …* / *The output folder … does not exist; …* | off |
+| ready, with rows a later phase builds | *Ready: Build makes 2 parts in C:\Parts\Planetary. Left for a later phase: Shafts!A4: P1 is mounted on C, with 3 copies round it: carriers and copies are laid out in phase W7, and the gearbox is not checked until then. (1 more under Checks)* | on |
 | ready | *Ready: Build makes 4 parts in C:\Parts\Reducer_12to1\.* | on |
 
-Warnings never hold Build back, and nor do rows a later phase builds: those
-are left out of the parts and listed as *later*. After a build or an export its
+Warnings never hold Build back, and nor do rows a later phase builds (bevel
+gears, shafts on a carrier and their copies, turned axes, sleeves, dog rings,
+sliding gears, modes): they are not errors, but the footer is never a bare
+*Ready* while one is there — it names the first, as Checks names them all. A
+bevel, sleeve or dog row's part is left out and listed as *later*; a gear on a
+carrier, on a turned axis or that slides is an ordinary part and builds, but
+nothing places or checks it as a gearbox before its phase (a carrier or a
+turned axis stops the gearbox checks altogether). The layout part and the
+assembly (W4) are refused whole while any such row is there
+(`PartsPlan.can_lay_out`). After a build or an export its
 own sentence stays until the file next changes (*Built 4 parts.* and the steps
 by hand, from `ui_text.many_status`); if the workbook has gone wrong since, it
 reads *… Since then: …* and Build is off. A refused export shows even with a fix
@@ -504,3 +524,8 @@ button for them yet.
   of its own rather than following one cell; and it also counts new and cleared
   problems by cell, which the plan's example does not show.
 - No **Update SolidWorks** yet: it comes with the assembly in W4.
+- "Refused at Build" (§3.4) is read against what Build makes: with parts
+  only, a bevel, sleeve or dog row's part is refused and the other parts
+  build, a planet's and a sliding gear's included; the footer names the first
+  refused row with its phase rather than a bare *Ready*. A whole-gearbox build
+  (W4 on) refuses such a workbook outright.

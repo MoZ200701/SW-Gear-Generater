@@ -328,14 +328,19 @@ What is not built yet:
 
 - **Parts only.** The layout part (an axis per shaft), the assembly with the
   gears placed and meshed, and Update SolidWorks for a changed workbook are the
-  next phase. **Build parts has not yet run on SolidWorks**; it runs the form's
-  own verified build for each part, but the batch is untried on the host.
-- Bevel gears, sleeves and dog rings are read, and listed as *later* with the
-  phase that builds them; they are not built.
-- Shafts on a carrier (a planetary) or with an axis other than `Z+` or `Z-` are
-  read but not laid out, checked as a gearbox or given speeds yet; the window
-  says so, and their spur and helical gears still build as parts. Modes are
-  read, and wait for the assembly.
+  next phase. Build parts has run on SolidWorks 2024 and 2026: the 12 : 1
+  reducer's four parts built, each part's `.gear.json` variables matched the
+  same gear built from the form, and a second build was refused rather than
+  overwrite them (logs in `probe/results/`).
+- Rows a later phase builds are read, and refused at Build with the phase that
+  builds them: bevel gears and turned axes (any Axis but `Z+` or `Z-`) phase W6,
+  shafts mounted on a carrier and their copies phase W7, sleeves, dog rings,
+  sliding gears and modes phase W8. Each is listed under Checks at its cell,
+  and the footer names the first instead of a plain *Ready*. A bevel gear's,
+  sleeve's or dog ring's part is not built; the other gears' parts still are, a
+  planet's or a sliding gear's included, but nothing places or checks them as a
+  gearbox yet — a carrier or a turned axis stops the gearbox checks and speeds
+  altogether.
 
 ## Driving SolidWorks
 

@@ -6,6 +6,14 @@ row builds exactly the part the strip would build from the same values, and
 every rule the strip enforces holds here too. What is new is only the
 bookkeeping: which rows this phase can build, which share one part file, and
 where each diagnostic points in the workbook.
+
+**Rows a later phase builds** (§3.4: bevel gears, carriers and copies, turned
+axes, sleeves, dogs, sliding gears, modes) are read, and refused at Build with
+the phase that builds them — not errors. :func:`later_rows` names each one.
+Build parts leaves out the parts of bevel, sleeve and dog rows and builds the
+rest, since a planet or a sliding gear is an ordinary part; but none of these
+rows is laid out, checked or placed before its phase, so the layout part and
+assembly (W4) are refused whole while any is there (:attr:`PartsPlan.can_lay_out`).
 """
 
 from __future__ import annotations
@@ -18,15 +26,17 @@ from typing import Any, Dict, List, Optional, Tuple
 from ..gears import kind_for, plan_for
 from ..gears.base import ERROR, WARNING, BuildPlan, Diagnostic, GeometryError
 from ..spec import GearSpec, InputError
+from .geometry import AXES
 from .model import Gear, GearboxSpec
+from .schema import FRAME
 
 PART_SUFFIX = ".SLDPRT"
 
-# Kinds a later phase builds, and the sentence that says which.
+# Kinds a later phase builds: what such a row is, and the phase that builds it (PLAN-WORKBOOK §6).
 LATER = {
-    "bevel": "bevel gears are built in phase W6, once the right-angle stage gives them their partner",
-    "sleeve": "sleeves are built in phase W8, with modes",
-    "dog": "dog rings are built in phase W8, with modes",
+    "bevel": ("a bevel gear", "right-angle stages are built in phase W6"),
+    "sleeve": ("a sleeve", "sleeves are built in phase W8, with modes"),
+    "dog": ("a dog ring", "dog rings are built in phase W8, with modes"),
 }
 
 # A GearSpec field's diagnostics belong to a workbook column; most share the name.
@@ -48,8 +58,9 @@ class PartJob:
 @dataclass
 class PartsPlan:
     jobs: List[PartJob] = field(default_factory=list)
-    diagnostics: List[Diagnostic] = field(default_factory=list)   # each names its cell
-    later: List[Tuple[str, str]] = field(default_factory=list)    # (gear, why it is not built yet)
+    diagnostics: List[Diagnostic] = field(default_factory=list)   # each names its cell; ``refused`` among them
+    later: List[Tuple[str, str]] = field(default_factory=list)    # (gear, why its part is not built yet)
+    refused: List[Diagnostic] = field(default_factory=list)       # every row a later phase builds (later_rows)
 
     @property
     def errors(self) -> List[Diagnostic]:
@@ -58,6 +69,12 @@ class PartsPlan:
     @property
     def buildable(self) -> bool:
         return bool(self.jobs) and not self.errors
+
+    @property
+    def can_lay_out(self) -> bool:
+        """Whether the layout part and the assembly (phase W4) may be built from these rows: not while any row is
+        a later phase's, since none of those is laid out, checked or placed yet. W4 refuses with ``refused[0]``."""
+        return self.buildable and not self.refused
 
 
 def _where(spec: GearboxSpec, gear: Gear, field_name: str) -> str:
@@ -115,10 +132,10 @@ def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "", skip_row
     template = spec.box.part_template or part_template
     jobs: Dict[str, PartJob] = {}          # by the file name in lower case
     order: List[str] = []
+    out.refused = later_rows(spec)
     for gear in spec.gears:
-        why = LATER.get(gear.kind_word())
-        if why:
-            out.later.append((gear.id, why))
+        if gear.kind_word() in LATER:
+            out.later.append((gear.id, _later_kind(gear)))
             continue
         if gear.row in skip_rows:
             continue                       # its own cell is already an error; it is not built
@@ -144,6 +161,56 @@ def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "", skip_row
         jobs[key] = PartJob(stem, path, (gear.id,), gear_spec, derived, plan_for(gear_spec, derived, template, path))
         order.append(key)
     out.jobs = [jobs[key] for key in order]
+    out.diagnostics.extend(out.refused)          # listed under Checks with the rest, each at its cell
+    return out
+
+
+def _later_kind(gear: Gear) -> str:
+    """``G5 is a bevel gear: right-angle stages are built in phase W6.``"""
+    what, phase = LATER[gear.kind_word()]
+    return f"{gear.id} is {what}: {phase}."
+
+
+def later_rows(spec: GearboxSpec) -> List[Diagnostic]:
+    """Every row a later phase builds, each a warning naming its cell, the row and the phase that builds it.
+
+    Shafts first, as they decide the most: a carrier or a turned axis means no
+    gearbox check runs at all yet (:func:`checks.check` stops at the layout).
+    Then the gears whose own part waits (bevel, sleeve, dog), the gears that
+    slide, and the modes.
+    """
+    out: List[Diagnostic] = []
+
+    def refuse(where: str, sentence: str) -> None:
+        out.append(Diagnostic(WARNING, f"{where}: {sentence}", where))
+
+    for shaft in spec.shafts:
+        where = spec.cell("Shafts", shaft.row, "id")
+        if shaft.mount() != FRAME:
+            copies = shaft.copies.strip()
+            if copies and copies != "1":
+                refuse(where, f"{shaft.id} is mounted on {shaft.mount()}, with {copies} copies round it: carriers "
+                              "and copies are laid out in phase W7, and the gearbox is not checked until then.")
+            else:
+                refuse(where, f"{shaft.id} is mounted on {shaft.mount()}: carriers are laid out in phase W7, and "
+                              "the gearbox is not checked until then.")
+        elif (shaft.axis or "Z+") not in AXES:
+            refuse(where, f"{shaft.id}'s axis is {shaft.axis}: turned axes are laid out in phase W6, and the "
+                          "gearbox is not checked until then.")
+    for gear in spec.gears:
+        where = spec.cell("Gears", gear.row, "id")
+        if gear.kind_word() in LATER:
+            refuse(where, _later_kind(gear))
+        elif gear.slides.strip():
+            refuse(where, f"{gear.id} slides: sliding gears are placed in phase W8, with modes, and it is checked "
+                          "only at its At until then.")
+    if spec.modes:
+        names = [m.name for m in spec.modes]
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        one = len(names) == 1
+        refuse(spec.cell("Modes", spec.modes[0].row, "name"),
+               f"{listed} {'is a mode: it becomes' if one else 'are modes: they become'} the assembly's "
+               f"configuration{'' if one else 's'} in phase W8.")
     return out
 
 

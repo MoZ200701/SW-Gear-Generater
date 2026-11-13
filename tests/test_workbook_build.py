@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from gear_generator import store, swbuild
+from gear_generator import store, swbuild, ui_text
 from gear_generator.gears import kind_for
 from gear_generator.spec import GearSpec
 from gear_generator.workbook import build, link, model, xlsx
@@ -73,7 +73,75 @@ def test_kinds_a_later_phase_builds_are_set_aside(tmp_path):
     parts = build.plan_parts(spec, FOLDER)
     assert parts.jobs == [] and not parts.buildable
     assert [g for g, _ in parts.later] == ["InDog", "LoDog", "RangeSlv", "FrontDog", "ModeSlv"]
-    assert "W8" in parts.later[0][1]
+    assert parts.later[0][1] == "InDog is a dog ring: dog rings are built in phase W8, with modes."
+    # The modes are refused too, after the rows, and every refusal is listed under Checks at its cell.
+    assert [d.field for d in parts.refused] == ["Gears!A2", "Gears!A3", "Gears!A4", "Gears!A5", "Gears!A6",
+                                                "Modes!A2"]
+    assert parts.refused[-1].message == ("Modes!A2: 2H, 4H, N and 4L are modes: they become the assembly's "
+                                         "configurations in phase W8.")
+    assert all(not d.is_error and d in parts.diagnostics for d in parts.refused)
+    assert ui_text.workbook_status(parts, parts.diagnostics, folder=FOLDER) == (
+        "Nothing in this workbook can be built yet: InDog is a dog ring: dog rings are built in phase W8, with "
+        "modes.", False)
+
+
+def planetary():
+    """A sun on S1 and three planets on a carrier: what the colleague found Build ready for, unchecked."""
+    return model.GearboxSpec(
+        box=model.Box(name="Planetary"),
+        shafts=(model.Shaft("S1", "frame", "0", "0", role="input", speed="1000"),
+                model.Shaft("C", "frame", "0", "0", role="output"),
+                model.Shaft("P1", "C", "30", "0", copies="3")),
+        gears=(Gear("Sun", "S1", "0", "spur", teeth="20", module="1.5", face_width="10"),
+               Gear("Planet", "P1", "0", "spur", teeth="19", module="1.5", face_width="10")),
+        meshes=(model.Mesh("Sun", "Planet"),))
+
+
+def test_a_carrier_is_refused_with_its_phase_and_its_gears_still_build(tmp_path):
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, planetary(), "p.xlsx")))
+    parts = build.plan_parts(read_spec, FOLDER)
+    (refused,) = parts.refused
+    assert refused.message == ("Shafts!A4: P1 is mounted on C, with 3 copies round it: carriers and copies are laid "
+                               "out in phase W7, and the gearbox is not checked until then.")
+    # The sun's and the planet's parts are ordinary parts: Build parts makes them...
+    assert [j.gear_ids for j in parts.jobs] == [("Sun",), ("Planet",)] and parts.buildable
+    # ...but never says a bare "Ready" for a gearbox it has not checked, and nothing lays it out.
+    assert not parts.can_lay_out
+    text, ok, enabled = ui_text.workbook_state(parts, diagnostics + parts.diagnostics, folder=FOLDER)
+    assert (ok, enabled) == (True, True)
+    assert text == (f"Ready: Build makes 2 parts in {FOLDER}. Left for a later phase: " + refused.message)
+    # The gearbox checks stop at the layout and leave the saying to the refusal, at its cell.
+    from gear_generator.workbook import checks
+    assert checks.check(read_spec).diagnostics == []
+
+
+def test_every_row_a_later_phase_builds_is_named_with_its_phase(tmp_path):
+    spec = reducer()
+    shafts = (spec.shafts[0], spec.shafts[1], model.replace(spec.shafts[2], axis="X+"),
+              model.Shaft("P1", "S2", "20", "0"))
+    gears = spec.gears[:3] + (model.replace(spec.gears[3], slides="A=0, B=10"),
+                              Gear("G6", "S2", "60", "bevel", "external", "20", "3", "", "14", "10"))
+    spec = model.replace(spec, shafts=shafts, gears=gears)
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec)))
+    parts = build.plan_parts(read_spec, FOLDER)
+    assert [d.message for d in parts.refused] == [
+        "Shafts!A4: S3's axis is X+: turned axes are laid out in phase W6, and the gearbox is not checked until "
+        "then.",
+        "Shafts!A5: P1 is mounted on S2: carriers are laid out in phase W7, and the gearbox is not checked until "
+        "then.",
+        "Gears!A5: G4 slides: sliding gears are placed in phase W8, with modes, and it is checked only at its At "
+        "until then.",
+        "Gears!A6: G6 is a bevel gear: right-angle stages are built in phase W6.",
+    ]
+    assert len(parts.jobs) == 4 and not parts.can_lay_out
+    text, ok = ui_text.workbook_status(parts, diagnostics + parts.diagnostics, folder=FOLDER)
+    assert ok and text.endswith("Left for a later phase: Shafts!A4: S3's axis is X+: turned axes are laid out in "
+                                "phase W6, and the gearbox is not checked until then. (3 more under Checks)")
+
+
+def test_a_workbook_with_nothing_for_later_can_be_laid_out(tmp_path):
+    parts = build.plan_parts(from_file(write(tmp_path, reducer())), FOLDER)
+    assert parts.refused == [] and parts.can_lay_out
 
 
 def test_the_strips_own_checks_name_the_cell(tmp_path):
@@ -328,6 +396,37 @@ def test_the_window_shows_what_a_save_did(tmp_path):
         assert shown == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off"]
         window.reread()                                       # nothing new: the list and what it did stay
         assert [w.cget("text") for w in window.changes_body.winfo_children()] == shown
+    finally:
+        window.close()
+        root.destroy()
+
+
+def test_the_window_says_what_a_later_phase_builds(tmp_path):
+    """Needs Tk and a display (run on Windows); skipped where there is none. Build is never pressed."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display for Tk")
+    root.withdraw()
+    from gear_generator import theme, workbook_gui
+    theme.setup(root)
+    folder = tmp_path / "parts"
+    folder.mkdir()
+
+    class App:
+        out_folder = tk.StringVar(root, str(folder))
+        part_template = tk.StringVar(root, "")
+
+    window = workbook_gui.WorkbookWindow(root, App(), str(write(tmp_path, planetary(), "p.xlsx")), poll_ms=10 ** 6)
+    try:
+        window.withdraw()
+        status = window.status.get()
+        assert status.startswith("Ready: Build makes 2 parts in ") and "Left for a later phase: Shafts!A4: P1 " \
+            "is mounted on C, with 3 copies round it" in status
+        assert window.build_button._enabled  # noqa: SLF001 - the button's own flag; it is never pressed here
+        shown = [w.cget("text") for w in window.checks_body.winfo_children() if isinstance(w, tk.Label)]
+        assert shown == [window.parts.refused[0].message]
     finally:
         window.close()
         root.destroy()

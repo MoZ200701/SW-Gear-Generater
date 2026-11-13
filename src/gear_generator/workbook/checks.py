@@ -5,7 +5,8 @@ ones only a whole gearbox has: meshing gears that agree with each other and
 sit exactly where their teeth put them, faces that meet, gears that do not
 clash, tips that miss other shafts, and speeds every shaft can be given.
 Every message names the cell to look at, and a centre distance that is off
-comes with the fixes of :mod:`workbook.fixes`.
+comes with the fixes of :mod:`workbook.fixes`. Rows a later phase builds are
+not errors: :func:`workbook.build.later_rows` says each one, and Build refuses it.
 """
 
 from __future__ import annotations
@@ -56,10 +57,10 @@ def check(spec: GearboxSpec, skip_gears=()) -> Report:
     """Every gearbox-level check for what this phase lays out. ``skip_gears``: gears with errors of their own."""
     report = Report()
     report.layout = lay = geometry.layout(spec, skip_gears)
-    for sentence in lay.later:
-        _warning(report, "Shafts", f"not checked yet: {sentence}")
     report.motion = kinematics.solve(spec, skip_gears)
     if lay.later:
+        # A carrier or a turned axis: nothing here is checked until its phase. Each such row is said, at its
+        # cell, by workbook.build.later_rows, with the rows Build refuses.
         report.worked_out_as = "Not laid out yet: " + lay.later[0].split(":")[0]
         return report
     gears = {g.id: g for g in spec.gears}
