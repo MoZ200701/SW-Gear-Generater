@@ -54,10 +54,11 @@ def test_a_shift_into_a_workbook_without_the_column_adds_its_header(tmp_path):
     assert [d.message for d in checks.check(again).diagnostics if d.is_error] == []
 
 
-def test_a_formula_is_listed_not_written_and_excel_must_recalculate(tmp_path):
-    """The Excel fixture's S3 X is =C3+68: a move writes S2 and leaves S3 to its formula."""
+@pytest.mark.parametrize("folder", ["excel", "excel-windows"])
+def test_a_formula_is_listed_not_written_and_excel_must_recalculate(tmp_path, folder):
+    """The Excel fixtures' S3 X is =C3+68: a move writes S2 and leaves S3 to its formula."""
     path = tmp_path / "excel.xlsx"
-    shutil.copy(FIXTURES / "excel" / "Reducer_12to1.xlsx", path)
+    shutil.copy(FIXTURES / folder / "Reducer_12to1.xlsx", path)
     xlsx.write_cells(str(path), {"Shafts": {"C3": 64}})            # S2 off by 0.25; S3 follows by formula...
     spec, _ = read(path)                                           # ...once Excel recalculates — until then 131.75
     report = checks.check(spec)

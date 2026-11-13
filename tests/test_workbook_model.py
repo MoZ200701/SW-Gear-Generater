@@ -328,18 +328,33 @@ def test_a_workbook_saved_by_libreoffice_reads_the_same(tmp_path):
     assert diagnostics == [] and edited.shaft("S2").x == "64" and edited.gear("G2").teeth == "70"
 
 
-def test_a_workbook_saved_by_excel_reads_the_same(tmp_path):
-    """tests/fixtures/excel/Reducer_12to1.xlsx: our writer's workbook, opened in Microsoft Excel for Mac 16.03
-    and saved after edits a person would make — Shafts!C4 became the formula =C3+68, Meshes!C2 became
-    0.98 formatted as a percentage, a Cost column was added to Gears (V), a "Double teeth" column was filled
-    down as =F2*2 (W2:W5, which Excel stores as one shared formula), and Shafts row 6 is a # comment row.
+EXCEL_FIXTURES = {
+    # Microsoft Excel for Mac 16.03, driven on the user's Mac (W1). "Double teeth" W2:W5 is one shared formula.
+    "mac": ("excel", ["Gears!W2", "Gears!W3", "Gears!W4", "Gears!W5"]),
+    # Microsoft 365 Excel for Windows 16.0.20430.20146 (Current Channel), driven by COM on 2026-11-13. It wrote
+    # "Double teeth" as a formula in W2 and a shared formula over W3:W5, not one shared formula over W2:W5.
+    "windows": ("excel-windows", ["Gears!W2", "Gears!W3", "Gears!W4", "Gears!W5"]),
+}
 
-    Checked by hand on 2026-11-13: this file, edited by write_cells (S2 to 64, G2 to 70 teeth, a Results
-    sheet added), opened in that Excel with no repair prompt, and C4 recalculated to 132 on opening.
+
+@pytest.mark.parametrize("saved_by", sorted(EXCEL_FIXTURES))
+def test_a_workbook_saved_by_excel_reads_the_same(tmp_path, saved_by):
+    """tests/fixtures/excel*/Reducer_12to1.xlsx: our writer's workbook, opened in Microsoft Excel and saved after
+    edits a person would make — Shafts!C4 became the formula =C3+68, Meshes!C2 became 0.98 formatted as a
+    percentage, a Cost column was added to Gears (V), a "Double teeth" column was filled down as =F2*2
+    (W2:W5, which Excel stores with shared formulas), and Shafts row 6 is a # comment row.
+
+    Checked by hand on 2026-11-13 (Mac) and by COM on 2026-11-13 (Windows): this file, edited by write_cells
+    (S2 to 64, G2 to 70 teeth, a Results sheet added), opened in that Excel with no repair prompt, and C4
+    recalculated on opening.
     """
-    path = FIXTURES / "excel" / "Reducer_12to1.xlsx"
+    folder, shared_cells = EXCEL_FIXTURES[saved_by]
+    path = FIXTURES / folder / "Reducer_12to1.xlsx"
     book = xlsx.read(path)
     assert book.sheet("Shafts").cell(4, 3).formula and book.sheet("Shafts").cell(4, 3).text == "131.75"
+    assert all(book.sheet("Gears").cell(r, 23).formula for r in range(2, 6))
+    assert [book.sheet("Gears").cell(r, 23).text for r in range(2, 6)] == ["34", "136", "34", "102"]
+    assert book.sheet("Meshes").cell(2, 3).percent
     spec, diagnostics = model.from_book(book)
     assert diagnostics == []
     expected = reducer()
@@ -354,8 +369,9 @@ def test_a_workbook_saved_by_excel_reads_the_same(tmp_path):
     assert edited.shaft("S3").x == "131.75"      # the formula's old value, until Excel recalculates and saves
     assert [sh.id for sh in edited.shafts] == ["S1", "S2", "S3"]     # row 6 is a comment
 
-    shared = xlsx.write_cells(str(path), {"Gears": {"W3": 1, "W2": 1}}, out_path=str(tmp_path / "shared.xlsx"))
-    assert shared.written == [] and {r for r, _ in shared.refused} == {"Gears!W2", "Gears!W3"}
+    shared = xlsx.write_cells(str(path), {"Gears": {r.split("!")[1]: 1 for r in shared_cells}},
+                              out_path=str(tmp_path / "shared.xlsx"))
+    assert shared.written == [] and sorted(r for r, _ in shared.refused) == shared_cells
 
 
 # -- found in review (W1) ----------------------------------------------------------------
@@ -378,8 +394,9 @@ def test_frame_and_names_ignore_case(tmp_path):
 
 
 def test_a_percentage_formatted_cell_and_the_efficiency_range(tmp_path):
-    spec, diagnostics = read(FIXTURES / "excel" / "Reducer_12to1.xlsx")
-    assert spec.meshes[0].efficiency == "98"            # 0.98 in a cell formatted 0%
+    for folder in ("excel", "excel-windows"):
+        spec, diagnostics = read(FIXTURES / folder / "Reducer_12to1.xlsx")
+        assert spec.meshes[0].efficiency == "98"        # 0.98 in a cell formatted 0%
     path = write(tmp_path, reducer())
     edit(path, "Meshes", {"C2": 1, "C3": 250})
     spec, diagnostics = read(path)

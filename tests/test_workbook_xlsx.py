@@ -10,6 +10,7 @@ W1 (tests/fixtures/excel/), and is read by test_workbook_model.py.
 
 import io
 import os
+import sys
 import zipfile
 
 import pytest
@@ -337,6 +338,7 @@ def test_no_temp_file_is_left_behind(tmp_path):
     assert sorted(os.listdir(tmp_path)) == ["w.xlsx"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes; Windows keeps only a read-only flag")
 def test_files_keep_ordinary_permissions(tmp_path):
     """The temporary file is private (0600); the workbook must not end up that way."""
     path = new_book(tmp_path / "n.xlsx")
@@ -445,6 +447,7 @@ def test_saving_over_the_open_workbook_by_its_own_name_is_refused(tmp_path):
         xlsx.write_cells(str(path), {"Shafts": {"B2": 64}}, out_path=str(path))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege Windows rarely grants")
 def test_writing_through_a_symlink_keeps_the_link(tmp_path):
     real = excel_like(tmp_path / "real.xlsx")
     link = tmp_path / "link.xlsx"
