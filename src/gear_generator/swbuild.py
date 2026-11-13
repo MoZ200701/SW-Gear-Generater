@@ -537,12 +537,15 @@ class ManyResult:
 
 
 def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
-               exists: Callable[[str], bool] = os.path.exists) -> ManyResult:
+               exists: Callable[[str], bool] = os.path.exists, *,
+               progress: "Optional[Callable[[Step], None]]" = None) -> ManyResult:
     """Every plan's part in order, each by :func:`build`; the first that fails stops the rest.
 
     Every path is checked before anything is made, so a batch either starts
     with nothing in the way or does not start: a build never overwrites a file
     (``findings.SAVE_AS_OVERWRITES`` is True, so this check is the only guard).
+    ``progress``, if given, is told ``Step(STAGE_PART, stem, i, n)`` as each
+    part starts.
     """
     paths = []
     for plan in plans:
@@ -555,6 +558,8 @@ def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
         paths.append(path)
     many = ManyResult()
     for index, plan in enumerate(plans):
+        if progress is not None:
+            progress(Step(STAGE_PART, _stem(paths[index] or plan.path), index + 1, len(plans)))
         result = build(sw, plan, exists)
         many.built.append(result)
         if not (result.ok and result.saved):
@@ -689,8 +694,8 @@ def update_variables(sw: SolidWorks, variables: Sequence[GlobalVariable], expect
 
 # -- a workbook's gearbox: parts, layout part and static assembly (phase W4) ---------
 #
-# docs/PLAN-WORKBOOK.md §4.2–§4.5. Pinned in one interface commit before the work was split; the bodies that
-# raise NotImplementedError are Agent A's. Planning is pure and runs on the Tk thread (workbook.gearbox,
+# docs/PLAN-WORKBOOK.md §4.2–§4.5. The shapes were pinned in one interface commit before the work was split;
+# the worker's side is here, from probe tier 7. Planning is pure and runs on the Tk thread (workbook.gearbox,
 # workbook.update); everything here that takes ``sw`` runs on the worker thread, as one job, and is given plain
 # data — never a workbook type — so swbuild stays below the workbook package.
 
@@ -823,6 +828,129 @@ def same_named_elsewhere(documents: Sequence[DocInfo], paths: Sequence[str]) -> 
     return out
 
 
+def _quiet(_step: Step) -> None:
+    """The progress callback when the caller gave none."""
+
+
+def _stem(path: str) -> str:
+    """A path's file stem (``Gear_m1.5_N68``), the only name a :class:`Step` carries."""
+    return os.path.splitext(os.path.basename(str(path).replace("\\", "/")))[0]
+
+
+def _file(path: str) -> str:
+    return os.path.basename(str(path).replace("\\", "/"))
+
+
+def _saved_path(plan: BuildPlan) -> str:
+    save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
+    return save.path if save is not None and save.path else plan.path
+
+
+def _clash_line(clash: Clash) -> str:
+    """``G1 and G2 interfere, 12.345 mm³; look at their mesh``, or the volume alone when nothing was named."""
+    names = list(clash.gears or clash.components)
+    if not names:
+        return (f"an interference of {clash.volume:.3f} mm³ between components SolidWorks did not name; "
+                "look at each mesh")
+    if len(names) == 1:
+        return f"{names[0]} interferes, {clash.volume:.3f} mm³; look at its meshes"
+    listed = ", ".join(names[:-1]) + f" and {names[-1]}"
+    return f"{listed} interfere, {clash.volume:.3f} mm³; look at their mesh"
+
+
+def _clashes(found: Sequence[Tuple[Sequence[str], float]], gear_of: Mapping[str, str]) -> List[Clash]:
+    """``interferences()`` as :class:`Clash`es, each Name2 mapped to its gear id where the map knows it."""
+    return [Clash(tuple(names), tuple(gear_of.get(n, n) for n in names), float(volume)) for names, volume in found]
+
+
+def _interference_lines(clashes: Sequence[Clash], error: str, ran: bool) -> List[str]:
+    if error:
+        return [f"CHECK   interference could not be checked: {error}"]
+    if not ran:
+        return []
+    if not clashes:
+        return ["ok      no interference between the gears"]
+    return [f"CHECK   {_clash_line(c)}" for c in clashes]
+
+
+def _held(current: Sequence[Tuple[str, float]]) -> Dict[str, str]:
+    held: Dict[str, str] = {}
+    for text, _ in current:
+        try:
+            name, expression = split_equation(text)
+        except (ValueError, EquationError):
+            continue
+        held[name] = expression
+    return held
+
+
+def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str, evaluate: bool = False) -> List[Tuple[str, str]]:
+    """Open a saved document and compare it with what it should hold, changing nothing it keeps.
+
+    ``open_document`` (which also refuses a same-named document from another
+    folder), the document's trig units measured (``detect_trig_units`` adds and
+    deletes one equation, as ``update_variables`` always has), then
+    ``planned_changes`` — which raises when a global is missing — and every
+    name in ``doc.features`` looked for. Returns the planned changes; every
+    refusal is a :class:`BuildError` naming the file, worded "<file> cannot be
+    <verb>: …".
+    """
+    name = _file(doc.path)
+    sw.begin_build()
+    try:
+        try:
+            sw.open_document(doc.path)
+            trig = sw.detect_trig_units()
+            changes = planned_changes(sw.equations(), doc.variables, trig)
+        except BuildError as exc:
+            raise BuildError(f"{name} cannot be {verb}: {exc}") from None
+        except SolidWorksError as exc:
+            raise BuildError(str(exc)) from None
+        if doc.features:
+            present = set(sw.feature_names())
+            lost = [f for f in doc.features if f not in present]
+            if lost:
+                listed = ", ".join(f'"{f}"' for f in lost)
+                raise BuildError(f"{name} cannot be {verb}: {listed} {'is' if len(lost) == 1 else 'are'} no longer "
+                                 "in it; it was renamed or deleted in SolidWorks.")
+        if evaluate:
+            try:
+                evaluate_all([(v.name, v.expression_for(trig)) for v in doc.variables], trig)
+            except EquationError as exc:
+                raise BuildError(f"{name} cannot be {verb}: the new values do not evaluate: {exc}") from None
+        if changes and not evaluate:
+            held = _held(sw.equations())
+            shown = "; ".join(f'"{n}" is {held.get(n, "?")} there and {e} here' for n, e in changes[:3])
+            more = f"; and {len(changes) - 3} more" if len(changes) > 3 else ""
+            raise BuildError(f"{name} does not hold what the workbook asks of it, so it cannot be {verb}: "
+                             f"{shown}{more}.")
+        return changes
+    finally:
+        sw.end_build()
+
+
+def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], verb_made: str,
+                  verb_opened: str) -> None:
+    """The path checks of a job, each a :class:`BuildError` sentence naming the file: one path twice, two files
+    of one name from two folders (SolidWorks keeps one document per file name: probe
+    add_component_same_name_elsewhere), and a document of the same name already open from another folder
+    (decision 7, :func:`same_named_elsewhere`)."""
+    everything = list(made) + list(opened)
+    for index, path in enumerate(everything):
+        for earlier in everything[:index]:
+            if same_path(path, earlier):
+                raise BuildError(f"{path} is named twice in this job, so one document would take the place of the "
+                                 "other.")
+            if _file(path).lower() == _file(earlier).lower():
+                raise BuildError(f"{earlier} and {path} have the same file name, and SolidWorks keeps one document "
+                                 "per file name, so they cannot both be in one job.")
+    for open_path, wanted in same_named_elsewhere(sw.documents(), everything):
+        verb = verb_made if any(same_path(wanted, p) for p in made) else verb_opened
+        raise BuildError(f"{open_path} is open in SolidWorks, and it has the same file name as {wanted}, which this "
+                         f"job would {verb}; SolidWorks keeps one document per file name, so close "
+                         f"{_file(open_path)} in SolidWorks and try again.")
+
+
 @dataclass
 class GearboxResult:
     """What :func:`build_gearbox` did, step by step; every part saved before a failure stays saved.
@@ -854,12 +982,32 @@ class GearboxResult:
     def ok(self) -> bool:
         """Every part planned was saved, the layout saved or reused (when planned), the assembly saved (when
         planned). Clashes do not count against it."""
-        raise NotImplementedError("W4: Agent A, swbuild.GearboxResult.ok")
+        def saved(result: Optional[BuildResult]) -> bool:
+            return result is None or (result.ok and bool(result.saved))
+
+        return (all(saved(r) for r in self.parts.built) and not self.parts.skipped and saved(self.layout)
+                and saved(self.assembly) and not self.skipped)
+
+    def _interference_ran(self) -> bool:
+        return (self.assembly is not None and self.assembly.ok and bool(self.assembly.saved)
+                and bool(getattr(findings, "INTERFERENCE_CHECKED", False)))
 
     def log_lines(self) -> List[str]:
         """The parts' lines, the checked documents, the layout's, the assembly's, then ``ok      no interference
         between the gears`` or one ``CHECK`` per clash naming the gears, then ``SKIPPED …``."""
-        raise NotImplementedError("W4: Agent A, swbuild.GearboxResult.log_lines")
+        lines = self.parts.log_lines()
+        lines.extend(f"ok      checked {_file(p)}: it holds what the workbook asks, so it is reused"
+                     for p in self.checked)
+        if self.layout is not None:
+            lines.extend(self.layout.log_lines())
+        elif self.layout_reused:
+            lines.append(f"ok      layout {_file(self.layout_reused)} reused")
+        if self.assembly is not None:
+            lines.extend(self.assembly.log_lines())
+        lines.extend(_interference_lines(self.clashes, self.interference_error, self._interference_ran()))
+        if self.skipped:
+            lines.append(f"SKIPPED {self.skipped}")
+        return lines
 
 
 def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[DocumentValues] = (),
@@ -892,8 +1040,96 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
 
     ``progress`` is told each :class:`Step` as it starts. Nothing is closed;
     a failed document is left open, unsaved. Runs on the worker thread.
+
+    Also refused in step 1, each with a sentence: a plan that is not sound;
+    an assembly with no layout; an assembly that would insert a file this
+    job neither makes nor reuses; two files of one name from two folders;
+    and documents built earlier going into the assembly while
+    ``findings.REUSE_ADD_ROUTE`` is neither "opened" nor "closed". With
+    "opened" (probe add_component_opened_part, 2026: AddComponent5 refused a
+    closed part and took one opened by OpenDoc6) the reused documents must be
+    open when the assembly inserts them, and they are, from the live check;
+    with "closed" they would not need to be, but the live check opens them
+    anyway. A clash keeps :attr:`GearboxResult.ok` True (W4 agreement 9).
     """
-    raise NotImplementedError("W4: Agent A, swbuild.build_gearbox")
+    say = progress or _quiet
+    _gate(sw)
+    gear_of_handle = dict(gears or {})
+    layout_plan = layout if isinstance(layout, BuildPlan) else None
+    layout_reuse = layout if isinstance(layout, DocumentValues) else None
+    if assembly is not None and layout is None:
+        raise BuildError("The assembly is built around its layout part, and this build has neither a layout part "
+                         "to make nor one to reuse.")
+    plans = list(parts) + [p for p in (layout_plan, assembly) if p is not None]
+    for plan in plans:
+        problems = plan.check()
+        if problems:
+            raise BuildError(f"The build plan for {_file(_saved_path(plan)) or plan.kind} is not sound: "
+                             + " ".join(problems))
+    made = [p for p in (_saved_path(plan) for plan in plans) if p]
+    reused_docs = list(reuse) + ([layout_reuse] if layout_reuse is not None else [])
+    reused = [d.path for d in reused_docs]
+    for path in made:
+        if exists(path):
+            raise BuildError(f"{path} already exists, and a build never overwrites a file.")
+    for path in reused:
+        if not exists(path):
+            raise BuildError(f"{path} is no longer there, so it cannot be reused: it was moved, renamed or deleted "
+                             "since it was built.")
+    _refuse_paths(sw, made, reused, "make", "reuse")
+    inserted = [op.path for op in assembly.ops if isinstance(op, base.AddComponent)] if assembly is not None else []
+    for path in inserted:
+        if not any(same_path(path, p) for p in made + reused):
+            raise BuildError(f"The assembly would insert {path}, which this build neither makes nor reuses.")
+    reused_in_assembly = [p for p in reused if any(same_path(p, q) for q in inserted)]
+    route = getattr(findings, "REUSE_ADD_ROUTE", None)
+    if reused_in_assembly and route not in ("opened", "closed"):
+        raise BuildError(f"Putting a document built earlier into a new assembly has not been settled on SolidWorks "
+                         f"yet (findings.REUSE_ADD_ROUTE is {route!r}), so this build, which reuses "
+                         f"{_file(reused_in_assembly[0])}, cannot start; run probe tier 7 first.")
+
+    result = GearboxResult()
+    for index, doc in enumerate(reused_docs, 1):
+        say(Step(STAGE_CHECK, _stem(doc.path), index, len(reused_docs)))
+        _check_live(sw, doc, "reused")
+        result.checked.append(doc.path)
+
+    later = [phrase for phrase, planned in (("the layout part", layout_plan is not None),
+                                            ("the assembly", assembly is not None)) if planned]
+    if parts:
+        result.parts = build_many(sw, parts, exists, progress=say)
+        if not (all(r.ok and r.saved for r in result.parts.built) and not result.parts.skipped):
+            if later:
+                result.skipped = f"{' and '.join(later)}, because a part failed"
+            return result
+
+    if layout_plan is not None:
+        say(Step(STAGE_LAYOUT, _stem(_saved_path(layout_plan))))
+        result.layout = build(sw, layout_plan, exists)
+        if not (result.layout.ok and result.layout.saved):
+            if assembly is not None:
+                result.skipped = "the assembly, because the layout part failed"
+            return result
+    elif layout_reuse is not None:
+        result.layout_reused = layout_reuse.path
+
+    if assembly is None:
+        return result
+    stem = _stem(_saved_path(assembly))
+    say(Step(STAGE_ASSEMBLY, stem))
+    result.assembly = build(sw, assembly, exists)
+    result.components = dict(result.assembly.components)
+    if result.assembly.ok and result.assembly.saved and getattr(findings, "INTERFERENCE_CHECKED", False):
+        say(Step(STAGE_INTERFERENCE, stem))
+        gear_of = {name: gear_of_handle.get(handle, name) for handle, name in result.components.items()}
+        try:
+            result.clashes = _clashes(sw.interferences(), gear_of)
+        except SolidWorksError as exc:
+            result.interference_error = str(exc)
+    return result
+
+
+REPLACE_ROUTES = ("Transform2 put", "UnfixComponent, Transform2 put, FixComponent")   # REPLACE_FIXED_ROUTE
 
 
 @dataclass
@@ -924,10 +1160,54 @@ class GearboxUpdate:
 
     @property
     def ok(self) -> bool:
-        raise NotImplementedError("W4: Agent A, swbuild.GearboxUpdate.ok")
+        """Nothing failed and nothing was left unattempted. Clashes, and an interference check that could not run,
+        do not count against it (as in a build)."""
+        return not self.failures and not self.skipped
 
     def log_lines(self) -> List[str]:
-        raise NotImplementedError("W4: Agent A, swbuild.GearboxUpdate.log_lines")
+        """Each document's values, the re-placed gears, the assembly's rebuild, any failure, the interference,
+        what was changed and not saved, then ``SKIPPED …``."""
+        lines: List[str] = []
+        for result in self.parts + ([self.layout] if self.layout is not None else []):
+            lines.append(f"update  {result.document or '(no document)'} · trig {result.trig or '?'}")
+            if result.changed:
+                lines.append("ok      set " + ", ".join(f'"{n}"' for n in result.changed))
+            elif not result.failures:
+                lines.append("ok      already holds the workbook's values")
+            if result.changed:
+                lines.append("ok      rebuilt once" if result.rebuilt else "FAIL    the rebuild reported an error")
+        if self.found:
+            if self.placed:
+                lines.append("ok      re-placed " + ", ".join(self.placed))
+            else:
+                lines.append("ok      every gear is where the workbook puts it")
+        if self.rebuilt:
+            lines.append("ok      assembly rebuilt once")
+        lines.extend(f"FAIL    {what}: {why}" for what, why in self.failures)
+        ran = self.rebuilt and not self.failures and bool(getattr(findings, "INTERFERENCE_CHECKED", False))
+        lines.extend(_interference_lines(self.clashes, self.interference_error, ran))
+        if self.changed:
+            lines.append("not saved: " + ", ".join(_file(p) for p in self.changed)
+                         + " changed in SolidWorks; save there to keep it")
+        else:
+            lines.append("nothing changed in SolidWorks")
+        if self.skipped:
+            lines.append(f"SKIPPED {self.skipped}")
+        return lines
+
+
+def _update_document(sw: SolidWorks, doc: DocumentValues) -> Tuple[UpdateResult, List[Tuple[str, str]]]:
+    """``open_document`` then :func:`update_variables`; the result and its failures, never a raise."""
+    name = _file(doc.path)
+    try:
+        sw.open_document(doc.path)
+        result = update_variables(sw, doc.variables, doc.path)
+    except SolidWorksError as exc:
+        return UpdateResult(document=name), [(name, str(exc))]
+    failures = [(f"{name} {what}", why) for what, why in result.failures]
+    if result.changed and not result.rebuilt:
+        failures.append((name, f"SolidWorks reported an error rebuilding {_stem(doc.path)}."))
+    return result, failures
 
 
 def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout: Optional[DocumentValues] = None,
@@ -955,5 +1235,136 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     Compares with SolidWorks live, never with the record, so an update the
     user never saved, or a component they dragged, is put right on the next
     press. Saves nothing and closes nothing. Runs on the worker thread.
+
+    The check phase also refuses: placements with no assembly; one
+    component recorded for two gears; a layout plane or axis no longer in
+    the layout; new values that do not evaluate; re-placing while
+    ``REPLACE_FIXED_ROUTE`` is not one of :data:`REPLACE_ROUTES` (probe
+    layout_assembly_reopen, 2026: a Transform2 put moved a FIXED component
+    and the frame survived a save and reopen, so "Transform2 put"). When
+    ``findings.OPEN_PART_BESIDE_ASSEMBLY`` is not True (probe
+    open_part_from_assembly, 2026: it is), values are not changed while the
+    assembly is open — the user is asked to close it — and the assembly is
+    opened only after the values, so a missing component is then a failure
+    rather than a refusal. ``place_component`` reads each frame back after a
+    ForceRebuild3 of its own (probe nonparallel_mates); the assembly's one
+    rebuild here is the one after every put, with ``CommandInProgress``
+    restored in a ``finally``.
     """
-    raise NotImplementedError("W4: Agent A, swbuild.update_gearbox")
+    say = progress or _quiet
+    _gate(sw)
+    result = GearboxUpdate()
+    documents = list(parts) + ([layout] if layout is not None else [])
+    paths = [d.path for d in documents] + ([assembly] if assembly else [])
+    if placements and not assembly:
+        raise BuildError("Gears can only be re-placed in an assembly, and Update SolidWorks was given none.")
+    for path in paths:
+        if not exists(path):
+            raise BuildError(f"{path} is no longer there, so Update SolidWorks cannot change it: it was moved, "
+                             "renamed or deleted since it was built.")
+    _refuse_paths(sw, [], paths, "make", "change")
+    for index, placement in enumerate(placements):
+        for earlier in placements[:index]:
+            if placement.component == earlier.component:
+                raise BuildError(f"{placement.component} is recorded for both {earlier.gear} and {placement.gear}, "
+                                 "so one of them would be placed twice.")
+    route = getattr(findings, "REPLACE_FIXED_ROUTE", None)
+    if placements and route not in REPLACE_ROUTES:
+        raise BuildError(f"Moving a fixed component has not been settled on SolidWorks yet "
+                         f"(findings.REPLACE_FIXED_ROUTE is {route!r}), so Update SolidWorks cannot re-place the "
+                         "gears; run probe tier 7 first.")
+    beside = getattr(findings, "OPEN_PART_BESIDE_ASSEMBLY", None) is True
+    if assembly and documents and not beside and any(same_path(d.path, assembly) for d in sw.documents()):
+        raise BuildError(f"Close {_file(assembly)} in SolidWorks, then press Update SolidWorks again: changing a "
+                         "part while its assembly is open has not been settled on this SolidWorks "
+                         "(findings.OPEN_PART_BESIDE_ASSEMBLY).")
+
+    # -- check: opens and reads, changes nothing it keeps
+    total = len(paths)
+    for index, doc in enumerate(documents, 1):
+        say(Step(STAGE_CHECK, _stem(doc.path), index, total))
+        _check_live(sw, doc, "updated", evaluate=True)
+    if assembly and (beside or not documents):
+        say(Step(STAGE_CHECK, _stem(assembly), total, total))
+        sw.begin_build()
+        try:
+            sw.open_document(assembly)
+            for index, placement in enumerate(placements, 1):
+                sw.find_component(f"placed{index}", placement.component)
+        except SolidWorksError as exc:
+            raise BuildError(str(exc)) from None
+        finally:
+            sw.end_build()
+
+    # -- change: values first, then the assembly
+    for position, doc in enumerate(documents):
+        say(Step(STAGE_VALUES, _stem(doc.path)))
+        done, failures = _update_document(sw, doc)
+        in_parts = position < len(parts)
+        if in_parts:
+            result.parts.append(done)
+        else:
+            result.layout = done
+        if done.changed:
+            result.changed.append(doc.path)
+        if failures:
+            result.failures.extend(failures)
+            rest = len(parts) - position - 1 if in_parts else 0
+            left = [f"{rest} more part{'s' if rest != 1 else ''}"] if rest else []
+            if layout is not None and in_parts:
+                left.append("the layout part")
+            if assembly:
+                left.append("the assembly")
+            if left:
+                listed = left[0] if len(left) == 1 else ", ".join(left[:-1]) + f" and {left[-1]}"
+                result.skipped = f"{listed}, because {_file(doc.path)} failed"
+            return result
+
+    if not assembly:
+        return result
+    stem = _stem(assembly)
+    say(Step(STAGE_PLACE, stem))
+    sw.begin_build()
+    try:
+        opened = False
+        try:
+            sw.open_document(assembly)
+            opened = True
+            handles = [f"placed{index}" for index in range(1, len(placements) + 1)]
+            for handle, placement in zip(handles, placements):
+                sw.find_component(handle, placement.component)
+            for handle, placement in zip(handles, placements):
+                rotation, at = sw.component_frame(handle)
+                result.found[placement.gear] = (tuple(rotation), tuple(at))
+            moves = [(h, p) for h, p in zip(handles, placements)
+                     if not same_frame(result.found[p.gear][0], result.found[p.gear][1], p.rotation, p.at, p.pitch)]
+            unfix = route == REPLACE_ROUTES[1]
+            sw.set_rebuild_suppressed(True)
+            try:
+                for handle, placement in moves:
+                    if unfix:
+                        sw.unfix_component(handle)
+                    sw.place_component(handle, placement.rotation, placement.at)
+                    result.placed.append(placement.gear)
+                    if unfix:
+                        sw.fix_component(handle)
+            finally:
+                sw.set_rebuild_suppressed(False)
+        except SolidWorksError as exc:
+            result.failures.append((_file(assembly), str(exc)))
+        if opened:
+            result.rebuilt = bool(sw.rebuild())
+            if not result.rebuilt:
+                result.failures.append((_file(assembly), f"SolidWorks reported an error rebuilding {stem}."))
+        if result.rebuilt and not result.failures and getattr(findings, "INTERFERENCE_CHECKED", False):
+            say(Step(STAGE_INTERFERENCE, stem))
+            gear_of = {p.component: p.gear for p in placements}
+            try:
+                result.clashes = _clashes(sw.interferences(), gear_of)
+            except SolidWorksError as exc:
+                result.interference_error = str(exc)
+    finally:
+        if result.placed:
+            result.changed.append(assembly)
+        sw.end_build()
+    return result
