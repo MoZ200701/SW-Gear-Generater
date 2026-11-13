@@ -13,8 +13,9 @@ this note only says where things stand within it.
 | W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed twice, every review item fixed. The Excel checks passed on Windows: the Windows-saved fixture (`aa86cc7`) reads, and exported files open in Excel with no repair prompt. |
 | W4 layout part + static assembly | **in progress on Windows**: probe tier 7 (`p7_workbook.py`, `8ef3943`) is written and being run; no results are committed yet. Its gate is built: `workbook.assess.Assessment.lay_out_refusal()`. |
 
-Suite (WSL, 2026-11-13): `.venv/bin/python -m pytest -q` → 942 passed, 7 skipped; the 4 tier-7 tests in
-`tests/test_findings.py` fail until that run's findings are committed.
+Suite, measured on a clean `git archive` of `bdc7647` (WSL, 2026-11-13): `PYTHONPATH=src
+.venv/bin/python -m pytest -q` → 942 passed, 9 skipped. The `PYTHONPATH` matters in a copy: the venv's
+editable install otherwise imports the working tree's `src`, uncommitted edits and all.
 
 ## What the last two commits did
 
@@ -42,7 +43,7 @@ Suite (WSL, 2026-11-13): `.venv/bin/python -m pytest -q` → 942 passed, 7 skipp
 Read PLAN-WORKBOOK §4.2–§4.3 and the W4 row in §6:
 
 1. **Finish probe tier 7** (`p7_workbook.py`, being run now), on scratch documents like every tier, and commit its results and findings. **If any of items 1–4 fails, STOP and ask the user.**
-2. Then build the layout part, the `Axis`-by-name op, the static assembly, Update SolidWorks, and build-again `_r2`. Gate the W4 button on `Assessment.lay_out_refusal()` (after the window's own state: a file gone, Excel yet to recalculate, a build running), never on the parts alone.
+2. Then build the layout part, the `Axis`-by-name op, the static assembly, Update SolidWorks, and build-again `_r2`. Gate the W4 button on `Assessment.lay_out_refusal()`, never on the parts alone, with the window's own state first: a file gone or half-saved, a build running, the output folder missing on disk; and pass `provisional=self.recalc` to `assess` (the window's `_plan` does) so a read Excel has yet to recalculate is refused. Warning-only states pass the gate on purpose: two gears at mesh distance but not listed in Meshes, a gear passing over another shaft's axis, a loop of meshes whose phases disagree. The assembly's own interference check catches what matters there.
 
 ## Rules carried over
 

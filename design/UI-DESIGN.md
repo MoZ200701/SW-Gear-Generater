@@ -370,7 +370,10 @@ left or up rather than off the screen.
   Output*, or *set one on the Box sheet*), and **Worked out as**, what the rows
   add up to: *Parallel train · 2 meshes · 12.000 : 1 · output turns the same
   way*, or for a layout this phase does not do, *Not laid out yet: P1 is mounted
-  on C*.
+  on C*. When the meshes give no ratio it says why rather than leaving it out:
+  *Parallel train · 1 mesh · no overall ratio: G2 meshes but is not laid out*
+  (the reasons are the Results sheet's; a box with no input and output says
+  nothing).
 - **Gears** (readout `4 parts to build · 1 later`): Gear, Shaft, Kind, Teeth,
   Module, Face, Part (the file's stem; this column takes the room left), and a
   dot with what will happen — *to build*, *the same part as G1* (identical rows
@@ -397,6 +400,13 @@ left or up rather than off the screen.
   its At until then.*, *Modes!A2: 2H, 4H, N and 4L are modes: they become the
   assembly's configurations in phase W8.* (sleeves and dog rings as the bevel
   gear, with W8). Clean: *No problems: every row reads, and every gear works out.*
+  **While Excel has yet to recalculate an Export** (the footer's recalculation
+  wait) the read is provisional: Checks opens with *Provisional: the workbook's
+  formulas still hold Excel's old values, so these checks may change once Excel
+  recalculates and saves it, and no fixes are offered until then.*, its readout
+  reads `provisional · 1 error`, the Speeds and end-view readouts end `·
+  provisional`, and no fix button is shown — one worked from an old formula
+  value would land wrong once Excel recalculates.
 - **Since the last read** (readout `2 changes · 14:02:31`, or *nothing changed ·
   …*): what the last outside save changed, one line per cell in mono, `Shafts!C3
   S2 X 63.75 → 64`, and rows that came or went, `gear G5 added (Gears row 6)`.
@@ -409,7 +419,9 @@ left or up rather than off the screen.
   then `…`). A problem is matched by the item and column it is about, not by
   its cell, so a problem whose numbers moved, or whose row moved when rows were
   inserted, deleted or sorted, is the same problem, not a new one; it is named
-  by the cell it is in now. One cell changed, it follows that cell on its line,
+  by the cell it is in now. A name typed over in its own row, the old name gone
+  from the sheet, is a rename, `Gears!A5 G4b Gear G4 → G4b`, and G4's problems
+  are G4b's. One cell changed, it follows that cell on its line,
   `Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off`; several, it is a line of
   its own after them. It is read against the file as it was, as the cells are,
   not with a chosen fix made; but a mesh it says is off that a chosen fix puts
@@ -447,7 +459,7 @@ build start and build end. In order:
 | a build running | *Building 4 parts in SolidWorks…* | off |
 | the file gone or unreadable | the read's own sentence, red | off |
 | a fix chosen | *1 fix chosen: Export writes it into the workbook, and Build waits for that, so the workbook and the parts agree.* | off |
-| after Export wrote cells into a workbook with formulas | *Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they recalculate; Build waits for that save.* | off |
+| after Export wrote cells into a workbook with formulas | *Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they recalculate; Build and Export wait for that save.* | off |
 | an error | *Fix the workbook before building: Gears!F3: … (2 more under Checks)* | off |
 | nothing buildable | *Nothing in this workbook can be built yet: InDog is a dog ring: dog rings are built in phase W8, with modes.* (or *… it has no gears.*) | off |
 | no output folder, or one that does not exist | *Choose an output folder …* / *The output folder … does not exist; …* | off |
@@ -475,23 +487,36 @@ followed by *Left for a later phase: …* while such a row is there; if the
 workbook has gone wrong since, it reads *… Since then: …* and Build is off. A
 refused export shows even with a fix still chosen.
 
-**Export** is enabled whenever a good read is on screen and nothing is
-building, and **Export as…** with it: both are greyed while there is no good
-read, and if a read fails while Export as…'s file dialog is open, it writes
-nothing and the footer says why (*Nothing was exported: …*). Export writes the
+**Export** is enabled whenever a good read is on screen, nothing is building
+and Excel is not yet to recalculate an Export, and **Export as…** with it: both
+are greyed otherwise, since anything written from a provisional read — Results
+included — would be worked out from old formula values. If a read fails, or the
+wait starts, while Export as…'s file dialog is open, it writes nothing and the
+footer says why (*Nothing was exported: …*, for the wait *Nothing was exported:
+the workbook's formulas still hold Excel's old values; open and save it in
+Excel first, so what is exported is worked out from what they now give.*). Export writes the
 chosen fixes' cells and the Results sheet (each shaft's speed, turning and
 torque; each mesh's ratio, centres needed and placed, how far off, contact
-ratio; what the box was worked out as; its overall ratio between the shafts it
-names, or a dash and why — not checked, a meshing gear not laid out, a box
-whose modes change it — and its size in X, Y and Z over the gears' outside
+ratio; what the box was worked out as; its overall ratio from the first input
+to the first output the meshes join to it, naming both, or a dash and why — not
+checked, a meshing gear not laid out, a box whose modes change it, no output
+joined to the input — and its size in X, Y and Z over the gears' outside
 diameters and faces, with a *Not in the box size* row naming any gear it does
-not count) into the workbook, and says so: *Exported 2 cells and the Results
+not count, by its row when it has no name or shares one: *G3 on Gears row 5 (an
+error of its own)*) into the workbook, and says so: *Exported 2 cells and the Results
 sheet. Added the column Profile shift.* A formula cell is never written, and
 when it is a fix's target the sentence says what to look for rather than
 asking for the formula to be typed over: *Shafts!C4 (S3 X) holds a formula, so
-it was not written (the fix would make it 131.5): once Excel has recalculated,
+it was not written (the fix would make it 131.75): once Excel has recalculated,
 Checks will say whether S3 sits where its meshes need it. The Results sheet was
-left out until then: Export again after Excel's save to write it.* Any other
+left out until then: Export again after Excel's save to write it.* When every
+cell the fix names holds a formula nothing reaches the file, so nothing a
+formula reads has changed and recalculating cannot help: the sentence is a
+fault, *Nothing was written: every cell the fix would change holds a formula —
+Shafts!C3 (S2 X, the fix would make it 63.75); … — and Excel recalculating
+cannot move them, since nothing they read has changed. Change the formula, or a
+cell it reads, in Excel; the fix stays chosen until then.*, the fix stays chosen
+with **Undo**, and nothing waits for Excel. Any other
 cell not written is listed, *Not written: …*, and Results are left out too. The
 cells and Results are two writes: if Results then fail, the cells stand, the
 sentence says so (*The Results sheet could not be written: … Export again to
@@ -511,9 +536,10 @@ the dot red, with **Locate…** to point the window at it again; nothing in the
 window is lost.
 
 The window's own Export is recognised (by the hash of what it wrote) and not
-listed as an outside change. Build waits for Excel only after an Export wrote
-cells into a workbook that has formulas, since those may depend on the cells
-written and hold Excel's old values until it recalculates and saves; whether it
+listed as an outside change. Build and Export wait for Excel only after an
+Export wrote cells into a workbook that has formulas, since those may depend on
+the cells written and hold Excel's old values until it recalculates and saves
+(the read between is provisional; see Checks); whether it
 is waiting is kept in the `.workbook.json`, so it survives a restart (the
 prompt to Export Results again does not). An outside save
 re-checks any fix still chosen against the new read: one no longer offered
@@ -536,8 +562,11 @@ Today Build makes **parts only**: the layout part, the assembly and Update
 SolidWorks (PLAN-WORKBOOK §4.2–§4.5) are phase W4, and this window has no
 button for them yet. Their gate exists and is tested:
 `workbook.assess.Assessment.lay_out_refusal()` refuses, with its sentence, a
-fix not yet exported, any error, a gearbox not checked, any row a later phase
-builds, and any gear not placed and planned.
+provisional read, a fix not yet exported, any error, no output folder, a
+gearbox not checked, any row a later phase builds, and any gear not placed and
+planned. What only the window knows it does not ask — the file gone or
+half-saved, a build running, the output folder missing on disk — and the read
+is provisional only if the window says so; the button asks those first.
 
 ### Where it differs from PLAN-WORKBOOK §5
 

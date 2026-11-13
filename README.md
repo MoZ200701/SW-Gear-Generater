@@ -322,9 +322,11 @@ Excel has recalculated, Checks say whether the formula put that shaft where its
 meshes need it; Results wait for that, and the window asks you to Export again.
 Close the workbook in Excel first, or use **Export as…** to write a copy, which
 never overwrites a file either. After Export has written cells into a workbook
-that has formulas, Build waits for you to open and save it in Excel, since
-formulas may depend on the cells written and hold their old values until Excel
-recalculates.
+that has formulas, Build and Export wait for you to open and save it in Excel,
+since formulas may depend on the cells written and hold their old values until
+Excel recalculates; until then Checks are marked provisional and offer no fixes.
+If every cell a fix names holds a formula, nothing is written: change the
+formula, or a cell it reads, in Excel.
 
 **Build parts** builds every gear as a part, exactly as the form builds the same
 values, each with its `.gear.json`; identical gears share one part file, and a
