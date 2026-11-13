@@ -115,7 +115,7 @@ if __name__ == "__main__":
     if not paths:                  # export_checks.py's files, as Export wrote them, before Excel saw them
         pristine = os.path.join(ROOT, "export", "pristine")
         names = ["control-etree.xlsx", "control-bad-string.xlsx", "export-shift.xlsx", "export-move.xlsx",
-                 "export-as (fixed).xlsx", "Gearbox.xlsx"]
+                 "export-as (fixed).xlsx", "Gearbox.xlsx", "export-add-column.xlsx", "export-calcpr-inserted.xlsx"]
         paths = [os.path.join(pristine, n) for n in names]
     for path in paths:
         tag = os.path.splitext(os.path.basename(path))[0].replace(" ", "_")

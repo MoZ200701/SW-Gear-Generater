@@ -1,9 +1,9 @@
 {
- "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-etree.xlsx": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-etree.xlsx",
-  "pid": 54172,
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\control-etree.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\control-etree.xlsx",
+  "pid": 61896,
   "caption": "Excel",
-  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-control-etree.png",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-control-etree.png",
   "dialogs": [
    {
     "class": "NUIDialog",
@@ -15,8 +15,8 @@
      -1532,
      805
     ],
-    "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\dialog-control-etree-0.png",
-    "at": 1794608901.4569132
+    "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\dialog-control-etree-0.png",
+    "at": 1794609970.464615
    }
   ],
   "new_error_logs": [],
@@ -24,11 +24,11 @@
   "exited": true,
   "repaired": true
  },
- "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-bad-string.xlsx": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\control-bad-string.xlsx",
-  "pid": 72484,
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\control-bad-string.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\control-bad-string.xlsx",
+  "pid": 73996,
   "caption": "Excel",
-  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-control-bad-string.png",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-control-bad-string.png",
   "dialogs": [
    {
     "class": "NUIDialog",
@@ -40,8 +40,8 @@
      -1532,
      805
     ],
-    "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\dialog-control-bad-string-0.png",
-    "at": 1794608913.9346786
+    "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\dialog-control-bad-string-0.png",
+    "at": 1794609983.1143699
    }
   ],
   "new_error_logs": [],
@@ -49,11 +49,11 @@
   "exited": true,
   "repaired": true
  },
- "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-shift.xlsx": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-shift.xlsx",
-  "pid": 71692,
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-shift.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-shift.xlsx",
+  "pid": 68356,
   "caption": "export-shift.xlsx - Excel",
-  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-export-shift.png",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-export-shift.png",
   "dialogs": [],
   "new_error_logs": [],
   "workbooks": [
@@ -68,11 +68,11 @@
   "exited": true,
   "repaired": false
  },
- "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-move.xlsx": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-move.xlsx",
-  "pid": 19096,
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-move.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-move.xlsx",
+  "pid": 50996,
   "caption": "export-move.xlsx - Excel",
-  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-export-move.png",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-export-move.png",
   "dialogs": [],
   "new_error_logs": [],
   "workbooks": [
@@ -87,11 +87,11 @@
   "exited": true,
   "repaired": false
  },
- "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-as (fixed).xlsx": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\export-as (fixed).xlsx",
-  "pid": 75716,
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-as (fixed).xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-as (fixed).xlsx",
+  "pid": 49872,
   "caption": "export-as (fixed).xlsx - Excel",
-  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-export-as_(fixed).png",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-export-as_(fixed).png",
   "dialogs": [],
   "new_error_logs": [],
   "workbooks": [
@@ -106,11 +106,11 @@
   "exited": true,
   "repaired": false
  },
- "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\Gearbox.xlsx": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\pristine\\Gearbox.xlsx",
-  "pid": 17848,
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\Gearbox.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\Gearbox.xlsx",
+  "pid": 65712,
   "caption": "Gearbox.xlsx - Excel",
-  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\shots\\user-open-Gearbox.png",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-Gearbox.png",
   "dialogs": [],
   "new_error_logs": [],
   "workbooks": [
@@ -118,6 +118,44 @@
   ],
   "window_captions": [
    "Gearbox.xlsx"
+  ],
+  "dirty_after_open": [
+   false
+  ],
+  "exited": true,
+  "repaired": false
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-add-column.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-add-column.xlsx",
+  "pid": 50324,
+  "caption": "export-add-column.xlsx - Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-export-add-column.png",
+  "dialogs": [],
+  "new_error_logs": [],
+  "workbooks": [
+   "export-add-column.xlsx"
+  ],
+  "window_captions": [
+   "export-add-column.xlsx"
+  ],
+  "dirty_after_open": [
+   false
+  ],
+  "exited": true,
+  "repaired": false
+ },
+ "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-calcpr-inserted.xlsx": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\pristine\\export-calcpr-inserted.xlsx",
+  "pid": 27288,
+  "caption": "export-calcpr-inserted.xlsx - Excel",
+  "shot": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\shots\\user-open-export-calcpr-inserted.png",
+  "dialogs": [],
+  "new_error_logs": [],
+  "workbooks": [
+   "export-calcpr-inserted.xlsx"
+  ],
+  "window_captions": [
+   "export-calcpr-inserted.xlsx"
   ],
   "dirty_after_open": [
    false

@@ -1,16 +1,24 @@
 r"""Check 1, part one (drives real Excel through COM): Export's files, and what Excel makes of them.
 
-From the committed Windows fixture: S2 typed at 64 in Excel and saved; then the window's Export code path
-(export.export with the report of the read with the fix made, and the read's digest) writes the
-profile-shift fix and the move fix into copies, Export as… writes a new file, and New workbook…'s
-write_new writes a template. Controls: the move export with fullCalcOnLoad stripped, and two files broken
-on purpose (a sheet re-serialised by xml.etree; a shared-string index out of range). Pristine copies go
-to <scratch>\export\pristine for user_open.py.
+From the committed Windows fixture: S2 typed at 64 in Excel and saved; then the window's Export code
+path (export.export with the report of the read with the fix made, and the read's digest) writes:
+
+- the profile-shift fix and the move fix, each into its own copy;
+- Export as…, a new file; and New workbook…'s write_new, a template;
+- Export adding a column the sheet lacks: Excel deletes the Profile shift column and saves, then the
+  shift fix is exported;
+- Export inserting a calcPr where xl/workbook.xml has none: cut out of Excel's own file by a text edit
+  (Excel always writes one), then the move fix is exported; C4 =C3+68 depends on the cell it writes.
+
+Controls: the move export with fullCalcOnLoad stripped; the inserted-calcPr export with that calcPr taken
+out again, and with it replaced by one naming this Excel's calc engine (calcId) but no fullCalcOnLoad; and two files broken on purpose (a sheet re-serialised by xml.etree; a shared-string index out
+of range). Pristine copies go to <scratch>\export\pristine for user_open.py.
 
 Each file is then opened by COM and inspected: C4's formula and recalculated value, the percentage cell,
-Gears!O, the Results sheet, the template's validation lists; three are saved by Excel and read back by the
-app. Note: a COM open does NOT show Excel's repair prompt — Workbooks.Open fails at once (0x800A03EC) on
-the broken controls — so the repair check proper is user_open.py. Writes <scratch>\export_checks.json.
+the Profile shift column, the Results sheet, the template's validation lists; the exports are saved by
+Excel and read back by the app. Note: a COM open does NOT show Excel's repair prompt — Workbooks.Open
+fails at once (0x800A03EC) on the broken controls — so the repair check proper is user_open.py. Writes
+<scratch>\export_checks.json.
 """
 
 import hashlib
@@ -59,6 +67,20 @@ def cell_xml(path, sheet_part, ref):
     return m.group(0) if m else None
 
 
+def rewrite(path, name, change):
+    """One part of a zip changed by ``change(bytes)``; every other entry copied as it was."""
+    with zipfile.ZipFile(path) as z:
+        items = [(i, z.read(i.filename)) for i in z.infolist()]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for info, data in items:
+            z.writestr(info, change(data) if info.filename == name else data)
+
+
+def row1(path, sheet):
+    cells = xlsx.read(path).sheet(sheet).cells
+    return {c.ref: c.text for (r, _), c in sorted(cells.items()) if r == 1}
+
+
 def errors(report_or_diags):
     return [d.message for d in report_or_diags if d.is_error]
 
@@ -102,6 +124,56 @@ try:
     # (c) New workbook…: the template.
     xlsx.write_new(p("Gearbox.xlsx"), model.to_sheets(model.template("Gearbox")))
 
+    # (d) Export adds a column: Excel deletes the Profile shift column and saves, so the sheet XML is Excel's
+    # own; S2 typed at 64; the profile-shift fix then needs a column the sheet does not have.
+    noshift = p("no-shift-column.xlsx")
+    shutil.copy(FIXTURE, noshift)
+    wb, rep = xl.open(noshift, "no-shift-setup")
+    gears_ws = wb.Worksheets("Gears")
+    shift_col = next(c for c in range(1, 40) if gears_ws.Cells(1, c).Text.startswith("Profile shift"))
+    gears_ws.Columns(shift_col).Delete()
+    wb.Worksheets("Shafts").Range("C3").Value = 64
+    wb.Save()
+    wb.Close(SaveChanges=False)
+    del wb, gears_ws
+    spec_ns, diags_ns, report_ns = app_read(noshift)
+    shift_ns = report_ns.fixes["Meshes!A2"][1]
+    results["no-shift-column setup"] = {"deleted column": shift_col, "Gears row 1": row1(noshift, "Gears"),
+                                        "diagnostics": [d.message for d in diags_ns],
+                                        "errors": errors(report_ns.diagnostics), "fix": shift_ns.title}
+    shutil.copy(noshift, p("export-add-column.xlsx"))
+    done = window_export(p("export-add-column.xlsx"), shift_ns)
+    results["export add column"] = dict(done.__dict__, gears_row_1_after=row1(p("export-add-column.xlsx"), "Gears"))
+
+    # (e) Export inserts a calcPr. Excel always writes one (and LibreOffice's fixture has one too), so the
+    # absent case is made by a text edit: Excel's own S2-64 file with its <calcPr .../> cut out of
+    # xl/workbook.xml, nothing else changed. The move fix then writes Shafts!C3, which C4 (=C3+68) uses.
+    nocalc = p("no-calcpr.xlsx")
+    shutil.copy(s2, nocalc)
+    rewrite(nocalc, "xl/workbook.xml", lambda d: re.sub(rb"<calcPr\b[^>]*/>", b"", d, count=1))
+    spec_nc, diags_nc, report_nc = app_read(nocalc)
+    move_nc = report_nc.fixes["Meshes!A2"][0]
+    results["no-calcpr setup"] = {"calcPr before": re.findall(r"<calcPr[^>]*>", part(nocalc, "xl/workbook.xml")),
+                                  "fix": move_nc.title}
+    shutil.copy(nocalc, p("export-calcpr-inserted.xlsx"))
+    done = window_export(p("export-calcpr-inserted.xlsx"), move_nc)
+    wbxml = part(p("export-calcpr-inserted.xlsx"), "xl/workbook.xml")
+    at = wbxml.find("<calcPr")
+    results["export calcPr inserted"] = dict(done.__dict__, calcPr=re.findall(r"<calcPr[^>]*>", wbxml),
+                                             around=wbxml[max(0, at - 60):at + 90] if at >= 0 else "")
+    # Its control: the same file with the inserted element taken out again, so nothing asks for a recalculation.
+    shutil.copy(p("export-calcpr-inserted.xlsx"), p("control-calcpr-removed.xlsx"))
+    rewrite(p("control-calcpr-removed.xlsx"), "xl/workbook.xml",
+            lambda d: d.replace(b'<calcPr fullCalcOnLoad="1"/>', b""))
+    # And with a calcPr that names this Excel's calc engine but asks for no recalculation.
+    shutil.copy(p("export-calcpr-inserted.xlsx"), p("control-calcpr-calcid-only.xlsx"))
+    rewrite(p("control-calcpr-calcid-only.xlsx"), "xl/workbook.xml",
+            lambda d: d.replace(b'<calcPr fullCalcOnLoad="1"/>', b'<calcPr calcId="191029"/>'))
+    gx = part(p("export-add-column.xlsx"), "xl/worksheets/sheet3.xml")
+    results["export add column"]["row 1 cells V1, W1 and W2 as written"] = [
+        cell_xml(p("export-add-column.xlsx"), "xl/worksheets/sheet3.xml", r) for r in ("V1", "W1", "W2")]
+    results["export add column"]["dimension"] = re.findall(r"<dimension[^>]*>", gx)
+
     # The formula cell left alone, byte for byte, in each written file.
     c4_before = cell_xml(s2, "xl/worksheets/sheet2.xml", "C4")
     for name in ("export-shift.xlsx", "export-move.xlsx", "export-as (fixed).xlsx"):
@@ -111,12 +183,6 @@ try:
 
     # Controls.
     shutil.copy(p("export-move.xlsx"), p("control-no-fullcalc.xlsx"))
-    def rewrite(path, name, change):
-        with zipfile.ZipFile(path) as z:
-            items = [(i, z.read(i.filename)) for i in z.infolist()]
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-            for info, data in items:
-                z.writestr(info, change(data) if info.filename == name else data)
     rewrite(p("control-no-fullcalc.xlsx"), "xl/workbook.xml", lambda d: d.replace(b' fullCalcOnLoad="1"', b""))
     shutil.copy(p("export-shift.xlsx"), p("control-etree.xlsx"))
     rewrite(p("control-etree.xlsx"), "xl/worksheets/sheet2.xml",
@@ -133,8 +199,12 @@ try:
 
     # -- open each in Excel.
     opened = {}
+    readback = ("export-shift.xlsx", "export-move.xlsx", "Gearbox.xlsx", "export-add-column.xlsx",
+                "export-calcpr-inserted.xlsx")
     for name in ("control-etree.xlsx", "control-bad-string.xlsx", "export-shift.xlsx", "export-move.xlsx",
-                 "export-as (fixed).xlsx", "Gearbox.xlsx", "control-no-fullcalc.xlsx"):
+                 "export-as (fixed).xlsx", "Gearbox.xlsx", "control-no-fullcalc.xlsx", "export-add-column.xlsx",
+                 "export-calcpr-inserted.xlsx", "control-calcpr-removed.xlsx",
+                 "control-calcpr-calcid-only.xlsx"):
         wb, rep = xl.open(p(name), name.split(".")[0].replace(" ", "_"))
         opened[name] = rep
         if wb is None:
@@ -144,16 +214,21 @@ try:
             sh, me = wb.Worksheets("Shafts"), wb.Worksheets("Meshes")
             seen["Shafts C3"] = sh.Range("C3").Value
             seen["Shafts C4 formula/value"] = [sh.Range("C4").Formula, sh.Range("C4").Value]
-            seen["Gears W3 formula/value"] = [wb.Worksheets("Gears").Range("W3").Formula,
-                                              wb.Worksheets("Gears").Range("W3").Value]
+            gears = wb.Worksheets("Gears")
+            heads = {gears.Cells(1, c).Text: c for c in range(1, 40) if gears.Cells(1, c).Text}
+            seen["Gears row 1"] = list(heads)
+            dt = heads.get("Double teeth")
+            seen["Double teeth row 3 formula/value"] = [gears.Cells(3, dt).Formula, gears.Cells(3, dt).Value] \
+                if dt else None
+            ps = next((c for h, c in heads.items() if h.startswith("Profile shift")), None)
+            seen["Profile shift column"] = [xlsx.column_letters(ps)] + [gears.Cells(r, ps).Text for r in (1, 2, 3)] \
+                if ps else None
             seen["Meshes C2 value/text/format"] = [me.Range("C2").Value, me.Range("C2").Text,
                                                    me.Range("C2").NumberFormat]
-            gears = wb.Worksheets("Gears")
-            seen["Gears O1..O3"] = [gears.Range(r).Value for r in ("O1", "O2", "O3")]
             seen["sheets"] = [s.Name for s in wb.Worksheets]
             if "Results" in seen["sheets"]:
                 rs = wb.Worksheets("Results")
-                seen["Results"] = [[rs.Cells(r, c).Text for c in range(1, 7)] for r in range(1, 12)]
+                seen["Results"] = [[rs.Cells(r, c).Text for c in range(1, 7)] for r in range(1, 30)]
         else:
             seen["sheets"] = [s.Name for s in wb.Worksheets]
             lists = {}
@@ -180,11 +255,11 @@ try:
             seen["Kind 'spur' valid / 'worm' valid"] = [ok_valid, bad_valid]
             seen["frozen"] = None
         results[f"in Excel: {name}"] = seen
-        if name in ("export-shift.xlsx", "export-move.xlsx", "Gearbox.xlsx"):
+        if name in readback:
             wb.Save()                                  # Excel's own save, then the app reads it back
         wb.Close(SaveChanges=False)
         del wb
-        if name in ("export-shift.xlsx", "export-move.xlsx", "Gearbox.xlsx"):
+        if name in readback:
             spec2, diags2, report2 = app_read(p(name))
             results[f"app reads Excel's save of {name}"] = {
                 "diagnostics": [d.message for d in diags2], "errors": errors(report2.diagnostics),

@@ -49,19 +49,21 @@
   }
  },
  "export shift": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-shift.xlsx",
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-shift.xlsx",
   "written": [
    "Gears!O2",
    "Gears!O3"
   ],
   "refused": [],
   "added_headers": [],
-  "digest": "aea407aed4b28a945457db26609e9e60e0b842bc184f3e6c6943baecf0d19be4",
+  "digest": "3b7cd9d08d3ab649198cda1522cba7239756f3de681e7db308ae9ead40effef7",
   "has_formulas": true,
-  "results": true
+  "results": true,
+  "results_error": "",
+  "formulas": []
  },
  "export move": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-move.xlsx",
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-move.xlsx",
   "written": [
    "Shafts!C3"
   ],
@@ -72,22 +74,148 @@
    ]
   ],
   "added_headers": [],
-  "digest": "e73013a3110c454aef5eea7604b81214f71ac15d5a36ad812a0807038c9ed881",
+  "digest": "5b14666850fd14a81432ce0494c5d3a285e25f44f70f559104c9235c70f087f9",
   "has_formulas": true,
-  "results": false
+  "results": false,
+  "results_error": "",
+  "formulas": [
+   [
+    "Shafts!C4",
+    "S3",
+    "X",
+    "131.75"
+   ]
+  ]
  },
  "export as": {
-  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-as (fixed).xlsx",
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-as (fixed).xlsx",
   "written": [
    "Gears!O2",
    "Gears!O3"
   ],
   "refused": [],
   "added_headers": [],
-  "digest": "aea407aed4b28a945457db26609e9e60e0b842bc184f3e6c6943baecf0d19be4",
+  "digest": "3b7cd9d08d3ab649198cda1522cba7239756f3de681e7db308ae9ead40effef7",
   "has_formulas": true,
   "results": true,
+  "results_error": "",
+  "formulas": [],
   "source_untouched": true
+ },
+ "no-shift-column setup": {
+  "deleted column": 15,
+  "Gears row 1": {
+   "A1": "Gear",
+   "B1": "Shaft",
+   "C1": "At (mm)",
+   "D1": "Kind",
+   "E1": "Side",
+   "F1": "Teeth",
+   "G1": "Module (mm)",
+   "H1": "Pressure angle (°)",
+   "I1": "Face width (mm)",
+   "J1": "Bore (mm)",
+   "K1": "Flank",
+   "L1": "Helix angle (°)",
+   "M1": "Hand",
+   "N1": "Groove (mm)",
+   "O1": "Backlash (mm)",
+   "P1": "Fillet (mm)",
+   "Q1": "Rim (mm)",
+   "R1": "Slides",
+   "S1": "Part name",
+   "T1": "Notes",
+   "U1": "Cost",
+   "V1": "Double teeth"
+  },
+  "diagnostics": [],
+  "errors": [
+   "Meshes!A2: G1 and G2 are 64 apart; their teeth make 63.75 (+0.25 mm). Check the X and Y of S1 and S2 (Shafts rows 2 and 3); a shaft at an angle is best placed by formula."
+  ],
+  "fix": "Keep your positions: profile-shift G1 and G2"
+ },
+ "export add column": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-add-column.xlsx",
+  "written": [
+   "Gears!W1",
+   "Gears!W2",
+   "Gears!W3"
+  ],
+  "refused": [],
+  "added_headers": [
+   "Gears!W1 Profile shift (× m)"
+  ],
+  "digest": "09f7fa17e366568d4cb73d79c901058dc669cb1ba18c13fc197f19f3f28a283c",
+  "has_formulas": true,
+  "results": true,
+  "results_error": "",
+  "formulas": [],
+  "gears_row_1_after": {
+   "A1": "Gear",
+   "B1": "Shaft",
+   "C1": "At (mm)",
+   "D1": "Kind",
+   "E1": "Side",
+   "F1": "Teeth",
+   "G1": "Module (mm)",
+   "H1": "Pressure angle (°)",
+   "I1": "Face width (mm)",
+   "J1": "Bore (mm)",
+   "K1": "Flank",
+   "L1": "Helix angle (°)",
+   "M1": "Hand",
+   "N1": "Groove (mm)",
+   "O1": "Backlash (mm)",
+   "P1": "Fillet (mm)",
+   "Q1": "Rim (mm)",
+   "R1": "Slides",
+   "S1": "Part name",
+   "T1": "Notes",
+   "U1": "Cost",
+   "V1": "Double teeth",
+   "W1": "Profile shift (× m)"
+  },
+  "row 1 cells V1, W1 and W2 as written": [
+   "<c r=\"V1\" t=\"s\"><v>76</v></c>",
+   "<c r=\"W1\" t=\"inlineStr\"><is><t>Profile shift (× m)</t></is></c>",
+   "<c r=\"W2\"><v>0.08455</v></c>"
+  ],
+  "dimension": [
+   "<dimension ref=\"A1:W5\"/>"
+  ]
+ },
+ "no-calcpr setup": {
+  "calcPr before": [],
+  "fix": "Move S2 and S3 beyond it by -0.25 mm"
+ },
+ "export calcPr inserted": {
+  "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-calcpr-inserted.xlsx",
+  "written": [
+   "Shafts!C3"
+  ],
+  "refused": [
+   [
+    "Shafts!C4",
+    "it holds a formula"
+   ]
+  ],
+  "added_headers": [],
+  "digest": "969c139e59cccac4903588001cd1355a300df27127183d410acf86e1ed5e8b8f",
+  "has_formulas": true,
+  "results": false,
+  "results_error": "",
+  "formulas": [
+   [
+    "Shafts!C4",
+    "S3",
+    "X",
+    "131.75"
+   ]
+  ],
+  "calcPr": [
+   "<calcPr fullCalcOnLoad=\"1\"/>"
+  ],
+  "around": "Id4\"/><sheet name=\"Modes\" sheetId=\"5\" r:id=\"rId5\"/></sheets><calcPr fullCalcOnLoad=\"1\"/><extLst><ext uri=\"{B58B0392-4F1F-4190-BB64-5DF3571DCE5F}\" xmln"
  },
  "C4 xml in export-shift.xlsx": [
   "<c r=\"C4\"><f>C3+68</f><v>132</v></c>",
@@ -116,19 +244,45 @@
    "=C3+68",
    132.0
   ],
-  "Gears W3 formula/value": [
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
    "=F3*2",
    136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "0.08455",
+   "0.08455"
   ],
   "Meshes C2 value/text/format": [
    0.98,
    "98%",
    "0%"
-  ],
-  "Gears O1..O3": [
-   "Profile shift (× m)",
-   0.08455,
-   0.08455
   ],
   "sheets": [
    "Box",
@@ -140,7 +294,7 @@
   ],
   "Results": [
    [
-    "Written by Gear Generator, 2026-11-13 17:28, from this workbook. Edits here are ignored and replaced on the next Export.",
+    "Written by Gear Generator, 2026-11-13 17:45, from this workbook. Edits here are ignored and replaced on the next Export.",
     "",
     "",
     "",
@@ -226,6 +380,150 @@
     "",
     "",
     ""
+   ],
+   [
+    "Worked out as",
+    "Parallel train · 2 meshes · 12.000 : 1 · output turns the same way",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Overall ratio (input speed ÷ output speed)",
+    "12",
+    "S1 to S3",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Box size, over the gears' outside diameters (X, Y) and faces (Z)",
+    "Size (mm)",
+    "From (mm)",
+    "To (mm)",
+    "",
+    ""
+   ],
+   [
+    "X",
+    "199.3768",
+    "-14.3768",
+    "185",
+    "",
+    ""
+   ],
+   [
+    "Y",
+    "106",
+    "-53",
+    "53",
+    "",
+    ""
+   ],
+   [
+    "Z",
+    "37",
+    "0",
+    "37",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
    ]
   ]
  },
@@ -254,19 +552,45 @@
    "=C3+68",
    131.75
   ],
-  "Gears W3 formula/value": [
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
    "=F3*2",
    136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "",
+   ""
   ],
   "Meshes C2 value/text/format": [
    0.98,
    "98%",
    "0%"
-  ],
-  "Gears O1..O3": [
-   "Profile shift (× m)",
-   null,
-   null
   ],
   "sheets": [
    "Box",
@@ -301,19 +625,45 @@
    "=C3+68",
    132.0
   ],
-  "Gears W3 formula/value": [
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
    "=F3*2",
    136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "0.08455",
+   "0.08455"
   ],
   "Meshes C2 value/text/format": [
    0.98,
    "98%",
    "0%"
-  ],
-  "Gears O1..O3": [
-   "Profile shift (× m)",
-   0.08455,
-   0.08455
   ],
   "sheets": [
    "Box",
@@ -325,7 +675,7 @@
   ],
   "Results": [
    [
-    "Written by Gear Generator, 2026-11-13 17:28, from this workbook. Edits here are ignored and replaced on the next Export.",
+    "Written by Gear Generator, 2026-11-13 17:45, from this workbook. Edits here are ignored and replaced on the next Export.",
     "",
     "",
     "",
@@ -407,6 +757,150 @@
    [
     "Overall",
     "Value",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Worked out as",
+    "Parallel train · 2 meshes · 12.000 : 1 · output turns the same way",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Overall ratio (input speed ÷ output speed)",
+    "12",
+    "S1 to S3",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Box size, over the gears' outside diameters (X, Y) and faces (Z)",
+    "Size (mm)",
+    "From (mm)",
+    "To (mm)",
+    "",
+    ""
+   ],
+   [
+    "X",
+    "199.3768",
+    "-14.3768",
+    "185",
+    "",
+    ""
+   ],
+   [
+    "Y",
+    "106",
+    "-53",
+    "53",
+    "",
+    ""
+   ],
+   [
+    "Z",
+    "37",
+    "0",
+    "37",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
     "",
     "",
     "",
@@ -482,19 +976,534 @@
    "=C3+68",
    132.0
   ],
-  "Gears W3 formula/value": [
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
    "=F3*2",
    136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "",
+   ""
   ],
   "Meshes C2 value/text/format": [
    0.98,
    "98%",
    "0%"
   ],
-  "Gears O1..O3": [
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes"
+  ]
+ },
+ "in Excel: export-add-column.xlsx": {
+  "Shafts C3": 64.0,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   132.0
+  ],
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth",
+   "Profile shift (× m)"
+  ],
+  "Double teeth row 3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Profile shift column": [
+   "W",
    "Profile shift (× m)",
-   null,
-   null
+   "0.08455",
+   "0.08455"
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes",
+   "Results"
+  ],
+  "Results": [
+   [
+    "Written by Gear Generator, 2026-11-13 17:45, from this workbook. Edits here are ignored and replaced on the next Export.",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Shaft",
+    "Speed (rpm)",
+    "Turns, seen from +Z",
+    "Torque (N·m)",
+    "",
+    ""
+   ],
+   [
+    "S1",
+    "1500",
+    "anticlockwise",
+    "10",
+    "",
+    ""
+   ],
+   [
+    "S2",
+    "-375",
+    "clockwise",
+    "39.2",
+    "",
+    ""
+   ],
+   [
+    "S3",
+    "125",
+    "anticlockwise",
+    "115.248",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Mesh",
+    "Ratio",
+    "Centres needed (mm)",
+    "Centres placed (mm)",
+    "Off by (mm)",
+    "Contact ratio"
+   ],
+   [
+    "G1–G2",
+    "4",
+    "64",
+    "64",
+    "0",
+    "1.6185"
+   ],
+   [
+    "G3–G4",
+    "3",
+    "68",
+    "68",
+    "0",
+    "1.6364"
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Overall",
+    "Value",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Worked out as",
+    "Parallel train · 2 meshes · 12.000 : 1 · output turns the same way",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Overall ratio (input speed ÷ output speed)",
+    "12",
+    "S1 to S3",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "Box size, over the gears' outside diameters (X, Y) and faces (Z)",
+    "Size (mm)",
+    "From (mm)",
+    "To (mm)",
+    "",
+    ""
+   ],
+   [
+    "X",
+    "199.3768",
+    "-14.3768",
+    "185",
+    "",
+    ""
+   ],
+   [
+    "Y",
+    "106",
+    "-53",
+    "53",
+    "",
+    ""
+   ],
+   [
+    "Z",
+    "37",
+    "0",
+    "37",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ]
+  ]
+ },
+ "app reads Excel's save of export-add-column.xlsx": {
+  "diagnostics": [],
+  "errors": [],
+  "warnings": [],
+  "S2 x": "64",
+  "S3 x": "132",
+  "shifts": [
+   "0.08455",
+   "0.08455",
+   "",
+   ""
+  ],
+  "C4 xml": "<c r=\"C4\"><f>C3+68</f><v>132</v></c>",
+  "speeds": {
+   "S1": "1500",
+   "S2": "-375",
+   "S3": "125"
+  }
+ },
+ "in Excel: export-calcpr-inserted.xlsx": {
+  "Shafts C3": 63.75,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   131.75
+  ],
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "",
+   ""
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes"
+  ]
+ },
+ "app reads Excel's save of export-calcpr-inserted.xlsx": {
+  "diagnostics": [],
+  "errors": [],
+  "warnings": [],
+  "S2 x": "63.75",
+  "S3 x": "131.75",
+  "shifts": [
+   "",
+   "",
+   "",
+   ""
+  ],
+  "C4 xml": "<c r=\"C4\"><f>C3+68</f><v>131.75</v></c>",
+  "speeds": {
+   "S1": "1500",
+   "S2": "-375",
+   "S3": "125"
+  }
+ },
+ "in Excel: control-calcpr-removed.xlsx": {
+  "Shafts C3": 63.75,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   131.75
+  ],
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "",
+   ""
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
+  ],
+  "sheets": [
+   "Box",
+   "Shafts",
+   "Gears",
+   "Meshes",
+   "Modes"
+  ]
+ },
+ "in Excel: control-calcpr-calcid-only.xlsx": {
+  "Shafts C3": 63.75,
+  "Shafts C4 formula/value": [
+   "=C3+68",
+   132.0
+  ],
+  "Gears row 1": [
+   "Gear",
+   "Shaft",
+   "At (mm)",
+   "Kind",
+   "Side",
+   "Teeth",
+   "Module (mm)",
+   "Pressure angle (°)",
+   "Face width (mm)",
+   "Bore (mm)",
+   "Flank",
+   "Helix angle (°)",
+   "Hand",
+   "Groove (mm)",
+   "Profile shift (× m)",
+   "Backlash (mm)",
+   "Fillet (mm)",
+   "Rim (mm)",
+   "Slides",
+   "Part name",
+   "Notes",
+   "Cost",
+   "Double teeth"
+  ],
+  "Double teeth row 3 formula/value": [
+   "=F3*2",
+   136.0
+  ],
+  "Profile shift column": [
+   "O",
+   "Profile shift (× m)",
+   "",
+   ""
+  ],
+  "Meshes C2 value/text/format": [
+   0.98,
+   "98%",
+   "0%"
   ],
   "sheets": [
    "Box",
@@ -506,18 +1515,18 @@
  },
  "opened": {
   "control-etree.xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\control-etree.xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\control-etree.xlsx",
    "tag": "control-etree",
    "opened": false,
    "error": "(-2147352567, 'Exception occurred.', (0, 'Microsoft Excel', 'Open method of Workbooks class failed', 'xlmain11.chm', 0, -2146827284), None)",
-   "seconds": 0.08,
+   "seconds": 0.17,
    "dialogs": [],
    "new_error_logs": [],
    "error_log_text": {},
    "repaired": false
   },
   "control-bad-string.xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\control-bad-string.xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\control-bad-string.xlsx",
    "tag": "control-bad-string",
    "opened": false,
    "error": "(-2147352567, 'Exception occurred.', (0, 'Microsoft Excel', 'Open method of Workbooks class failed', 'xlmain11.chm', 0, -2146827284), None)",
@@ -528,10 +1537,10 @@
    "repaired": false
   },
   "export-shift.xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-shift.xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-shift.xlsx",
    "tag": "export-shift",
    "opened": true,
-   "seconds": 0.26,
+   "seconds": 0.17,
    "dialogs": [],
    "new_error_logs": [],
    "error_log_text": {},
@@ -541,10 +1550,10 @@
    "repaired": false
   },
   "export-move.xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-move.xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-move.xlsx",
    "tag": "export-move",
    "opened": true,
-   "seconds": 0.19,
+   "seconds": 0.12,
    "dialogs": [],
    "new_error_logs": [],
    "error_log_text": {},
@@ -554,10 +1563,10 @@
    "repaired": false
   },
   "export-as (fixed).xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\export-as (fixed).xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-as (fixed).xlsx",
    "tag": "export-as_(fixed)",
    "opened": true,
-   "seconds": 0.16,
+   "seconds": 0.21,
    "dialogs": [],
    "new_error_logs": [],
    "error_log_text": {},
@@ -567,10 +1576,10 @@
    "repaired": false
   },
   "Gearbox.xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\Gearbox.xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\Gearbox.xlsx",
    "tag": "Gearbox",
    "opened": true,
-   "seconds": 0.15,
+   "seconds": 0.31,
    "dialogs": [],
    "new_error_logs": [],
    "error_log_text": {},
@@ -580,16 +1589,68 @@
    "repaired": false
   },
   "control-no-fullcalc.xlsx": {
-   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun2\\export\\control-no-fullcalc.xlsx",
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\control-no-fullcalc.xlsx",
    "tag": "control-no-fullcalc",
    "opened": true,
-   "seconds": 0.13,
+   "seconds": 0.17,
    "dialogs": [],
    "new_error_logs": [],
    "error_log_text": {},
    "caption": "control-no-fullcalc.xlsx - Excel",
    "window_caption": "control-no-fullcalc.xlsx",
    "name": "control-no-fullcalc.xlsx",
+   "repaired": false
+  },
+  "export-add-column.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-add-column.xlsx",
+   "tag": "export-add-column",
+   "opened": true,
+   "seconds": 0.13,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "export-add-column.xlsx - Excel",
+   "window_caption": "export-add-column.xlsx",
+   "name": "export-add-column.xlsx",
+   "repaired": false
+  },
+  "export-calcpr-inserted.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\export-calcpr-inserted.xlsx",
+   "tag": "export-calcpr-inserted",
+   "opened": true,
+   "seconds": 0.15,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "export-calcpr-inserted.xlsx - Excel",
+   "window_caption": "export-calcpr-inserted.xlsx",
+   "name": "export-calcpr-inserted.xlsx",
+   "repaired": false
+  },
+  "control-calcpr-removed.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\control-calcpr-removed.xlsx",
+   "tag": "control-calcpr-removed",
+   "opened": true,
+   "seconds": 0.25,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "control-calcpr-removed.xlsx - Excel",
+   "window_caption": "control-calcpr-removed.xlsx",
+   "name": "control-calcpr-removed.xlsx",
+   "repaired": false
+  },
+  "control-calcpr-calcid-only.xlsx": {
+   "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\excel-20261113-rerun3\\export\\control-calcpr-calcid-only.xlsx",
+   "tag": "control-calcpr-calcid-only",
+   "opened": true,
+   "seconds": 0.17,
+   "dialogs": [],
+   "new_error_logs": [],
+   "error_log_text": {},
+   "caption": "control-calcpr-calcid-only.xlsx - Excel",
+   "window_caption": "control-calcpr-calcid-only.xlsx",
+   "name": "control-calcpr-calcid-only.xlsx",
    "repaired": false
   }
  }

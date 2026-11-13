@@ -1,12 +1,12 @@
-{"kind": "first", "ok": true, "error": "", "t": 1794608990.48366}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14194, 1794608993262010700], "t": 1794608993.4885166}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14192, 1794608996302416100], "t": 1794608996.492865}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14194, 1794609000048172200], "t": 1794609000.4971006}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794609003541943900], "t": 1794609004.500846}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794609007203694200], "t": 1794609007.505036}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14192, 1794609010441464800], "t": 1794609010.5080197}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794609014353261200], "t": 1794609014.512623}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794609017448500800], "t": 1794609017.516814}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14191, 1794609021060362600], "t": 1794609021.5211697}
-{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14192, 1794609024491523100], "t": 1794609024.5250957}
-{"kind": "end", "t": 1794609041.5341601}
+{"kind": "first", "ok": true, "error": "", "t": 1794610084.0403001}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794610086851750700], "t": 1794610087.0440774}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794610089968141200], "t": 1794610090.0469801}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14193, 1794610093869452200], "t": 1794610094.0510786}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14193, 1794610097107722900], "t": 1794610098.0584826}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14192, 1794610100399440300], "t": 1794610101.0622323}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14194, 1794610104070437200], "t": 1794610105.0664186}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14194, 1794610107450541200], "t": 1794610108.070206}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14192, 1794610111064217400], "t": 1794610111.0737538}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 64 → 63.75", "Shafts!C4 S3 X 132 → 131.75"], "stamp": [14194, 1794610114426678300], "t": 1794610115.0782957}
+{"kind": "reading", "ok": true, "error": "", "changes": ["Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132"], "stamp": [14195, 1794610117876413700], "t": 1794610118.0817733}
+{"kind": "end", "t": 1794610135.0906081}
