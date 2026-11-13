@@ -160,12 +160,19 @@ def test_the_undercut_limit_is_the_helical_one():
     assert HELICAL.derive(spec(teeth="15")).undercut
 
 
-def test_face_rotations_turn_the_far_face_for_a_right_hand_gear_and_both_faces_for_a_herringbone():
+def test_face_rotations_count_from_the_profile_plane_for_a_helical_gear_and_the_apex_for_a_herringbone():
+    """A helical section is drawn one module (the overrun) behind the Front plane, so the Front-plane face is
+    already turned that module's worth of helix, and the far face the face width more."""
+    per_mm = 360 / 485.527277
     g = HELICAL.derive(spec())
-    assert g.face_rotations() == pytest.approx((0.0, 14.829239), abs=1e-6)
-    assert HELICAL.derive(spec(hand="left")).face_rotations()[1] == pytest.approx(-14.829239, abs=1e-6)
+    assert g.section_z == -2.0
+    assert g.face_rotations() == pytest.approx((2 * per_mm, 2 * per_mm + 14.829239), abs=1e-6)
+    assert HELICAL.derive(spec(hand="left")).face_rotations() == pytest.approx(
+        (-2 * per_mm, -2 * per_mm - 14.829239), abs=1e-6)
     h = HERRINGBONE.derive(spec(kind="herringbone", helix_angle="15"))
+    assert h.section_z == 10.0
     assert h.face_rotations() == pytest.approx((-14.829239 / 2, -14.829239 / 2), abs=1e-6)
+    assert h.turn_at(10.0) == 0.0 and h.turn_at(4.0) == pytest.approx(h.turn_at(16.0), abs=1e-12)
 
 
 def test_stems_carry_the_helix():

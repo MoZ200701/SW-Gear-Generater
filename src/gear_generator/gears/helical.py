@@ -26,8 +26,11 @@ the sweep, patterned and mirrored: nothing the plain herringbone does not.
 Sign convention: +Z is the way the blank extrudes from the Front plane
 (``findings.EXTRUDE_Z_SIGN``). A **right-hand** gear's section turns
 counter-clockwise about +Z as z increases, by ``360·z / L`` degrees for a lead
-``L = π·d / tan β``. A herringbone's hand names its half nearest the Front
-plane. SolidWorks' Front view looks from +Z, so the face it shows is the far one.
+``L = π·d / tan β``, counted from where the section is drawn — one overrun
+behind the Front plane, or a herringbone's apex (:meth:`HelicalDerived.turn_at`)
+— so a helical gear's Front-plane face is already turned ``360·overrun / L``.
+A herringbone's hand names its half nearest the Front plane. SolidWorks' Front
+view looks from +Z, so the face it shows is the far one.
 """
 
 from __future__ import annotations
@@ -196,17 +199,36 @@ class HelicalDerived:
     def undercut(self) -> bool:
         return self.section.teeth < self.undercut_limit - 1e-9
 
+    @property
+    def section_z(self) -> float:
+        """Where along the axis the tooth space is drawn, in mm from the Front plane toward the far face.
+
+        A helical gear (or ring) draws it on the Profile Plane, one overrun —
+        a normal module — behind the Front plane, so the sweep starts off the
+        blank (:meth:`HelicalGear.plan`); a herringbone draws it at its apex,
+        the mid-face, and sweeps back from there.
+        """
+        return self.section.face_width / 2.0 if self.kind == KIND_HERRINGBONE else -self.overrun
+
+    def turn_at(self, z: float) -> float:
+        """How far the section at ``z`` mm from the Front plane is turned from the one drawn, in degrees.
+
+        ``hand · 360 · (z − section_z) / L`` about +Z; a herringbone's far half
+        is its near half mirrored at the apex, so there ``z`` folds back.
+        """
+        if self.kind == KIND_HERRINGBONE:
+            z = min(z, self.section.face_width - z)
+        return self.hand_sign * 360.0 * (z - self.section_z) / self.lead
+
     def face_rotations(self) -> Tuple[float, float]:
         """How far the Front-plane face and the far face are turned from the section drawn, in degrees.
 
-        For a helical gear the section drawn is the Front-plane face; for a
-        herringbone it is the apex, and both faces are turned the same way.
+        A helical gear's section is drawn one overrun behind the Front plane,
+        so even its Front-plane face is turned ``hand · 360 · overrun / L``,
+        and the far face that and the face's own twist more. A herringbone's
+        is drawn at the apex, and both faces are turned back the same way.
         """
-        per_mm = 360.0 / self.lead * self.hand_sign
-        width = self.section.face_width
-        if self.kind == KIND_HERRINGBONE:
-            return (-per_mm * width / 2.0, -per_mm * width / 2.0)
-        return (0.0, per_mm * width)
+        return (self.turn_at(0.0), self.turn_at(self.section.face_width))
 
     def values(self) -> Dict[str, float]:
         """The value of every global variable, by name."""

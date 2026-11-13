@@ -226,3 +226,24 @@ def test_shaft_names_keep_their_gap_at_any_screen_scale():
     (_, x, y, anchor), = [label for label in view.labels if label[0] == "B"]
     (_, sx, sy), = [shaft for shaft in view.shafts if shaft[0] == "B"]
     assert (x - sx, y - sy, anchor) == (2 * preview.LABEL_GAP, 2 * preview.LABEL_GAP, "nw")
+
+
+@pytest.mark.parametrize("axis_q", ["Z+", "Z-"])
+def test_the_end_view_draws_a_helical_gear_as_its_part_is_built_at_the_middle_of_its_face(axis_q):
+    """Each outline is the part's own section at its face's middle, turned as the build plan sweeps it there —
+    for a helical gear counted from the Profile Plane one module behind the front face — not just a picture
+    that meshes."""
+    from gear_generator.workbook import geometry
+    from test_workbook_geometry import outside_pair, section
+
+    spec = outside_pair("helical", ("Z+", axis_q), ("right", "left"), heights=(10.0, 13.0), beta="20")
+    lay = geometry.layout(spec)
+    theta = geometry.phases(spec, lay.placed)
+    view = preview.layout_gearbox(lay.placed, theta, 800, 600)
+    shafts = {name: (x, y) for name, x, y in view.shafts}
+    for gear, _, drawn in view.outlines:
+        p = lay.placed[gear]
+        sx, sy = shafts[p.shaft]
+        back = [(p.x + (x - sx) / view.scale, p.y - (y - sy) / view.scale) for x, y in drawn]
+        built = section(p, theta[gear], p.z, p.spec)
+        assert max(math.dist(a, b) for a, b in zip(back, built)) < 1e-9, gear

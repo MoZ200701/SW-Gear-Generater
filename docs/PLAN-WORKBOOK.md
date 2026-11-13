@@ -236,6 +236,16 @@ Every item keeps its sheet row, so every diagnostic names a cell: *"Gears!F4: Te
   intersection), and do overlap when one is turned half a pitch. For an internal mesh the ring's outline is
   treated as the region outside its tooth line.
 
+  *Correction (2026-11-13):* "a tooth space centred on +X" holds only on the plane the part's section is drawn
+  on. A spur's is on +X at every height and a herringbone's at its apex, but a plain helical gear or ring draws
+  its section on the Profile Plane one overrun (a normal module) *behind* its front face, so its front face is
+  already turned `hand·360·overrun/L`. W3 counted the twist from the front face, in `geometry.Placed.twist`,
+  `helical.face_rotations` and the test's own model alike: harmless for gears facing the same way (it is a
+  common axial slide), but across Z+ and Z− every helical mesh, outside or in a ring, put teeth into teeth.
+  The twist now counts from where the section is drawn (`HelicalDerived.turn_at`), and the tests turn each
+  outline as the part's build plan sweeps it, read from the plan's own ops, not from `geometry`. The pair
+  assemblies (`pair.assembly_plan`) never used either and are unchanged.
+
 ### 3.4 `checks.py` — `check(spec) -> List[Diagnostic]`
 
 Each gear's own `kind_for(spec).validate` (so every rule the strip enforces holds). `kind_for` returns None for

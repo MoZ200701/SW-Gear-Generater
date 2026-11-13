@@ -5,19 +5,26 @@ gearboxes whose shafts are all held by the frame with axes along Z+ or Z-;
 anything else (a turned axis, a planet on a carrier) is a later phase's, and
 :func:`layout` says so rather than guessing.
 
-**Phase.** Every part is built with a tooth *space* centred on its own +X, its
-section drawn on its front face (local z = 0) and extruded along local +Z; a
-helical section turns ``s·360·z/L`` degrees about local +Z at height z (``s``
-+1 for a right hand, :data:`helical.RIGHT_HAND_TURN`; ``L`` the lead). A gear
-turned by θ about its own axis has, at global height Z, a space centred on the
-global angle
+**Phase.** Every part is built with a tooth *space* centred on its own +X on
+the plane its section is drawn on, its blank extruded from its front face
+(local z = 0) along local +Z. A spur's space is on +X at every height. A
+helical section turns ``s·360·(z − z_s)/L`` degrees about local +Z at height z
+(``s`` +1 for a right hand, :data:`helical.RIGHT_HAND_TURN`; ``L`` the lead),
+counted from where it is drawn, ``z_s``: for a helical gear or ring the Profile
+Plane, one overrun (a normal module) *behind* the front face, ``z_s = −o``, so
+even the front face is turned ``s·360·o/L``; for a herringbone the apex,
+``z_s = w/2``, its far half the near half mirrored there
+(:meth:`helical.HelicalDerived.turn_at`). A gear turned by θ about its own axis
+has, at global height Z, a space centred on the global angle
 
-    g(Z) = σ · (θ + s · 2π · z_local(Z) / L),   z_local = σ · (Z − Z_front)
+    g(Z) = σ · (θ + s · 2π · (z_local(Z) − z_s) / L),   z_local = σ · (Z − Z_front)
 
 where σ is +1 for an axis along Z+ and −1 for Z- (a part on a Z- axis is the
-same part turned over, which mirrors its angles in the global view). A
-herringbone's section is drawn at its apex instead, so its ``z_local`` is
-counted from the mid-face and folds there. Meshing is
+same part turned over, which mirrors its angles in the global view). Counting
+from the front face instead is wrong by ``s·2π·o/L`` on every helical gear, the
+same as sliding each part one overrun along its own axis: two gears facing the
+same way slide together and their mesh is unchanged, but two facing opposite
+ways slide apart, and that put the teeth into each other. Meshing is
 a condition on these global angles at a plane both faces share:
 
 - external, gear q at direction φ from gear p:  g_q = φ + π − π/z_q − (g_p − φ)·z_p/z_q
@@ -27,8 +34,9 @@ a condition on these global angles at a plane both faces share:
 each modulo one pitch of the gear being placed. At θ_p = φ = 0 the first is
 :func:`pair.mesh_angle` and the second :func:`pair.internal_mesh_angle`.
 Profile shift is symmetric about the space centre and changes none of this.
-The tests hold every formula to the outlines themselves: placed meshed they
-do not overlap, and turned half a pitch they do.
+The tests hold every formula to the outlines themselves, turned as the part's
+build plan turns them (not by this module's own twist): placed meshed they do
+not overlap, and turned half a pitch they do.
 """
 
 from __future__ import annotations
@@ -84,16 +92,15 @@ class Placed:
         return getattr(self.derived, "rim", self.derived.da) / 2.0 if self.internal else self.derived.da / 2.0
 
     def twist(self, z_global: float) -> float:
-        """The helix's turn at a global height, about the part's own axis, radians (0 for a spur)."""
+        """The helix's turn at a global height, about the part's own axis, radians (0 for a spur).
+
+        Counted from where the part's section is drawn, as the part is built
+        (:meth:`helical.HelicalDerived.turn_at`): a helical gear's or ring's
+        Profile Plane one overrun behind its front face, a herringbone's apex.
+        """
         if not self.lead:
             return 0.0
-        z_local = self.sigma * (z_global - self.z_front)
-        if self.herringbone:
-            # Built as half and mirrored: the section is drawn at the apex (the mid-face), the hand names the
-            # half nearest the front, and the other half mirrors it (helical.face_rotations).
-            half = self.face / 2.0
-            z_local = min(z_local, self.face - z_local) - half
-        return self.hand_sign * 2.0 * math.pi * z_local / self.lead
+        return math.radians(self.derived.turn_at(self.sigma * (z_global - self.z_front)))
 
     def space_angle(self, theta: float, z_global: float) -> float:
         """Global angle of a tooth space's centre at a global height, for a part turned θ about its own axis."""
