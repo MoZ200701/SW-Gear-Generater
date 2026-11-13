@@ -878,7 +878,8 @@ def _shared_steps(results) -> List[str]:
 
 def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "", folder: str = "",
                    folder_exists: bool = True, building: bool = False,
-                   note: Optional[Tuple[str, bool]] = None) -> Tuple[str, bool, bool]:
+                   note: Optional[Tuple[str, bool]] = None, chosen: int = 0,
+                   recalc: bool = False) -> Tuple[str, bool, bool]:
     """The Workbook window's footer, as one decision: (sentence, shown as good, Build enabled).
 
     Every path that changes the window — a read, a read that failed, a build
@@ -889,6 +890,16 @@ def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "",
     """
     if building:
         return f"Building {_plural(len(parts.jobs), 'part')} in SolidWorks…", True, False
+    if error:
+        return error, False, False
+    if chosen:
+        return (f"{_plural(chosen, 'fix', 'fixes')} chosen: Export writes "
+                f"{'it' if chosen == 1 else 'them'} into the workbook, and Build waits for that, so the workbook "
+                "and the parts agree."), True, False
+    if recalc:
+        lead = f"{note[0]} " if note is not None else ""
+        return (lead + "Open and save the workbook in Excel so its formulas recalculate; Build waits for that "
+                "save."), True, False
     text, ok = workbook_status(parts, diagnostics, error, folder)
     if ok and not folder_exists:
         text, ok = (f"The output folder {short_path(folder, 48)} does not exist; make it, or change it on the Box "

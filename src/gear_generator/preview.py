@@ -282,3 +282,77 @@ def points_on(outline: Sequence[Tuple[float, float]], placed: Placed,
 def _n(value: float, places: int = 3) -> str:
     """The same number formatting the readouts use: 60.0 reads ``60``."""
     return literal(round(float(value), places))
+
+
+
+# -- the Workbook window's end view (PLAN-WORKBOOK §5, W3) ---------------------------------
+
+
+@dataclass
+class EndView:
+    """A workbook's gears seen from +Z, in canvas pixels: each gear's outline at its turn, the shafts, the origin."""
+
+    scale: float = 1.0
+    outlines: List[Tuple[str, int, List[Tuple[float, float]]]] = None   # (gear, plane index, points)
+    rims: List[Tuple[str, int, float, float, float]] = None              # a ring's outside: (gear, plane, x, y, r)
+    shafts: List[Tuple[str, float, float]] = None                        # (name, x, y)
+    origin: Optional[Tuple[float, float]] = None                         # None when it is off the picture
+    planes: List[float] = None                                           # the face heights, in drawing order
+
+
+def layout_gearbox(placed, theta, width: int = 696, height: int = 300, pad: float = 16.0,
+                   step: int = 1) -> EndView:
+    """Every placed gear drawn as the strip draws one, turned to its phase, the whole fitted to the canvas.
+
+    ``placed`` is ``{gear: workbook.geometry.Placed}`` and ``theta`` its turns.
+    The view is from +Z, as SolidWorks' Front view: +X right, +Y up. A gear is
+    drawn at the middle of its face, so a helical gear shows its section there.
+    Gears are grouped by face height, a plane each, so the window can colour
+    the stages apart; the planes are drawn nearest +Z last.
+    """
+    from .gears import kind_for
+    view = EndView(outlines=[], rims=[], shafts=[], planes=[])
+    if not placed:
+        return view
+    shapes = []
+    for gear, p in placed.items():
+        kind = kind_for(p.spec)
+        points = kind.outline(p.spec, p.derived)[::step]
+        angle = p.space_angle(theta.get(gear, 0.0), p.z)
+        c, s_ = math.cos(angle), math.sin(angle)
+        world = []
+        for x, y in points:
+            if p.sigma < 0:
+                y = -y
+            world.append((p.x + x * c - y * s_, p.y + x * s_ + y * c))
+        shapes.append((gear, p, world))
+    xs = [x for _, p, w in shapes for x, _ in w] + [p.x + p.outer_radius for _, p, _ in shapes] + \
+         [p.x - p.outer_radius for _, p, _ in shapes]
+    ys = [y for _, p, w in shapes for _, y in w] + [p.y + p.outer_radius for _, p, _ in shapes] + \
+         [p.y - p.outer_radius for _, p, _ in shapes]
+    lo_x, hi_x, lo_y, hi_y = min(xs), max(xs), min(ys), max(ys)
+    scale = min((width - 2 * pad) / max(hi_x - lo_x, 1e-9), (height - 2 * pad) / max(hi_y - lo_y, 1e-9))
+    off_x = (width - (hi_x - lo_x) * scale) / 2.0 - lo_x * scale
+    off_y = (height - (hi_y - lo_y) * scale) / 2.0 + hi_y * scale
+
+    def to_canvas(x, y):
+        return off_x + x * scale, off_y - y * scale
+
+    view.scale = scale
+    view.planes = sorted({round(p.z, 6) for _, p, _ in shapes})
+    plane_of = {z: i for i, z in enumerate(view.planes)}
+    for gear, p, world in sorted(shapes, key=lambda t: t[1].z):
+        plane = plane_of[round(p.z, 6)]
+        view.outlines.append((gear, plane, [to_canvas(x, y) for x, y in world]))
+        if p.internal:
+            cx, cy = to_canvas(p.x, p.y)
+            view.rims.append((gear, plane, cx, cy, p.outer_radius * scale))
+    seen = set()
+    for _, p, _ in shapes:
+        if p.shaft not in seen:
+            seen.add(p.shaft)
+            view.shafts.append((p.shaft,) + to_canvas(p.x, p.y))
+    ox, oy = to_canvas(0.0, 0.0)
+    if 0 <= ox <= width and 0 <= oy <= height:
+        view.origin = (ox, oy)
+    return view

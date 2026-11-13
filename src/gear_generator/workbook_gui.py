@@ -24,15 +24,21 @@ from typing import Any, Callable, Dict, List, Optional
 from . import __version__, store, swbuild, swcom, theme, ui_text, widgets
 from .gears.base import Diagnostic
 from .theme import px
-from .workbook import build as wb_build, link as wb_link, model as wb_model, xlsx
+from . import preview
+from .workbook import build as wb_build, checks as wb_checks, export as wb_export, fixes as wb_fixes
+from .workbook import link as wb_link, model as wb_model, xlsx
 
-WINDOW_WIDTH = 720
+WINDOW_WIDTH = 1080          # two columns: the workbook and its checks, and the end view and speeds (W3)
+LEFT_WIDTH = 610
+END_VIEW = (392, 300)        # the end view's canvas, px
+# One colour per face height in the end view, so the stages read apart; the first is the ink.
+PLANE_COLOURS = ("#3c3c3c", "#2f6db5", "#b35c00", "#6a3d9a", "#1a7f37")
 POLL_MS = 1000
 STATE_COLOURS = {ui_text.GEAR_STATE_BUILDS: theme.OK, ui_text.GEAR_STATE_SHARES: theme.OK,
                  ui_text.GEAR_STATE_LATER: theme.READOUT, ui_text.GEAR_STATE_ERROR: theme.ERROR}
 TABLE_HEAD = ("Gear", "Shaft", "Kind", "Teeth", "Module", "Face", "Part", "")
-TABLE_WIDTHS = (52, 52, 72, 48, 58, 48, 0, 170)     # 0: the column that takes the room left
-PATH_CHARS = 62     # a path longer than this is shortened in the middle, so the window keeps its width
+TABLE_WIDTHS = (40, 44, 56, 44, 52, 40, 0, 128)     # 0: the column that takes the room left
+PATH_CHARS = 52     # a path longer than this is shortened in the middle, so the window keeps its width
 
 
 def open_in_excel(path: str) -> None:
@@ -67,6 +73,10 @@ class WorkbookWindow(tk.Toplevel):
         self.read_at = ""
         self.error = ""                # the last read's trouble ("" once a read is good); Build waits on it
         self.note: Optional[tuple] = None    # the last build's (sentence, ok), until the file changes
+        self.chosen: List[wb_fixes.Fix] = []  # fixes taken but not yet written: Export writes them
+        self.report: Optional[wb_checks.Report] = None
+        self.effective: Optional[wb_model.GearboxSpec] = None    # the read, with the chosen fixes made
+        self.recalc = False            # exported into a workbook with formulas: wait for Excel to recalculate
         self._pending: Optional[Any] = None
         self._build_context: Dict[str, Any] = {}
         self._after: Optional[str] = None
@@ -82,6 +92,8 @@ class WorkbookWindow(tk.Toplevel):
         self.changes_readout = tk.StringVar(value="")
         self.read_line = tk.StringVar(value="")
         self.status = tk.StringVar(value="")
+        self.view_readout = tk.StringVar(value="")
+        self.speeds_readout = tk.StringVar(value="")
         self._layout()
         self.reread()
         self._after = self.after(self.poll_ms, self._tick)
@@ -114,11 +126,27 @@ class WorkbookWindow(tk.Toplevel):
             side="left", padx=(0, px(8)))
         widgets.Button(buttons, "Re-read", command=self.reread, bg=theme.WINDOW).pack(side="left")
 
+        head.grid_configure(columnspan=2)
+        body.columnconfigure(0, weight=1, minsize=px(LEFT_WIDTH))
+        body.columnconfigure(1, weight=0)
+        right = tk.Frame(body, bg=theme.WINDOW)
+        right.grid(row=1, column=1, rowspan=5, sticky="nsew", padx=(px(8), 0))
+        view = widgets.Panel(right, "End view, from your origin", self.view_readout)
+        view.grid(row=0, column=0, sticky="ew", pady=(0, px(8)))
+        self.canvas = tk.Canvas(view.body, width=px(END_VIEW[0]), height=px(END_VIEW[1]), bg=theme.WHITE,
+                                highlightthickness=0, bd=0)
+        self.canvas.grid(row=0, column=0)
+        speeds = widgets.Panel(right, "Speeds", self.speeds_readout)
+        speeds.grid(row=1, column=0, sticky="ew")
+        self.speeds_body = speeds.body
+        self.speeds_body.columnconfigure(0, weight=1)
+
         box = widgets.Panel(body, "Workbook", self.counts)
         box.grid(row=1, column=0, sticky="ew", pady=(0, px(8)))
         box.body.columnconfigure(1, weight=1)
         self.box_values: Dict[str, tk.Label] = {}
-        for row, (key, text) in enumerate((("file", "File"), ("name", "Name"), ("folder", "Output folder"))):
+        for row, (key, text) in enumerate((("file", "File"), ("name", "Name"), ("folder", "Output folder"),
+                                           ("type", "Worked out as"))):
             tk.Label(box.body, text=text, bg=theme.WHITE, fg=theme.LABEL, font=f.label, anchor="w",
                      width=0).grid(row=row, column=0, sticky="w", padx=(0, px(24)), pady=(0, px(2)))
             cell = tk.Frame(box.body, bg=theme.WHITE)
@@ -149,16 +177,20 @@ class WorkbookWindow(tk.Toplevel):
         body.rowconfigure(5, weight=1)
         tk.Frame(body, bg=theme.WINDOW).grid(row=5, column=0, sticky="nsew")
         foot = tk.Frame(body, bg=theme.WINDOW)
-        foot.grid(row=6, column=0, sticky="ew")
+        foot.grid(row=6, column=0, columnspan=2, sticky="ew")
         foot.columnconfigure(1, weight=1)
         self.status_dot = widgets.Dot(foot, theme.OK, size=8, bg=theme.WINDOW)
         self.status_dot.grid(row=0, column=0, sticky="n", pady=(px(5), 0), padx=(0, px(8)))
         self.status_label = tk.Label(foot, textvariable=self.status, bg=theme.WINDOW, fg=theme.OK, font=f.label,
-                                     anchor="w", justify="left", wraplength=px(WINDOW_WIDTH - 200))
+                                     anchor="w", justify="left", wraplength=px(WINDOW_WIDTH - 420))
         self.status_label.grid(row=0, column=1, sticky="w")
+        self.export_button = widgets.Button(foot, "Export", command=self.export, height=32, bg=theme.WINDOW)
+        self.export_button.grid(row=0, column=2, sticky="e", padx=(px(12), 0))
+        widgets.Button(foot, "Export as…", command=self.export_as, height=32, bg=theme.WINDOW).grid(
+            row=0, column=3, sticky="e", padx=(px(8), 0))
         self.build_button = widgets.Button(foot, "Build parts", command=self.build_parts, primary=True, height=32,
                                            bg=theme.WINDOW)
-        self.build_button.grid(row=0, column=2, sticky="e", padx=(px(12), 0))
+        self.build_button.grid(row=0, column=4, sticky="e", padx=(px(8), 0))
 
     def _clear(self, frame: tk.Misc) -> None:
         for child in frame.winfo_children():
@@ -167,7 +199,7 @@ class WorkbookWindow(tk.Toplevel):
     def _line(self, parent: tk.Misc, row: int, text: str, colour: str, mono: bool = False) -> None:
         f = self.fonts
         tk.Label(parent, text=text, bg=theme.WHITE, fg=colour, font=f.mono_tiny if mono else f.hint, anchor="w",
-                 justify="left", wraplength=px(WINDOW_WIDTH - 60)).grid(row=row, column=0, sticky="w")
+                 justify="left", wraplength=px(LEFT_WIDTH - 40)).grid(row=row, column=0, sticky="w")
 
     # ---------------------------------------------------------------- reading
 
@@ -226,7 +258,16 @@ class WorkbookWindow(tk.Toplevel):
         self.reading = reading
         if reading.changes:
             self.changes, self.changes_at = reading.changes, self.read_at
-            self.note = None                  # the file has moved on from the last build's sentence
+        elif not self.changes_at:
+            self.changes_at = self.read_at
+        if not reading.own:
+            self.recalc = False               # an outside save: Excel has recalculated whatever it holds
+            if reading.changes:
+                self.note = None              # the file has moved on from the last build's or export's sentence
+                if self.chosen:
+                    self.chosen = []
+                    self.note = ("The workbook changed, so the fix you chose was set aside; choose it again if it "
+                                 "still applies.", False)
         elif not self.changes_at:
             self.changes_at = self.read_at
         self._plan()
@@ -234,11 +275,18 @@ class WorkbookWindow(tk.Toplevel):
         self._paint()
 
     def _plan(self) -> None:
-        """The parts, from the last good read and the output folder as it is now (it can change on the strip)."""
+        """The parts and the gearbox checks, from the last good read with the chosen fixes made, and the output
+        folder as it is now (it can change on the strip)."""
         spec = self.reading.spec
-        self.parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec),
-                                         skip_rows=wb_build.rows_with_errors(self.reading.diagnostics))
-        self.diagnostics = self.reading.diagnostics + self.parts.diagnostics
+        for fix in self.chosen:
+            spec = wb_fixes.apply(spec, fix)
+        self.effective = spec
+        skip_rows = wb_build.rows_with_errors(self.reading.diagnostics)
+        self.parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec), skip_rows=skip_rows)
+        bad_rows = skip_rows | wb_build.rows_with_errors(self.parts.diagnostics)
+        skip_gears = {g.id for g in spec.gears if g.row in bad_rows}
+        self.report = wb_checks.check(spec, skip_gears)
+        self.diagnostics = self.reading.diagnostics + self.parts.diagnostics + self.report.diagnostics
 
     def _folder(self, spec: wb_model.GearboxSpec) -> str:
         return spec.box.output_folder or self.app.out_folder.get().strip()
@@ -250,12 +298,15 @@ class WorkbookWindow(tk.Toplevel):
         folder = self._folder(self.reading.spec) if self.reading is not None else ""
         return ui_text.workbook_state(self.parts, self.diagnostics, error=self.error, folder=folder,
                                       folder_exists=bool(folder) and os.path.isdir(folder),
-                                      building=self._pending is not None, note=self.note)
+                                      building=self._pending is not None, note=self.note,
+                                      chosen=len(self.chosen), recalc=self.recalc)
 
     def _refresh_state(self) -> None:
         text, ok, enabled = self._state()
         self._set_status(text, ok)
         self.build_button.configure(state="normal" if enabled else "disabled")
+        can_export = self.reading is not None and not self.error and self._pending is None
+        self.export_button.configure(state="normal" if can_export else "disabled")
 
     def locate(self) -> None:
         """The file was moved or renamed: point the window at it again."""
@@ -274,7 +325,7 @@ class WorkbookWindow(tk.Toplevel):
     # ---------------------------------------------------------------- painting
 
     def _paint(self) -> None:
-        spec = self.reading.spec
+        spec = self.effective or self.reading.spec
         f = self.fonts
         self.counts.set(ui_text.workbook_counts(spec))
         self.box_values["file"].configure(text=ui_text.short_path(self.link.path, PATH_CHARS))
@@ -283,6 +334,7 @@ class WorkbookWindow(tk.Toplevel):
         self.box_values["folder"].configure(text=ui_text.short_path(folder, PATH_CHARS - 20) if folder else "—")
         self.folder_hint.configure(text="from the Box sheet" if spec.box.output_folder
                                    else ("the strip's Output" if folder else "set one on the Box sheet"))
+        self.box_values["type"].configure(text=self.report.worked_out_as if self.report else "—", font=f.label)
 
         self.parts_readout.set(ui_text.workbook_parts_readout(self.parts))
         self._clear(self.table)
@@ -307,11 +359,33 @@ class WorkbookWindow(tk.Toplevel):
 
         self.checks_readout.set(ui_text.workbook_checks_readout(self.diagnostics))
         self._clear(self.checks_body)
+        r = 0
+        for fix in self.chosen:
+            line = tk.Frame(self.checks_body, bg=theme.WHITE)
+            line.grid(row=r, column=0, sticky="w", pady=(0, px(4)))
+            tk.Label(line, text=f"Chosen, not yet written: {fix.title}", bg=theme.WHITE, fg=theme.INK,
+                     font=f.hint).pack(side="left")
+            widgets.Button(line, "Undo", command=lambda x=fix: self.unchoose(x), height=20).pack(
+                side="left", padx=(px(8), 0))
+            r += 1
         ordered = [d for d in self.diagnostics if d.is_error] + [d for d in self.diagnostics if not d.is_error]
-        for r, d in enumerate(ordered):
+        offered = self.report.fixes if self.report else {}
+        for d in ordered:
             self._line(self.checks_body, r, d.message, theme.ERROR if d.is_error else theme.MUTED)
-        if not ordered:
+            r += 1
+            for fix in offered.get(d.field, []) if d.is_error else []:
+                choice = tk.Frame(self.checks_body, bg=theme.WHITE)
+                choice.grid(row=r, column=0, sticky="w", padx=(px(14), 0), pady=(px(2), px(2)))
+                widgets.Button(choice, fix.title, command=lambda x=fix: self.choose(x), height=22).grid(
+                    row=0, column=0, sticky="w")
+                tk.Label(choice, text=fix.detail, bg=theme.WHITE, fg=theme.MUTED, font=f.mono_tiny,
+                         wraplength=px(LEFT_WIDTH - 70), justify="left", anchor="w").grid(
+                    row=1, column=0, sticky="w", pady=(px(2), 0))
+                r += 1
+        if not ordered and not self.chosen:
             self._line(self.checks_body, 0, "No problems: every row reads, and every gear works out.", theme.MUTED)
+        self._draw_end_view()
+        self._paint_speeds()
 
         self.changes_readout.set(ui_text.workbook_changes_readout(self.changes, self.changes_at))
         self._clear(self.changes_body)
@@ -323,12 +397,118 @@ class WorkbookWindow(tk.Toplevel):
         self._refresh_state()
         self._fit()
 
+    def _draw_end_view(self) -> None:
+        c = self.canvas
+        c.delete("all")
+        report = self.report
+        if report is None or not report.layout.placed:
+            reason = report.layout.later[0] if report is not None and report.layout.later else "Nothing to draw yet."
+            c.create_text(px(12), px(12), text=reason, anchor="nw", fill=theme.MUTED, font=self.fonts.hint,
+                          width=px(END_VIEW[0] - 24))
+            self.view_readout.set("")
+            return
+        view = preview.layout_gearbox(report.layout.placed, report.theta, px(END_VIEW[0]), px(END_VIEW[1]), step=2)
+        for gear, plane, points in view.outlines:
+            colour = PLANE_COLOURS[plane % len(PLANE_COLOURS)]
+            c.create_polygon(*[v for xy in points for v in xy], outline=colour, fill="", width=1)
+        for gear, plane, x, y, r in view.rims:
+            c.create_oval(x - r, y - r, x + r, y + r, outline=PLANE_COLOURS[plane % len(PLANE_COLOURS)])
+        for name, x, y in view.shafts:
+            c.create_line(x - px(5), y, x + px(5), y, fill=theme.INK)
+            c.create_line(x, y - px(5), x, y + px(5), fill=theme.INK)
+            c.create_text(x + px(6), y + px(6), text=name, anchor="nw", fill=theme.INK, font=self.fonts.mono_tiny)
+        if view.origin is not None:
+            ox, oy = view.origin
+            c.create_line(ox, oy, ox + px(26), oy, fill=theme.ERROR, arrow="last")
+            c.create_line(ox, oy, ox, oy - px(26), fill=theme.OK, arrow="last")
+            c.create_oval(ox - px(2.5), oy - px(2.5), ox + px(2.5), oy + px(2.5), fill=theme.INK, outline="")
+        self.view_readout.set(" · ".join(f"z {ui_text._n(z, 1)}" for z in view.planes)
+                              + (" · origin" if view.origin else " · origin off view"))
+
+    def _paint_speeds(self) -> None:
+        self._clear(self.speeds_body)
+        report = self.report
+        if report is None:
+            return
+        motion = report.motion
+        if motion.later:
+            self._line(self.speeds_body, 0, motion.later, theme.MUTED)
+            self.speeds_readout.set("")
+            return
+        r = 0
+        for shaft in (self.effective or self.reading.spec).shafts:
+            speed = motion.speeds.get(shaft.id)
+            if speed is None:
+                text = f"{shaft.id:<4}  not driven"
+            else:
+                torque = motion.torques.get(shaft.id)
+                torque_text = f" · {torque:.2f} N·m" if torque is not None else ""
+                text = f"{shaft.id:<4}  {abs(float(speed)):.1f} rpm {motion.turns(shaft.id)}{torque_text}"
+            tk.Label(self.speeds_body, text=text, bg=theme.WHITE, fg=theme.INK, font=self.fonts.mono_tiny,
+                     anchor="w").grid(row=r, column=0, sticky="w")
+            r += 1
+        self.speeds_readout.set("seen from +Z" if motion.speeds else "no input")
+
+    def choose(self, fix: wb_fixes.Fix) -> None:
+        """Take a fix: the window checks the gearbox with it at once; Export writes it."""
+        if fix not in self.chosen:
+            self.chosen.append(fix)
+        self.note = None
+        self._plan()
+        self._paint()
+
+    def unchoose(self, fix: wb_fixes.Fix) -> None:
+        if fix in self.chosen:
+            self.chosen.remove(fix)
+        self._plan()
+        self._paint()
+
+    def export(self, out_path: str = "") -> None:
+        """Write the chosen fixes and the Results sheet: into the workbook, or a copy at ``out_path``."""
+        if self.reading is None or self.error or self._pending is not None:
+            return
+        try:
+            done = wb_export.export(self.link.path, self.reading.spec, list(self.chosen), self.report,
+                                    out_path=out_path)
+        except (xlsx.XlsxError, OSError) as exc:
+            self.note = (str(exc), False)
+            self._refresh_state()
+            return
+        parts = [f"Exported {ui_text._plural(len(done.written), 'cell')} and the Results sheet"
+                 + (f" to {os.path.basename(out_path)}" if out_path else "") + "."]
+        if done.added_headers:
+            parts.append("Added the column " + ", ".join(done.added_headers) + ".")
+        if done.refused:
+            parts.append("Not written, as they hold formulas — change them in Excel: "
+                         + ", ".join(cell for cell, _ in done.refused) + ".")
+        if out_path:
+            self.note = (" ".join(parts), not done.refused)
+        else:
+            self.link.own_digest = done.digest
+            self.chosen = []
+            self.recalc = done.has_formulas and bool(done.written)
+            self.note = (" ".join(parts), not done.refused)
+            self.reread()
+            return
+        self._refresh_state()
+
+    def export_as(self) -> None:
+        path = filedialog.asksaveasfilename(title="Export the workbook as", parent=self, defaultextension=".xlsx",
+                                            initialfile=os.path.splitext(os.path.basename(self.link.path))[0]
+                                            + " (fixed).xlsx", filetypes=[("Excel workbook", "*.xlsx")])
+        if path:
+            self.export(out_path=path)
+
     def _fit(self) -> None:
         """The designed width, always (paths are shortened so nothing pushes it wider), and tall enough for what
         it now holds — grown when a save brings more errors or changes, never shrunk below what the user chose."""
         self.update_idletasks()
         height = max(self.winfo_reqheight(), self.winfo_height() if self.winfo_ismapped() else 0)
-        self.geometry(f"{px(WINDOW_WIDTH)}x{height}")
+        width = max(px(WINDOW_WIDTH), self.winfo_reqwidth())     # never narrower than what it holds
+        # Kept on the screen: grown wider or taller, it moves left or up rather than off the edge.
+        x = max(0, min(self.winfo_x(), self.winfo_screenwidth() - width))
+        y = max(0, min(self.winfo_y(), self.winfo_screenheight() - height))
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _set_status(self, text: str, ok: bool = True) -> None:
         colour = theme.OK if ok else theme.ERROR

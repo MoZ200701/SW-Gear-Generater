@@ -363,4 +363,26 @@ changed since its parts were built* from the `.workbook.json` beside the file.
 A workbook that has gone shows **Locate…**. The window will not close while a
 build is running, and the strip will not start one while a workbook's is.
 
-The end view, the "worked out as" line, Export and the fixes come in W3.
+**W3 adds**, the window now 1080 px wide in two columns:
+
+- **Worked out as** in the Workbook panel: what the rows add up to
+  (*Parallel train · 2 meshes · 12.000 : 1 · output turns the same way*).
+- **End view, from your origin** (right column): every gear's own outline at
+  its turn, seen from +Z as SolidWorks' Front view, one colour per face height
+  (ink, then blue, orange…), shafts crossed and named, and the origin's X (red)
+  and Y (green); `preview.layout_gearbox`, headless and tested.
+- **Speeds** (right column): each shaft's speed, turning seen from +Z, and
+  torque where the power path gives one.
+- **Fixes** under the error they mend: a button per fix (*Move S2 and the 1
+  shaft beyond it by -0.25 mm*, *Keep your positions: profile-shift G1 and G2*)
+  with what it changes beneath. A chosen fix is checked at once and listed as
+  *Chosen, not yet written … Undo*; Build waits for Export, so the workbook and
+  the parts agree.
+- **Export** writes the chosen fixes' cells and the Results sheet into the
+  workbook (never over a formula: those are listed to change in Excel);
+  **Export as…** writes a copy. A workbook with formulas waits for Excel to
+  recalculate and save before Build.
+
+The window keeps itself on the screen as it grows. The artboards in
+`design/canvas` show W2's single column; they are redrawn when the W3 review
+settles the window.

@@ -61,6 +61,7 @@ class Placed:
     hand_sign: int = 0       # +1 right, -1 left; 0 for a spur
     lead: float = 0.0        # mm per turn of the helix; 0 for a spur
     herringbone: bool = False
+    spec: object = None      # the strip's GearSpec for this gear, for its outline
 
     @property
     def z_front(self) -> float:
@@ -145,6 +146,7 @@ def _place(spec: GearboxSpec, gear: Gear, shaft: Shaft) -> Placed:
         hand_sign=getattr(derived, "hand_sign", 0) if helical else 0,
         lead=getattr(derived, "lead", 0.0) if helical else 0.0,
         herringbone=gear_spec.kind == "herringbone",
+        spec=gear_spec,
     )
 
 
