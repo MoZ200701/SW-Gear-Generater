@@ -1,14 +1,21 @@
 """The Workbook window (docs/PLAN-WORKBOOK.md §5, design/UI-DESIGN.md §9).
 
-A second window beside the strip, linked to one ``.xlsx``. It reads the file,
-shows every gear and every problem with the cell it is in, re-reads the file
-each time it is saved in Excel and says what changed, and builds the gears as
-parts through the strip's own SolidWorks worker.
+A second window beside the strip, linked to one ``.xlsx``. It reads the file
+and checks the whole gearbox: every gear and every problem with the cell it is
+in, the fixes offered for centres that are off, an end view from the origin
+and each shaft's speed. It re-reads the file each time it is saved in Excel
+and says what changed and what that did to the checks; Export writes the fixes
+taken and the Results sheet back into the workbook (or a copy); and it builds
+the gears as parts through the strip's own SolidWorks worker.
 
-Every word on it comes from :mod:`ui_text` and every decision from
-:mod:`workbook` — this module only lays out widgets and wires handlers, as
-:mod:`gui` does for the strip. Artboards ``WorkbookReady`` and
-``WorkbookError`` in ``design/canvas`` are drawn from the same functions.
+Every decision comes from :mod:`workbook`, and the readouts, the gear table,
+the change list, the speeds and the footer's sentence from :mod:`ui_text` —
+this module lays out widgets and wires handlers, as :mod:`gui` does for the
+strip. A few sentences are still written here: the panels' one-line
+placeholders (*Nothing changed.*), the chosen-fix line, and what Export and
+Build say when they write or refuse. Artboards ``WorkbookReady``,
+``WorkbookError``, ``WorkbookFix`` and ``WorkbookChosen`` in ``design/canvas``
+are drawn from the same functions (``gen.py`` repeats the placeholders they show).
 """
 
 from __future__ import annotations
@@ -74,7 +81,7 @@ class WorkbookWindow(tk.Toplevel):
         self._raw: Optional[tuple] = None    # the last good read's (diagnostics, report), no fixes made
         self.read_at = ""
         self.error = ""                # the last read's trouble ("" once a read is good); Build waits on it
-        self.note: Optional[tuple] = None    # the last build's (sentence, ok), until the file changes
+        self.note: Optional[tuple] = None    # (sentence, ok) of the last build, export or fix set aside
         self.chosen: List[wb_fixes.Fix] = []  # fixes taken but not yet written: Export writes them
         self.report: Optional[wb_checks.Report] = None
         self.effective: Optional[wb_model.GearboxSpec] = None    # the read, with the chosen fixes made
