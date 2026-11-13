@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 FORMAT = "1"
 
@@ -179,18 +179,43 @@ RESULTS_NOTE = ("Written by Gear Generator, {when}, from this workbook. "
                 "Edits here are ignored and replaced on the next Export.")
 
 
-def match_headers(sheet_def: SheetDef, headers: Mapping[int, str]) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Which column of the sheet holds each known key, and the columns it does not know.
+def _unit_key(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower().replace("×", "x").replace("º", "°")
 
-    ``headers`` is column number -> header text. Returns (key -> column, column -> unknown header).
+
+def header_unit(text: str) -> str:
+    """The ``(unit)`` at the end of a header, or ``""``."""
+    match = re.search(r"\(([^)]*)\)\s*$", str(text))
+    return match.group(1).strip() if match else ""
+
+
+def match_headers(sheet_def: SheetDef, headers: Mapping[int, str]
+                  ) -> Tuple[Dict[str, int], Dict[int, str], List[Tuple[int, str]]]:
+    """Which column of the sheet holds each known key, the columns it does not know, and header problems.
+
+    ``headers`` is column number -> header text. A header naming a known column
+    twice keeps the first and reports the second; a header whose unit is not
+    the column's (``X (in)``) is reported and not used, since its numbers would
+    be read in the wrong unit.
     """
-    wanted = {header_key(c.header): c.key for c in sheet_def.columns}
+    wanted = {header_key(c.header): c for c in sheet_def.columns}
     found: Dict[str, int] = {}
     unknown: Dict[int, str] = {}
+    problems: List[Tuple[int, str]] = []
     for col, text in sorted(headers.items()):
-        key = wanted.get(header_key(text))
-        if key is not None and key not in found:
-            found[key] = col
-        elif text.strip():
-            unknown[col] = text
-    return found, unknown
+        column = wanted.get(header_key(text))
+        if column is None:
+            if text.strip():
+                unknown[col] = text
+            continue
+        unit = header_unit(text)
+        if unit and _unit_key(unit) != _unit_key(column.unit):
+            expected = f"in {column.unit}" if column.unit else "without a unit"
+            problems.append((col, f"the {column.header} column is {expected}, but this header says ({unit}); "
+                                  f"its values are not read."))
+            continue
+        if column.key in found:
+            problems.append((col, f"a second {column.header} column; only the first is read."))
+            continue
+        found[column.key] = col
+    return found, unknown, problems

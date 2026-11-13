@@ -82,7 +82,7 @@ default), `Pressure angle (°)` (20), `Efficiency per mesh (%)` (98), `Units` (w
 | Mounted on | `frame` | `frame`, or another shaft it rides round with (a planet on its carrier); X Y Z are then measured on that shaft at its starting turn. |
 | X (mm), Y (mm) | needed | A point on the axis, from the origin. |
 | Z (mm) | 0 | |
-| Axis | `Z+` | `Z+ Z- X+ X- Y+ Y-` (see the judgement call above), or three numbers `dx, dy, dz` (normalised on read). |
+| Axis | `Z+` | `Z+ Z- X+ X- Y+ Y-` (see the judgement call above), or three numbers `dx, dy, dz`, kept as typed and normalised where they are used (W6). |
 | Role | turns as the gears make it | `input`, `output`, `fixed`. At least one input. |
 | Copies | 1 | Only on a shaft mounted on another: that many, evenly round it. |
 | Speed (rpm), Torque (N·m) | — | Input rows only. Positive speed turns anticlockwise seen from the tip of Axis looking back (right-hand rule). |
@@ -151,10 +151,17 @@ strings, a frozen header row, column widths, and **data validation lists** for e
   text: the `<sheetData>` cells are located with a small scanner, a changed `<c>` is replaced in place keeping its
   `s` (style) attribute, and a new cell is inserted in column order within its row (a new row in row order).
   Everything outside the touched cells is byte-identical; `etree` is used only to *read*.
-- A number is written as a number, text as an inline string. A target column the sheet lacks (columns are
-  optional — e.g. Profile shift) is added at the end of the header row.
+- A number is written as a number, text as an inline string; a character XML 1.0 forbids is written as Excel's
+  `_xHHHH_` escape. `write_cells` knows nothing of headers: **Export (W3)** finds each target's column by header and,
+  for a column the sheet lacks (columns are optional — e.g. Profile shift), writes the header at the end of row 1
+  first.
+- **A percentage-formatted cell** (`Cell.percent`, read from the cell's number format) holds a fraction: Export
+  writes 0.97 into it for 97 %, never 97, which Excel would show as 9700 %.
 - **A formula cell is never written** — including a shared-formula child (`<f t="shared" si="…"/>`) and any cell
   inside an array formula's `ref` range. Such targets come back in a list for the window to show.
+- **The safety net:** after splicing, the sheet part is parsed and every cell not asked for is compared with the
+  original; any difference, or a part that no longer parses, refuses the whole write and leaves the file untouched.
+  Shapes Excel never writes (comments, CDATA, a row twice, anything between rows) are refused up front.
 - `calcPr`: an existing element gets `fullCalcOnLoad="1"` set on it in place; if absent it is inserted at its
   schema position in `workbook.xml`. Formulas that depend on a changed cell then recalculate when Excel opens it.
 - `replace_sheet` rewrites the whole Results part (added, with its rels and content-type entries, if absent). It
@@ -172,8 +179,9 @@ workbook in Excel so its formulas recalculate"*, and Build and Update SolidWorks
 A fix that was chosen but not yet exported is held in memory; when the file changes first, each held fix is
 re-checked against the new read, and one that no longer applies is dropped with a note.
 
-**Fixtures.** Our own writer's output is not evidence that Excel's files read correctly. The user saves one
-workbook **in Excel** on Windows (`tests/fixtures/excel/Reducer_12to1.xlsx`, with a formula, a shared formula, a
+**Fixtures.** Our own writer's output is not evidence that Excel's files read correctly. *(Done in W1 with Excel
+for Mac 16.03, driven on the user's Mac; LibreOffice's copy is a fixture too. A Windows-saved copy joins it when W2
+reaches Windows.)* The user saves one workbook **in Excel** on Windows (`tests/fixtures/excel/Reducer_12to1.xlsx`, with a formula, a shared formula, a
 percentage-formatted efficiency, a comment row, an extra column) and it is committed; tests read it, and
 `write_cells` is run on it and the result read back. **Ask the user for it at the start of W1; W1 is not done
 until it is committed.** Opening an exported file in Excel without a repair prompt is a Windows check in W3.

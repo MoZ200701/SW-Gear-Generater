@@ -231,7 +231,7 @@ def test_references_between_sheets_are_checked(tmp_path):
     _, diagnostics = read(path)
     found = messages(diagnostics)
     assert "Gears!B5: S9 is not a shaft on the Shafts sheet." in found
-    assert "Gears!A3: the gear G1 is also on row 2; names must be unique." in found
+    assert any(m.startswith("Gears!A3: the gear G1 is also on row 2; names must be unique") for m in found)
     assert "Meshes!B3: G7 is not a gear on the Gears sheet." in found
     assert "Shafts!B3: S2 cannot be mounted on itself." in found
     assert any(m.startswith("Shafts!G3: S2 has a speed or torque but is not an input") for m in found)
@@ -330,8 +330,9 @@ def test_a_workbook_saved_by_libreoffice_reads_the_same(tmp_path):
 
 def test_a_workbook_saved_by_excel_reads_the_same(tmp_path):
     """tests/fixtures/excel/Reducer_12to1.xlsx: our writer's workbook, opened in Microsoft Excel for Mac 16.03
-    and saved after three edits a person would make — Shafts!C4 became the formula =C3+68, Meshes!C2 became
-    0.98 formatted as a percentage, and a Cost column was added to Gears (V).
+    and saved after edits a person would make — Shafts!C4 became the formula =C3+68, Meshes!C2 became
+    0.98 formatted as a percentage, a Cost column was added to Gears (V), a "Double teeth" column was filled
+    down as =F2*2 (W2:W5, which Excel stores as one shared formula), and Shafts row 6 is a # comment row.
 
     Checked by hand on 2026-11-13: this file, edited by write_cells (S2 to 64, G2 to 70 teeth, a Results
     sheet added), opened in that Excel with no repair prompt, and C4 recalculated to 132 on opening.
@@ -351,3 +352,84 @@ def test_a_workbook_saved_by_excel_reads_the_same(tmp_path):
     edited, diagnostics = read(out)
     assert diagnostics == [] and edited.shaft("S2").x == "64" and edited.gear("G2").teeth == "70"
     assert edited.shaft("S3").x == "131.75"      # the formula's old value, until Excel recalculates and saves
+    assert [sh.id for sh in edited.shafts] == ["S1", "S2", "S3"]     # row 6 is a comment
+
+    shared = xlsx.write_cells(str(path), {"Gears": {"W3": 1, "W2": 1}}, out_path=str(tmp_path / "shared.xlsx"))
+    assert shared.written == [] and {r for r, _ in shared.refused} == {"Gears!W2", "Gears!W3"}
+
+
+# -- found in review (W1) ----------------------------------------------------------------
+
+
+def test_gear_spec_names_every_field_of_gearspec():
+    from dataclasses import fields
+    values = Gear("G", "S", teeth="20", module="2", face_width="10").spec_values(Box())
+    assert set(values) == {f.name for f in fields(GearSpec)}
+
+
+def test_frame_and_names_ignore_case(tmp_path):
+    path = write(tmp_path, reducer())
+    edit(path, "Shafts", {"B2": "Frame"})
+    spec, diagnostics = read(path)
+    assert diagnostics == [] and spec.shafts[0].mount() == "frame"
+    edit(path, "Gears", {"A3": "g1"})
+    _, diagnostics = read(path)
+    assert any(m.startswith("Gears!A3: the gear g1 is also on row 2") for m in messages(diagnostics))
+
+
+def test_a_percentage_formatted_cell_and_the_efficiency_range(tmp_path):
+    spec, diagnostics = read(FIXTURES / "excel" / "Reducer_12to1.xlsx")
+    assert spec.meshes[0].efficiency == "98"            # 0.98 in a cell formatted 0%
+    path = write(tmp_path, reducer())
+    edit(path, "Meshes", {"C2": 1, "C3": 250})
+    spec, diagnostics = read(path)
+    assert spec.meshes[0].efficiency == "1"             # 1 %, unformatted, is taken as typed
+    assert messages(diagnostics) == ["Meshes!C3: Efficiency must be more than 0 and at most 100 % (got '250')."]
+
+
+def test_a_header_twice_or_in_another_unit_is_reported(tmp_path):
+    sheets = model.to_sheets(reducer())
+    rows = [list(r) for r in sheets[1].rows]
+    rows[0][2] = "X (in)"
+    for r in rows:
+        r.append("Shaft" if r is rows[0] else "dup")
+    sheets[1] = xlsx.NewSheet("Shafts", rows)
+    path = tmp_path / "h.xlsx"
+    xlsx.write_new(str(path), sheets)
+    _, diagnostics = read(path)
+    found = messages(diagnostics)
+    assert any(m.startswith("Shafts!C1: the X column is in mm, but this header says (in)") for m in found)
+    assert "Shafts!L1: a second Shaft column; only the first is read." in found
+    assert "Shafts!1: the X (mm) column is missing." in found
+
+
+def test_a_duplicated_modes_column_is_reported_and_not_misplaced(tmp_path):
+    spec = transfer_case()
+    sheets = model.to_sheets(spec)
+    rows = [list(r) for r in sheets[4].rows]
+    for r in rows:
+        r.insert(2, r[1])                    # RangeSlv twice: B and C
+    sheets[4] = xlsx.NewSheet("Modes", rows)
+    path = tmp_path / "m.xlsx"
+    xlsx.write_new(str(path), sheets)
+    edit(path, "Modes", {"B3": "M"})
+    _, diagnostics = read(path)
+    assert "Modes!C1: a second RangeSlv column; only the first is read." in messages(diagnostics)
+    assert "Modes!B3: RangeSlv has no position M; it has H, N, L." in messages(diagnostics)
+
+
+def test_box_diagnostics_name_their_cell(tmp_path):
+    path = write(tmp_path, reducer())
+    edit(path, "Box", {"B3": "Bad/Name"})
+    _, diagnostics = read(path)
+    assert diagnostics[0].field == "Box!B3" and "becomes file names" in diagnostics[0].message
+    edit(path, "Box", {"B3": "Reducer 12:1".replace(":", "-")})     # a space is a legal file name
+    _, diagnostics = read(path)
+    assert diagnostics == []
+
+
+def test_numbers_out_never_break_on_odd_text():
+    column = schema.SHAFTS.column("x")
+    assert model._out(column, "nan") == "nan" and model._out(column, "1e999") == "1e999"
+    assert model._out(schema.GEARS.column("teeth"), "17.5") == 17.5      # not truncated to 17
+    assert model._out(column, "63.75") == 63.75 and model._out(column, "64") == 64

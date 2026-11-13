@@ -260,7 +260,7 @@ def test_a_formula_is_never_written_over(tmp_path):
     reasons = dict(result.refused)
     assert reasons["Shafts!C2"] == "it holds a formula"
     assert reasons["Shafts!C4"] == "it holds a formula"             # the shared formula's child
-    assert reasons["Shafts!D5"] == "it is part of an array formula"
+    assert reasons["Shafts!D5"] == "it is part of an array formula or a data table"
     assert result.written == ["Shafts!B2"]
     sheet = xlsx.read(path).sheet("Shafts")
     assert sheet.cell(2, 3).formula and sheet.cell(2, 3).text == "127.5"
@@ -346,3 +346,135 @@ def test_files_keep_ordinary_permissions(tmp_path):
     os.chmod(path, 0o640)
     xlsx.write_cells(str(path), {"Gears": {"B2": 18}})
     assert os.stat(path).st_mode & 0o777 == 0o640
+
+
+# -- found in review (W1) ----------------------------------------------------------------
+
+
+def one_sheet(tmp_path, sheet_body, name="o.xlsx"):
+    path = tmp_path / name
+    with zipfile.ZipFile(path, "w") as out:
+        out.writestr("[Content_Types].xml", CONTENT_TYPES.replace(
+            f'<Override PartName="/xl/worksheets/sheet2.xml" ContentType="{xlsx.WORKSHEET_CONTENT}"/>', ""))
+        out.writestr("xl/workbook.xml", f'<workbook xmlns="{MAIN}" xmlns:r="{REL}"><sheets>'
+                                        "<sheet name='S' sheetId='1' r:id='rId1'/></sheets>"
+                                        "<calcPr calcId='1' fullCalcOnLoad='0'/></workbook>")
+        out.writestr("xl/_rels/workbook.xml.rels",
+                     f'<Relationships xmlns="{xlsx.PKG_REL_NS}"><Relationship Id="rId1" '
+                     f'Type="{xlsx.WORKSHEET_TYPE}" Target="worksheets/sheet1.xml"/></Relationships>')
+        out.writestr("xl/worksheets/sheet1.xml", f"<worksheet xmlns='{MAIN}'>{sheet_body}</worksheet>")
+    return path
+
+
+def test_control_characters_are_escaped_and_read_back(tmp_path):
+    path = excel_like(tmp_path / "w.xlsx")
+    xlsx.write_cells(str(path), {"Shafts": {"B2": "a\x0bb\x00c _x0041_"}})
+    with zipfile.ZipFile(path) as archive:
+        sheet = archive.read("xl/worksheets/sheet1.xml")
+    __import__("xml.etree.ElementTree").etree.ElementTree.fromstring(sheet)     # still XML
+    assert xlsx.read(path).sheet("Shafts").cell(2, 2).text == "a\x0bb\x00c _x0041_"
+
+
+def test_a_non_finite_number_is_refused(tmp_path):
+    with pytest.raises(xlsx.XlsxError, match="finite"):
+        xlsx.write_new(str(tmp_path / "n.xlsx"), [xlsx.NewSheet("S", [["A"], [float("nan")]])])
+
+
+def test_single_quoted_attributes(tmp_path):
+    path = one_sheet(tmp_path, "<dimension ref='A1:A1'/><sheetData><row r='1' spans='1:1'><c r='A1'><v>1</v></c>"
+                               "</row></sheetData>")
+    xlsx.write_cells(str(path), {"S": {"C1": 3}})
+    parts = dict(parts_of(path))
+    workbook, sheet = parts["xl/workbook.xml"].decode(), parts["xl/worksheets/sheet1.xml"].decode()
+    assert workbook.count("fullCalcOnLoad") == 1 and 'fullCalcOnLoad="1"' in workbook
+    assert "spans" not in sheet and "ref='A1:C1'" in sheet
+
+
+@pytest.mark.parametrize("body,why", [
+    ("<sheetData><row r='1'><c r='A1'><v>1</v></c></row><row r='1'><c r='B1'><v>2</v></c></row></sheetData>",
+     "row 1 twice"),
+    ("<sheetData><row r='1'><c r='A1'><v>1</v></c></row><!-- <row r='2'><c r='A2'><v>9</v></c></row> -->"
+     "</sheetData>", "comments or CDATA"),
+    ("<sheetData><row r='1'><c r='A1' t='inlineStr'><is><t><![CDATA[</c>]]></t></is></c></row></sheetData>",
+     "comments or CDATA"),
+    ("<sheetData><row r='1'><c r='A1'><v>1</v></c></row><junk/></sheetData>", "not a row"),
+])
+def test_shapes_excel_never_writes_are_refused_not_mangled(tmp_path, body, why):
+    path = one_sheet(tmp_path, body)
+    before = path.read_bytes()
+    result = xlsx.write_cells(str(path), {"S": {"C1": 3}})
+    assert result.written == [] and why in result.refused[0][1]
+    assert path.read_bytes() == before
+
+
+def test_the_safety_net_refuses_a_splice_that_changes_other_cells(tmp_path, monkeypatch):
+    path = excel_like(tmp_path / "w.xlsx")
+    before = path.read_bytes()
+    real = xlsx._splice_cells
+
+    def careless(text, cells):                 # a splice bug: B3 gets lost along the way
+        new_text, done, refused = real(text, cells)
+        return new_text.replace('<c r="B3"><v>131.75</v></c>', ""), done, refused
+
+    monkeypatch.setattr(xlsx, "_splice_cells", careless)
+    with pytest.raises(xlsx.XlsxError, match="B3 would have changed too"):
+        xlsx.write_cells(str(path), {"Shafts": {"B2": 64}})
+    assert path.read_bytes() == before
+
+
+def test_a_data_table_range_is_protected(tmp_path):
+    path = one_sheet(tmp_path, "<sheetData><row r='1'><c r='A1'><f t='dataTable' ref='A1:B2' dt2D='0' "
+                               "dtr='0' r1='C1'/><v>1</v></c></row><row r='2'><c r='B2'><v>2</v></c></row></sheetData>")
+    result = xlsx.write_cells(str(path), {"S": {"B2": 5}})
+    assert result.written == [] and "data table" in result.refused[0][1]
+
+
+def test_bad_input_raises_the_modules_own_errors(tmp_path):
+    path = one_sheet(tmp_path, "<sheetData><row r='x'><c r='A1'><v>1</v></c></row></sheetData>")
+    with pytest.raises(xlsx.XlsxError, match="not a row number"):
+        xlsx.read(path)
+    path = excel_like(tmp_path / "w.xlsx")
+    with pytest.raises(xlsx.XlsxError):
+        xlsx.write_cells(str(path), {"Shafts": {"A0": 1}})
+
+
+def test_saving_over_the_open_workbook_by_its_own_name_is_refused(tmp_path):
+    path = excel_like(tmp_path / "w.xlsx")
+    (tmp_path / "~$w.xlsx").write_bytes(b"owner")
+    with pytest.raises(xlsx.Locked):
+        xlsx.write_cells(str(path), {"Shafts": {"B2": 64}}, out_path=str(path))
+
+
+def test_writing_through_a_symlink_keeps_the_link(tmp_path):
+    real = excel_like(tmp_path / "real.xlsx")
+    link = tmp_path / "link.xlsx"
+    link.symlink_to(real)
+    xlsx.write_cells(str(link), {"Shafts": {"B2": 64}})
+    assert link.is_symlink()
+    assert xlsx.read(real).sheet("Shafts").cell(2, 2).text == "64"
+
+
+def test_drop_downs_suggest_without_refusing(tmp_path):
+    path = new_book(tmp_path / "n.xlsx")
+    with zipfile.ZipFile(path) as archive:
+        sheet = archive.read("xl/worksheets/sheet1.xml").decode()
+    assert '<dataValidation type="list"' in sheet and "showErrorMessage" not in sheet
+
+
+def test_sheet_names_follow_excels_rules(tmp_path):
+    with pytest.raises(xlsx.XlsxError, match="cannot name a sheet"):
+        xlsx.write_new(str(tmp_path / "s.xlsx"), [xlsx.NewSheet("Gears/Shafts", [["A"]])])
+
+
+def test_shared_strings_are_found_through_the_workbooks_links(tmp_path):
+    path = tmp_path / "moved.xlsx"
+    with zipfile.ZipFile(excel_like(tmp_path / "w.xlsx")) as src, zipfile.ZipFile(path, "w") as out:
+        for info in src.infolist():
+            data = src.read(info.filename)
+            if info.filename == "xl/sharedStrings.xml":
+                out.writestr("xl/strings/shared.xml", data)
+                continue
+            if info.filename == "xl/_rels/workbook.xml.rels":
+                data = data.replace(b'Target="sharedStrings.xml"', b'Target="strings/shared.xml"')
+            out.writestr(info, data)
+    assert xlsx.read(path).sheet("Shafts").cell(2, 1).text == "S1"

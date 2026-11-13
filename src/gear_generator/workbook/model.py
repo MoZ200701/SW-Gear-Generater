@@ -57,7 +57,9 @@ class Shaft:
     row: int = 0
 
     def mount(self) -> str:
-        return self.mounted_on.strip() or FRAME
+        """The shaft this one rides on, or ``frame`` — however ``Frame`` was typed."""
+        text = self.mounted_on.strip()
+        return FRAME if not text or text.lower() == FRAME else text
 
 
 @dataclass(frozen=True)
@@ -93,8 +95,13 @@ class Gear:
 
         A blank optional cell takes the workbook's default, never
         ``GearSpec()``'s: a blank Bore is no bore, not ``GearSpec``'s 10 mm.
+        :meth:`spec_values` names every field, and a test holds it to
+        ``fields(GearSpec)``, so a field added later cannot fall back unseen.
         """
-        return GearSpec(
+        return GearSpec(**self.spec_values(box))
+
+    def spec_values(self, box: Box) -> Dict[str, str]:
+        return dict(
             kind=self.kind_word(),
             recipe=schema.FLANK_RECIPE.get(self.flank, ""),
             module=self.module,
@@ -219,7 +226,7 @@ def _cell_text(reader: _Reader, sheet: Sheet, cell: Optional[Cell], column: Opti
     return cell.text.strip()
 
 
-def _check_value(reader: _Reader, where: str, column: Column, text: str) -> str:
+def _check_value(reader: _Reader, where: str, column: Column, text: str, percent: bool = False) -> str:
     """The value as the model keeps it: a canonical word, a number as typed, or "" after a diagnostic."""
     if not text:
         return ""
@@ -254,8 +261,14 @@ def _check_value(reader: _Reader, where: str, column: Column, text: str) -> str:
         if column.whole and abs(value - round(value)) > 1e-9:
             reader.error(where, f"{column.header} must be a whole number (got {text!r}).")
             return ""
-        if column.key == "efficiency" and 0 < value <= 1:
-            value *= 100.0             # a cell formatted as a percentage arrives as 0.98
+        if column.key == "efficiency":
+            # A cell formatted as a percentage holds 0.98 for 98 %. Unformatted, a value under 1 is read the
+            # same way: an efficiency of 0.98 % is not one anybody means.
+            if percent or 0 < value < 1:
+                value *= 100.0
+            if not 0 < value <= 100:
+                reader.error(where, f"Efficiency must be more than 0 and at most 100 % (got {text!r}).")
+                return ""
             return number_text(repr(value))
         return number_text(text.replace("−", "-"))
     return text
@@ -264,7 +277,9 @@ def _check_value(reader: _Reader, where: str, column: Column, text: str) -> str:
 def _table(reader: _Reader, sheet: Sheet, sheet_def: SheetDef) -> List[Tuple[int, Dict[str, str]]]:
     """Each data row as {key: value}, with its row number; comment and blank rows skipped."""
     headers = {col: cell.text for (row, col), cell in sheet.cells.items() if row == 1 and cell.text}
-    found, _unknown = schema.match_headers(sheet_def, headers)
+    found, _unknown, problems = schema.match_headers(sheet_def, headers)
+    for col, message in problems:
+        reader.error(f"{sheet.name}!{make_ref(1, col)}", message)
     reader.columns[sheet_def.name] = found
     for column in sheet_def.columns:
         if column.required and column.key not in found:
@@ -282,7 +297,7 @@ def _table(reader: _Reader, sheet: Sheet, sheet_def: SheetDef) -> List[Tuple[int
             before = len(reader.diagnostics)
             text = _cell_text(reader, sheet, cell, column)
             where = f"{sheet.name}!{make_ref(row, col)}" if col else f"{sheet.name}!{row}"
-            values[column.key] = _check_value(reader, where, column, text)
+            values[column.key] = _check_value(reader, where, column, text, bool(cell and cell.percent))
             if len(reader.diagnostics) > before:
                 reported.add(column.key)
         if not any(v for k, v in values.items() if k != "notes"):
@@ -301,6 +316,7 @@ def _read_box(reader: _Reader, sheet: Optional[Sheet]) -> Box:
         return Box()
     settings = {schema.header_key(s.name): s for s in schema.BOX_SETTINGS}
     values: Dict[str, str] = {}
+    rows: Dict[str, int] = {}
     for row in range(2, sheet.max_row() + 1):
         label = sheet.cell(row, 1)
         if label is None or label.text.lstrip().startswith("#"):
@@ -309,18 +325,26 @@ def _read_box(reader: _Reader, sheet: Optional[Sheet]) -> Box:
         if setting is None:
             continue
         where = f"Box!{make_ref(row, 2)}"
-        text = _cell_text(reader, sheet, sheet.cell(row, 2), None)
+        value_cell = sheet.cell(row, 2)
+        text = _cell_text(reader, sheet, value_cell, None)
         if setting.numeric and text:
             column = Column(setting.key, setting.name, setting.unit, numeric=True)
-            text = _check_value(reader, where, column, text)
+            text = _check_value(reader, where, column, text, bool(value_cell and value_cell.percent))
         values[setting.key] = text
+        rows[setting.key] = row
+
+    def at(key: str) -> str:
+        return f"Box!{make_ref(rows[key], 2)}" if key in rows else "Box"
+
     if not values.get("name"):
-        reader.error("Box", "Name is needed: it names the assembly and the layout part.")
-    elif not NAME_PATTERN.match(values["name"]):
-        reader.error("Box", f"Name may use letters, digits, _ and - only (got {values['name']!r}).")
+        reader.error(at("name"), "Name is needed: it names the assembly and the layout part.")
+    elif re.search(r'[<>:"/\\|?*@]', values["name"]) or values["name"] != values["name"].strip(". "):
+        reader.error(at("name"), f"Name becomes file names, so it may not use < > : \" / \\ | ? * @ or end in a "
+                                 f"dot (got {values['name']!r}).")
     fmt = values.get("format", "") or schema.FORMAT
     if fmt != schema.FORMAT:
-        reader.error("Box", f"this workbook is format {fmt}; this version of the app reads format {schema.FORMAT}.")
+        reader.error(at("format"), f"this workbook is format {fmt}; this version of the app reads format "
+                                   f"{schema.FORMAT}.")
     return Box(name=values.get("name", ""), output_folder=values.get("output_folder", ""),
                part_template=values.get("part_template", ""),
                assembly_template=values.get("assembly_template", ""),
@@ -373,7 +397,14 @@ def _read_modes(reader: _Reader, sheet: Optional[Sheet]) -> Tuple[List[Mode], Li
     if name_col is None:
         reader.error("Modes!1", "the Mode column is missing.")
         return [], []
-    slider_cols = [(c, t) for c, t in sorted(headers.items()) if c not in (name_col, notes_col)]
+    slider_cols = []
+    for c, t in sorted(headers.items()):
+        if c in (name_col, notes_col):
+            continue
+        if t in [name for _, name in slider_cols]:
+            reader.error(f"Modes!{make_ref(1, c)}", f"a second {t} column; only the first is read.")
+            continue
+        slider_cols.append((c, t))
     reader.columns["Modes"] = {"name": name_col}
     reader.slider_columns = {t: c for c, t in slider_cols}
     modes = []
@@ -400,13 +431,14 @@ def _check_references(reader: _Reader, spec: GearboxSpec) -> None:
         where = at("Shafts", shaft.row, "id")
         if shaft.id and not NAME_PATTERN.match(shaft.id):
             reader.error(where, f"Shaft names may use letters, digits, _ and - only (got {shaft.id!r}).")
-        if shaft.id in seen:
-            reader.error(where, f"the shaft {shaft.id} is also on row {seen[shaft.id]}; names must be unique.")
+        if shaft.id.lower() in seen:
+            reader.error(where, f"the shaft {shaft.id} is also on row {seen[shaft.id.lower()]}; names must be "
+                                "unique, and S1 and s1 are the same name to SolidWorks and Windows.")
         elif shaft.id:
-            seen[shaft.id] = shaft.row
+            seen[shaft.id.lower()] = shaft.row
         if shaft.id.lower() == FRAME:
             reader.error(where, "frame is the housing's name and cannot name a shaft.")
-    shaft_ids = set(seen)
+    shaft_ids = {s.id for s in spec.shafts if s.id}
     for shaft in spec.shafts:
         mount = shaft.mount()
         if mount != FRAME and mount not in shaft_ids:
@@ -429,10 +461,11 @@ def _check_references(reader: _Reader, spec: GearboxSpec) -> None:
         where = at("Gears", gear.row, "id")
         if gear.id and not NAME_PATTERN.match(gear.id):
             reader.error(where, f"Gear names may use letters, digits, _ and - only (got {gear.id!r}).")
-        if gear.id in seen:
-            reader.error(where, f"the gear {gear.id} is also on row {seen[gear.id]}; names must be unique.")
+        if gear.id.lower() in seen:
+            reader.error(where, f"the gear {gear.id} is also on row {seen[gear.id.lower()]}; names must be "
+                                "unique, and G1 and g1 are the same name to SolidWorks and Windows.")
         elif gear.id:
-            seen[gear.id] = gear.row
+            seen[gear.id.lower()] = gear.row
         if gear.shaft and gear.shaft not in shaft_ids:
             reader.error(at("Gears", gear.row, "shaft"), f"{gear.shaft} is not a shaft on the Shafts sheet.")
         if gear.kind_word() in ("helical", "herringbone") and not gear.helix_angle:
@@ -443,7 +476,7 @@ def _check_references(reader: _Reader, spec: GearboxSpec) -> None:
                 gear.positions()
             except ValueError as exc:
                 reader.error(at("Gears", gear.row, "slides"), str(exc))
-    gear_ids = set(seen)
+    gear_ids = {g.id for g in spec.gears if g.id}
 
     pairs: Dict[frozenset, int] = {}
     for mesh in spec.meshes:
@@ -496,7 +529,11 @@ def _out(column: Column, text: str):
             value = float(text)
         except ValueError:
             return text
-        return int(value) if column.whole or value == int(value) and "." not in text else value
+        if not math.isfinite(value):
+            return text                     # kept as text: a cell holds finite numbers only
+        if value == int(value) and abs(value) < 1e15:
+            return int(value)
+        return value
     return text
 
 

@@ -73,6 +73,7 @@ class Cell:
     text: str = ""
     formula: bool = False
     error: str = ""
+    percent: bool = False      # formatted as a percentage: Excel shows 0.98 as 98 %
 
 
 @dataclass
@@ -130,6 +131,7 @@ def column_letters(index: int) -> str:
     return letters
 
 
+MAX_ROWS, MAX_COLS = 1048576, 16384
 _REF = re.compile(r"^\$?([A-Za-z]{1,3})\$?(\d+)$")
 
 
@@ -138,7 +140,10 @@ def split_ref(ref: str) -> Tuple[int, int]:
     match = _REF.match(ref.strip())
     if not match:
         raise ValueError(f"{ref!r} is not a cell reference.")
-    return int(match.group(2)), column_index(match.group(1))
+    row, col = int(match.group(2)), column_index(match.group(1))
+    if not (1 <= row <= MAX_ROWS and 1 <= col <= MAX_COLS):
+        raise ValueError(f"{ref!r} is outside a sheet: rows run 1 to {MAX_ROWS}, columns A to XFD.")
+    return row, col
 
 
 def make_ref(row: int, col: int) -> str:
@@ -201,8 +206,12 @@ def read_bytes(data: bytes, path: str = "") -> Book:
         if workbook.tag == "{%s}workbook" % STRICT_NS:
             raise XlsxError(f"{name} is saved as Strict Open XML; save it again from Excel as an ordinary "
                             "Excel Workbook (.xlsx).")
-        rels = _relationships(archive, "xl/_rels/workbook.xml.rels", "xl", name)
-        strings = _shared_strings(archive, name) if "xl/sharedStrings.xml" in names else []
+        rels, types = _relationships(archive, "xl/_rels/workbook.xml.rels", "xl", name, with_types=True)
+        strings_part = next((t for i, t in rels.items() if types.get(i, "").endswith("/sharedStrings")),
+                            "xl/sharedStrings.xml")
+        strings = _shared_strings(archive, strings_part, name) if strings_part in names else []
+        styles_part = next((t for i, t in rels.items() if types.get(i, "").endswith("/styles")), "xl/styles.xml")
+        percent_styles = _percent_styles(archive, styles_part, name) if styles_part in names else set()
         book = Book(path=path)
         sheets = workbook.find(_M + "sheets")
         for entry in (sheets if sheets is not None else []):
@@ -211,7 +220,10 @@ def read_bytes(data: bytes, path: str = "") -> Book:
             if not target or target not in names:
                 continue      # a chart sheet or a broken link: nothing of ours lives there
             sheet = Sheet(name=sheet_name, part=target)
-            _read_cells(_parse(archive, target, name), strings, sheet)
+            try:
+                _read_cells(_parse(archive, target, name), strings, sheet, percent_styles)
+            except ValueError as exc:
+                raise XlsxError(f"{name}, sheet {sheet_name}: {exc} Save it again from Excel.") from None
             book.sheets[sheet_name] = sheet
         return book
 
@@ -225,24 +237,68 @@ def _parse(archive: zipfile.ZipFile, part: str, name: str) -> ElementTree.Elemen
         raise NotReady(f"{name} has no part {part} yet; it may be mid-save.") from None
 
 
-def _relationships(archive: zipfile.ZipFile, part: str, base: str, name: str) -> Dict[str, str]:
-    """Relationship id -> the target's part name, resolved against ``base``."""
+def _relationships(archive: zipfile.ZipFile, part: str, base: str, name: str, with_types: bool = False):
+    """Relationship id -> the target's part name, resolved against ``base`` (and id -> type, if asked)."""
     try:
         root = _parse(archive, part, name)
     except NotReady:
-        return {}
-    out = {}
+        return ({}, {}) if with_types else {}
+    out, types = {}, {}
     for rel in root.findall(_P + "Relationship"):
         target = rel.get("Target", "")
         if rel.get("TargetMode") == "External":
             continue
         resolved = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join(base, target))
         out[rel.get("Id", "")] = resolved
+        types[rel.get("Id", "")] = rel.get("Type", "")
+    return (out, types) if with_types else out
+
+
+_ESCAPED = re.compile(r"_x([0-9A-Fa-f]{4})_")
+
+
+def decode_text(text: str) -> str:
+    """Excel's ``_xHHHH_`` escapes undone: ``_x000D_`` is a carriage return, ``_x005F_`` a literal underscore."""
+    return _ESCAPED.sub(lambda m: chr(int(m.group(1), 16)), text) if "_x" in text else text
+
+
+_XML_INVALID = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff\ud800-\udfff]")
+
+
+def encode_text(text: str) -> str:
+    """Text made safe for a cell, the way Excel does it: a character XML 1.0 forbids becomes ``_xHHHH_``,
+    and text that already looks like an escape has its underscore escaped, so it reads back as typed."""
+    text = _ESCAPED.sub(lambda m: "_x005F_" + m.group(0)[1:], text)
+    return _XML_INVALID.sub(lambda m: "_x%04X_" % ord(m.group(0)), text)
+
+
+def _percent_styles(archive: zipfile.ZipFile, part: str, name: str) -> set:
+    """The indexes of the cell formats (``s``) that show a number as a percentage."""
+    try:
+        root = _parse(archive, part, name)
+    except NotReady:
+        return set()
+    codes = {9: "0%", 10: "0.00%"}
+    formats = root.find(_M + "numFmts")
+    for fmt in (formats if formats is not None else []):
+        try:
+            codes[int(fmt.get("numFmtId", "-1"))] = fmt.get("formatCode", "")
+        except ValueError:
+            continue
+    xfs = root.find(_M + "cellXfs")
+    out = set()
+    for index, xf in enumerate(xfs if xfs is not None else []):
+        try:
+            code = codes.get(int(xf.get("numFmtId", "0")), "")
+        except ValueError:
+            continue
+        if "%" in re.sub(r'"[^"]*"|\\.', "", code):     # a % outside quoted text or an escape
+            out.add(index)
     return out
 
 
-def _shared_strings(archive: zipfile.ZipFile, name: str) -> List[str]:
-    root = _parse(archive, "xl/sharedStrings.xml", name)
+def _shared_strings(archive: zipfile.ZipFile, part: str, name: str) -> List[str]:
+    root = _parse(archive, part, name)
     return [_string_item(si) for si in root.findall(_M + "si")]
 
 
@@ -250,23 +306,30 @@ def _string_item(item: ElementTree.Element) -> str:
     """The text of an ``<si>`` or ``<is>``: its ``<t>``, or its runs' ``<t>``s joined — never the phonetic ``<rPh>``."""
     direct = item.find(_M + "t")
     if direct is not None:
-        return direct.text or ""
-    return "".join((run.find(_M + "t").text or "") for run in item.findall(_M + "r")
-                   if run.find(_M + "t") is not None)
+        return decode_text(direct.text or "")
+    return decode_text("".join((run.find(_M + "t").text or "") for run in item.findall(_M + "r")
+                               if run.find(_M + "t") is not None))
 
 
-def _read_cells(root: ElementTree.Element, strings: Sequence[str], sheet: Sheet) -> None:
+def _read_cells(root: ElementTree.Element, strings: Sequence[str], sheet: Sheet,
+                percent_styles: frozenset = frozenset()) -> None:
     data = root.find(_M + "sheetData")
     if data is None:
         return
     row_number = 0
     for row in data.findall(_M + "row"):
-        row_number = int(row.get("r", row_number + 1))
+        try:
+            row_number = int(row.get("r", row_number + 1))
+        except ValueError:
+            raise ValueError(f"a row is numbered {row.get('r')!r}, which is not a row number.") from None
         col_number = 0
         for c in row.findall(_M + "c"):
             ref = c.get("r")
             if ref:
-                row_number_c, col_number = split_ref(ref)
+                try:
+                    row_number_c, col_number = split_ref(ref)
+                except ValueError:
+                    raise ValueError(f"a cell is addressed {ref!r}, which is not one cell.") from None
             else:
                 row_number_c, col_number = row_number, col_number + 1
                 ref = make_ref(row_number_c, col_number)
@@ -284,7 +347,7 @@ def _read_cells(root: ElementTree.Element, strings: Sequence[str], sheet: Sheet)
                 inline = c.find(_M + "is")
                 text = _string_item(inline) if inline is not None else ""
             elif kind == "str":
-                text = raw
+                text = decode_text(raw)
             elif kind == "b":
                 text = "TRUE" if raw.strip() == "1" else ("FALSE" if raw.strip() else "")
             elif kind == "e":
@@ -297,7 +360,12 @@ def _read_cells(root: ElementTree.Element, strings: Sequence[str], sheet: Sheet)
                 error = error or "#NOVALUE"
             if not (text or error or formula):
                 continue
-            sheet.cells[(row_number_c, col_number)] = Cell(ref, row_number_c, col_number, text, formula, error)
+            try:
+                percent = int(c.get("s", "0")) in percent_styles
+            except ValueError:
+                percent = False
+            sheet.cells[(row_number_c, col_number)] = Cell(ref, row_number_c, col_number, text, formula, error,
+                                                           percent)
 
 
 # ------------------------------------------------------------------ writing a new workbook
@@ -325,6 +393,8 @@ def write_new(path: str, sheets: Sequence[NewSheet]) -> None:
     names = [s.name for s in sheets]
     if len(set(n.lower() for n in names)) != len(names):
         raise XlsxError("Two sheets share a name.")
+    for n in names:
+        check_sheet_name(n)
     parts: List[Tuple[str, bytes]] = [
         ("[Content_Types].xml", _content_types(len(sheets))),
         ("_rels/.rels", _root_rels()),
@@ -335,6 +405,13 @@ def write_new(path: str, sheets: Sequence[NewSheet]) -> None:
     for index, sheet in enumerate(sheets, start=1):
         parts.append((f"xl/worksheets/sheet{index}.xml", sheet_xml(sheet).encode("utf-8")))
     _write_zip_atomically(path, parts)
+
+
+def check_sheet_name(name: str) -> None:
+    """Excel's limits on a sheet's name: 1–31 characters, none of ``[]:*?/\\``, not starting or ending with ``'``."""
+    if not name or len(name) > 31 or re.search(r"[\[\]:*?/\\]", name) or name.startswith("'") or name.endswith("'"):
+        raise XlsxError(f"{name!r} cannot name a sheet: Excel allows 1 to 31 characters, without [ ] : * ? / \\ "
+                        "and not starting or ending with an apostrophe.")
 
 
 def _write_zip_atomically(path: str, parts: Iterable[Tuple[Union[str, zipfile.ZipInfo], bytes]]) -> None:
@@ -433,8 +510,10 @@ def cell_xml(ref: str, value: Value, style: int = 0) -> str:
     if isinstance(value, bool):
         return f'<c r="{ref}"{s} t="b"><v>{int(value)}</v></c>'
     if isinstance(value, (int, float)):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise XlsxError(f"{ref} cannot hold {value!r}: a cell holds finite numbers only.")
         return f'<c r="{ref}"{s}><v>{_number_out(value)}</v></c>'
-    text = str(value)
+    text = encode_text(str(value))
     space = ' xml:space="preserve"' if text != text.strip() or "\n" in text else ""
     return f'<c r="{ref}"{s} t="inlineStr"><is><t{space}>{escape(text)}</t></is></c>'
 
@@ -473,11 +552,14 @@ def sheet_xml(sheet: NewSheet) -> str:
         for col, words in sorted(sheet.lists.items()):
             joined = ",".join(words)
             if len(joined) > 255:
-                raise XlsxError(f"The drop-down list for column {column_letters(col)} is longer than Excel allows.")
+                continue      # longer than Excel allows in a list: the column simply has no drop-down
             sqref = f"{column_letters(col)}{first}:{column_letters(col)}{first + LIST_ROWS - 1}"
-            items.append(f'<dataValidation type="list" allowBlank="1" showErrorMessage="1" sqref="{sqref}">'
+            # No error alert: the list offers the canonical words, but the format also accepts short forms
+            # (ext, R, double) and an axis as three numbers, which a stop-style alert would refuse.
+            items.append(f'<dataValidation type="list" allowBlank="1" sqref="{sqref}">'
                          f'<formula1>{escape(_quote_list(joined))}</formula1></dataValidation>')
-        validations = f'<dataValidations count="{len(items)}">{"".join(items)}</dataValidations>'
+        validations = (f'<dataValidations count="{len(items)}">{"".join(items)}</dataValidations>'
+                       if items else "")
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
             f'<worksheet xmlns="{MAIN_NS}" xmlns:r="{REL_NS}">{views}{cols}'
             f'<sheetData>{"".join(rows_xml)}</sheetData>{validations}</worksheet>')
@@ -496,7 +578,6 @@ class CellWrite:
 
     written: List[str] = field(default_factory=list)
     refused: List[Tuple[str, str]] = field(default_factory=list)
-    added_columns: List[str] = field(default_factory=list)
 
 
 def lock_file(path: str) -> str:
@@ -519,11 +600,15 @@ def write_cells(path: str, changes: Mapping[str, Mapping[str, Value]],
     never written: it comes back in ``refused``. Writes ``out_path`` if given,
     else the workbook itself, through a temporary file and a replace.
     """
-    target = out_path or path
-    if not out_path and is_open_in_excel(path):
+    source = os.path.realpath(path)          # through a symlink: the workbook is the file it points at
+    target = os.path.realpath(out_path) if out_path else source
+    writing_source = target == source or (os.path.exists(target) and os.path.samefile(target, source))
+    if writing_source and is_open_in_excel(path):
         raise Locked(f"{os.path.basename(path)} is open in Excel, so it cannot be saved from here. Close it "
                      "there, or use Export as… to write a new file.")
-    with open(path, "rb") as handle:
+    if out_path and not writing_source and os.path.exists(target):
+        raise XlsxError(f"{out_path} already exists, and Export as… never overwrites a file.")
+    with open(source, "rb") as handle:
         data = handle.read()
     book = read_bytes(data, path)
     result = CellWrite()
@@ -538,8 +623,17 @@ def write_cells(path: str, changes: Mapping[str, Mapping[str, Value]],
             for ref in cells:
                 result.refused.append((f"{sheet_name}!{ref}", f"there is no sheet called {sheet_name}"))
             continue
-        text = contents[sheet.part].decode("utf-8")
-        text, done, refused = _splice_cells(text, cells)
+        try:
+            text = contents[sheet.part].decode("utf-8")
+        except UnicodeDecodeError:
+            raise XlsxError(f"The {sheet.name} sheet is not stored as UTF-8, so its cells cannot be changed "
+                            "safely. Save the workbook again from Excel.") from None
+        try:
+            text, done, refused = _splice_cells(text, cells)
+        except ValueError as exc:
+            raise XlsxError(f"{sheet.name}: {exc}") from None
+        if done:
+            _check_splice(contents[sheet.part], text, done, sheet.name)
         result.written += [f"{sheet.name}!{ref}" for ref in done]
         result.refused += [(f"{sheet.name}!{ref}", why) for ref, why in refused]
         if done:
@@ -580,10 +674,46 @@ def write_cells(path: str, changes: Mapping[str, Mapping[str, Value]],
     for info in infos:
         parts.append((info, edited.get(info.filename, contents[info.filename])))
     parts += new_parts
-    if out_path and os.path.exists(out_path) and not os.path.samefile(out_path, path):
-        raise XlsxError(f"{out_path} already exists, and Export as… never overwrites a file.")
+    for part in ("xl/workbook.xml", "xl/_rels/workbook.xml.rels", "[Content_Types].xml"):
+        if part in edited:
+            try:
+                ElementTree.fromstring(edited[part])
+            except ElementTree.ParseError as exc:
+                raise XlsxError(f"Changing {part} would have left it unreadable ({exc}); nothing was written.") \
+                    from None
     _write_zip_atomically(target, parts)
     return result
+
+
+def _check_splice(before: bytes, after_text: str, written: Sequence[str], sheet_name: str) -> None:
+    """The safety net: the edited sheet must parse, and every cell not written must read exactly as before.
+
+    The splice works on text, so a shape it does not expect (a comment, CDATA,
+    a row twice) could cut or invent cells. Rather than trust it, read both
+    versions and compare; a difference refuses the whole write, and the
+    workbook on disk is never touched.
+    """
+    try:
+        old_root = ElementTree.fromstring(before)
+        new_root = ElementTree.fromstring(after_text.encode("utf-8"))
+    except ElementTree.ParseError as exc:
+        raise XlsxError(f"The {sheet_name} sheet could not be changed safely ({exc}); nothing was written.") \
+            from None
+    old, new = Sheet(sheet_name, ""), Sheet(sheet_name, "")
+    _read_cells(old_root, [], old)
+    _read_cells(new_root, [], new)
+    touched = {split_ref(ref) for ref in written}
+
+    def same(a: Optional[Cell], b: Optional[Cell]) -> bool:
+        if a is None or b is None:
+            return a is b
+        return (a.text, a.formula, a.error) == (b.text, b.formula, b.error)
+
+    for key in set(old.cells) | set(new.cells):
+        if key not in touched and not same(old.cells.get(key), new.cells.get(key)):
+            raise XlsxError(f"The {sheet_name} sheet could not be changed safely: {make_ref(*key)} would have "
+                            "changed too, though it was not asked to. Nothing was written; save the workbook "
+                            "again from Excel and retry.")
 
 
 _CELL = re.compile(r"<(?:\w+:)?c\b[^>]*?(?:/>|>.*?</(?:\w+:)?c>)", re.S)
@@ -599,7 +729,7 @@ def _array_ranges(text: str) -> List[Tuple[int, int, int, int]]:
     ranges = []
     for match in re.finditer(r"<(?:\w+:)?f\b([^>]*)>", text):
         attrs = _attrs(match.group(1))
-        if attrs.get("t") == "array" and attrs.get("ref"):
+        if attrs.get("t") in ("array", "dataTable") and attrs.get("ref"):
             first, _, last = attrs["ref"].partition(":")
             r1, c1 = split_ref(first)
             r2, c2 = split_ref(last or first)
@@ -620,14 +750,25 @@ def _splice_cells(text: str, cells: Mapping[str, Value]) -> Tuple[str, List[str]
     data = text[open_match.end():close_at]
     arrays = _array_ranges(data)
 
+    if "<!--" in data or "<![CDATA[" in data:
+        return text, [], [(ref, "the sheet holds XML comments or CDATA, which Excel never writes; save it "
+                                "again from Excel") for ref in cells]
     rows: Dict[int, str] = {}
     order: List[int] = []
+    last_end = 0
     for match in _ROW.finditer(data):
+        if data[last_end:match.start()].strip():
+            return text, [], [(ref, "the sheet has something between its rows that is not a row; save it "
+                                    "again from Excel") for ref in cells]
+        last_end = match.end()
         attrs = _attrs(match.group(0)[:match.group(0).index(">") + 1])
         if "r" not in attrs:
             return text, [], [(ref, "the sheet's rows are not numbered, so cells cannot be placed safely")
                               for ref in cells]
         number = int(attrs["r"])
+        if number in rows:
+            return text, [], [(ref, f"the sheet has row {number} twice; save it again from Excel")
+                              for ref in cells]
         rows[number] = match.group(0)
         order.append(number)
 
@@ -636,7 +777,7 @@ def _splice_cells(text: str, cells: Mapping[str, Value]) -> Tuple[str, List[str]
         row_number, col_number = split_ref(ref)
         ref = make_ref(row_number, col_number)
         if any(r1 <= row_number <= r2 and c1 <= col_number <= c2 for r1, c1, r2, c2 in arrays):
-            refused.append((ref, "it is part of an array formula"))
+            refused.append((ref, "it is part of an array formula or a data table"))
             continue
         row_xml = rows.get(row_number)
         if row_xml is None:
@@ -655,10 +796,13 @@ def _splice_cells(text: str, cells: Mapping[str, Value]) -> Tuple[str, List[str]
             rows[row_number] = new_row
             written.append(ref)
 
+    if data[last_end:].strip():
+        return text, [], [(ref, "the sheet has something after its rows that is not a row; save it again "
+                                "from Excel") for ref in cells]
     if not written:
         return text, [], refused
     rebuilt = "".join(rows[r] for r in sorted(set(order)))
-    # Keep whatever sat between rows in the original (nothing, in files Excel writes) only where unchanged.
+    # Nothing sits between the rows (checked above), so the rows, in order, are the whole of sheetData.
     new_text = text[:open_match.end()] + rebuilt + text[close_at:]
     new_text = _widen_dimension(new_text, [split_ref(r) for r in written])
     return new_text, written, refused
@@ -679,7 +823,7 @@ def _set_in_row(row_xml: str, row_number: int, col_number: int, ref: str, value:
     else:
         tail_at = row_xml.rindex("</")
         body, tail = row_xml[head_end:tail_at], row_xml[tail_at:]
-    head = re.sub(r'\s+spans="[^"]*"', "", head)   # a hint Excel recomputes; stale once a column is added
+    head = re.sub(r"""\s+spans=("[^"]*"|'[^']*')""", "", head)   # a hint Excel recomputes; stale once a column is added
 
     cells = []
     for match in _CELL.finditer(body):
@@ -711,10 +855,10 @@ def _set_in_row(row_xml: str, row_number: int, col_number: int, ref: str, value:
 
 
 def _widen_dimension(text: str, cells: Sequence[Tuple[int, int]]) -> str:
-    match = re.search(r'(<(?:\w+:)?dimension\b[^>]*\bref=")([^"]*)(")', text)
+    match = re.search(r"""(<(?:\w+:)?dimension\b[^>]*\bref=(["']))(.*?)(\2)""", text)
     if not match or not cells:
         return text
-    first, _, last = match.group(2).partition(":")
+    first, _, last = match.group(3).partition(":")
     try:
         r1, c1 = split_ref(first)
         r2, c2 = split_ref(last or first)
@@ -723,7 +867,7 @@ def _widen_dimension(text: str, cells: Sequence[Tuple[int, int]]) -> str:
     r1 = min([r1] + [r for r, _ in cells]); c1 = min([c1] + [c for _, c in cells])
     r2 = max([r2] + [r for r, _ in cells]); c2 = max([c2] + [c for _, c in cells])
     ref = f"{make_ref(r1, c1)}:{make_ref(r2, c2)}"
-    return text[:match.start(2)] + ref + text[match.end(2):]
+    return text[:match.start(3)] + ref + text[match.end(3):]
 
 
 # The elements that follow calcPr in CT_Workbook, in schema order.
@@ -736,8 +880,9 @@ def set_full_calc_on_load(workbook_text: str) -> str:
     match = re.search(r"<((?:\w+:)?)calcPr\b([^>]*?)(/?)>", workbook_text)
     if match:
         attrs = match.group(2)
-        if re.search(r'\bfullCalcOnLoad="[^"]*"', attrs):
-            attrs = re.sub(r'\bfullCalcOnLoad="[^"]*"', 'fullCalcOnLoad="1"', attrs)
+        quoted = r"""\bfullCalcOnLoad=("[^"]*"|'[^']*')"""
+        if re.search(quoted, attrs):
+            attrs = re.sub(quoted, 'fullCalcOnLoad="1"', attrs)
         else:
             attrs = attrs + ' fullCalcOnLoad="1"'
         tag = f"<{match.group(1)}calcPr{attrs}{match.group(3)}>"
