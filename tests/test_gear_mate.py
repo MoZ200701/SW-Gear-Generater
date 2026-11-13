@@ -7,6 +7,7 @@ findings say is the probe's to find.
 """
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -64,7 +65,10 @@ def test_round_a_ring_the_gear_mate_turns_the_same_way(settled):
     plan = pair.assembly_plan(pinion, ring, *PATHS, motion="gear mate")
     assert plan.check() == []
     gear = next(op for op in plan.ops if isinstance(op, Mate) and op.kind == "gear")
-    assert gear.ratio == (60.0, 20.0) and gear.flip is True                      # the ring is gear 1
+    assert gear.ratio == (60.0, 20.0)                                             # the ring is gear 1
+    # Not inverted for a ring: SolidWorks takes the sense from where the gears sit. With Flip True a
+    # pinion driven in its ring turned against it and clashed (probe/gear_pairs_check.py, 2026 and 2024).
+    assert gear.flip is findings.GEAR_MATE_EXTERNAL_FLIP
 
 
 def test_a_herringbone_pair_turns_on_its_mid_planes(settled):
@@ -120,3 +124,24 @@ def test_the_explainer_says_which_way_the_gears_turn():
         "gear mate → a turn of gear 1 turns gear 2 0.3333 of a turn, the other way"
     ring = PairSpec(mode="pair", motion="gear mate", mesh="internal", gear_a=A, gear_b=B)
     assert ui_text.explainer("motion", object(), "", ring)[3].endswith("the same way")
+
+
+RESULTS = Path(__file__).resolve().parents[1] / "probe" / "results"
+
+
+@pytest.mark.parametrize("folder", ["", "sw2024"])
+def test_built_pairs_turn_the_right_way_on_solidworks(folder):
+    """probe/gear_pairs_check.py: pairs built by this plan and driven 30° on SolidWorks, the log committed.
+
+    The external pair turns opposite ways at 1 : 2; the pinion in its ring the same way as the ring at 3 : 1,
+    with the gear mate's Flip the same as the external pair's, and nothing interferes after the turn.
+    """
+    logs = sorted((RESULTS / folder).glob("gear-pairs-*.log"))
+    assert logs, f"no gear-pairs log in probe/results/{folder}"
+    text = logs[-1].read_text(encoding="utf-8")
+    year = "2024" if folder else "2026"
+    assert f"attach  SolidWorks {year} " in text
+    assert "ratio -0.500000 (want -0.500000)" in text and "ratio 3.000000 (want 3.000000)" in text
+    assert "ring: spur external 20 / spur internal 60, motion gear mate, gear mate ratio (60.0, 20.0) flip False" in text
+    assert "clash ring: interference at 10° (0, 0.0), at 40° (0, 0.0)" in text
+    assert "EXPERIMENT" not in text and "done    all ok=True" in text

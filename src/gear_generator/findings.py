@@ -312,6 +312,13 @@ GEAR_MATE_ROUTE = "mates"
 MATE_GEAR = 10                   # swMateType_e.swMateGEAR
 GEAR_MATE_NUMERATOR_FIRST = True
 GEAR_MATE_EXTERNAL_FLIP = False
+# The same Flip serves a ring. probe/gear_pairs_check.py built pairs through
+# pair.assembly_plan and drove gear 1 30°: an external 20 / 40 spur pair turned
+# opposite ways at 1 : 2 with Flip False, and a 20-tooth pinion in a 60-tooth ring
+# turned the SAME way as the ring at 3 : 1, with no interference, also with Flip
+# False; with Flip True it turned against the ring and the teeth clashed (4
+# interferences). So SolidWorks takes the sense from where the gears sit, and
+# Flip only reverses it; pair.py no longer inverts it for a ring.
 # The crossed frame's mates held its rotation; a point's distance from a plane is
 # measured along the plane's normal, so a negative offset is mated flipped.
 CROSSED_ROUTE = "mates"

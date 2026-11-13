@@ -938,7 +938,13 @@ def _turning_ops(first: GearSpec, second: GearSpec, path_1: str, path_2: str, te
         raise InputError("A gear mate has not been settled on SolidWorks yet: run the gear_mate probe on the "
                          "host (probe.sh --only gear_mate) and record its findings first, or build the pair fixed.")
     teeth_1, teeth_2 = first.teeth_count(), second.teeth_count()
-    flip = findings.GEAR_MATE_EXTERNAL_FLIP if not ring else not findings.GEAR_MATE_EXTERNAL_FLIP
+    # The same Flip round a ring as outside one. SolidWorks takes a gear mate's sense
+    # from where the gears sit: built through this plan and driven 30°, a 20-tooth
+    # pinion in a 60-tooth ring turned the same way as the ring at 3 : 1, clear of
+    # it, with Flip False, and against it, clashing, with Flip True (SolidWorks
+    # 2026 and 2024, probe/gear_pairs_check.py). Flip was inverted for a ring here
+    # once, by reasoning from probe gear_mate's two cylinders alone.
+    flip = findings.GEAR_MATE_EXTERNAL_FLIP
     # Gear 2's origin sits level with gear 1's, or, for a herringbone, where its mid-plane meets gear 1's.
     z = (first.face_width_mm() - second.face_width_mm()) / 2.0 if faces != "plane1" else 0.0
     return (
