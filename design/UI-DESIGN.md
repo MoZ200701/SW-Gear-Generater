@@ -63,7 +63,7 @@ below that only some kinds have — `_show_helix_rows` decides all of them (§2,
 | Shaft angle | Pair | bevel, and crossed pairs |
 | Hands (`Same` · `Opposite`) | Pair | crossed pairs |
 | Helix range | Pair | helical pairs on parallel shafts |
-| Assembly (`Fixed` · `Gear mate`, hint *not yet probed* while `Gear mate` is greyed) | Pair | every pair on parallel shafts; bevel and crossed pairs are built fixed |
+| Assembly (`Fixed` · `Gear mate`; `Gear mate` greyed, hint *not yet probed*, only while `findings.GEAR_MATE_ROUTE` is unset — it has been set since probe `gear_mate` passed) | Pair | every pair on parallel shafts; bevel and crossed pairs are built fixed |
 
 Each new field has an explainer card; its diagram is, for now, an existing
 field's (`widgets.DIAGRAM_ALIASES`): Teeth side and Mate teeth draw the teeth
@@ -311,9 +311,10 @@ And where the window differs from the artboards, because Tk would not do it:
 - **Pair readout and rows** say `R` and *Cone distance* for a bevel pair.
 - **Candidates**: a bevel row's error is *R +0.03 mm*, an internal row adds
   *clash 0.14 mm*, a crossed row starts *β45°/45°*. A bevel row with a crown
-  or internal bevel gear starts *B crown ·* or *B internal ·*. Build refuses
-  those two until probe `bevel_planes_beyond_90` has run, in the status line,
-  as the gear mate does; nothing on the form is greyed for it.
+  or internal bevel gear starts *B crown ·* or *B internal ·*. Build makes
+  those two like any bevel gear now that probe `bevel_planes_beyond_90` has
+  passed; before, it refused them in the status line, with nothing on the form
+  greyed for it.
 - **Preview** (`preview.layout_internal`, `preview.layout_bevel`): a pinion is
   drawn inside its ring, the rim a plain circle, the pinion turned half its
   pitch; a bevel gear is its axial section, both halves, with the pitch cone and

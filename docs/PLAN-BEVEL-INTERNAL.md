@@ -37,7 +37,7 @@ Judgement calls (change at review if wrong):
 - A bevel part's **pitch apex is at the part origin**, with the axis along +Z.
 - Crown gears and internal bevels (δ = 90° or more) are refused. *Superseded 2026-09-29: both are built
   — a crown gear's section is a rack's, an internal bevel's a ring's — behind probe
-  `bevel_planes_beyond_90`; see "Follow-on" at the end.*
+  `bevel_planes_beyond_90`, which passed on 2026-11-13; see "Follow-on" at the end.*
 - Phase order is **internal → crossed → bevel**, easiest first. Crossed introduces the interference
   check and non-parallel mates in the simpler setting.
 
@@ -487,6 +487,11 @@ Where the build differs from the plan above, and what was observed on SolidWorks
   120° and measures its sketch frame, as `ref_plane_normal` did at 30° and 50°. Until it passes,
   `findings.BEVEL_CROWN_SECTION_X_SIGN` and `BEVEL_INTERNAL_SECTION_X_SIGN` are None and Build refuses
   those gears with the probe's name.
+  - *Passed 2026-11-13* on SolidWorks 2026 (34.0.0) and 2024 (32.5.0), the same on both: on cones of
+    90° and 120° the angle read as meant, the plane's origin was the line's end, and its sketch +x
+    pointed the way the tips do, as below 90°. Both signs are +1 and Build no longer refuses these
+    gears. A crown bevel pair and an internal bevel pair were then built through the tool on 2026
+    with no failure and no interference (commit `70e3e1b`); not yet on 2024.
 - **Fixed on the way:** recipe B's bevel sections linked their pitch circle to `"Pitch Diameter"` (the
   heel's) instead of `"Back Cone Pitch Diameter"`, so SolidWorks would have rebuilt the flank arcs on
   the wrong circle. Every bevel recipe-B plan was affected; recipe A, the default and the one probe
