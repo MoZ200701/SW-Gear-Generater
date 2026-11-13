@@ -289,6 +289,50 @@ def _shifted(row: Candidate, centre: float, pressure_angle: float, limit_1: floa
     )
 
 
+def shift_for_centre(module: float, teeth_1: int, teeth_2: int, centre: float, pressure_angle: float = 20.0,
+                     helix_angle: float = 0.0) -> Tuple[float, float]:
+    """The profile shifts ``(x1, x2)`` that put an outside pair exactly at ``centre``, or a sentence why not.
+
+    The same sum the solver's shifted rows use, shared out by :func:`split_shift`
+    against each gear's undercut limit, and refused past the same limits: a
+    shift sum or a shift over 1, a tip thinner than the warning, or tips too
+    near the other gear's root. Used where a centre distance is given rather
+    than solved for: a workbook's shafts (PLAN-WORKBOOK §3.6). Full precision is
+    returned; rounding it to look tidy moves the centre (x 0.085 instead of
+    0.084550 misses 64 mm by 0.0013 mm).
+    """
+    m, z1, z2, beta = module, teeth_1, teeth_2, helix_angle
+    alpha_t = helical.transverse_pressure_angle(pressure_angle, beta) if beta else pressure_angle
+    plain = module / math.cos(math.radians(beta)) * (z1 + z2) / 2.0
+    cosine = plain * math.cos(math.radians(alpha_t)) / centre
+    if not 0.0 < cosine < 1.0:
+        raise ValueError(f"No profile shift brings these teeth to {_num(centre)} mm; their plain centre distance "
+                         f"is {_num(plain)} mm.")
+    total = (z1 + z2) * (inv(math.acos(cosine)) - inv(math.radians(alpha_t))) / (2.0 * math.tan(math.radians(pressure_angle)))
+    if abs(total) > SHIFT_SUM_LIMIT:
+        raise ValueError(f"Meeting {_num(centre)} mm needs shifts adding up to {total:+.3f}, past the ±{SHIFT_SUM_LIMIT:g} "
+                         f"this tool offers; move the shaft instead.")
+    if beta:
+        limit_1 = limit_2 = helical.undercut_minimum(pressure_angle, beta)
+    else:
+        limit_1 = limit_2 = undercut_minimum(pressure_angle)
+    x1, x2 = split_shift(total, z1, z2, limit_1, limit_2)
+    if max(abs(x1), abs(x2)) > SHIFT_LIMIT:
+        raise ValueError(f"Meeting {_num(centre)} mm needs a shift of {max(abs(x1), abs(x2)):.3f} on one gear, past "
+                         f"the {SHIFT_LIMIT:g} this tool offers; move the shaft instead.")
+    if min(tip_thickness(m, z1, pressure_angle, beta, x1),
+           tip_thickness(m, z2, pressure_angle, beta, x2)) < TIP_THICKNESS_WARNING * m:
+        raise ValueError(f"The shifts that meet {_num(centre)} mm leave a tooth tip too thin; move the shaft instead.")
+    if tip_clearance(m, z1, z2, pressure_angle, beta, x1, x2) < CLEARANCE_MIN * m:
+        raise ValueError(f"The shifts that meet {_num(centre)} mm bring the tips too near the other gear's root; "
+                         "move the shaft instead.")
+    return x1, x2
+
+
+def _num(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
 def _offer_shifted(found: dict, centre: float, pressure_angle: float) -> None:
     """Add a shifted row for every standard row that misses the centre distance or undercuts.
 
@@ -1237,5 +1281,5 @@ def assembly_plan(gear_a: GearSpec, gear_b: GearSpec, path_a: str, path_b: str, 
 __all__ = [
     "Candidate", "apply", "assembly_plan", "bevel_assembly_plan", "bevel_candidate", "bevel_forms", "crossed_assembly_plan", "describe", "describe_crossed", "floor_teeth", "internal_mesh_angle", "mate_angle", "mesh_angle",
     "solve",
-    "solve_spec", "undercut_minimum",
+    "solve_spec", "undercut_minimum", "shift_for_centre",
 ]
