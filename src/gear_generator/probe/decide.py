@@ -165,6 +165,24 @@ def crossed_route(records: Records) -> Optional[str]:
     return "mates" if _passed(records, "nonparallel_mates") else None
 
 
+# Tier 7 (PLAN-WORKBOOK §4.2): items 1–4 each STOP the layout if they fail; item 5 has a fallback.
+WORKBOOK_LAYOUT_NEEDS = ("layout_planes", "axis_through_named_planes", "axis_through_base_planes",
+                         "layout_assembly_five", "layout_assembly_reopen")
+
+
+def workbook_layout_route(records: Records) -> str:
+    """``layout`` iff tier 7 items 1–4 passed: planes from Right and Top on a measured side that follow
+    their globals, an axis through planes made in the part and through base planes, and five components
+    placed, fixed, reopened, found by name and re-placed. Otherwise STOP and ask, as the plan says."""
+    return "layout" if all(_passed(records, name) for name in WORKBOOK_LAYOUT_NEEDS) else STOP
+
+
+def update_open_route(records: Records) -> str:
+    """``open and activate`` when a closed part opened by path became active and update_variables took it;
+    otherwise ``ask``: Update SolidWorks asks the user to open the part (PLAN-WORKBOOK §4.2, item 5)."""
+    return "open and activate" if _passed(records, "open_and_activate_part") else "ask"
+
+
 def decide(records: Records) -> Dict[str, Any]:
     recipe = flank_recipe(records)
     units = _fact(records, "document_units", "default_template_is_mm")
@@ -224,5 +242,18 @@ def decide(records: Records) -> Dict[str, Any]:
         "gear_mate_external_flip": _fact(records, "gear_mate", "gear_mate_external_flip"),
         "bevel_end_to_end": _passed(records, "bevel_end_to_end"),
         "crossed_end_to_end": _passed(records, "crossed_end_to_end"),
+        "workbook_layout_route": workbook_layout_route(records),
+        "layout_plus_flip": _fact(records, "layout_planes", "layout_plus_flip"),
+        "layout_negated_link": _fact(records, "layout_planes", "negated_global_link_form"),
+        "axis_plane_select_route": _fact(records, "axis_through_named_planes", "axis_plane_select_route"),
+        "axis_through_base_plane": _passed(records, "axis_through_base_planes") or None,
+        "component_find_route": _fact(records, "layout_assembly_reopen", "component_find_route"),
+        "replace_fixed_route": _fact(records, "layout_assembly_reopen", "replace_fixed_route"),
+        "open_assembly_route": _fact(records, "layout_assembly_reopen", "open_assembly_route"),
+        "update_open_route": update_open_route(records),
+        "open_doc_route": _fact(records, "open_and_activate_part", "open_doc_route"),
+        "open_doc_makes_active": _fact(records, "open_and_activate_part", "open_doc_makes_active"),
+        "open_part_beside_assembly": _passed(records, "open_part_from_assembly") or None,
+        "offset_global_crosses_zero": _fact(records, "layout_plane_negative_global", "crosses_zero"),
         "manual_steps": manual_steps(records, recipe),
     }

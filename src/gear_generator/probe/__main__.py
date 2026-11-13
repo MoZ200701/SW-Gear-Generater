@@ -34,6 +34,7 @@ def load_probes() -> None:
     from . import p0_session, p1_equations, p1_sketch, p1_curves, p2_solid, p2_helical, p2_internal, p2_bevel  # noqa: F401
     from . import p3_files, p3_properties, p4_assembly, p4_interference, p4_nonparallel, p4_gear_mate  # noqa: F401
     from . import p5_end_to_end, p5_helical, p5_internal, p5_bevel  # noqa: F401
+    from . import p7_workbook  # noqa: F401
 
 
 def default_scratch() -> str:
@@ -45,6 +46,8 @@ def parse(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m gear_generator.probe", description=__doc__.splitlines()[0])
     parser.add_argument("--only", action="append", default=[], help="run this probe (and what it needs); repeatable")
     parser.add_argument("--tier", type=int, default=None, help="run tiers up to and including this one")
+    parser.add_argument("--only-tier", type=int, default=None, metavar="N",
+                        help="run the probes of this tier alone (and what they need)")
     parser.add_argument("--extras", action="store_true", help="include the probes marked extra")
     parser.add_argument("--keep", action="store_true", help="leave scratch documents open")
     parser.add_argument("--flank", choices=("A", "B"), default=None, help="force the end-to-end recipe")
@@ -71,8 +74,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"tier {p.tier}  {p.name}{extra}{needs}")
         return EXIT_OK
 
+    only = list(args.only)
+    if args.only_tier is not None:
+        tier = [p.name for p in harness.REGISTRY if p.tier == args.only_tier and (args.extras or not p.extra)]
+        if not tier:
+            print(f"FAIL    there are no probes in tier {args.only_tier}")
+            return EXIT_FINDINGS
+        only += [name for name in tier if name not in only]
     try:
-        probes = harness.select(harness.REGISTRY, args.only, args.tier, args.extras)
+        probes = harness.select(harness.REGISTRY, only, args.tier, args.extras)
     except KeyError as exc:
         print(f"FAIL    {exc.args[0]}")
         return EXIT_FINDINGS
