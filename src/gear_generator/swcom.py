@@ -1266,8 +1266,11 @@ class Session:
     def fix_component(self, handle: str) -> None:
         """Fix a component, and read back that it is fixed.
 
-        The first component inserted is already fixed (probe
-        assembly_components_and_mates). ``FixComponent`` takes no arguments,
+        Whether the first component inserted comes in fixed depends on the
+        install: on SolidWorks 2024 it does, on 2026 with the current MMGS
+        assembly template it does not (probe assembly_components_and_mates,
+        ``first_component_fixed_on_insert``), so ``IsFixed`` is read rather than
+        assumed. ``FixComponent`` takes no arguments,
         so it is invoked explicitly: :func:`call` would only fetch it, which is
         how an earlier version never ran it at all.
         """
@@ -1288,8 +1291,9 @@ class Session:
 
         ``UnfixComponent`` takes no arguments and so is invoked explicitly, as
         ``FixComponent`` is; probe gear_mate saw the selected component float
-        after it. The first component inserted comes in fixed (probe
-        assembly_components_and_mates).
+        after it. The first component inserted may come in fixed — on 2024 it
+        does, on 2026 with the current MMGS assembly template it does not (probe
+        assembly_components_and_mates) — so ``IsFixed`` is read first.
         """
         component = self._handles[handle]["component"]
         if not bool(call(component, "IsFixed")):

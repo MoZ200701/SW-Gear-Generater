@@ -9,11 +9,12 @@ this note only says where things stand within it.
 | Phase | State |
 |---|---|
 | W0–W1 xlsx read/write, model, schema | done, reviewed by a Fable subagent, review fixes in |
-| W2 Workbook window, live link, Build parts | done, reviewed, fixes in. **The SolidWorks batch build (`swbuild.build_many`) has never run on Windows.** |
-| W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed, every review item fixed (commit `c9a072e` and the one after it) |
-| W4 layout part + static assembly | **next — needs the Windows machine** |
+| W2 Workbook window, live link, Build parts | done, reviewed, fixes in. The batch build (`swbuild.build_many`) ran on SolidWorks 2024 and 2026 (`208712c`): the 12 : 1 reducer's four parts built, matching strip-built twins; logs `probe/results/w2-build-20261113-164647.log` and `probe/results/sw2024/w2-build-20261113-165706.log`. |
+| W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed twice, every review item fixed. The Excel checks passed on Windows: the Windows-saved fixture (`aa86cc7`) reads, and exported files open in Excel with no repair prompt. |
+| W4 layout part + static assembly | **in progress on Windows**: probe tier 7 (`p7_workbook.py`, `8ef3943`) is written and being run; no results are committed yet. Its gate is built: `workbook.assess.Assessment.lay_out_refusal()`. |
 
-Suite: `.venv/bin/python -m pytest -q` → 881 passed, 1 skipped (Mac).
+Suite (WSL, 2026-11-13): `.venv/bin/python -m pytest -q` → 942 passed, 7 skipped; the 4 tier-7 tests in
+`tests/test_findings.py` fail until that run's findings are committed.
 
 ## What the last two commits did
 
@@ -40,9 +41,8 @@ Suite: `.venv/bin/python -m pytest -q` → 881 passed, 1 skipped (Mac).
 
 Read PLAN-WORKBOOK §4.2–§4.3 and the W4 row in §6:
 
-1. **Probe tier 7 first** (`p7_workbook.py`), on scratch documents like every tier, and commit its results. **If any of items 1–4 fails, STOP and ask the user.**
-2. While on Windows, also run W2's untested batch build: import `tests/fixtures/excel/Reducer_12to1.xlsx` via **Import workbook…** and press **Build parts**.
-3. Then build the layout part, the `Axis`-by-name op, the static assembly, Update SolidWorks, and build-again `_r2`.
+1. **Finish probe tier 7** (`p7_workbook.py`, being run now), on scratch documents like every tier, and commit its results and findings. **If any of items 1–4 fails, STOP and ask the user.**
+2. Then build the layout part, the `Axis`-by-name op, the static assembly, Update SolidWorks, and build-again `_r2`. Gate the W4 button on `Assessment.lay_out_refusal()` (after the window's own state: a file gone, Excel yet to recalculate, a build running), never on the parts alone.
 
 ## Rules carried over
 

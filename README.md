@@ -313,13 +313,18 @@ and can be undone; it is written to the workbook only on **Export**, and Build
 waits until it is, so the workbook and the parts agree.
 
 **Export** writes the chosen fixes' cells and a Results sheet — each shaft's
-speed and torque, each mesh's ratio, centres and contact ratio — into the
-workbook. It changes only those cells, never a formula (one that a fix would
-change is listed for you to change in Excel), and leaves everything else in the
-file as it was. Close the workbook in Excel first, or use **Export as…** to
-write a copy, which never overwrites a file either. A workbook with formulas
-then waits for you to open and save it in Excel, so its formulas recalculate,
-before it builds.
+speed and torque, each mesh's ratio, centres and contact ratio, the overall
+ratio, and the box size (across the gears' outside diameters and faces, naming
+any gear it leaves out) — into the workbook. It changes only those cells and
+leaves everything else in the file as it was. It never writes over a formula:
+when a fix's cell holds one, Export says what the fix would make it, and once
+Excel has recalculated, Checks say whether the formula put that shaft where its
+meshes need it; Results wait for that, and the window asks you to Export again.
+Close the workbook in Excel first, or use **Export as…** to write a copy, which
+never overwrites a file either. After Export has written cells into a workbook
+that has formulas, Build waits for you to open and save it in Excel, since
+formulas may depend on the cells written and hold their old values until Excel
+recalculates.
 
 **Build parts** builds every gear as a part, exactly as the form builds the same
 values, each with its `.gear.json`; identical gears share one part file, and a
