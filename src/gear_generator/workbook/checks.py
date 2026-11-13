@@ -34,6 +34,7 @@ class Report:
     theta: Dict[str, float] = field(default_factory=dict)       # each placed gear's turn, radians
     motion: kinematics.Motion = field(default_factory=kinematics.Motion)
     centres: Dict[Tuple[str, str], Tuple[float, float]] = field(default_factory=dict)   # mesh -> (needed, placed)
+    contact: Dict[Tuple[str, str], float] = field(default_factory=dict)                # mesh -> εα at the needed centre
     worked_out_as: str = ""
 
 
@@ -130,16 +131,17 @@ def _check_mesh(report: Report, spec: GearboxSpec, mesh, a: Placed, b: Placed, w
                 _error(report, where, f"the ring {other.gear} has {other.teeth} teeth and {pinion.gear} "
                                       f"{pinion.teeth}; a ring needs more teeth than the gear inside it.")
                 return
-            needed = pairs.describe(a.module, pinion.teeth, other.teeth, pa_a, beta, mesh="internal")[0]
+            needed, _, epsilon = pairs.describe(a.module, pinion.teeth, other.teeth, pa_a, beta, mesh="internal")
         else:
-            needed = pairs.describe(a.module, a.teeth, b.teeth, pa_a, beta,
-                                    shift_1=getattr(a.derived, "shift", 0.0),
-                                    shift_2=getattr(b.derived, "shift", 0.0))[0]
+            needed, _, epsilon = pairs.describe(a.module, a.teeth, b.teeth, pa_a, beta,
+                                                shift_1=getattr(a.derived, "shift", 0.0),
+                                                shift_2=getattr(b.derived, "shift", 0.0))
     except ValueError as exc:
         _error(report, where, f"{a.gear} and {b.gear}: {exc}")
         return
     placed_at = geometry.centre_distance(a, b)
     report.centres[(a.gear, b.gear)] = (needed, placed_at)
+    report.contact[(a.gear, b.gear)] = epsilon
     off = placed_at - needed
     if abs(off) > CENTRE_TOLERANCE:
         shafts = {s.id: s for s in spec.shafts}
