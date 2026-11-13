@@ -326,3 +326,28 @@ def test_a_workbook_saved_by_libreoffice_reads_the_same(tmp_path):
     assert sorted(result.written) == ["Gears!F3", "Shafts!C3"] and not result.refused
     edited, diagnostics = read(out)
     assert diagnostics == [] and edited.shaft("S2").x == "64" and edited.gear("G2").teeth == "70"
+
+
+def test_a_workbook_saved_by_excel_reads_the_same(tmp_path):
+    """tests/fixtures/excel/Reducer_12to1.xlsx: our writer's workbook, opened in Microsoft Excel for Mac 16.03
+    and saved after three edits a person would make — Shafts!C4 became the formula =C3+68, Meshes!C2 became
+    0.98 formatted as a percentage, and a Cost column was added to Gears (V).
+
+    Checked by hand on 2026-11-13: this file, edited by write_cells (S2 to 64, G2 to 70 teeth, a Results
+    sheet added), opened in that Excel with no repair prompt, and C4 recalculated to 132 on opening.
+    """
+    path = FIXTURES / "excel" / "Reducer_12to1.xlsx"
+    book = xlsx.read(path)
+    assert book.sheet("Shafts").cell(4, 3).formula and book.sheet("Shafts").cell(4, 3).text == "131.75"
+    spec, diagnostics = model.from_book(book)
+    assert diagnostics == []
+    expected = reducer()
+    expected = model.replace(expected, meshes=(model.replace(expected.meshes[0], efficiency="98"),) + expected.meshes[1:])
+    assert spec.without_rows() == expected
+
+    out = tmp_path / "edited.xlsx"
+    result = xlsx.write_cells(str(path), {"Shafts": {"C3": 64, "C4": 132}, "Gears": {"F3": 70}}, out_path=str(out))
+    assert result.refused == [("Shafts!C4", "it holds a formula")]
+    edited, diagnostics = read(out)
+    assert diagnostics == [] and edited.shaft("S2").x == "64" and edited.gear("G2").teeth == "70"
+    assert edited.shaft("S3").x == "131.75"      # the formula's old value, until Excel recalculates and saves
