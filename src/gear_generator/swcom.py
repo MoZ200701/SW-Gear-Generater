@@ -39,6 +39,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
 
 from . import findings
 from .gears.equations import DEGREES, RADIANS, equation_text, split_equation
+from .store import same_path
 
 try:  # pragma: no cover - exercised only on Windows with pywin32 present
     import pythoncom
@@ -72,6 +73,26 @@ MM_PER_METRE = 1000.0
 # swDocumentTypes_e, as GetType reports it.
 DOC_PART = 1
 DOC_ASSEMBLY = 2
+
+# The routes probe tier 7 (p7_workbook) tried for each W4 member, in its own
+# words: whichever it records in findings.py is the one taken, and every one
+# of them is written here so a different answer on another version needs no
+# new code. A finding that is None (or a route not listed) is refused, never
+# guessed.
+PLANE_SELECT_ROUTES = ("Select2 on the feature found by name", "SelectByID2 by name",
+                       "Select2 on what InsertRefPlane returned")        # AXIS_PLANE_SELECT_ROUTE
+OPEN_ROUTES = ("OpenDoc6", "OpenDoc7", "OpenDoc")                          # OPEN_DOC_ROUTE, OPEN_ASSEMBLY_ROUTE
+UPDATE_OPEN_ROUTES = ("open and activate", "ask")                          # UPDATE_OPEN_ROUTE
+COMPONENT_FIND_ROUTES = ("GetComponentByName", "GetComponents(True) by Name2",
+                         "root component GetChildren by Name2",
+                         "FeatureByName then GetSpecificFeature2")          # COMPONENT_FIND_ROUTE
+TRANSFORM_ORDERS = ("columns", "rows")                                     # TRANSFORM_ARRAY_ORDER
+
+# swComponentSuppressionState_e, as probe layout_assembly_reopen read it from
+# swconst.tlb on SolidWorks 2026: 0 suppressed, 1 lightweight, 2 fully
+# resolved, 3 resolved, 4 fully lightweight.
+COMPONENT_SUPPRESSED = 0
+COMPONENT_LIGHTWEIGHT = (1, 4)
 
 
 class SolidWorksError(Exception):
@@ -231,6 +252,44 @@ def _type_name(obj: Any) -> str:
         return str(call(obj, "GetTypeName2"))
     except Exception:  # noqa: BLE001
         return "?"
+
+
+def _read(obj: Any, name: str) -> Any:
+    """A zero-argument member, read, and invoked if what comes back is a method.
+
+    Late binding turns most zero-argument members into property gets, but not
+    all: probe tier 7 read ``IInterference.Components`` and
+    ``GetActiveConfiguration`` through this same test (p4_interference.member),
+    recording which form each took.
+    """
+    value = call(obj, name)
+    if type(value).__name__ in ("method", "function"):
+        return value()
+    return value
+
+
+def _doc_of(result: Any) -> Any:
+    """A document from a call that may hand back ``(doc, out, out)`` or the document alone (probe tier 7)."""
+    return result[0] if isinstance(result, tuple) and result else result
+
+
+def _by_ref(value: Any) -> int:
+    """What SolidWorks wrote into a by-reference integer (or the integer itself, if it came back plain)."""
+    value = getattr(value, "value", value)
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _base_name(path: str) -> str:
+    """A Windows path's file name, wherever this runs (``os.path.basename`` keeps backslashes on Linux)."""
+    return os.path.basename(str(path).replace("\\", "/"))
+
+
+def _file_name(path: str) -> str:
+    """A path's file name, lower-cased, as SolidWorks keys open documents (probe add_component_same_name_elsewhere)."""
+    return _base_name(path).lower()
 
 
 def _segment_name(segment: Any) -> str:
@@ -453,14 +512,16 @@ class Session:
         call waits on it.
         """
         self._handles: Dict[str, Any] = {}
+        self._plane_objects: Dict[str, Any] = {}  # a RefPlane handle -> what InsertRefPlane returned
         self._open_sketch: Optional[str] = None
-        self._build_doc: Any = None  # until new_part or new_assembly, the active document
+        self._build_doc: Any = None  # until new_part, new_assembly or open_document, the active document
         self._dim_dialog = bool(call(self._app, "GetUserPreferenceToggle", findings.INPUT_DIM_VAL_ON_CREATE))
         call(self._app, "SetUserPreferenceToggle", findings.INPUT_DIM_VAL_ON_CREATE, False)
 
     def end_build(self) -> None:
         """Forget the pointers; the document itself stays the build's until the next begin."""
         self._handles = {}
+        self._plane_objects = {}
         self._open_sketch = None
         previous = getattr(self, "_dim_dialog", None)
         if previous is not None:
@@ -730,28 +791,77 @@ class Session:
     # -- features
 
     def insert_axis(self, handle: str, name: str, planes: "Tuple[int | str, int | str]") -> str:
-        """Planes 2 and 3 selected, ``InsertAxis2(True)``, the new RefAxis found and named (probe axis).
+        """Two planes selected in the order given, ``InsertAxis2(True)``, the new RefAxis found and named (probe axis).
 
-        A ``str`` plane is the handle of a plane this build made (``ref_plane``
-        keeps its name in ``_handles``), selected by the route probe tier 7
-        settled, ``findings.AXIS_PLANE_SELECT_ROUTE``. That route is not
-        committed yet, so a str plane is refused here rather than guessed (W4,
-        Agent A, once the finding is in ``findings.py``).
+        An ``int`` is the Nth reference plane in tree order, as the strip's
+        "Gear Axis" uses planes 2 and 3. A ``str`` is the handle of a plane this
+        build made (``ref_plane`` keeps its name in ``_handles``), selected by
+        ``findings.AXIS_PLANE_SELECT_ROUTE``. Probe tier 7
+        axis_through_named_planes, SolidWorks 2026 (34.0.0) and 2024 (32.5.0): all three routes
+        in :data:`PLANE_SELECT_ROUTES` — ``IFeature.Select2`` on the feature
+        found by name, ``SelectByID2 "<name>", "PLANE"``, and ``Select2`` on
+        what ``InsertRefPlane`` returned — made the axis where the planes cross,
+        and it followed both planes' globals; whichever the finding names is
+        taken. An int beside a str (a shaft at X = 0 or Y = 0, through the base
+        plane itself) also needs ``AXIS_THROUGH_BASE_PLANE`` (probe
+        axis_through_base_planes). Without those findings a str plane is
+        refused rather than guessed. The order of selection sets which way the
+        axis points (``findings.LAYOUT_AXIS_Z_SIGN``), so it is never changed here.
         """
-        if any(isinstance(p, str) for p in planes):
-            raise NotImplementedError("An axis through planes made in this build waits for probe tier 7's "
-                                      "findings.AXIS_PLANE_SELECT_ROUTE (W4: Agent A, swcom.insert_axis).")
+        named = any(isinstance(p, str) for p in planes)
+        route = getattr(findings, "AXIS_PLANE_SELECT_ROUTE", None)
+        if named and route not in PLANE_SELECT_ROUTES:
+            raise SolidWorksError(f"The axis {name} goes through a plane made in this build, and how to select such a "
+                                  "plane has not been settled on SolidWorks yet (findings.AXIS_PLANE_SELECT_ROUTE is "
+                                  f"{route!r}); run probe tier 7 first.")
+        if named and any(not isinstance(p, str) for p in planes) \
+                and getattr(findings, "AXIS_THROUGH_BASE_PLANE", None) is not True:
+            raise SolidWorksError(f"The axis {name} goes through a base plane and a plane made in this build, which "
+                                  "has not been settled on SolidWorks yet (findings.AXIS_THROUGH_BASE_PLANE); "
+                                  "run probe tier 7 first.")
         doc = self._doc()
         before = self._top_names()
-        self.select_plane_by_order(planes[0])
-        self.select_plane_by_order(planes[1], append=True)
+        labels = []
+        for index, plane in enumerate(planes):
+            if isinstance(plane, str):
+                labels.append(self._select_made_plane(plane, route, append=index > 0))
+            else:
+                self.select_plane_by_order(plane, append=index > 0)
+                labels.append(f"plane {plane}")
         made = call(doc, "InsertAxis2", True)
         call(doc, "ClearSelection2", True)
         if not made:
-            raise SolidWorksError(f"InsertAxis2 would not make {name} from planes {planes[0]} and {planes[1]}.")
+            if not named:
+                raise SolidWorksError(f"InsertAxis2 would not make {name} from planes {planes[0]} and {planes[1]}.")
+            raise SolidWorksError(f"InsertAxis2 would not make {name} from {labels[0]} and {labels[1]}.")
         kept = self._rename(self._made_since(before, "RefAxis", "InsertAxis2"), name)
         self._handles[handle] = kept
         return kept
+
+    def _select_made_plane(self, ref: str, route: str, append: bool) -> str:
+        """A plane this build made, selected by ``route`` (one of :data:`PLANE_SELECT_ROUTES`); returns its name."""
+        name = self._handles.get(ref)
+        if not isinstance(name, str):
+            raise SolidWorksError(f"The plane {ref!r} has not been made in this build.")
+        if route == PLANE_SELECT_ROUTES[0]:
+            self._select_feature(self._by_name(name), append=append)
+            return name
+        doc = self._doc()
+        if not append:
+            call(doc, "ClearSelection2", True)
+        before = self._selected()
+        if route == PLANE_SELECT_ROUTES[1]:
+            attempt = lambda: call(call(doc, "Extension"), "SelectByID2", name, "PLANE", 0.0, 0.0, 0.0,  # noqa: E731
+                                   append, 0, _null_dispatch(), 0)
+        else:
+            returned = getattr(self, "_plane_objects", {}).get(ref)
+            if returned is None:
+                raise SolidWorksError(f"InsertRefPlane gave nothing back for {name}, so it cannot be selected by "
+                                      "what it returned.")
+            attempt = lambda: call(returned, "Select2", append, 0)  # noqa: E731
+        if self._retry_select(attempt, before):
+            return name
+        raise SolidWorksError(f"{name} could not be selected by {route} {self._selection_context()}.")
 
     def open_sketch(self, handle: str, plane: "int | str") -> None:
         """On the Nth reference plane in tree order, or on a plane this build made, by its handle."""
@@ -1082,6 +1192,9 @@ class Session:
         kept = self._rename(feature, name)
         dim = self._name_dimension_by_value(feature, m, offset_dim, "offset")
         self._handles[handle] = kept
+        # Kept too for AXIS_PLANE_SELECT_ROUTE "Select2 on what InsertRefPlane returned"; _handles holds the name,
+        # which open_sketch, circular_pattern and mirror_body read as a str.
+        self.__dict__.setdefault("_plane_objects", {})[handle] = made
         return kept, dim
 
     def sweep_cut(self, handle: str, profile: str, path: str, name: str, twist: float, reverse: bool,
@@ -1265,13 +1378,56 @@ class Session:
     # -- assemblies
 
     def add_component(self, handle: str, path: str, at: Tuple[float, float, float]) -> str:
-        """``AddComponent5``: the part must already be open (API help); returns ``Name2``."""
+        """``AddComponent5``: the part must already be open; returns ``Name2``, after checking the file it took.
+
+        Probe add_component_opened_part, SolidWorks 2026 and 2024: a part saved and
+        closed was refused (None), the same part opened by ``OpenDoc6`` first
+        went in, and one file inserted twice was ``<stem>-1`` and ``<stem>-2``
+        (``findings.REUSE_ADD_ROUTE``). Probe add_component_same_name_elsewhere:
+        SolidWorks keeps one document per file name, so a part of the same name
+        from another folder was refused too; but which file a component took
+        is what a build must never get wrong (W4 decision 7), so the inserted
+        component's path is read back (:meth:`_component_path`) and compared.
+        """
         m = MM_PER_METRE
-        component = call(self._doc(), "AddComponent5", path, 0, "", False, "", at[0] / m, at[1] / m, at[2] / m)
+        doc = self._doc()
+        component = call(doc, "AddComponent5", path, 0, "", False, "", at[0] / m, at[1] / m, at[2] / m)
         if component is None:
             raise SolidWorksError(f"AddComponent5 would not insert {path}.")
+        kept = str(call(component, "Name2"))
+        took = self._component_path(component)
+        if not same_path(took, path):
+            raise SolidWorksError(f"AddComponent5 put {kept} into {call(doc, 'GetTitle')} from "
+                                  f"{took or 'a file whose path could not be read'}, not from {path}; a document "
+                                  "of the same file name may be open from another folder.")
         self._handles[handle] = {"component": component, "path": path}
-        return str(call(component, "Name2"))
+        return kept
+
+    @staticmethod
+    def _component_path(component: Any) -> str:
+        """The file a component refers to, or ``""`` when it cannot be read.
+
+        ``IComponent2.GetModelDoc2`` on a component just inserted is what the
+        mates select a component's planes through (probe gear_mate, 2026), and
+        ``IModelDoc2.GetPathName`` is how every save is read back (probe
+        save_as); together they have not yet been compared with the inserted
+        path on SolidWorks (W4 Windows run: UNVERIFIED). A component whose
+        model is not loaded (lightweight) gives no model, so
+        ``IComponent2.GetPathName`` is asked instead (UNVERIFIED: no probe has
+        called it).
+        """
+        try:
+            model = call(component, "GetModelDoc2")
+        except Exception:  # noqa: BLE001 - fall through to the component's own path
+            model = None
+        if model is not None:
+            path = str(call(model, "GetPathName") or "")
+            if path:
+                return path
+        try:
+            return str(call(component, "GetPathName") or "")
+        except Exception:  # noqa: BLE001 - a path that cannot be read is reported by the caller
+            return ""
 
     def fix_component(self, handle: str) -> None:
         """Fix a component, and read back that it is fixed.
@@ -1546,47 +1702,249 @@ class Session:
 
     # -- W4: a workbook's layout part and static assembly (docs/PLAN-WORKBOOK.md §4.2–§4.5)
     #
-    # Interfaces only, pinned before the work was split; Agent A implements each from probe tier 7's committed
-    # findings (p7_workbook.py). Every one runs on the worker thread, takes and returns millimetres, and raises
-    # SolidWorksError with a full sentence; none ever closes, saves or overwrites a document.
+    # Written from probe tier 7 (p7_workbook.py), which agreed on SolidWorks 2026 (34.0.0) and 2024 (32.5.0); each finding is read with getattr
+    # so a finding not (yet) in findings.py is refused with a sentence rather than guessed. Every one runs on the
+    # worker thread, takes and returns millimetres, and raises SolidWorksError with a full sentence; none ever
+    # closes, saves or overwrites a document.
+
+    def _open_documents(self) -> List[Any]:
+        out: List[Any] = []
+        doc = call(self._app, "GetFirstDocument")
+        guard = 0
+        while doc is not None and guard < 200:
+            guard += 1
+            out.append(doc)
+            doc = call(doc, "GetNext")
+        return out
 
     def open_document(self, path: str) -> DocInfo:
         """Open a saved part or assembly by path, make it the active document and this session's build document.
 
-        ``OpenDoc6`` by ``findings.OPEN_DOC_ROUTE`` (an assembly by
-        ``OPEN_ASSEMBLY_ROUTE``), silently (``OPEN_DOC_SILENT``); a document
-        already open comes back with warning ``OPEN_DOC_ALREADY_OPEN_WARNING``
-        and is *not* brought forward, so ``ActivateDoc3`` always follows. The
-        active document's path is read back and compared with ``same_path``;
-        then ``_build_doc`` is that document, so ``equations``,
-        ``set_global_variable``, ``rebuild``, ``feature_names`` and
-        ``find_component`` act on it. A document of the same file name open
-        from another folder is refused before ``OpenDoc6`` is asked
-        (``SAME_NAME_OPEN_ERROR``), naming both paths. Returns the opened
-        document as :class:`DocInfo`.
+        Probe open_and_activate_part, SolidWorks 2026 (34.0.0) and 2024 (32.5.0) alike:
+        ``OpenDoc6(path, type, swOpenDocOptions_Silent 1, "", out errors, out
+        warnings)`` returned the document itself (not a tuple) with errors 0
+        and made a closed part active over another document; on a part already
+        open it returned the same document with warning 128
+        (``OPEN_DOC_ALREADY_OPEN_WARNING``) and did *not* bring it forward, so
+        ``ActivateDoc3`` always follows. Probe open_part_from_assembly: the
+        same for a part loaded only as a component of an open assembly. Probe
+        layout_assembly_reopen: an assembly by the same call
+        (``OPEN_ASSEMBLY_ROUTE``), every component fully resolved. The route
+        is ``findings.OPEN_DOC_ROUTE`` (an assembly's ``OPEN_ASSEMBLY_ROUTE``),
+        any of :data:`OPEN_ROUTES` (OpenDoc7 and OpenDoc as the probe tried
+        them, UNVERIFIED: neither has opened a document for the app). With
+        ``UPDATE_OPEN_ROUTE`` "ask" nothing is opened: the document must
+        already be open, and is only activated.
+
+        A document of the same file name open from another folder is refused
+        before anything is asked, naming both paths: probe
+        add_component_same_name_elsewhere saw ``OpenDoc6`` answer it with no
+        document and error ``SAME_NAME_OPEN_ERROR`` (65536,
+        swFileWithSameTitleAlreadyOpen), which is worded the same way if it
+        happens anyway. The active document's path is read back and compared;
+        then ``_build_doc`` is this document, so ``equations``,
+        ``set_global_variable``, ``rebuild`` and ``find_component`` act on it.
         """
-        raise NotImplementedError("W4: Agent A, swcom.Session.open_document")
+        lowered = str(path).lower()
+        if not lowered.endswith((".sldprt", ".sldasm")):
+            raise SolidWorksError(f"{path} is neither a SolidWorks part nor an assembly, so it is not opened.")
+        doc_type = DOC_ASSEMBLY if lowered.endswith(".sldasm") else DOC_PART
+        how = getattr(findings, "UPDATE_OPEN_ROUTE", None)
+        if how not in UPDATE_OPEN_ROUTES:
+            raise SolidWorksError(f"Opening {_base_name(path)} by its path has not been settled on SolidWorks "
+                                  f"yet (findings.UPDATE_OPEN_ROUTE is {how!r}); run probe tier 7 first.")
+        for other in self._open_documents():
+            other_path = str(call(other, "GetPathName") or "")
+            if other_path and _file_name(other_path) == _file_name(path) and not same_path(other_path, path):
+                raise SolidWorksError(self._same_name_sentence(other_path, path))
+        if how == "ask":
+            doc = next((d for d in self._open_documents() if same_path(str(call(d, "GetPathName") or ""), path)),
+                       None)
+            if doc is None:
+                raise SolidWorksError(f"Open {path} in SolidWorks, then try again: this SolidWorks cannot be asked "
+                                      "to open a document by its path (findings.UPDATE_OPEN_ROUTE).")
+        else:
+            doc = self._open_by_route(path, doc_type)
+        info = self._describe(doc)
+        if not same_path(info.path, path):
+            raise SolidWorksError(f"SolidWorks opened {info.path or info.title} when asked for {path}.")
+        if info.doc_type != doc_type:
+            noun = "an assembly" if doc_type == DOC_ASSEMBLY else "a part"
+            raise SolidWorksError(f"{path} opened as a document of type {info.doc_type}, not as {noun}.")
+        call(self._app, "ActivateDoc3", info.title, False, 0, _out_long())
+        active = call(self._app, "ActiveDoc")
+        active_path = "" if active is None else str(call(active, "GetPathName") or "")
+        if not same_path(active_path, path):
+            now = "nothing" if active is None else str(call(active, "GetTitle"))
+            raise SolidWorksError(f"SolidWorks opened {info.title} but left {now} active after ActivateDoc3, so "
+                                  "it is not changed.")
+        self._build_doc = doc
+        return info
+
+    @staticmethod
+    def _same_name_sentence(open_path: str, path: str) -> str:
+        title = _base_name(open_path)
+        return (f"{open_path} is open in SolidWorks, and it has the same file name as {path}; SolidWorks keeps one "
+                f"document per file name, so close {title} in SolidWorks and try again.")
+
+    def _open_by_route(self, path: str, doc_type: int) -> Any:
+        """``OpenDoc6`` (or the route the finding names), silently; the document, or a sentence."""
+        name = "OPEN_ASSEMBLY_ROUTE" if doc_type == DOC_ASSEMBLY else "OPEN_DOC_ROUTE"
+        route = getattr(findings, name, None)
+        silent = getattr(findings, "OPEN_DOC_SILENT", None)
+        if route not in OPEN_ROUTES or (route == "OpenDoc6" and silent is None):
+            raise SolidWorksError(f"Opening {_base_name(path)} by its path has not been settled on SolidWorks "
+                                  f"yet (findings.{name} is {route!r}); run probe tier 7 first.")
+        error = 0
+        if route == "OpenDoc6":
+            errors, warnings = _out_long(), _out_long()
+            result = call(self._app, "OpenDoc6", path, doc_type, silent, "", errors, warnings)
+            if isinstance(result, tuple) and len(result) >= 2:
+                error = _by_ref(result[1])
+            else:
+                error = _by_ref(errors)
+        elif route == "OpenDoc7":
+            spec = call(self._app, "GetOpenDocSpec", path)
+            spec.Silent = True
+            result = call(self._app, "OpenDoc7", spec)
+            error = _by_ref(getattr(spec, "Error", 0))
+        else:
+            result = call(self._app, "OpenDoc", path, doc_type)
+        doc = _doc_of(result)
+        same_name = getattr(findings, "SAME_NAME_OPEN_ERROR", None)
+        if same_name and error & same_name == same_name:
+            raise SolidWorksError(f"SolidWorks would not open {path}: a document of the same file name is open "
+                                  f"from another folder (error {error}); close it in SolidWorks and try again.")
+        if doc is None or error:
+            raise SolidWorksError(f"SolidWorks would not open {path} (error {error}).")
+        return doc
 
     def find_component(self, handle: str, name: str) -> str:
         """Find a component of the build's assembly by the ``Name2`` recorded when it was inserted, and keep it as
         ``handle`` (so ``place_component``, ``fix_component``, ``unfix_component`` and ``component_frame`` work on
-        it). Route: ``findings.COMPONENT_FIND_ROUTE``; resolved after a reopen per
-        ``COMPONENTS_RESOLVED_AFTER_REOPEN``. Returns ``Name2`` as read back. Missing: "<name> is not in <title>
-        any more: it was renamed or deleted in SolidWorks."
+        it). Returns ``Name2`` as read back.
+
+        Probe layout_assembly_reopen, SolidWorks 2026 (34.0.0) and 2024 (32.5.0): five
+        components saved, closed and reopened by ``OpenDoc6`` were each found by
+        ``IAssemblyDoc.GetComponentByName``, and by every other route in
+        :data:`COMPONENT_FIND_ROUTES` (``GetComponents(True)``, the root
+        component's ``GetChildren``, ``FeatureByName`` then
+        ``GetSpecificFeature2``); ``findings.COMPONENT_FIND_ROUTE`` names the
+        one taken. Each came back fully resolved (``GetSuppression2`` 2,
+        ``COMPONENTS_RESOLVED_AFTER_REOPEN``), so none is resolved here; but a
+        user's 2024 may open components lightweight, and resolving one is not
+        probed, so the state is read and a suppressed or lightweight
+        component is refused with what to do.
         """
-        raise NotImplementedError("W4: Agent A, swcom.Session.find_component")
+        route = getattr(findings, "COMPONENT_FIND_ROUTE", None)
+        if route not in COMPONENT_FIND_ROUTES:
+            raise SolidWorksError(f"Finding {name} in a saved assembly has not been settled on SolidWorks yet "
+                                  f"(findings.COMPONENT_FIND_ROUTE is {route!r}); run probe tier 7 first.")
+        doc = self._doc()
+        title = str(call(doc, "GetTitle"))
+        component = self._component_by(route, doc, name)
+        if component is None:
+            raise SolidWorksError(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
+        kept = str(call(component, "Name2"))
+        if kept != name:
+            raise SolidWorksError(f"Asked for {name} in {title}, SolidWorks gave {kept}, so which component is meant "
+                                  "cannot be told.")
+        try:
+            state: Optional[int] = int(_read(component, "GetSuppression2"))
+        except Exception:  # noqa: BLE001 - unread is judged by the finding below
+            state = None
+        if state == COMPONENT_SUPPRESSED:
+            raise SolidWorksError(f"{name} is suppressed in {title}, so it cannot be placed; unsuppress it in "
+                                  "SolidWorks and try again.")
+        if state in COMPONENT_LIGHTWEIGHT or (state is None
+                                              and getattr(findings, "COMPONENTS_RESOLVED_AFTER_REOPEN", None) is not True):
+            raise SolidWorksError(f"{name} is loaded lightweight in {title}, and resolving a component is not "
+                                  "settled here; set it to Resolved in SolidWorks and try again.")
+        self._handles[handle] = {"component": component, "path": self._component_path(component)}
+        return kept
+
+    @staticmethod
+    def _component_by(route: str, doc: Any, name: str) -> Any:
+        """A component of ``doc`` called ``name`` by one route of :data:`COMPONENT_FIND_ROUTES`, or None."""
+        def by_name2(listed: Any) -> Any:
+            return next((c for c in list(listed or ()) if str(call(c, "Name2")) == name), None)
+
+        if route == COMPONENT_FIND_ROUTES[0]:
+            return call(doc, "GetComponentByName", name)
+        if route == COMPONENT_FIND_ROUTES[1]:
+            return by_name2(call(doc, "GetComponents", True))
+        if route == COMPONENT_FIND_ROUTES[2]:
+            root = call(_read(doc, "GetActiveConfiguration"), "GetRootComponent3", True)
+            return None if root is None else by_name2(_read(root, "GetChildren"))
+        feature = call(doc, "FeatureByName", name)
+        return None if feature is None else call(feature, "GetSpecificFeature2")
 
     def component_frame(self, handle: str) -> Tuple[Tuple[float, ...], Tuple[float, float, float]]:
         """A kept component's frame as ``place_component`` takes it: the rotation's 9 numbers by rows, and its
-        origin in mm (``Transform2.ArrayData``, laid out per ``findings.TRANSFORM_ARRAY_ORDER``)."""
-        raise NotImplementedError("W4: Agent A, swcom.Session.component_frame")
+        origin in mm.
+
+        ``IComponent2.Transform2.ArrayData``: 9 rotation numbers, then the
+        translation in metres. Probe nonparallel_mates, SolidWorks 2026: the
+        rotation is in columns (``findings.TRANSFORM_ARRAY_ORDER``), as
+        ``place_component`` writes it; probe layout_assembly_reopen read frames
+        back this way to 2e-16 after a save and reopen. "rows" is taken as it
+        says, should a version ever answer so.
+        """
+        order = getattr(findings, "TRANSFORM_ARRAY_ORDER", None)
+        if order not in TRANSFORM_ORDERS:
+            raise SolidWorksError(f"How SolidWorks lays out a component's frame has not been settled "
+                                  f"(findings.TRANSFORM_ARRAY_ORDER is {order!r}); run the probe first.")
+        component = self._handles[handle]["component"]
+        data = [float(v) for v in call(call(component, "Transform2"), "ArrayData")]
+        if len(data) < 12:
+            raise SolidWorksError(f"The frame of {call(component, 'Name2')} has {len(data)} numbers, not 16.")
+        if order == "columns":
+            rotation = tuple(data[j * 3 + i] for i in range(3) for j in range(3))
+        else:
+            rotation = tuple(data[:9])
+        return rotation, (data[9] * MM_PER_METRE, data[10] * MM_PER_METRE, data[11] * MM_PER_METRE)
 
     def interferences(self) -> List[Tuple[Tuple[str, ...], float]]:
-        """Every interference in the build's assembly: the ``Name2`` of each component in it, and its volume in
-        mm³. As :meth:`interference_count`, with ``IInterference.Components`` read by
-        ``findings.INTERFERENCE_NAMES_ROUTE``; where that route cannot name them, the names are ``()`` and only
-        the volume is given. ``Done`` is called whatever happens."""
-        raise NotImplementedError("W4: Agent A, swcom.Session.interferences")
+        """Every interference in the build's assembly: the ``Name2`` of each component in it, and its volume in mm³.
+
+        As :meth:`interference_count` (probe interference: the options, then
+        ``GetInterferences`` and ``IInterference.Volume`` in m³ read as
+        properties, and ``Done``, a method, whatever happens). Probe
+        interference_components, SolidWorks 2026 and 2024: ``IInterference.Components``
+        read as a property gave a tuple of the two components, whose ``Name2``
+        named the two overlapping cylinders and not a third clear of them
+        (``findings.INTERFERENCE_NAMES_ROUTE`` "Components (property)"; the
+        probe's other route, "GetComponents()", is taken if a version answers
+        so, UNVERIFIED). Where the names cannot be read — no route, or the read
+        fails — they are ``()`` and only the volume is given.
+        """
+        route = getattr(findings, "INTERFERENCE_NAMES_ROUTE", None) or ""
+        doc = self._doc()
+        manager = call(doc, "InterferenceDetectionManager")
+        if manager is None:
+            raise SolidWorksError(f"{call(doc, 'GetTitle')} has no interference detection manager.")
+        out: List[Tuple[Tuple[str, ...], float]] = []
+        try:
+            for name, value in findings.INTERFERENCE_OPTIONS:
+                setattr(manager, name, value)
+            for item in list(call(manager, "GetInterferences") or ()):
+                out.append((self._interference_names(item, route), float(call(item, "Volume")) * 1e9))
+        finally:
+            manager.Done()
+        return out
+
+    @staticmethod
+    def _interference_names(item: Any, route: str) -> Tuple[str, ...]:
+        try:
+            if route.startswith("Components"):
+                listed = _read(item, "Components")
+            elif route.startswith("GetComponents"):
+                listed = _read(item, "GetComponents")
+            else:
+                return ()
+            return tuple(str(call(component, "Name2")) for component in list(listed or ()))
+        except Exception:  # noqa: BLE001 - unnamed is an answer: the volume still says there is a clash
+            return ()
 
 
 def connect() -> Session:

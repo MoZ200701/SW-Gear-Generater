@@ -273,3 +273,627 @@ def test_the_worker_reports_being_busy_while_a_call_is_in_flight():
     finally:
         release.set()
         worker.shutdown()
+
+
+# -- W4: the members a workbook's layout part and static assembly use, against a fake COM world ----------
+#
+# Late binding reaches a zero-argument member as an attribute and calls only members given arguments
+# (swcom.call), so the fakes below expose GetTitle, ActiveDoc, FirstFeature … as attributes and OpenDoc6,
+# Select2, AddComponent5 … as methods, as SolidWorks does through pywin32.
+
+from gear_generator import findings  # noqa: E402
+
+W = "C:\\W\\"
+
+
+class Out:
+    """A by-reference integer, as swcom._out_long makes one with pywin32."""
+
+    def __init__(self):
+        self.value = 0
+
+
+@pytest.fixture
+def com(monkeypatch):
+    monkeypatch.setattr(swcom, "_out_long", Out)
+    monkeypatch.setattr(swcom, "_null_dispatch", lambda: None)
+    monkeypatch.setattr(swcom.time, "sleep", lambda _seconds: None)
+    return App()
+
+
+class Feature:
+    def __init__(self, doc, name, type_name="RefPlane", specific=None):
+        self.doc, self.Name, self.GetTypeName2 = doc, name, type_name
+        self.GetFirstSubFeature = None
+        self.GetSpecificFeature2 = specific
+
+    @property
+    def GetNextFeature(self):
+        features = self.doc.features
+        index = features.index(self)
+        return features[index + 1] if index + 1 < len(features) else None
+
+    def Select2(self, append, mark):
+        self.doc.app.log.append(("Select2", self.Name, append))
+        self.doc.selected.append(self.Name)
+        return True
+
+
+class Selection:
+    def __init__(self, doc):
+        self.doc = doc
+
+    def GetSelectedObjectCount2(self, mark):
+        return len(self.doc.selected)
+
+
+class Extension:
+    def __init__(self, doc):
+        self.doc = doc
+
+    def SelectByID2(self, name, kind, x, y, z, append, mark, callout, option):
+        self.doc.app.log.append(("SelectByID2", name, kind, append))
+        if kind == "PLANE" and any(f.Name == name for f in self.doc.features):
+            self.doc.selected.append(name)
+            return True
+        return False
+
+
+class Transform:
+    def __init__(self, data):
+        self.ArrayData = tuple(data)
+
+
+class Component:
+    def __init__(self, name, model=None, path="", state=2, data=None):
+        self.Name2, self.GetModelDoc2, self.GetPathName = name, model, path
+        self.GetSuppression2 = state
+        self.Transform2 = Transform(data or (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0))
+
+
+class Root:
+    def __init__(self, doc):
+        self.doc = doc
+
+    @property
+    def GetChildren(self):
+        return tuple(self.doc.components)
+
+
+class Configuration:
+    def __init__(self, doc):
+        self.doc = doc
+
+    def GetRootComponent3(self, resolve):
+        return Root(self.doc)
+
+
+class Interference:
+    def __init__(self, components, volume_m3):
+        self.Components, self.Volume = components, volume_m3
+
+    @property
+    def GetComponents(self):
+        return self.Components
+
+
+class Manager:
+    def __init__(self, items, fail=False):
+        self.items, self.fail, self.done, self.options = items, fail, 0, {}
+
+    def __setattr__(self, name, value):
+        if name[0].isupper():
+            self.options[name] = value
+        object.__setattr__(self, name, value)
+
+    @property
+    def GetInterferences(self):
+        if self.fail:
+            raise RuntimeError("the manager went away")
+        return tuple(self.items)
+
+    def Done(self):
+        object.__setattr__(self, "done", self.done + 1)
+
+
+class Doc:
+    def __init__(self, app, path, doc_type=1, title=None):
+        self.app, self.GetPathName, self.GetType = app, path, doc_type
+        self.GetTitle = title or path.rsplit("\\", 1)[-1]
+        self.features = [Feature(self, n) for n in ("Front Plane", "Top Plane", "Right Plane")]
+        self.features.append(Feature(self, "Origin", "OriginProfileFeature"))
+        self.selected, self.components, self.manager = [], [], None
+        self.SelectionManager, self.Extension = Selection(self), Extension(self)
+        self.GetActiveConfiguration = Configuration(self)
+
+    @property
+    def GetNext(self):
+        docs = self.app.docs
+        index = docs.index(self)
+        return docs[index + 1] if index + 1 < len(docs) else None
+
+    @property
+    def FirstFeature(self):
+        return self.features[0] if self.features else None
+
+    @property
+    def InterferenceDetectionManager(self):
+        return self.manager
+
+    def ClearSelection2(self, everything):
+        self.selected = []
+
+    def InsertAxis2(self, auto):
+        self.app.log.append(("InsertAxis2", tuple(self.selected)))
+        if len(self.selected) != 2:
+            return False
+        self.features.append(Feature(self, f"Axis{len(self.features)}", "RefAxis"))
+        return True
+
+    def GetComponentByName(self, name):
+        return next((c for c in self.components if c.Name2 == name), None)
+
+    def GetComponents(self, top):
+        return tuple(self.components)
+
+    def FeatureByName(self, name):
+        component = self.GetComponentByName(name)
+        return None if component is None else Feature(self, name, "Reference", specific=component)
+
+    def AddComponent5(self, path, option, configuration, use_name, name, x, y, z):
+        model = self.app.inserts.get(path, self.app.find(path))
+        if model is False:
+            return None
+        component = Component(path.rsplit("\\", 1)[-1].rsplit(".", 1)[0] + "-1", model=model,
+                              path=getattr(model, "GetPathName", ""))
+        self.components.append(component)
+        return component
+
+
+class Spec:
+    def __init__(self, path):
+        self.path, self.Silent, self.Error = path, False, 0
+
+
+class App:
+    def __init__(self):
+        self.docs, self.disk, self.log, self.active = [], {}, [], None
+        self.activates, self.errors, self.inserts = True, {}, {}
+
+    def find(self, path):
+        return next((d for d in self.docs if d.GetPathName.lower() == path.lower()), None)
+
+    def saved(self, path, doc_type=1):
+        self.disk[path.lower()] = Doc(self, path, doc_type)
+        return self.disk[path.lower()]
+
+    def opened(self, path, doc_type=1, active=True):
+        doc = Doc(self, path, doc_type)
+        self.docs.append(doc)
+        if active:
+            self.active = doc
+        return doc
+
+    @property
+    def GetFirstDocument(self):
+        return self.docs[0] if self.docs else None
+
+    @property
+    def ActiveDoc(self):
+        return self.active
+
+    def _open(self, path):
+        open_doc = self.find(path)
+        if open_doc is not None:
+            return open_doc, 0, swcom.findings.OPEN_DOC_ALREADY_OPEN_WARNING
+        if path in self.errors:
+            return None, self.errors[path], 0
+        doc = self.disk.get(path.lower())
+        if doc is None:
+            return None, 2, 0
+        self.docs.append(doc)
+        self.active = doc
+        return doc, 0, 0
+
+    def OpenDoc6(self, path, doc_type, options, configuration, errors, warnings):
+        self.log.append(("OpenDoc6", path, doc_type, options, configuration))
+        doc, errors.value, warnings.value = self._open(path)
+        return doc
+
+    def GetOpenDocSpec(self, path):
+        self.log.append(("GetOpenDocSpec", path))
+        return Spec(path)
+
+    def OpenDoc7(self, spec):
+        self.log.append(("OpenDoc7", spec.path, spec.Silent))
+        doc, spec.Error, _ = self._open(spec.path)
+        return doc
+
+    def OpenDoc(self, path, doc_type):
+        self.log.append(("OpenDoc", path, doc_type))
+        return self._open(path)[0]
+
+    def ActivateDoc3(self, title, use_user_preferences, option, errors):
+        self.log.append(("ActivateDoc3", title))
+        if self.activates:
+            self.active = next(d for d in self.docs if d.GetTitle == title)
+        return self.active
+
+    def GetUserPreferenceToggle(self, which):
+        return False
+
+    def SetUserPreferenceToggle(self, which, value):
+        pass
+
+
+def _session(app):
+    return swcom.Session(app, (34, 0, 0), 1)
+
+
+def _calls(app, name):
+    return [entry for entry in app.log if entry[0] == name]
+
+
+# -- open_document
+
+
+def test_a_closed_part_is_opened_silently_then_activated_and_becomes_the_build_document(com):
+    com.opened(W + "Other.SLDPRT")
+    part = com.saved(W + "Gear_m1.5_N68.SLDPRT")
+    session = _session(com)
+    info = session.open_document(W + "Gear_m1.5_N68.SLDPRT")
+    assert info == swcom.DocInfo("Gear_m1.5_N68.SLDPRT", W + "Gear_m1.5_N68.SLDPRT", 1)
+    assert _calls(com, "OpenDoc6") == [("OpenDoc6", W + "Gear_m1.5_N68.SLDPRT", 1, findings.OPEN_DOC_SILENT, "")]
+    assert _calls(com, "ActivateDoc3") == [("ActivateDoc3", "Gear_m1.5_N68.SLDPRT")]
+    assert session._doc() is part
+
+
+def test_a_part_already_open_behind_another_is_still_brought_forward(com):
+    part = com.opened(W + "Gear_m1.5_N68.SLDPRT")
+    com.opened(W + "Other.SLDPRT")
+    session = _session(com)
+    session.open_document(W + "gear_m1.5_n68.sldprt")
+    assert com.active is part and _calls(com, "ActivateDoc3") == [("ActivateDoc3", "Gear_m1.5_N68.SLDPRT")]
+
+
+@pytest.mark.parametrize("route", ["OpenDoc6", "OpenDoc7", "OpenDoc"])
+def test_an_assembly_opens_by_its_own_route(com, monkeypatch, route):
+    monkeypatch.setattr(findings, "OPEN_ASSEMBLY_ROUTE", route, raising=False)
+    com.saved(W + "R.SLDASM", doc_type=2)
+    info = _session(com).open_document(W + "R.SLDASM")
+    assert info.is_assembly
+    assert [entry[0] for entry in com.log if entry[0] != "ActivateDoc3"] == (
+        ["GetOpenDocSpec", "OpenDoc7"] if route == "OpenDoc7" else [route])
+    if route == "OpenDoc7":
+        assert _calls(com, "OpenDoc7") == [("OpenDoc7", W + "R.SLDASM", True)]
+    else:
+        assert com.log[0][2] == swcom.DOC_ASSEMBLY
+
+
+def test_a_same_named_document_from_another_folder_is_refused_before_anything_is_asked(com):
+    com.opened(r"C:\Other\Gear_m1.5_N68.SLDPRT")
+    com.saved(W + "Gear_m1.5_N68.SLDPRT")
+    with pytest.raises(SolidWorksError) as raised:
+        _session(com).open_document(W + "Gear_m1.5_N68.SLDPRT")
+    assert str(raised.value) == (r"C:\Other\Gear_m1.5_N68.SLDPRT is open in SolidWorks, and it has the same file "
+                                 r"name as C:\W\Gear_m1.5_N68.SLDPRT; SolidWorks keeps one document per file name, "
+                                 "so close Gear_m1.5_N68.SLDPRT in SolidWorks and try again.")
+    assert com.log == []
+
+
+@pytest.mark.parametrize("error,sentence", [
+    (65536, r"SolidWorks would not open C:\W\Gear.SLDPRT: a document of the same file name is open from another "
+            "folder (error 65536); close it in SolidWorks and try again."),
+    (2, r"SolidWorks would not open C:\W\Gear.SLDPRT (error 2)."),
+])
+def test_an_open_that_fails_says_what_solidworks_answered(com, error, sentence):
+    com.errors[W + "Gear.SLDPRT"] = error
+    with pytest.raises(SolidWorksError) as raised:
+        _session(com).open_document(W + "Gear.SLDPRT")
+    assert str(raised.value) == sentence
+    assert _calls(com, "ActivateDoc3") == []
+
+
+@pytest.mark.parametrize("name,value,sentence", [
+    ("OPEN_DOC_ROUTE", None, "Opening Gear.SLDPRT by its path has not been settled on SolidWorks yet "
+                             "(findings.OPEN_DOC_ROUTE is None); run probe tier 7 first."),
+    ("OPEN_DOC_ROUTE", "OpenDoc9", "Opening Gear.SLDPRT by its path has not been settled on SolidWorks yet "
+                                   "(findings.OPEN_DOC_ROUTE is 'OpenDoc9'); run probe tier 7 first."),
+    ("OPEN_DOC_SILENT", None, "Opening Gear.SLDPRT by its path has not been settled on SolidWorks yet "
+                              "(findings.OPEN_DOC_ROUTE is 'OpenDoc6'); run probe tier 7 first."),
+    ("UPDATE_OPEN_ROUTE", None, "Opening Gear.SLDPRT by its path has not been settled on SolidWorks yet "
+                                "(findings.UPDATE_OPEN_ROUTE is None); run probe tier 7 first."),
+])
+def test_an_unsettled_open_route_is_refused_not_guessed(com, monkeypatch, name, value, sentence):
+    monkeypatch.setattr(findings, name, value, raising=False)
+    com.saved(W + "Gear.SLDPRT")
+    with pytest.raises(SolidWorksError) as raised:
+        _session(com).open_document(W + "Gear.SLDPRT")
+    assert str(raised.value) == sentence and com.log == []
+
+
+def test_with_the_ask_route_an_open_document_is_activated_and_a_closed_one_is_asked_for(com, monkeypatch):
+    monkeypatch.setattr(findings, "UPDATE_OPEN_ROUTE", "ask", raising=False)
+    part = com.opened(W + "Gear.SLDPRT", active=False)
+    com.opened(W + "Other.SLDPRT")
+    com.saved(W + "Closed.SLDPRT")
+    session = _session(com)
+    session.open_document(W + "Gear.SLDPRT")
+    assert com.active is part and _calls(com, "OpenDoc6") == []
+    with pytest.raises(SolidWorksError) as raised:
+        session.open_document(W + "Closed.SLDPRT")
+    assert str(raised.value) == (r"Open C:\W\Closed.SLDPRT in SolidWorks, then try again: this SolidWorks cannot be "
+                                 "asked to open a document by its path (findings.UPDATE_OPEN_ROUTE).")
+
+
+def test_a_document_that_does_not_come_forward_is_refused(com):
+    com.opened(W + "Other.SLDPRT")
+    com.saved(W + "Gear.SLDPRT")
+    com.activates = False
+    com.disk[(W + "Gear.SLDPRT").lower()].app = com
+    original = com._open
+
+    def open_behind(path):                         # opened, but left behind the other document
+        doc, error, warning = original(path)
+        com.active = com.docs[0]
+        return doc, error, warning
+
+    com._open = open_behind
+    with pytest.raises(SolidWorksError) as raised:
+        _session(com).open_document(W + "Gear.SLDPRT")
+    assert str(raised.value) == ("SolidWorks opened Gear.SLDPRT but left Other.SLDPRT active after ActivateDoc3, so "
+                                 "it is not changed.")
+
+
+@pytest.mark.parametrize("path,sentence", [
+    (W + "Notes.txt", r"C:\W\Notes.txt is neither a SolidWorks part nor an assembly, so it is not opened."),
+    (W + "Odd.SLDASM", r"C:\W\Odd.SLDASM opened as a document of type 1, not as an assembly."),
+])
+def test_what_is_not_the_document_asked_for_is_refused(com, path, sentence):
+    com.saved(W + "Odd.SLDASM", doc_type=1)
+    with pytest.raises(SolidWorksError) as raised:
+        _session(com).open_document(path)
+    assert str(raised.value) == sentence
+
+
+# -- find_component, component_frame
+
+
+def _assembly(com, *components):
+    asm = com.opened(W + "R.SLDASM", doc_type=2)
+    asm.components.extend(components)
+    session = _session(com)
+    session.begin_build()
+    session.open_document(W + "R.SLDASM")
+    return session, asm
+
+
+@pytest.mark.parametrize("route", swcom.COMPONENT_FIND_ROUTES)
+def test_a_component_is_found_by_its_recorded_name_by_every_route(com, monkeypatch, route):
+    monkeypatch.setattr(findings, "COMPONENT_FIND_ROUTE", route, raising=False)
+    model = com.opened(W + "Gear_m1.5_N68.SLDPRT", active=False)
+    wanted = Component("Gear_m1.5_N68-1", model=model)
+    session, _ = _assembly(com, Component("Gear_m1.5_N17-1"), wanted)
+    assert session.find_component("placed2", "Gear_m1.5_N68-1") == "Gear_m1.5_N68-1"
+    assert session._handles["placed2"] == {"component": wanted, "path": W + "Gear_m1.5_N68.SLDPRT"}
+
+
+@pytest.mark.parametrize("route", swcom.COMPONENT_FIND_ROUTES)
+def test_a_component_renamed_or_deleted_is_named_in_the_sentence(com, monkeypatch, route):
+    monkeypatch.setattr(findings, "COMPONENT_FIND_ROUTE", route, raising=False)
+    session, _ = _assembly(com, Component("Gear_m1.5_N17-1"))
+    with pytest.raises(SolidWorksError) as raised:
+        session.find_component("placed2", "Gear_m1.5_N68-1")
+    assert str(raised.value) == "Gear_m1.5_N68-1 is not in R.SLDASM any more: it was renamed or deleted in SolidWorks."
+
+
+def test_an_unsettled_find_route_is_refused(com, monkeypatch):
+    monkeypatch.setattr(findings, "COMPONENT_FIND_ROUTE", None, raising=False)
+    session, _ = _assembly(com, Component("G-1"))
+    with pytest.raises(SolidWorksError, match=r"\(findings.COMPONENT_FIND_ROUTE is None\); run probe tier 7 first\."):
+        session.find_component("placed1", "G-1")
+
+
+def test_a_route_that_answers_with_another_component_is_refused(com, monkeypatch):
+    monkeypatch.setattr(findings, "COMPONENT_FIND_ROUTE", "GetComponentByName", raising=False)
+    session, asm = _assembly(com)
+    asm.GetComponentByName = lambda name: Component("Other-1")
+    with pytest.raises(SolidWorksError) as raised:
+        session.find_component("placed1", "G-1")
+    assert str(raised.value) == ("Asked for G-1 in R.SLDASM, SolidWorks gave Other-1, so which component is meant "
+                                 "cannot be told.")
+
+
+@pytest.mark.parametrize("state,resolved,sentence", [
+    (0, True, "G-1 is suppressed in R.SLDASM, so it cannot be placed; unsuppress it in SolidWorks and try again."),
+    (1, True, "G-1 is loaded lightweight in R.SLDASM, and resolving a component is not settled here; set it to "
+              "Resolved in SolidWorks and try again."),
+    (4, True, "G-1 is loaded lightweight in R.SLDASM, and resolving a component is not settled here; set it to "
+              "Resolved in SolidWorks and try again."),
+    ("unread", None, "G-1 is loaded lightweight in R.SLDASM, and resolving a component is not settled here; set it "
+                     "to Resolved in SolidWorks and try again."),
+    ("unread", True, ""),
+    (3, False, ""),
+])
+def test_a_component_that_is_not_resolved_is_refused_with_what_to_do(com, monkeypatch, state, resolved, sentence):
+    monkeypatch.setattr(findings, "COMPONENTS_RESOLVED_AFTER_REOPEN", resolved, raising=False)
+    component = Component("G-1", state=None if state == "unread" else state)
+    session, _ = _assembly(com, component)
+    if not sentence:
+        assert session.find_component("placed1", "G-1") == "G-1"
+        return
+    with pytest.raises(SolidWorksError) as raised:
+        session.find_component("placed1", "G-1")
+    assert str(raised.value) == sentence
+
+
+def _rows_to_columns(rows):
+    return [rows[i * 3 + j] for j in range(3) for i in range(3)]
+
+
+ROWS = (0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)    # a quarter turn about Z, by rows
+
+
+@pytest.mark.parametrize("order", ["columns", "rows"])
+def test_a_component_frame_is_read_as_place_component_writes_it(com, monkeypatch, order):
+    monkeypatch.setattr(findings, "TRANSFORM_ARRAY_ORDER", order, raising=False)
+    data = (_rows_to_columns(ROWS) if order == "columns" else list(ROWS)) + [0.06375, -0.002, 0.005, 1.0, 0, 0, 0]
+    session, _ = _assembly(com, Component("G-1", data=data))
+    session.find_component("placed1", "G-1")
+    rotation, at = session.component_frame("placed1")
+    assert rotation == ROWS and at == pytest.approx((63.75, -2.0, 5.0))
+
+
+def test_an_unsettled_frame_layout_is_refused(com, monkeypatch):
+    monkeypatch.setattr(findings, "TRANSFORM_ARRAY_ORDER", None, raising=False)
+    session, _ = _assembly(com, Component("G-1"))
+    session.find_component("placed1", "G-1")
+    with pytest.raises(SolidWorksError, match=r"TRANSFORM_ARRAY_ORDER is None"):
+        session.component_frame("placed1")
+
+
+# -- interferences
+
+
+def _clash_world(com, items, fail=False):
+    session, asm = _assembly(com)
+    asm.manager = Manager(items, fail)
+    return session, asm.manager
+
+
+def test_each_interference_names_its_components_and_gives_its_volume_and_done_is_called(com):
+    a, b = Component("Gear_m1.5_N17-1"), Component("Gear_m1.5_N68-1")
+    session, manager = _clash_world(com, [Interference((a, b), 12.5e-9)])
+    assert session.interferences() == [(("Gear_m1.5_N17-1", "Gear_m1.5_N68-1"), pytest.approx(12.5))]
+    assert manager.done == 1 and manager.options == dict(findings.INTERFERENCE_OPTIONS)
+
+
+@pytest.mark.parametrize("route,named", [("Components (property)", True), ("GetComponents()", True), (None, False),
+                                         ("something else", False)])
+def test_the_names_follow_the_route_and_are_empty_where_it_cannot_name_them(com, monkeypatch, route, named):
+    monkeypatch.setattr(findings, "INTERFERENCE_NAMES_ROUTE", route, raising=False)
+    session, _ = _clash_world(com, [Interference((Component("A-1"), Component("B-1")), 1e-9)])
+    assert session.interferences()[0][0] == (("A-1", "B-1") if named else ())
+
+
+def test_components_that_will_not_name_themselves_leave_the_volume(com):
+    item = Interference((object(),), 2e-9)
+    session, _ = _clash_world(com, [item])
+    assert session.interferences() == [((), pytest.approx(2.0))]
+
+
+def test_done_is_called_even_when_the_list_cannot_be_read(com):
+    session, manager = _clash_world(com, [], fail=True)
+    with pytest.raises(RuntimeError):
+        session.interferences()
+    assert manager.done == 1
+
+
+# -- add_component reads back the file it took
+
+
+def test_a_component_inserted_from_the_file_asked_for_is_kept(com):
+    part = com.opened(W + "Gear_m1.5_N68.SLDPRT", active=False)
+    session, asm = _assembly(com)
+    assert session.add_component("gear2", W + "Gear_m1.5_N68.SLDPRT", (63.75, 0.0, 0.0)) == "Gear_m1.5_N68-1"
+    assert asm.components[0].GetModelDoc2 is part and "gear2" in session._handles
+
+
+def test_a_component_that_took_another_folders_file_is_refused(com):
+    com.inserts[W + "Gear_m1.5_N68.SLDPRT"] = Doc(com, r"C:\Other\Gear_m1.5_N68.SLDPRT")
+    session, _ = _assembly(com)
+    with pytest.raises(SolidWorksError) as raised:
+        session.add_component("gear2", W + "Gear_m1.5_N68.SLDPRT", (0.0, 0.0, 0.0))
+    assert str(raised.value) == (r"AddComponent5 put Gear_m1.5_N68-1 into R.SLDASM from C:\Other\Gear_m1.5_N68.SLDPRT,"
+                                 r" not from C:\W\Gear_m1.5_N68.SLDPRT; a document of the same file name may be open "
+                                 "from another folder.")
+
+
+def test_a_lightweight_component_is_checked_by_its_own_path(com):
+    session, asm = _assembly(com)
+    com.inserts[W + "G.SLDPRT"] = None
+    original = asm.AddComponent5
+
+    def lightweight(path, *args):
+        component = original(path, *args)
+        component.GetPathName = path
+        return component
+
+    asm.AddComponent5 = lightweight
+    assert session.add_component("gear1", W + "G.SLDPRT", (0.0, 0.0, 0.0)) == "G-1"
+
+
+def test_a_component_whose_file_cannot_be_read_back_is_refused(com):
+    com.inserts[W + "G.SLDPRT"] = None
+    session, _ = _assembly(com)
+    with pytest.raises(SolidWorksError, match="from a file whose path could not be read, not from"):
+        session.add_component("gear1", W + "G.SLDPRT", (0.0, 0.0, 0.0))
+
+
+# -- insert_axis through planes this build made
+
+
+def _layout(com):
+    doc = com.opened(W + "Part1.SLDPRT")
+    session = _session(com)
+    session.begin_build()
+    x1, y1 = Feature(doc, "S2 X Plane"), Feature(doc, "S2 Y Plane")
+    doc.features += [x1, y1]
+    session._handles.update({"x1": "S2 X Plane", "y1": "S2 Y Plane"})
+    session._plane_objects.update({"x1": x1, "y1": y1})
+    return session, doc
+
+
+@pytest.mark.parametrize("route,how", [("Select2 on the feature found by name", "Select2"),
+                                       ("SelectByID2 by name", "SelectByID2"),
+                                       ("Select2 on what InsertRefPlane returned", "Select2")])
+def test_an_axis_goes_through_planes_made_in_this_build_selected_by_the_settled_route(com, monkeypatch, route, how):
+    monkeypatch.setattr(findings, "AXIS_PLANE_SELECT_ROUTE", route, raising=False)
+    session, doc = _layout(com)
+    assert session.insert_axis("axis2", "S2 Axis", ("y1", "x1")) == "S2 Axis"
+    assert _calls(com, "InsertAxis2") == [("InsertAxis2", ("S2 Y Plane", "S2 X Plane"))]
+    assert [entry[1] for entry in com.log if entry[0] == how] == ["S2 Y Plane", "S2 X Plane"]
+    assert doc.features[-1].Name == "S2 Axis" and session._handles["axis2"] == "S2 Axis"
+
+
+def test_an_axis_through_a_base_plane_and_a_made_one_selects_them_in_the_order_given(com):
+    session, _ = _layout(com)
+    session.insert_axis("axis2", "S2 Axis", (2, "x1"))
+    assert _calls(com, "InsertAxis2") == [("InsertAxis2", ("Top Plane", "S2 X Plane"))]
+
+
+@pytest.mark.parametrize("name,planes,sentence", [
+    ("AXIS_PLANE_SELECT_ROUTE", ("y1", "x1"),
+     "The axis S2 Axis goes through a plane made in this build, and how to select such a plane has not been settled "
+     "on SolidWorks yet (findings.AXIS_PLANE_SELECT_ROUTE is None); run probe tier 7 first."),
+    ("AXIS_THROUGH_BASE_PLANE", (2, "x1"),
+     "The axis S2 Axis goes through a base plane and a plane made in this build, which has not been settled on "
+     "SolidWorks yet (findings.AXIS_THROUGH_BASE_PLANE); run probe tier 7 first."),
+])
+def test_an_axis_through_made_planes_without_its_finding_is_refused(com, monkeypatch, name, planes, sentence):
+    monkeypatch.setattr(findings, name, None, raising=False)
+    session, _ = _layout(com)
+    with pytest.raises(SolidWorksError) as raised:
+        session.insert_axis("axis2", "S2 Axis", planes)
+    assert str(raised.value) == sentence and com.log == []
+
+
+def test_an_axis_through_a_plane_not_made_is_refused(com):
+    session, _ = _layout(com)
+    with pytest.raises(SolidWorksError, match=r"^The plane 'x9' has not been made in this build\.$"):
+        session.insert_axis("axis2", "S2 Axis", (2, "x9"))
+
+
+def test_the_strips_axis_through_planes_2_and_3_is_unchanged(com, monkeypatch):
+    monkeypatch.setattr(findings, "AXIS_PLANE_SELECT_ROUTE", None, raising=False)
+    session, _ = _layout(com)
+    session.insert_axis("axis", "Gear Axis", (2, 3))
+    assert _calls(com, "InsertAxis2") == [("InsertAxis2", ("Top Plane", "Right Plane"))]
+
+
+def test_a_refused_axis_names_the_planes_it_was_given(com, monkeypatch):
+    session, doc = _layout(com)
+    doc.InsertAxis2 = lambda auto: False
+    with pytest.raises(SolidWorksError) as raised:
+        session.insert_axis("axis2", "S2 Axis", (2, "x1"))
+    assert str(raised.value) == "InsertAxis2 would not make S2 Axis from plane 2 and S2 X Plane."
