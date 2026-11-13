@@ -50,6 +50,7 @@ class Link:
         self.own_digest = ""
         self._stamp: Optional[Tuple[int, int]] = None
         self._waiting_since: Optional[float] = None
+        self._gone_said = False        # "no longer at" has been said, and is not said again until it comes back
 
     # -- reading
 
@@ -91,6 +92,10 @@ class Link:
         does it come back as a reading with an error.
         """
         stamp = self._stat()
+        if stamp is None and self._gone_said:
+            return None
+        if stamp is not None:
+            self._gone_said = False
         if stamp is not None and stamp == self._stamp and self._waiting_since is None:
             return None
         try:
@@ -104,6 +109,7 @@ class Link:
             self._waiting_since = None
             self._stamp = stamp
             missing = stamp is None
+            self._gone_said = missing
             message = (f"The workbook is no longer at {self.path}." if missing
                        else f"{exc} It has not settled for {RETRY_SECONDS:g} seconds.")
             return Reading(error=message)

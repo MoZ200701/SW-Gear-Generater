@@ -305,7 +305,7 @@ planner, unchanged. Bevel, sleeve and dog rows are refused here (W6, W8). `swbui
 them in order: a part that fails stops the batch, and the result names what was made and what was skipped. Every
 path is checked before anything is made: a build never overwrites a file (and `findings.SAVE_AS_OVERWRITES` is
 True, so the check is the only guard). Each part gets its `.gear.json` as today; `GearRecord` gains `workbook`
-(the file) and `workbook_gear` (the row's name).
+(the file) and `workbook_gears` (every row it serves: identical gears share one part).
 
 **"Identical to the strip's" is a test:** for each row, the `BuildPlan` (ops and globals) equals the one
 `gui._plan_single` makes from the same `GearSpec`, and on Windows the `.gear.json` variables of a workbook part and

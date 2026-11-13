@@ -737,6 +737,12 @@ def short_path(path: str, limit: int = 64) -> str:
             break
         tail.insert(0, piece)
     text = f"{head}{sep}…{sep}{sep.join(tail)}"
+    if len(text) > limit:
+        # One component is longer than the room: keep the start and end of the last one, which is the name.
+        name = parts[-1]
+        room = max(8, limit - len(head) - 4)
+        keep = (room - 1) // 2
+        text = f"{head}{sep}…{sep}{name[:keep]}…{name[-(room - 1 - keep):]}"
     return text if len(text) < len(path) else path
 
 
@@ -852,11 +858,14 @@ def _shared_steps(results) -> List[str]:
     """Manual steps across a batch, one line for a step every part shares: *Assign a material to each of the 4
     parts* rather than four sentences that differ only in the part's name."""
     import os
+    import re
     counts: Dict[str, List[str]] = {}
     for result in results:
         stem = os.path.splitext(os.path.basename(result.saved.replace("\\", "/")))[0]
         for step in result.manual:
-            key = step.replace(stem, "{part}") if stem else step
+            # The part's name as a whole word, and the last one: a name like "a" also reads as a word earlier on.
+            found = list(re.finditer(rf"(?<![\w.-]){re.escape(stem)}(?![\w.-])", step)) if stem else []
+            key = step[:found[-1].start()] + "{part}" + step[found[-1].end():] if found else step
             counts.setdefault(key, []).append(step)
     out = []
     for key, steps in counts.items():
@@ -865,6 +874,31 @@ def _shared_steps(results) -> List[str]:
         else:
             out.extend(steps)
     return out
+
+
+def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "", folder: str = "",
+                   folder_exists: bool = True, building: bool = False,
+                   note: Optional[Tuple[str, bool]] = None) -> Tuple[str, bool, bool]:
+    """The Workbook window's footer, as one decision: (sentence, shown as good, Build enabled).
+
+    Every path that changes the window — a read, a read that failed, a build
+    starting, a build finishing, a save during a build — asks this, so the
+    button can never be left enabled for a workbook that is broken, half-saved
+    or out of date. ``note`` is the last build's own sentence, kept until the
+    file next changes; if the workbook has gone wrong since, that is said too.
+    """
+    if building:
+        return f"Building {_plural(len(parts.jobs), 'part')} in SolidWorks…", True, False
+    text, ok = workbook_status(parts, diagnostics, error, folder)
+    if ok and not folder_exists:
+        text, ok = (f"The output folder {short_path(folder, 48)} does not exist; make it, or change it on the Box "
+                    "sheet.", False)
+    if note is not None:
+        note_text, note_ok = note
+        if ok:
+            return note_text, note_ok, True
+        return f"{note_text} Since then: {text}", False, False
+    return text, ok, ok
 
 
 def many_status(result) -> Tuple[str, bool]:

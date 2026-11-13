@@ -61,7 +61,8 @@ def test_two_gears_one_name_is_caught(tmp_path):
     wider = Gear("G5", "S3", "47", "spur", "external", "17", "1.5", "", "25", "8")   # G1 but 25 wide
     spec = model.replace(spec, gears=spec.gears + (wider,))
     parts = build.plan_parts(from_file(write(tmp_path, spec)), FOLDER)
-    assert not parts.buildable and parts.jobs == []
+    assert not parts.buildable                               # Build waits for the error...
+    assert [j.gear_ids for j in parts.jobs] == [("G1",), ("G2",), ("G3",), ("G4",)]   # ...the good gears still plan
     (error,) = parts.errors
     assert error.field == "Gears!T6"
     assert "G5 and G1 would both be Gear_m1.5_N17.SLDPRT" in error.message and "Part name" in error.message
@@ -205,7 +206,9 @@ def test_a_workbook_that_goes_away_and_comes_back(tmp_path):
     clock.now += link.RETRY_SECONDS + 0.1
     reading = watch.poll()
     assert reading.error == f"The workbook is no longer at {path}."
-    assert watch.poll() is None                                     # said once, not every second
+    for _ in range(12):                                             # said once — not every second, nor every 5 s
+        clock.now += 1
+        assert watch.poll() is None
     os.replace(moved, path)
     touch_later(path)
     assert watch.poll().ok
@@ -304,3 +307,101 @@ def test_a_batchs_sentence(tmp_path):
                                 never_exists)
     text, ok = ui_text.many_status(failed)
     assert not ok and text.startswith("1 part built before it; ") and text.endswith("2 parts not attempted.")
+
+
+
+def test_twins_are_compared_by_the_part_they_build(tmp_path):
+    """A Part name typed as the default, or a Hand on a spur, changes the form but not the part."""
+    spec = reducer()
+    named = Gear("G5", "S3", "47", "spur", "external", "17", "1.5", "", "15", "8", part_name="Gear_m1.5_N17")
+    handed = Gear("G6", "S3", "67", "spur", "external", "17", "1.5", "", "15", "8", hand="left")
+    spec = model.replace(spec, gears=spec.gears + (named, handed))
+    parts = build.plan_parts(from_file(write(tmp_path, spec)), FOLDER)
+    assert parts.errors == []
+    assert parts.jobs[0].gear_ids == ("G1", "G5", "G6")
+
+
+def test_names_differing_only_in_case_are_one_file(tmp_path):
+    spec = reducer()
+    other = Gear("G5", "S3", "47", "spur", "external", "30", "2", "", "20", "16", part_name="outputgear")
+    parts = build.plan_parts(from_file(write(tmp_path, model.replace(spec, gears=spec.gears + (other,)))), FOLDER)
+    (error,) = parts.errors
+    assert "would both be OutputGear.SLDPRT (OutputGear and outputgear are one name to Windows)" in error.message
+
+
+def test_one_gears_error_leaves_the_others_planned(tmp_path):
+    spec = reducer()
+    bad = Gear("G5", "S3", "47", "spur", "external", "3", "1.5", "", "15", "8")     # three teeth: the strip refuses
+    read_spec = from_file(write(tmp_path, model.replace(spec, gears=spec.gears + (bad,))))
+    parts = build.plan_parts(read_spec, FOLDER)
+    assert parts.errors and not parts.buildable and len(parts.jobs) == 4
+    rows = {r[0]: r for r in ui_text.workbook_gear_rows(read_spec, parts, parts.diagnostics)}
+    assert rows["G1"][7] == ui_text.GEAR_STATE_BUILDS and rows["G5"][7] == ui_text.GEAR_STATE_ERROR
+
+
+
+def test_a_damaged_link_record_is_no_record(tmp_path):
+    workbook = str(tmp_path / "R.xlsx")
+    (tmp_path / "R.workbook.json").write_text('{"workbook": "R.xlsx", "parts": "notalist"}')
+    assert store.load_link_record(workbook) is None
+
+
+# -- the window's one decision: what the footer says and whether Build may run ---------------
+
+
+def ready(tmp_path, spec=None):
+    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec or reducer())))
+    parts = build.plan_parts(read_spec, FOLDER, skip_rows=build.rows_with_errors(diagnostics))
+    return parts, diagnostics + parts.diagnostics
+
+
+def test_build_is_enabled_only_for_a_good_current_read(tmp_path):
+    parts, diagnostics = ready(tmp_path)
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER)[2] is True
+    # A read that failed (mid-save, gone, unreadable): the last good plan is not built from.
+    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, error="The workbook is no longer at X.",
+                                               folder=FOLDER)
+    assert (text, ok, enabled) == ("The workbook is no longer at X.", False, False)
+    # A build in flight.
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, building=True) == (
+        "Building 4 parts in SolidWorks…", True, False)
+    # The output folder is missing.
+    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, folder_exists=False)
+    assert not enabled and "does not exist" in text
+
+
+def test_after_a_build_the_note_shows_and_build_follows_the_file(tmp_path):
+    parts, diagnostics = ready(tmp_path)
+    note = ("Built 4 parts.", True)
+    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, note=note) == ("Built 4 parts.", True, True)
+    spec = reducer()
+    broken = model.replace(spec, gears=(model.replace(spec.gears[0], teeth="68.5"),) + spec.gears[1:])
+    bad_parts, bad_diagnostics = ready(tmp_path / "b" if (tmp_path / "b").mkdir() is None else tmp_path, broken)
+    text, ok, enabled = ui_text.workbook_state(bad_parts, bad_diagnostics, folder=FOLDER, note=note)
+    assert not enabled and not ok
+    assert text.startswith("Built 4 parts. Since then: Fix the workbook before building: Gears!F2")
+
+
+def test_short_path_fits_even_one_long_name():
+    path = "C:\\Parts\\" + "X" * 80 + ".xlsx"
+    short = ui_text.short_path(path, 62)
+    assert len(short) <= 62 and short.endswith("X.xlsx") and "…" in short
+
+
+def test_shared_steps_merge_only_on_the_whole_name():
+    class R:
+        def __init__(self, stem):
+            self.saved = f"C:\\P\\{stem}.SLDPRT"
+            self.manual = [f"Assign a material to {stem}; the build leaves it unset."]
+    steps = ui_text._shared_steps([R("a"), R("b")])
+    assert steps == ["Assign a material to each of the 2 parts; the build leaves it unset."]
+
+
+
+def test_the_strip_and_a_workbook_plan_through_one_call():
+    """Identical parts by construction: the strip's single-gear build goes through gears.plan_for, as rows do."""
+    import inspect
+    pytest.importorskip("tkinter")
+    from gear_generator import gui
+    assert "plan_for(" in inspect.getsource(gui.GearApp._plan_single)
+    assert "plan_for(" in inspect.getsource(build.plan_parts)

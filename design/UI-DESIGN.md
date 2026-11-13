@@ -352,4 +352,15 @@ Top to bottom:
 
 The live link polls once a second, as the strip's SolidWorks link does; a
 change appears within about two seconds of a save. Nothing reaches SolidWorks
-until Build parts is pressed. The end view, Export and the fixes come in W3.
+until Build parts is pressed.
+
+What the footer says and whether Build parts is enabled is one decision,
+`ui_text.workbook_state`, asked after every read, failed read, build start and
+build end: Build waits for a good current read, an existing output folder and
+no errors, and a save during a build is reported after it (*Built 4 parts.
+Since then: …*). The header adds *· parts built from this version* or *·
+changed since its parts were built* from the `.workbook.json` beside the file.
+A workbook that has gone shows **Locate…**. The window will not close while a
+build is running, and the strip will not start one while a workbook's is.
+
+The end view, the "worked out as" line, Export and the fixes come in W3.

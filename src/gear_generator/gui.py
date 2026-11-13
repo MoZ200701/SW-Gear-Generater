@@ -9,7 +9,7 @@ from tkinter import filedialog, font as tkfont, ttk
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import __version__, findings, preview, store, swbuild, swcom, theme, ui_text, widgets
-from .gears import KINDS, PLANNED_KINDS, crossed, helical as helix, kind_for, pair as pairs, standards
+from .gears import KINDS, PLANNED_KINDS, crossed, helical as helix, kind_for, pair as pairs, standards, plan_for
 from .gears.base import Diagnostic, GeometryError, Point2
 from .gears.equations import literal
 from .spec import (
@@ -1506,8 +1506,17 @@ class GearApp(ttk.Frame):
         else:
             self.update_button.grid_remove()
 
+    def _workbook_building(self) -> bool:
+        """Whether a Workbook window has a batch in SolidWorks: it shares this worker, so the strip waits for it."""
+        from .workbook_gui import WorkbookWindow
+        return any(isinstance(w, WorkbookWindow) and w._pending is not None  # noqa: SLF001
+                   for w in self.winfo_toplevel().winfo_children())
+
     def _build_gear(self) -> None:
         if self._pending_build is not None:
+            return
+        if self._workbook_building():
+            self._set_status("A workbook is building in SolidWorks; build here when it has finished.", ok=False)
             return
         if self._worker is None:
             self._set_status("SolidWorks cannot be reached from here, so nothing was built. "
@@ -1536,9 +1545,8 @@ class GearApp(ttk.Frame):
         spec, derived = self._gear_spec("a"), self._derived["a"]
         if derived is None:
             raise InputError("The gear on the form does not work out yet, so it cannot be built.")
-        kind = kind_for(spec)
         path = os.path.join(folder, spec.stem() + ".SLDPRT")
-        plan = kind.plan(spec, derived, kind.recipe_for(spec), self.part_template.get().strip(), path)
+        plan = plan_for(spec, derived, self.part_template.get().strip(), path)
         return {"job_kind": MODE_SINGLE, "paths": [path], "plans": [plan], "specs": [spec], "derived": [derived],
                 "job": lambda session: swbuild.build(session, plan)}
 

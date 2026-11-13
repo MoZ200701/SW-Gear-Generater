@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..gears import kind_for
+from ..gears import kind_for, plan_for
 from ..gears.base import ERROR, WARNING, BuildPlan, Diagnostic, GeometryError
 from ..spec import GearSpec, InputError
 from .model import Gear, GearboxSpec
@@ -101,13 +101,19 @@ def rows_with_errors(diagnostics) -> set:
 def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "", skip_rows=()) -> PartsPlan:
     """A plan per distinct part: each buildable row checked, identical rows sharing one file.
 
-    Two rows that would make the same file name but are not the same gear (a
-    different face width, say, which the strip's naming leaves out) are an
+    Two rows share a file when they would build the same part: their plans are
+    compared, not their forms, so a Part name typed as the default, or a Hand
+    on a spur gear, does not make two identical gears different. Two rows that
+    would make the same file name — ignoring case, as Windows does — but not
+    the same part (a different face width, which the name leaves out) are an
     error naming both, since one file cannot be both gears.
+
+    A gear with an error is not planned, but the others still are: the window
+    shows what each good gear will become, and Build waits for the errors.
     """
     out = PartsPlan()
     template = spec.box.part_template or part_template
-    by_stem: Dict[str, Tuple[GearSpec, List[Gear], Any]] = {}
+    jobs: Dict[str, PartJob] = {}          # by the file name in lower case
     order: List[str] = []
     for gear in spec.gears:
         why = LATER.get(gear.kind_word())
@@ -121,27 +127,23 @@ def plan_parts(spec: GearboxSpec, folder: str, part_template: str = "", skip_row
         if derived is None:
             continue
         stem = gear_spec.stem()
-        if stem in by_stem:
-            first_spec, gears, _ = by_stem[stem]
-            if first_spec != gear_spec:
+        key = stem.lower()
+        if key in jobs:
+            first = jobs[key]
+            if plan_for(gear_spec, derived, template, first.path) != first.plan:
                 where = _where(spec, gear, "name")
+                same = "" if stem == first.stem else f" ({first.stem} and {stem} are one name to Windows)"
                 out.diagnostics.append(Diagnostic(
-                    ERROR, f"{where}: {gear.id} and {gears[0].id} would both be {stem}{PART_SUFFIX}, but they "
-                           f"are not the same gear; give one of them a Part name.", where))
+                    ERROR, f"{where}: {gear.id} and {first.gear_ids[0]} would both be {first.stem}{PART_SUFFIX}"
+                           f"{same}, but they are not the same gear; give one of them a Part name.", where))
                 continue
-            gears.append(gear)
+            jobs[key] = PartJob(first.stem, first.path, first.gear_ids + (gear.id,), first.spec, first.derived,
+                                first.plan)
             continue
-        by_stem[stem] = (gear_spec, [gear], derived)
-        order.append(stem)
-
-    if out.errors:
-        return out
-    for stem in order:
-        gear_spec, gears, derived = by_stem[stem]
-        kind = kind_for(gear_spec)
         path = os.path.join(folder, stem + PART_SUFFIX)
-        plan = kind.plan(gear_spec, derived, kind.recipe_for(gear_spec), template, path)
-        out.jobs.append(PartJob(stem, path, tuple(g.id for g in gears), gear_spec, derived, plan))
+        jobs[key] = PartJob(stem, path, (gear.id,), gear_spec, derived, plan_for(gear_spec, derived, template, path))
+        order.append(key)
+    out.jobs = [jobs[key] for key in order]
     return out
 
 

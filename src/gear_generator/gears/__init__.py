@@ -21,3 +21,14 @@ def kind_for(spec):
     if str(getattr(spec, "teeth_side", "")).strip().lower() == "internal":
         return INTERNAL_KINDS.get(spec.kind)
     return KINDS.get(spec.kind)
+
+
+def plan_for(spec, derived, template: str, path: str):
+    """The build plan for one gear, exactly as the strip makes it: its kind, its recipe, the template, the path.
+
+    The strip (``gui._plan_single``) and a workbook (``workbook.build``) both
+    call this, so a workbook row and the strip build the same part from the
+    same values by construction, not by two calls kept in step.
+    """
+    kind = kind_for(spec)
+    return kind.plan(spec, derived, kind.recipe_for(spec), template, path)

@@ -63,7 +63,10 @@ class WorkbookWindow(tk.Toplevel):
         self.parts: wb_build.PartsPlan = wb_build.PartsPlan()
         self.diagnostics: List[Diagnostic] = []
         self.changes: List[str] = []
+        self.changes_at = ""
         self.read_at = ""
+        self.error = ""                # the last read's trouble ("" once a read is good); Build waits on it
+        self.note: Optional[tuple] = None    # the last build's (sentence, ok), until the file changes
         self._pending: Optional[Any] = None
         self._build_context: Dict[str, Any] = {}
         self._after: Optional[str] = None
@@ -94,8 +97,9 @@ class WorkbookWindow(tk.Toplevel):
         head = tk.Frame(body, bg=theme.WINDOW)
         head.grid(row=0, column=0, sticky="ew", pady=(0, px(8)))
         head.columnconfigure(0, weight=1)
-        tk.Label(head, text=os.path.basename(self.link.path), bg=theme.WINDOW, fg=theme.INK,
-                 font=f.body_bold, anchor="w").grid(row=0, column=0, sticky="w")
+        self.name_label = tk.Label(head, text=os.path.basename(self.link.path), bg=theme.WINDOW, fg=theme.INK,
+                                   font=f.body_bold, anchor="w")
+        self.name_label.grid(row=0, column=0, sticky="w")
         line = tk.Frame(head, bg=theme.WINDOW)
         line.grid(row=1, column=0, sticky="w")
         self.link_dot = widgets.Dot(line, theme.OK, bg=theme.WINDOW)
@@ -104,6 +108,8 @@ class WorkbookWindow(tk.Toplevel):
                  font=f.readout).pack(side="left")
         buttons = tk.Frame(head, bg=theme.WINDOW)
         buttons.grid(row=0, column=1, rowspan=2, sticky="e")
+        # Shown only when the file has gone: link the window to it again where it now is.
+        self.locate_button = widgets.Button(buttons, "Locate…", command=self.locate, bg=theme.WINDOW)
         widgets.Button(buttons, "Open in Excel", command=self._open_in_excel, bg=theme.WINDOW).pack(
             side="left", padx=(0, px(8)))
         widgets.Button(buttons, "Re-read", command=self.reread, bg=theme.WINDOW).pack(side="left")
@@ -166,11 +172,13 @@ class WorkbookWindow(tk.Toplevel):
     # ---------------------------------------------------------------- reading
 
     def reread(self) -> None:
-        """Read the file now, whatever the poll thinks; a half-saved file is waited for by the poll instead."""
+        """Read the file now, whatever the poll thinks. A half-saved file is waited for by the poll instead."""
         try:
             self._show(self.link.read())
         except xlsx.NotReady as exc:
-            self._set_status(f"{exc} It will be read again in a moment.", ok=False)
+            self._show(wb_link.Reading(error=f"{exc} It will be read again in a moment."))
+        except Exception as exc:  # noqa: BLE001 - a button must never raise out of Tk
+            self._show(wb_link.Reading(error=f"The workbook could not be read — {type(exc).__name__}: {exc}"))
 
     def _tick(self) -> None:
         """The poll: the file, then a build in flight. Never raises into Tk's loop."""
@@ -178,8 +186,10 @@ class WorkbookWindow(tk.Toplevel):
             reading = self.link.poll()
             if reading is not None:
                 self._show(reading)
+            else:
+                self._refresh_read_line()           # "open in Excel" follows Excel between saves
         except Exception as exc:  # noqa: BLE001 - never kill the timer
-            self._set_status(f"The workbook could not be read — {type(exc).__name__}: {exc}", ok=False)
+            self._show(wb_link.Reading(error=f"The workbook could not be read — {type(exc).__name__}: {exc}"))
         try:
             self._collect_build()
         except Exception as exc:  # noqa: BLE001
@@ -187,29 +197,79 @@ class WorkbookWindow(tk.Toplevel):
         if self.winfo_exists():
             self._after = self.after(self.poll_ms, self._tick)
 
+    def _refresh_read_line(self) -> None:
+        if not self.read_at:
+            return
+        line = "linked · " + ui_text.workbook_read_line(self.read_at, self.link.open_in_excel)
+        record = store.load_link_record(self.link.path)
+        if record is not None and record.parts and self.reading is not None and self.reading.ok:
+            line += (" · parts built from this version" if record.digest == self.reading.digest
+                     else " · changed since its parts were built")
+        self.read_line.set(line)
+
     def _show(self, reading: wb_link.Reading) -> None:
         self.read_at = clock_text()
-        self.read_line.set("linked · " + ui_text.workbook_read_line(self.read_at, self.link.open_in_excel))
         if not reading.ok:
+            # Keep showing the last good read, but nothing is built from it while the file is in trouble.
+            self.error = reading.error
             self.link_dot.set_color(theme.ERROR)
-            self._set_status(reading.error, ok=False)
-            self.build_button.configure(state="disabled")
+            gone = reading.error.startswith("The workbook is no longer at")
+            if gone and not self.locate_button.winfo_ismapped():
+                self.locate_button.pack(side="left", padx=(0, px(8)), before=self.locate_button.master.winfo_children()[1])
+            self._refresh_read_line()
+            self._refresh_state()
             return
+        self.error = ""
+        if self.locate_button.winfo_ismapped():
+            self.locate_button.pack_forget()
         self.link_dot.set_color(theme.OK)
         self.reading = reading
-        spec = reading.spec
-        if reading.changes or self.changes == []:
-            self.changes = reading.changes
-        self.parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec),
-                                         skip_rows=wb_build.rows_with_errors(reading.diagnostics))
-        self.diagnostics = reading.diagnostics + self.parts.diagnostics
+        if reading.changes:
+            self.changes, self.changes_at = reading.changes, self.read_at
+            self.note = None                  # the file has moved on from the last build's sentence
+        elif not self.changes_at:
+            self.changes_at = self.read_at
+        self._plan()
+        self._refresh_read_line()
         self._paint()
+
+    def _plan(self) -> None:
+        """The parts, from the last good read and the output folder as it is now (it can change on the strip)."""
+        spec = self.reading.spec
+        self.parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec),
+                                         skip_rows=wb_build.rows_with_errors(self.reading.diagnostics))
+        self.diagnostics = self.reading.diagnostics + self.parts.diagnostics
 
     def _folder(self, spec: wb_model.GearboxSpec) -> str:
         return spec.box.output_folder or self.app.out_folder.get().strip()
 
     def _template(self, spec: wb_model.GearboxSpec) -> str:
         return spec.box.part_template or self.app.part_template.get().strip()
+
+    def _state(self):
+        folder = self._folder(self.reading.spec) if self.reading is not None else ""
+        return ui_text.workbook_state(self.parts, self.diagnostics, error=self.error, folder=folder,
+                                      folder_exists=bool(folder) and os.path.isdir(folder),
+                                      building=self._pending is not None, note=self.note)
+
+    def _refresh_state(self) -> None:
+        text, ok, enabled = self._state()
+        self._set_status(text, ok)
+        self.build_button.configure(state="normal" if enabled else "disabled")
+
+    def locate(self) -> None:
+        """The file was moved or renamed: point the window at it again."""
+        path = filedialog.askopenfilename(title="Where is the workbook now?", parent=self,
+                                          filetypes=[("Excel workbook", "*.xlsx"), ("All files", "*.*")])
+        if not path:
+            return
+        self.link = wb_link.Link(os.path.abspath(path), self.link.clock)
+        self.app.recent.remember_workbook(path)
+        store.save_recent(self.app.recent)
+        self.title(f"Workbook — {os.path.basename(path)}")
+        self.name_label.configure(text=os.path.basename(path))
+        self.changes, self.changes_at = [], ""
+        self.reread()
 
     # ---------------------------------------------------------------- painting
 
@@ -253,17 +313,14 @@ class WorkbookWindow(tk.Toplevel):
         if not ordered:
             self._line(self.checks_body, 0, "No problems: every row reads, and every gear works out.", theme.MUTED)
 
-        self.changes_readout.set(ui_text.workbook_changes_readout(self.changes, self.read_at))
+        self.changes_readout.set(ui_text.workbook_changes_readout(self.changes, self.changes_at))
         self._clear(self.changes_body)
         for r, change in enumerate(self.changes):
             self._line(self.changes_body, r, change, theme.INK, mono=True)
         if not self.changes:
             self._line(self.changes_body, 0, "Nothing changed.", theme.MUTED)
 
-        if self._pending is None:
-            text, ok = ui_text.workbook_status(self.parts, self.diagnostics, folder=self._folder(spec))
-            self._set_status(text, ok)
-            self.build_button.configure(state="normal" if ok else "disabled")
+        self._refresh_state()
         self._fit()
 
     def _fit(self) -> None:
@@ -282,9 +339,13 @@ class WorkbookWindow(tk.Toplevel):
     # ---------------------------------------------------------------- building
 
     def build_parts(self) -> None:
-        if self._pending is not None or self.reading is None or not self.reading.ok:
+        if self._pending is not None or self.reading is None:
             return
-        if not self.parts.buildable:
+        # Planned again now: the strip's output folder or template may have changed since the last read.
+        self._plan()
+        text, ok, enabled = self._state()
+        if not enabled:
+            self._refresh_state()
             return
         worker = self.app._worker  # noqa: SLF001 - the strip's one SolidWorks thread, shared on purpose
         if worker is None:
@@ -293,11 +354,6 @@ class WorkbookWindow(tk.Toplevel):
             return
         if self.app._pending_build is not None:  # noqa: SLF001
             self._set_status("The strip is building in SolidWorks; build the workbook when it has finished.",
-                             ok=False)
-            return
-        folder = self._folder(self.reading.spec)
-        if not os.path.isdir(folder):
-            self._set_status(f"The output folder {folder} does not exist; make it, or change it on the Box sheet.",
                              ok=False)
             return
         existing = [j.path for j in self.parts.jobs if os.path.exists(j.path)]
@@ -309,8 +365,7 @@ class WorkbookWindow(tk.Toplevel):
         plans = [j.plan for j in jobs]
         self._build_context = {"jobs": jobs, "digest": self.reading.digest}
         self._pending = worker.submit(lambda session: swbuild.build_many(session, plans))
-        self.build_button.configure(state="disabled")
-        self._set_status(f"Building {ui_text._plural(len(jobs), 'part')} in SolidWorks…")  # noqa: SLF001
+        self._refresh_state()
 
     def _collect_build(self) -> None:
         if self._pending is None:
@@ -323,12 +378,15 @@ class WorkbookWindow(tk.Toplevel):
         if error is not None:
             message = str(error) if isinstance(error, swcom.SolidWorksError) else \
                 f"The build hit a problem in SolidWorks — {type(error).__name__}: {error}"
-            self._set_status(message, ok=False)
-            self.build_button.configure(state="normal")
-            return
-        self._finish(value, context)
+            self.note = (message, False)
+        else:
+            self.note = self._finish(value, context)
+        if self.reading is not None:
+            self._plan()                       # what is on disk now decides what Build may do next
+        self._refresh_read_line()
+        self._refresh_state()
 
-    def _finish(self, many: swbuild.ManyResult, context: Dict[str, Any]) -> None:
+    def _finish(self, many: swbuild.ManyResult, context: Dict[str, Any]) -> tuple:
         from .gui import _log
         _log(many.log_lines())
         text, ok = ui_text.many_status(many)
@@ -342,6 +400,7 @@ class WorkbookWindow(tk.Toplevel):
             if note:
                 text, ok = f"{text} {note}", False
             built_parts.append({"path": result.saved, "gears": list(job.gear_ids)})
+        store.save_recent(self.app.recent)    # _write_sidecar remembered each record; keep them
         if built_parts:
             record = store.LinkRecord(workbook=self.link.path, digest=context.get("digest", ""),
                                       parts=built_parts, last_built=store.now(),
@@ -350,8 +409,7 @@ class WorkbookWindow(tk.Toplevel):
                 store.save_link_record(record)
             except OSError as exc:
                 text, ok = f"{text} The workbook's record could not be written beside it: {exc}", False
-        self._set_status(text, ok)
-        self.build_button.configure(state="normal")
+        return text, ok
 
     # ---------------------------------------------------------------- the rest
 
@@ -362,6 +420,11 @@ class WorkbookWindow(tk.Toplevel):
             self._set_status(f"The workbook could not be opened: {exc}", ok=False)
 
     def close(self) -> None:
+        if self._pending is not None:
+            # The parts are being made: closing now would leave them without their records.
+            self._set_status("A build is still running in SolidWorks; this window closes once it has finished.",
+                             ok=False)
+            return
         if self._after is not None:
             try:
                 self.after_cancel(self._after)
@@ -382,7 +445,13 @@ def open_workbook(app: Any, path: str = "") -> Optional[WorkbookWindow]:
         return None
     app.recent.remember_workbook(path)
     store.save_recent(app.recent)
-    return WorkbookWindow(app.winfo_toplevel(), app, path)
+    root = app.winfo_toplevel()
+    for child in root.winfo_children():          # the same workbook twice is one window, brought forward
+        if isinstance(child, WorkbookWindow) and store.same_path(child.link.path, os.path.abspath(path)):
+            child.deiconify()
+            child.lift()
+            return child
+    return WorkbookWindow(root, app, path)
 
 
 def new_workbook(app: Any) -> Optional[WorkbookWindow]:
@@ -396,7 +465,7 @@ def new_workbook(app: Any) -> Optional[WorkbookWindow]:
         if os.path.exists(path):
             raise xlsx.XlsxError(f"{path} already exists, and a new workbook never overwrites a file.")
         xlsx.write_new(path, wb_model.to_sheets(wb_model.template(name)))
-    except xlsx.XlsxError as exc:
+    except (xlsx.XlsxError, OSError) as exc:
         app._set_status(str(exc), ok=False)  # noqa: SLF001
         return None
     window = open_workbook(app, path)

@@ -356,6 +356,11 @@ def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
             raw = json.load(handle)
         if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) > SCHEMA_VERSION:
             return None
-        return LinkRecord(**_known(LinkRecord, raw))
+        record = LinkRecord(**_known(LinkRecord, raw))
+        if not isinstance(record.parts, list) or not all(isinstance(p, dict) for p in record.parts):
+            return None
+        if not all(isinstance(getattr(record, k), str) for k in ("workbook", "digest", "assembly", "last_built")):
+            return None
+        return record
     except Exception:  # noqa: BLE001 - a missing or broken record means "not built from here yet"
         return None
