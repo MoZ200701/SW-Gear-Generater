@@ -44,6 +44,12 @@ Judgement calls (change at review if wrong):
 
 ## 1. Data model: `src/gear_generator/gearbox/spec.py`
 
+> **Superseded (2026-11-11).** The planner's data model is now the workbook's `GearboxSpec`
+> (`src/gear_generator/workbook/model.py`, `docs/PLAN-WORKBOOK.md` §1 and §3.2): shafts placed by X, Y, Z and an
+> axis from one origin, gears on shafts, meshes listed, modes. The planner's Solve fills one, and the workbook's
+> checks, speeds and build take it from there (PLAN-WORKBOOK, end of §6). The model below is kept as the record
+> of the first plan; where the two differ, PLAN-WORKBOOK holds.
+
 Everything is typed text and frozen, in the style of `spec.py`: `""` is not `"0"`, and `to_dict` / `from_dict` drop unknown keys.
 
 ```python
