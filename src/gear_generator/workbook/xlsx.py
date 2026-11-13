@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import os
 import posixpath
+import shutil
 import re
 import tempfile
 import zipfile
@@ -347,6 +348,13 @@ def _write_zip_atomically(path: str, parts: Iterable[Tuple[Union[str, zipfile.Zi
                     out.writestr(info, data, compress_type=info.compress_type)
                 else:
                     out.writestr(info, data)
+        # mkstemp makes the file private (0600); give it the original's mode, or a new file's usual one.
+        if os.path.exists(path):
+            shutil.copymode(path, temp)
+        else:
+            mask = os.umask(0)
+            os.umask(mask)
+            os.chmod(temp, 0o666 & ~mask)
         try:
             os.replace(temp, path)
         except PermissionError:

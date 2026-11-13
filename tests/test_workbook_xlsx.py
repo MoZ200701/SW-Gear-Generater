@@ -335,3 +335,14 @@ def test_no_temp_file_is_left_behind(tmp_path):
     path = excel_like(tmp_path / "w.xlsx")
     xlsx.write_cells(str(path), {"Shafts": {"B2": 64}})
     assert sorted(os.listdir(tmp_path)) == ["w.xlsx"]
+
+
+def test_files_keep_ordinary_permissions(tmp_path):
+    """The temporary file is private (0600); the workbook must not end up that way."""
+    path = new_book(tmp_path / "n.xlsx")
+    mask = os.umask(0)
+    os.umask(mask)
+    assert os.stat(path).st_mode & 0o777 == 0o666 & ~mask
+    os.chmod(path, 0o640)
+    xlsx.write_cells(str(path), {"Gears": {"B2": 18}})
+    assert os.stat(path).st_mode & 0o777 == 0o640
