@@ -440,7 +440,15 @@ class LinkRecord:
       entry goes once the file on disk is newer (:func:`clear_saved`).
 
     A v1 file (W2) reads as v2 with ``gearbox`` None; a newer one raises
-    :class:`UnknownSchema` and is left alone.
+    :class:`UnknownSchema` and is left alone. On disk the schema is
+    ``link_schema_version``, and ``schema_version`` stays 1 so a build from
+    before schema 2 keeps the parts when it rewrites the file
+    (:data:`LINK_SCHEMA_FOR_OLD_READERS`).
+
+    The record and the disk can disagree — a file moved, renamed or saved by
+    hand since — so nothing trusts it alone: planning checks each path
+    exists, reuse and Update compare with SolidWorks live (decision 3), and
+    ``unsaved`` is cleared from the files' times, not from the record.
     """
 
     workbook: str = ""
@@ -459,18 +467,57 @@ class LinkRecord:
 
     def current_parts(self) -> List[PartEntry]:
         """The parts Update and reuse may act on: those the current revision's components name, or every part
-        when no gearbox is recorded (decision 2)."""
-        if self.gearbox is None:
+        when no gearbox is recorded or its assembly is not made yet (decision 2). With no components there is
+        nothing to filter by, and a build-again has already moved the parts it stopped using to ``earlier``."""
+        if self.gearbox is None or not self.gearbox.components:
             return list(self.parts)
         named = [c.part for c in self.gearbox.components]
         return [p for p in self.parts if any(same_path(p.path, n) for n in named)]
 
 
+def merge_parts(parts: List[PartEntry], new: List[PartEntry]) -> List[PartEntry]:
+    """``parts`` with ``new`` merged in, never replaced by one batch: an entry for a path already listed takes its
+    place (the same file, now holding what ``new`` says), any other is added at the end. Paths compare as Windows
+    compares them. Returns a new list; neither argument is changed."""
+    merged = list(parts)
+    for entry in new:
+        at = next((i for i, p in enumerate(merged) if same_path(p.path, entry.path)), None)
+        if at is None:
+            merged.append(entry)
+        else:
+            merged[at] = entry
+    return merged
+
+
+LINK_SCHEMA_KEY = "link_schema_version"
+# What ``schema_version`` says on disk, for a build of the app from before schema 2 (W2): it refuses anything
+# above 1 by reading "no record", and then writes a fresh record over the file on Export or Build parts, losing
+# every part. Shown 1, it reads the file as its own, keeps ``parts`` whole (it holds them as plain objects,
+# revision, spec and all), ``digest`` and ``assembly``, and drops only what it does not know: the gearbox block,
+# ``earlier`` and ``unsaved``. This app reads the real schema from ``link_schema_version``, so a newer file
+# (schema 3, 4, …) is still refused here, and a file that comes back without it was rewritten by an old build:
+# it reads as schema 1, parts only, and a later Build goes beside the files on disk (the smallest free
+# revision), never over them.
+LINK_SCHEMA_FOR_OLD_READERS = 1
+
+
 def link_record_to_json(record: LinkRecord) -> str:
-    """Byte-deterministic, always written as the current schema."""
+    """Byte-deterministic, always written as the current schema (with ``schema_version`` shown as 1 to a build
+    from before schema 2: :data:`LINK_SCHEMA_FOR_OLD_READERS`)."""
     payload = asdict(record)
-    payload["schema_version"] = LINK_SCHEMA_VERSION
+    payload["schema_version"] = LINK_SCHEMA_FOR_OLD_READERS
+    payload[LINK_SCHEMA_KEY] = LINK_SCHEMA_VERSION
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def _version(raw: Dict[str, Any], key: str) -> int:
+    version = raw.get(key, 0)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise StoreError(f"its {key} is not a whole number")
+    return version
+
+
+_NUMBER = (int, float)
 
 
 def _entries(cls, raw: Any) -> list:
@@ -479,11 +526,57 @@ def _entries(cls, raw: Any) -> list:
     return [cls(**_known(cls, item)) for item in raw]
 
 
+def _checked(item: Any) -> Any:
+    """``item`` (a link-record dataclass) with every field the type its annotation names, numbers made floats where
+    a float is asked; raises TypeError naming the field otherwise. Annotations are read as text (``from __future__
+    import annotations``), and only the forms these dataclasses use are known."""
+    name = type(item).__name__
+    for f in fields(item):
+        value, kind = getattr(item, f.name), str(f.type)
+        where = f"{name}.{f.name}"
+        if kind == "str":
+            ok = isinstance(value, str)
+        elif kind == "int":
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+                setattr(item, f.name, value)
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        elif kind == "float":
+            ok = isinstance(value, _NUMBER) and not isinstance(value, bool)
+            if ok:
+                setattr(item, f.name, float(value))
+        elif kind == "bool":
+            ok = isinstance(value, (bool, int))
+            if ok:
+                setattr(item, f.name, bool(value))
+        elif kind == "List[str]":
+            ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        elif kind == "List[float]":
+            ok = isinstance(value, list) and all(isinstance(v, _NUMBER) and not isinstance(v, bool) for v in value)
+            if ok:
+                setattr(item, f.name, [float(v) for v in value])
+        elif kind == "List[List[str]]":
+            ok = isinstance(value, list) and all(isinstance(v, list) and all(isinstance(s, str) for s in v)
+                                                 for v in value)
+        elif kind.startswith("Dict["):
+            ok = isinstance(value, dict)
+        else:
+            continue                  # the nested entries, checked one by one where they are read
+        if not ok:
+            raise TypeError(f"{where} is not {kind}")
+    return item
+
+
 def link_record_from_json(text: str) -> LinkRecord:
     """Parse a link record of any schema up to :data:`LINK_SCHEMA_VERSION`; a v1 record is read as v2.
 
-    Raises :class:`UnknownSchema` for a newer schema and :class:`StoreError`
-    for anything else wrong; never touches a file.
+    The schema is ``link_schema_version`` when the file has it, else
+    ``schema_version`` (a W2 file, or one an old build rewrote; see
+    :data:`LINK_SCHEMA_FOR_OLD_READERS`), and the larger of the two counts. A v1
+    record has parts with ``path`` and ``gears`` only, and no gearbox. Every
+    field is checked against its type. Raises :class:`UnknownSchema` for a
+    newer schema and :class:`StoreError` for anything else wrong, each a phrase
+    to follow "cannot be read: "; never touches a file.
     """
     try:
         raw = json.loads(text)
@@ -491,52 +584,105 @@ def link_record_from_json(text: str) -> LinkRecord:
         raise StoreError(f"it is not JSON ({exc})") from None
     if not isinstance(raw, dict):
         raise StoreError("it is not an object")
-    version = raw.get("schema_version", 0)
-    if isinstance(version, bool) or not isinstance(version, int):
-        raise StoreError("it has no readable schema version")
+    version = max(_version(raw, "schema_version"), _version(raw, LINK_SCHEMA_KEY))
     if version > LINK_SCHEMA_VERSION:
         raise UnknownSchema(f"it was written by a newer Gear Generator (schema {version}, this one reads "
                             f"{LINK_SCHEMA_VERSION})")
     try:
         record = LinkRecord(**_known(LinkRecord, raw))
-        record.parts = _entries(PartEntry, raw.get("parts", []))
-        if not all(isinstance(p.path, str) and isinstance(p.gears, list) for p in record.parts):
-            raise TypeError("a part has no path or gears")
+        record.parts = [_checked(p) for p in _entries(PartEntry, raw.get("parts", []))]
         gearbox = raw.get("gearbox")
         if gearbox is not None:
             if not isinstance(gearbox, dict):
                 raise TypeError("gearbox is not an object")
-            record.gearbox = GearboxRecord(**_known(GearboxRecord, gearbox))
-            record.gearbox.shafts = _entries(ShaftEntry, gearbox.get("shafts", []))
-            record.gearbox.components = _entries(ComponentEntry, gearbox.get("components", []))
-        record.earlier = _entries(EarlierRevision, raw.get("earlier", []))
+            record.gearbox = _checked(GearboxRecord(**_known(GearboxRecord, gearbox)))
+            record.gearbox.shafts = [_checked(s) for s in _entries(ShaftEntry, gearbox.get("shafts", []))]
+            record.gearbox.components = [_checked(c) for c in _entries(ComponentEntry,
+                                                                        gearbox.get("components", []))]
+        record.earlier = [_checked(e) for e in _entries(EarlierRevision, raw.get("earlier", []))]
         unsaved = raw.get("unsaved", {}) or {}
         if not isinstance(unsaved, dict):
             raise TypeError("unsaved is not an object")
+        if any(isinstance(v, bool) or not isinstance(v, _NUMBER) for v in unsaved.values()):
+            raise TypeError("an unsaved file's time is not a number")
         record.unsaved = {str(k): float(v) for k, v in unsaved.items()}
+        record.recalc = bool(record.recalc)
+        record.schema_version = LINK_SCHEMA_VERSION
+        _checked(record)
     except (TypeError, ValueError) as exc:
         raise StoreError(f"its contents are not a link record ({exc})") from None
-    if not all(isinstance(getattr(record, k), str) for k in ("workbook", "digest", "assembly", "last_built",
-                                                             "own_digest", "last_updated", "written_by")):
-        raise StoreError("a field that holds text does not")
-    record.recalc = bool(record.recalc)
-    record.schema_version = LINK_SCHEMA_VERSION
     return record
 
 
-def save_link_record(record: LinkRecord, path: Optional[str] = None) -> str:
-    """Write it beside the workbook; returns where. Raises OSError, which the window turns into a sentence.
+def _record_name(target: str) -> str:
+    return os.path.basename(target)
 
-    Callers read the file with :func:`open_link_record` first, so a newer
-    record is refused before a write (W4, Agent C: also refuse here, raising
-    :class:`UnknownSchema`, if the file on disk is newer than this app reads).
+
+def _newer(target: str, exc: Exception) -> UnknownSchema:
+    return UnknownSchema(f"The record of what was built, {_record_name(target)}, cannot be read: {exc}. "
+                         f"{LINK_WAITS}")
+
+
+LINK_WAITS = "It is left alone, so Build and Update SolidWorks wait."
+# The last words of every "this record is newer than the app" sentence. ``ui_text.workbook_footer`` tells a newer
+# record (nothing may write it: Build and Update wait) from a broken one (Build goes ahead and the finish sets the
+# file aside) by them, so they stay one constant.
+
+
+def _read_text(target: str) -> str:
+    with open(target, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _set_aside(target: str) -> str:
+    """Move a record that cannot be read to ``<name>.bad-<stamp>`` beside it (never deleted: it may be the only
+    copy of something someone wants); returns where it went."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    spoiled, n = f"{target}.bad-{stamp}", 2
+    while os.path.exists(spoiled):
+        spoiled, n = f"{target}.bad-{stamp}-{n}", n + 1
+    os.replace(target, spoiled)
+    return spoiled
+
+
+def save_link_record(record: LinkRecord, path: Optional[str] = None) -> str:
+    """Write it beside the workbook, atomically (a temporary file, then a replace); returns where.
+
+    Callers read the file with :func:`open_link_record` first. This looks
+    again at what is on disk just before writing, against another copy of the
+    app writing in between: a record newer than this app reads raises
+    :class:`UnknownSchema` and is left byte-identical, and one that cannot be
+    read is set aside to ``.bad-<stamp>`` (as :func:`open_link_record` does)
+    rather than written over. An unchanged record leaves the file alone. Raises
+    OSError when the disk refuses, which the window turns into a sentence.
     """
     target = path or link_record_path(record.workbook)
     payload = link_record_to_json(record)
+    if os.path.exists(target):
+        try:
+            text = _read_text(target)
+        except (OSError, UnicodeDecodeError):
+            text = None                        # unreadable as text: the write below says whether the disk allows it
+        if text == payload:
+            return target
+        if text is not None:
+            try:
+                link_record_from_json(text)
+            except UnknownSchema as exc:
+                raise _newer(target, exc) from None
+            except StoreError:
+                _set_aside(target)
     temporary = target + ".tmp"
-    with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(payload)
-    os.replace(temporary, target)
+    try:
+        with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(payload)
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
     return target
 
 
@@ -544,24 +690,24 @@ def read_link_record(workbook_path: str) -> Optional[LinkRecord]:
     """The record beside a workbook, for planning: None when there is none. **Never moves or writes a file**, so
     the Tk thread may call it on every refresh (review 13).
 
+    The record is the one named after the workbook beside it, whatever its
+    ``workbook`` field says, so a folder copied whole keeps its record.
     Raises :class:`UnknownSchema` (a newer record: Build, Update SolidWorks and
-    the record's writes wait, and the file is left alone) and
-    :class:`StoreError` (a broken one: left where it is; :func:`open_link_record`
-    moves it aside when the app next writes), each a sentence naming the file.
+    the record's writes wait, and the file is left alone; the sentence ends
+    with :data:`LINK_WAITS`) and :class:`StoreError` (a broken one: left where
+    it is; :func:`open_link_record` sets it aside when the app next writes),
+    each a sentence naming the file.
     """
     target = link_record_path(workbook_path)
     if not os.path.exists(target):
         return None
-    name = os.path.basename(target)
     try:
-        with open(target, "r", encoding="utf-8") as handle:
-            text = handle.read()
-        return link_record_from_json(text)
+        return link_record_from_json(_read_text(target))
     except UnknownSchema as exc:
-        raise UnknownSchema(f"The record of what was built, {name}, cannot be read: {exc}. It is left alone, so "
-                            "Build and Update SolidWorks wait.") from None
+        raise _newer(target, exc) from None
     except (StoreError, OSError, UnicodeDecodeError) as exc:
-        raise StoreError(f"The record of what was built, {name}, cannot be read: {exc}.") from None
+        raise StoreError(f"The record of what was built, {_record_name(target)}, cannot be read: {exc}. The next "
+                         "Build sets it aside and starts a new one.") from None
 
 
 def open_link_record(workbook_path: str) -> Optional[LinkRecord]:
@@ -571,23 +717,83 @@ def open_link_record(workbook_path: str) -> Optional[LinkRecord]:
     A newer record raises :class:`UnknownSchema` and the file is left
     byte-identical. A broken one is moved aside to ``<name>.bad-<stamp>``, as
     :func:`load` does a sidecar, and :class:`StoreError` is raised with a
-    sentence saying where it went; the caller then starts a fresh record.
-    Runs on the Tk thread, never during planning.
+    sentence saying where it went; the caller then starts a fresh record. A
+    file the disk will not let be read raises :class:`StoreError` and stays
+    where it is. Runs on the Tk thread, never during planning.
     """
-    raise NotImplementedError("W4: Agent C, store.open_link_record")
+    target = link_record_path(workbook_path)
+    if not os.path.exists(target):
+        return None
+    name = _record_name(target)
+    try:
+        text = _read_text(target)
+    except UnicodeDecodeError as exc:
+        text, why = None, f"it is not text ({exc})"
+    except OSError as exc:
+        raise StoreError(f"The record of what was built, {name}, cannot be read: {exc}. It is left where it "
+                         "is.") from None
+    if text is not None:
+        try:
+            return link_record_from_json(text)
+        except UnknownSchema as exc:
+            raise _newer(target, exc) from None
+        except StoreError as exc:
+            why = str(exc)
+    spoiled = _set_aside(target)
+    raise StoreError(f"The record of what was built, {name}, could not be read ({why}), so it was moved to "
+                     f"{os.path.basename(spoiled)} and a new one is started.")
 
 
 def clear_saved(record: LinkRecord, mtime: Callable[[str], float] = os.path.getmtime) -> bool:
     """Drop every ``unsaved`` entry whose file on disk is now newer than when Update changed it (the user saved
     it in SolidWorks), or is gone. Changes ``record`` in place; returns whether anything was dropped. Pure but
-    for ``mtime``, which tests inject."""
-    raise NotImplementedError("W4: Agent C, store.clear_saved")
+    for ``mtime``, which tests inject.
+
+    A file whose time is the same, or older (an older copy put back), is
+    still unsaved: the update is in SolidWorks only."""
+    dropped = False
+    for path, then in list(record.unsaved.items()):
+        try:
+            now_ = mtime(path)
+        except OSError:
+            now_ = None
+        if now_ is None or now_ > then:
+            del record.unsaved[path]
+            dropped = True
+    return dropped
 
 
 def read_sidecar(path: str) -> Optional[Sidecar]:
     """A part's ``.gear.json`` for planning: None when there is none, or it cannot be read, or it is newer than
-    this app. **Never moves or writes a file** (unlike :func:`load`), so reuse can be planned on every refresh."""
-    raise NotImplementedError("W4: Agent C, store.read_sidecar")
+    this app. **Never moves or writes a file** (unlike :func:`load`), so reuse can be planned on every refresh.
+
+    ``path`` is the sidecar's own path or the part's (``….SLDPRT``): the
+    sidecar beside the part is read either way."""
+    if not path:
+        return None
+    target = path if path.lower().endswith(SIDECAR_SUFFIX) else sidecar_path(path)
+    if not os.path.exists(target):
+        return None
+    try:
+        return from_json(_read_text(target))
+    except (StoreError, OSError, UnicodeDecodeError, TypeError, ValueError):
+        return None
+
+
+def carry_link_record(old_workbook: str, new_workbook: str) -> Optional[str]:
+    """Locate…: the workbook was moved or renamed, and the window now points at ``new_workbook``. If no record sits
+    beside the new path but one sits beside the old, a copy is written beside the new one with ``workbook`` set to
+    the new path, and its path returned; the old record is left alone (the old folder may be someone's backup).
+    None when there is nothing to carry: no record beside the old path, one already beside the new, or the same
+    file. Raises what :func:`read_link_record` raises for the old record (a newer one is not carried: copied, it
+    would be written as this schema), and OSError when the copy cannot be written."""
+    if same_path(old_workbook, new_workbook) or os.path.exists(link_record_path(new_workbook)):
+        return None
+    record = read_link_record(old_workbook)
+    if record is None:
+        return None
+    record.workbook = new_workbook
+    return save_link_record(record, link_record_path(new_workbook))
 
 
 def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
@@ -595,8 +801,9 @@ def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
 
     Kept for the window as it stands before W4 is wired (its Export and
     Build parts paths), and for nothing new: it hides a newer record as None,
-    which a write would then overwrite. The window wiring moves to
-    :func:`read_link_record` and :func:`open_link_record` and removes this.
+    which a write would then overwrite (:func:`save_link_record` now refuses
+    that write). The window wiring moves to :func:`read_link_record` and
+    :func:`open_link_record` and removes this.
     """
     try:
         return read_link_record(workbook_path)
