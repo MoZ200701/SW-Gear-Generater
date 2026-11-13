@@ -70,6 +70,8 @@ class WorkbookWindow(tk.Toplevel):
         self.diagnostics: List[Diagnostic] = []
         self.changes: List[str] = []
         self.changes_at = ""
+        self.consequence: Optional[wb_link.Consequence] = None    # what the changes did to the checks
+        self._raw: Optional[tuple] = None    # the last good read's (diagnostics, report), no fixes made
         self.read_at = ""
         self.error = ""                # the last read's trouble ("" once a read is good); Build waits on it
         self.note: Optional[tuple] = None    # the last build's (sentence, ok), until the file changes
@@ -281,6 +283,16 @@ class WorkbookWindow(tk.Toplevel):
         elif not self.changes_at:
             self.changes_at = self.read_at
         self._plan()
+        # What the save did is read against the file as it was, not as a chosen fix would make it, as the
+        # cell list is: a fix set aside by this save is said in the footer, not here.
+        if self.chosen:
+            _, report, diagnostics = self._checked(reading.spec, reading.diagnostics)
+            raw = (diagnostics, report)
+        else:
+            raw = (self.diagnostics, self.report)
+        if reading.changes:
+            self.consequence = wb_link.consequence(self._raw, raw) if self._raw is not None else None
+        self._raw = raw
         self._refresh_read_line()
         self._paint()
 
@@ -291,12 +303,17 @@ class WorkbookWindow(tk.Toplevel):
         for fix in self.chosen:
             spec = wb_fixes.apply(spec, fix)
         self.effective = spec
-        skip_rows = wb_build.rows_with_errors(self.reading.diagnostics)
-        self.parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec), skip_rows=skip_rows)
-        bad_rows = skip_rows | wb_build.rows_with_errors(self.parts.diagnostics)
+        self.parts, self.report, self.diagnostics = self._checked(spec, self.reading.diagnostics)
+
+    def _checked(self, spec: wb_model.GearboxSpec, read_diagnostics: List[Diagnostic]):
+        """(parts, gearbox report, every diagnostic) for a gearbox: the read's own, the strip's per gear, the
+        gearbox's. A gear with an error of its own is left out of the parts and the gearbox checks."""
+        skip_rows = wb_build.rows_with_errors(read_diagnostics)
+        parts = wb_build.plan_parts(spec, self._folder(spec), self._template(spec), skip_rows=skip_rows)
+        bad_rows = skip_rows | wb_build.rows_with_errors(parts.diagnostics)
         skip_gears = {g.id for g in spec.gears if g.row in bad_rows}
-        self.report = wb_checks.check(spec, skip_gears)
-        self.diagnostics = self.reading.diagnostics + self.parts.diagnostics + self.report.diagnostics
+        report = wb_checks.check(spec, skip_gears)
+        return parts, report, read_diagnostics + parts.diagnostics + report.diagnostics
 
     def _folder(self, spec: wb_model.GearboxSpec) -> str:
         return spec.box.output_folder or self.app.out_folder.get().strip()
@@ -331,6 +348,7 @@ class WorkbookWindow(tk.Toplevel):
         self.title(f"Workbook — {os.path.basename(path)}")
         self.name_label.configure(text=os.path.basename(path))
         self.changes, self.changes_at = [], ""
+        self.consequence, self._raw = None, None
         self.reread()
 
     # ---------------------------------------------------------------- painting
@@ -400,7 +418,7 @@ class WorkbookWindow(tk.Toplevel):
 
         self.changes_readout.set(ui_text.workbook_changes_readout(self.changes, self.changes_at))
         self._clear(self.changes_body)
-        for r, change in enumerate(self.changes):
+        for r, change in enumerate(ui_text.workbook_change_lines(self.changes, self.consequence)):
             self._line(self.changes_body, r, change, theme.INK, mono=True)
         if not self.changes:
             self._line(self.changes_body, 0, "Nothing changed.", theme.MUTED)

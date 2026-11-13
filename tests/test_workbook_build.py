@@ -231,6 +231,108 @@ def test_the_apps_own_write_is_recognised(tmp_path):
     assert watch.poll().own
 
 
+# -- what a save did to the checks (PLAN-WORKBOOK §5: "Gears!F3 Teeth 68 → 70 · G1–G2 now 1.50 off") ----
+
+
+def checked(reading):
+    """Every diagnostic and the gearbox report for a read, as WorkbookWindow._checked makes them."""
+    from gear_generator.workbook import checks
+    skip_rows = build.rows_with_errors(reading.diagnostics)
+    parts = build.plan_parts(reading.spec, FOLDER, skip_rows=skip_rows)
+    bad_rows = skip_rows | build.rows_with_errors(parts.diagnostics)
+    report = checks.check(reading.spec, {g.id for g in reading.spec.gears if g.row in bad_rows})
+    return reading.diagnostics + parts.diagnostics + report.diagnostics, report
+
+
+def saved(path, watch, cells):
+    """``cells`` saved into the workbook: the change lines the window shows for that save."""
+    before = checked(watch.read())
+    xlsx.write_cells(str(path), cells)
+    touch_later(path)
+    reading = watch.poll()
+    return reading.changes, link.consequence(before, checked(reading))
+
+
+def test_one_cell_says_what_it_did_on_its_own_line(tmp_path):
+    """The plan's own example: G2 at 70 teeth needs 65.25 between centres, and S2 is still 63.75 from S1."""
+    path = write(tmp_path, reducer())
+    watch = link.Link(str(path), Clock())
+    changes, did = saved(path, watch, {"Gears": {"F3": 70}})
+    assert did.meshes == [("G1", "G2", pytest.approx(1.5))] and not did.new_errors and not did.cleared
+    assert ui_text.workbook_change_lines(changes, did) == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off"]
+
+
+def test_several_cells_say_it_once_after_them_and_say_when_it_mends(tmp_path):
+    path = write(tmp_path, reducer())
+    watch = link.Link(str(path), Clock())
+    changes, did = saved(path, watch, {"Shafts": {"C3": 64, "C4": 132}})
+    assert ui_text.workbook_change_lines(changes, did) == [
+        "Shafts!C3 S2 X 63.75 → 64", "Shafts!C4 S3 X 131.75 → 132", "G1–G2 now 0.25 mm off"]
+    # Further off: the same error with other numbers, said as the distance and not as a new error.
+    changes, did = saved(path, watch, {"Shafts": {"C3": 64.5, "C4": 132.5}})
+    assert ui_text.workbook_consequence(did) == "G1–G2 now 0.75 mm off"
+    changes, did = saved(path, watch, {"Shafts": {"C3": 63.75, "C4": 131.75}})
+    assert ui_text.workbook_change_lines(changes, did)[-1] == "G1–G2 now on centres"
+
+
+def test_new_problems_are_counted_by_their_cells_and_cleared_ones_too(tmp_path):
+    path = write(tmp_path, reducer())
+    watch = link.Link(str(path), Clock())
+    changes, did = saved(path, watch, {"Gears": {"F3": 68.5}})
+    # G2 no longer reads, so nothing reaches S2 or S3, and its own warning goes with it.
+    assert did.new_errors == ["Gears!F3", "Shafts!A3", "Shafts!A4"] and did.cleared == ["Gears!Q3"]
+    assert ui_text.workbook_change_lines(changes, did) == [
+        "Gears!F3 G2 Teeth 68 → 68.5 · 3 new errors (Gears!F3, Shafts!A3, Shafts!A4) · 1 cleared (Gears!Q3)"]
+    # The same error with another number is not a new one.
+    _, did = saved(path, watch, {"Gears": {"F3": 68.7}})
+    assert not did and ui_text.workbook_consequence(did) == ""
+    _, did = saved(path, watch, {"Gears": {"F3": 68}})
+    assert did.cleared == ["Gears!F3", "Shafts!A3", "Shafts!A4"] and did.new_warnings == ["Gears!Q3"]
+
+
+def test_the_consequence_names_at_most_three_cells():
+    did = link.Consequence(new_errors=["Gears!F3", "Gears!F3", "Gears!F4", "Gears!F5", "Gears!F6"],
+                           new_warnings=["Shafts"])
+    assert ui_text.workbook_consequence(did) == ("5 new errors (Gears!F3, Gears!F4, Gears!F5, …) · "
+                                                 "1 new warning (Shafts)")
+    assert ui_text.workbook_change_lines(["a", "b"], link.Consequence()) == ["a", "b"]
+    assert ui_text.workbook_change_lines(["a"], None) == ["a"]
+
+
+def test_the_window_shows_what_a_save_did(tmp_path):
+    """Needs Tk and a display (run on Windows); skipped where there is none."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display for Tk")
+    root.withdraw()
+    from gear_generator import theme, workbook_gui
+    theme.setup(root)
+
+    class App:
+        out_folder = tk.StringVar(root, "")
+        part_template = tk.StringVar(root, "")
+
+    path = write(tmp_path, reducer())
+    window = workbook_gui.WorkbookWindow(root, App(), str(path), poll_ms=10 ** 6)
+    try:
+        window.withdraw()
+        xlsx.write_cells(str(path), {"Gears": {"F3": 70}})
+        window.reread()
+        shown = [w.cget("text") for w in window.changes_body.winfo_children()]
+        assert shown == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off"]
+        # A fix chosen does not change what the save did: that is read against the file, as the cells are.
+        window.choose(window.report.fixes["Meshes!A2"][0])
+        shown = [w.cget("text") for w in window.changes_body.winfo_children()]
+        assert shown == ["Gears!F3 G2 Teeth 68 → 70 · G1–G2 now 1.5 mm off"]
+        window.reread()                                       # nothing new: the list and what it did stay
+        assert [w.cget("text") for w in window.changes_body.winfo_children()] == shown
+    finally:
+        window.close()
+        root.destroy()
+
+
 # -- what is remembered ----------------------------------------------------------------
 
 

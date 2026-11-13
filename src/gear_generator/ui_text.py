@@ -836,6 +836,47 @@ def workbook_changes_readout(changes: Sequence[str], clock_text: str) -> str:
     return f"{_plural(len(changes), 'change')} · {clock_text}"
 
 
+CONSEQUENCE_CELLS = 3      # cells named in one piece of the line; more are counted, not named
+
+
+def _cells(fields: Sequence[str]) -> str:
+    cells = list(dict.fromkeys(f for f in fields if f))
+    shown = ", ".join(cells[:CONSEQUENCE_CELLS]) + (", …" if len(cells) > CONSEQUENCE_CELLS else "")
+    return f" ({shown})" if shown else ""
+
+
+def workbook_consequence(consequence) -> str:
+    """What a save did to the checks, in one line: ``G1–G2 now 0.25 mm off · 1 new error (Gears!F3)``.
+
+    ``consequence`` is a :class:`workbook.link.Consequence`. Empty when the
+    checks say what they said before; the Checks panel has the sentences."""
+    if not consequence:
+        return ""
+    pieces = [f"{a}–{b} now on centres" if off is None else f"{a}–{b} now {_n(off)} mm off"
+              for a, b, off in consequence.meshes]
+    if consequence.new_errors:
+        pieces.append(_plural(len(consequence.new_errors), "new error") + _cells(consequence.new_errors))
+    if consequence.new_warnings:
+        pieces.append(_plural(len(consequence.new_warnings), "new warning") + _cells(consequence.new_warnings))
+    if consequence.cleared:
+        pieces.append(f"{len(consequence.cleared)} cleared" + _cells(consequence.cleared))
+    return " · ".join(pieces)
+
+
+def workbook_change_lines(changes: Sequence[str], consequence=None) -> List[str]:
+    """The Since the last read panel: one line per changed cell, and what they did.
+
+    One cell changed: what it did follows it on its line, *Gears!F3 G2 Teeth
+    68 → 70 · G1–G2 now 1.5 mm off*. Several: no one cell did it, so it is a
+    line of its own after them."""
+    did = workbook_consequence(consequence) if consequence is not None else ""
+    if not did:
+        return list(changes)
+    if len(changes) == 1:
+        return [f"{changes[0]} · {did}"]
+    return list(changes) + [did]
+
+
 def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", folder: str = "") -> Tuple[str, bool]:
     """The footer's one sentence, and whether Build can go ahead."""
     if error:

@@ -36,6 +36,7 @@ class Report:
     motion: kinematics.Motion = field(default_factory=kinematics.Motion)
     centres: Dict[Tuple[str, str], Tuple[float, float]] = field(default_factory=dict)   # mesh -> (needed, placed)
     contact: Dict[Tuple[str, str], float] = field(default_factory=dict)                # mesh -> εα at the needed centre
+    off_centre: List[Diagnostic] = field(default_factory=list)   # the "not where the teeth put them" errors
     worked_out_as: str = ""
 
 
@@ -157,11 +158,13 @@ def _check_mesh(report: Report, spec: GearboxSpec, mesh, a: Placed, b: Placed, w
     off = placed_at - needed
     if abs(off) > CENTRE_TOLERANCE:
         shafts = {s.id: s for s in spec.shafts}
-        report.diagnostics.append(Diagnostic(
+        off_error = Diagnostic(
             ERROR, f"{where}: {a.gear} and {b.gear} are {_n(placed_at)} apart; their teeth make {_n(needed)} "
                    f"({'+' if off > 0 else '−'}{_n(abs(off))} mm). Check the X and Y of {a.shaft} and {b.shaft} "
                    f"(Shafts rows {shafts[a.shaft].row} and {shafts[b.shaft].row}); a shaft at an angle is "
-                   "best placed by formula.", where))
+                   "best placed by formula.", where)
+        report.diagnostics.append(off_error)
+        report.off_centre.append(off_error)
         offered = []
         move = fixes_mod.move_fix(spec, a, b, needed)
         if move is not None:

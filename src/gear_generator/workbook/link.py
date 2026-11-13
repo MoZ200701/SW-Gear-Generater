@@ -1,11 +1,12 @@
 """Staying linked to a workbook after import (docs/PLAN-WORKBOOK.md §5, the live link).
 
 The window asks :meth:`Link.poll` once a second. A save in Excel changes the
-file's size or modification time; the link then reads it again, checks it,
-and says what changed since the last read, cell by cell. Excel saves by
-writing a new file and replacing the old one, so for a moment the workbook may
-be half-written or missing: that is "not ready", retried quietly for up to
-five seconds before it becomes a sentence the window shows.
+file's size or modification time; the link then reads it again, and says what
+changed since the last read, cell by cell (:func:`describe_changes`), and what
+that did to the checks (:func:`consequence`). Excel saves by writing a new file
+and replacing the old one, so for a moment the workbook may be half-written or
+missing: that is "not ready", retried quietly for up to five seconds before it
+becomes a sentence the window shows.
 
 Nothing here touches Tk or COM, so all of it is tested headless with a fake clock.
 """
@@ -14,12 +15,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..gears.base import Diagnostic
 from . import schema, xlsx
+from .checks import CENTRE_TOLERANCE, Report
 from .model import GearboxSpec, from_book
 
 RETRY_SECONDS = 5.0
@@ -193,4 +196,86 @@ def describe_changes(old: Optional[GearboxSpec], new: GearboxSpec) -> List[str]:
     for name in old_modes:
         if name not in new_modes:
             out.append(f"mode {name} removed")
+    return out
+
+
+# ------------------------------------------------------------------ what that did
+
+
+@dataclass
+class Consequence:
+    """What a save did to the checks: the one line after the changed cells (PLAN-WORKBOOK §5,
+    *Gears!F3 Teeth 68 → 70 · G1–G2 now 1.50 off*). The Checks panel has the full sentences; this names
+    only what is new or gone. Each problem is listed by the cell it names, once per problem."""
+
+    meshes: List[Tuple[str, str, Optional[float]]] = field(default_factory=list)   # (a, b, mm off now; None: on centres)
+    new_errors: List[str] = field(default_factory=list)
+    new_warnings: List[str] = field(default_factory=list)
+    cleared: List[str] = field(default_factory=list)       # problems gone, from cells that now have none
+
+    def __bool__(self) -> bool:
+        return bool(self.meshes or self.new_errors or self.new_warnings or self.cleared)
+
+
+# A number standing alone (64.25, +0.25, −375), not one inside a name or a cell (G1, Gears!F3).
+_NUMBER = re.compile(r"(?<![\w.])[-+−]?\d+(?:\.\d+)?(?![\w.])")
+
+
+def _problem(d: Diagnostic) -> Tuple[str, str, str]:
+    """A problem as the same problem however its numbers moved: a gear whose teeth went from 68.5 to 68.7 is
+    still the one error at Gears!F3, not one gone and one new."""
+    return d.level, d.field, _NUMBER.sub("#", d.message)
+
+
+def _off_by(report: Optional[Report]) -> Dict[frozenset, Tuple[str, str, float]]:
+    if report is None:
+        return {}
+    return {frozenset(pair): (pair[0], pair[1], placed - needed) for pair, (needed, placed) in report.centres.items()}
+
+
+def consequence(before: Tuple[Sequence[Diagnostic], Optional[Report]],
+                after: Tuple[Sequence[Diagnostic], Optional[Report]]) -> Consequence:
+    """What the checks say after a save that they did not before, and what they no longer say.
+
+    ``before`` and ``after`` are each read's every diagnostic (reading, the
+    strip's own per gear, and the gearbox's) with the gearbox :class:`Report`
+    they came from. A mesh that moved off its centres, or back onto them, or
+    by more than the tolerance while off, is said as its distance; that mesh's
+    own "not where the teeth put them" error is then not said twice.
+    """
+    (old_diagnostics, old_report), (new_diagnostics, new_report) = before, after
+    out = Consequence()
+    old_off, new_off = _off_by(old_report), _off_by(new_report)
+    for key, (a, b, off) in new_off.items():
+        was = old_off.get(key)
+        now_off = abs(off) > CENTRE_TOLERANCE
+        if was is None:
+            moved = now_off
+        else:
+            moved = abs(off - was[2]) > CENTRE_TOLERANCE and (now_off or abs(was[2]) > CENTRE_TOLERANCE)
+        if moved:
+            out.meshes.append((a, b, abs(off) if now_off else None))
+    said = (list(old_report.off_centre) if old_report else []) + (list(new_report.off_centre) if new_report else [])
+
+    def problems(diagnostics):
+        return [d for d in diagnostics if d not in said]
+
+    old = problems(old_diagnostics)
+    new = problems(new_diagnostics)
+    old_keys = {_problem(d) for d in old}
+    new_keys = {_problem(d) for d in new}
+    seen = set()
+    for d in new:
+        key = _problem(d)
+        if key in old_keys or key in seen:
+            continue
+        seen.add(key)
+        (out.new_errors if d.is_error else out.new_warnings).append(d.field)
+    still = {d.field for d in new_diagnostics}
+    for d in old:
+        key = _problem(d)
+        if key in new_keys or key in seen or d.field in still:
+            continue
+        seen.add(key)
+        out.cleared.append(d.field)
     return out

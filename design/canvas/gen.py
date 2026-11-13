@@ -658,21 +658,26 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     """The window after reading ``spec`` (changes listed against ``before``); ``choose`` picks offered fixes
     (``(field, index)``) as if their buttons were pressed."""
     path, (read_spec, read_diagnostics) = read_workbook(spec)
-    changes = wb_link.describe_changes(read_workbook(before)[1][0], read_spec) if before is not None else []
     folder = read_spec.box.output_folder
 
-    def plan(chosen):                                                   # WorkbookWindow._plan
-        effective = read_spec
+    def plan(chosen, read=(read_spec, read_diagnostics)):              # WorkbookWindow._plan and _checked
+        effective, from_read = read
         for fix in chosen:
             effective = wb_fixes.apply(effective, fix)
-        skip_rows = wb_build.rows_with_errors(read_diagnostics)
+        skip_rows = wb_build.rows_with_errors(from_read)
         parts = wb_build.plan_parts(effective, folder, skip_rows=skip_rows)
         bad_rows = skip_rows | wb_build.rows_with_errors(parts.diagnostics)
         report = wb_checks.check(effective, {g.id for g in effective.gears if g.row in bad_rows})
-        return effective, parts, report, read_diagnostics + parts.diagnostics + report.diagnostics
+        return effective, parts, report, from_read + parts.diagnostics + report.diagnostics
 
     chosen = []
     effective, parts, report, diagnostics = plan(chosen)
+    changes, did = [], None
+    if before is not None:                                              # WorkbookWindow._show
+        earlier = read_workbook(before)[1]
+        changes = wb_link.describe_changes(earlier[0], read_spec)
+        _, _, earlier_report, earlier_diagnostics = plan([], earlier)
+        did = wb_link.consequence((earlier_diagnostics, earlier_report), (diagnostics, report))
     for field_, index in choose or ():
         chosen.append(report.fixes[field_][index])
         effective, parts, report, diagnostics = plan(chosen)
@@ -699,7 +704,8 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     checks = panel("Checks", ui_text.workbook_checks_readout(diagnostics),
                    check_lines(diagnostics, report.fixes, chosen), gap=4)
     since = panel("Since the last read", ui_text.workbook_changes_readout(changes, clock),
-                  [f'<div style="{mono} line-height: 1.5;">{c}</div>' for c in changes] or [warning("Nothing changed.")],
+                  [f'<div style="{mono} line-height: 1.5;">{c}</div>' for c in ui_text.workbook_change_lines(changes, did)]
+                  or [warning("Nothing changed.")],
                   gap=2)
     svg, view_readout = end_view_svg(report)
     view = panel("End view, from your origin", view_readout, [svg])

@@ -338,8 +338,8 @@ row with drop-down lists for the fixed words — opens it in Excel and links it.
 Opening a workbook whose window is already open brings that window forward.
 
 Artboards `WorkbookReady` (after a save that made G4 wider), `WorkbookError`
-(a save that broke a cell and added a bevel gear), `WorkbookFix` (S2 typed
-0.25 mm off its centres, both fixes offered) and `WorkbookChosen` (the move
+(a save that broke a cell and added a bevel gear), `WorkbookFix` (S2 and S3
+typed 0.25 mm on, so G1–G2 is off its centres, both fixes offered) and `WorkbookChosen` (the move
 chosen, waiting for Export), each with its render in `design/renders/`. `gen.py`
 draws them from a real workbook written, read, planned and checked by the app,
 with the window's own sizes from `workbook_gui`, the end view from
@@ -389,7 +389,17 @@ left or up rather than off the screen.
 - **Since the last read** (readout `2 changes · 14:02:31`, or *nothing changed ·
   …*): what the last outside save changed, one line per cell in mono, `Shafts!C3
   S2 X 63.75 → 64`, and rows that came or went, `gear G5 added (Gears row 6)`.
-  *Nothing changed.* when nothing has.
+  Then what that did to the checks (`ui_text.workbook_change_lines`, from
+  `workbook.link.consequence`): a mesh that moved off its centres or back,
+  `G1–G2 now 0.25 mm off` / `G1–G2 now on centres`, and the problems the checks
+  did not have before and those now gone, by the cells they name, `3 new errors
+  (Gears!F3, Shafts!A3, Shafts!A4) · 1 cleared (Gears!Q3)` (three cells named,
+  then `…`). A problem whose numbers moved is the same problem, not a new one.
+  One cell changed, it follows that cell on its line, `Gears!F3 G2 Teeth 68 → 70
+  · G1–G2 now 1.5 mm off`; several, it is a line of its own after them. It is
+  read against the file as it was, as the cells are, not with a chosen fix
+  made; and nothing follows when the checks say what they said before. The
+  readout counts the cells only. *Nothing changed.* when nothing has.
 - **End view, from your origin** (readout `z 7.5 · z 27 · origin`, or *origin off
   view*): a 392 × 300 px white canvas. Every placed gear's own outline at its
   phase, seen from +Z as SolidWorks' Front view (+X right, +Y up), each at the
@@ -489,7 +499,8 @@ button for them yet.
   not shown, and a clean workbook says so in one line.
 - **Re-read** is in the header beside **Open in Excel**, not in the footer, and
   the counts are the Workbook panel's readout rather than the header's.
-- The change list names each changed cell (`Gears!F3 G2 Teeth 68 → 68.5`) but
-  not what it did to the gearbox (the plan's *· G1–G2 now 1.50 off*); Checks
-  says that.
+- The change list's *what it did* gives a distance as the checks do, `G1–G2 now
+  1.5 mm off`, not the plan's `1.50 off`; with several cells changed it is a line
+  of its own rather than following one cell; and it also counts new and cleared
+  problems by cell, which the plan's example does not show.
 - No **Update SolidWorks** yet: it comes with the assembly in W4.
