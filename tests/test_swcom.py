@@ -1812,3 +1812,55 @@ def test_a_component_not_found_again_after_the_delete_says_the_open_assembly_los
                                  "new ratio, and making it again stopped. The saved R.SLDASM still has it: close "
                                  "R.SLDASM in SolidWorks without saving to bring it back. Gear_m1.5_N51-1 could not be "
                                  "found again in R.SLDASM after the delete.")
+
+
+class GearMateData:
+    """IGearMateFeatureData as probe gear_mate_ratio read it: the counts the other way round from AddMate5."""
+
+    def __init__(self, log, first, second, as_method=False):
+        self.log, self.first, self.second, self.as_method = log, first, second, as_method
+
+    @property
+    def GearRatioNumerator(self):
+        value = float(self.second)
+        return (lambda: value) if self.as_method else value
+
+    @property
+    def GearRatioDenominator(self):
+        value = float(self.first)
+        return (lambda: value) if self.as_method else value
+
+    def __getattr__(self, name):
+        if name == "ModifyDefinition":
+            self.log.append(("ModifyDefinition",))
+        raise AttributeError(name)
+
+
+@pytest.mark.parametrize("as_method", [False, True])
+def test_a_gear_mates_ratio_is_read_from_its_definition_in_its_own_selection_order_and_never_modified(
+        mated, monkeypatch, as_method):
+    session, doc = mated
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", True)
+    mate = MateFeature(doc, "G1 meshes G2", "MateGearDim")
+    mate.GetDefinition = GearMateData(doc.log, 17, 68, as_method)
+    doc.mates = [mate]
+    session.find_mate("mesh1", "G1 meshes G2")
+    assert session.gear_mate_ratio("mesh1") == (17.0, 68.0)
+    assert ("ModifyDefinition",) not in doc.log
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", False)
+    assert session.gear_mate_ratio("mesh1") == (68.0, 17.0)       # a version reading it the AddMate5 way round
+
+
+def test_a_gear_mates_ratio_is_not_read_without_its_finding_or_its_definition(mated, monkeypatch):
+    session, doc = mated
+    mate = MateFeature(doc, "G1 meshes G2", "MateGearDim")
+    mate.GetDefinition = None
+    doc.mates = [mate]
+    session.find_mate("mesh1", "G1 meshes G2")
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", True)
+    with pytest.raises(SolidWorksError, match="^SolidWorks gave no definition for the gear mate G1 meshes G2 in "
+                                              "R.SLDASM, so its ratio cannot be read.$"):
+        session.gear_mate_ratio("mesh1")
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", None)
+    with pytest.raises(SolidWorksError, match=r"GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND is None\), so nothing"):
+        session.gear_mate_ratio("mesh1")

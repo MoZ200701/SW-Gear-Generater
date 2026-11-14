@@ -109,6 +109,7 @@ class SolidWorks(Protocol):
     def find_mate(self, handle: str, name: str) -> str: ...
     def set_mate_suppressed(self, handle: str, suppressed: bool) -> None: ...
     def set_gear_ratio(self, handle: str, a: str, b: str, ratio: Tuple[int, int]) -> None: ...
+    def gear_mate_ratio(self, handle: str) -> Tuple[float, float]: ...
 
 
 class BuildError(SolidWorksError):
@@ -2006,6 +2007,12 @@ class GearboxUpdate:
     unsuppressed: List[str] = field(default_factory=list)
     axial: List[str] = field(default_factory=list)
     ratios: List[str] = field(default_factory=list)
+    # W5, the gear mates judged live (each recorded gear mate's ratio read in the check phase, as frames are): a gear
+    # mate found at another ratio than the workbook wants though the plan asked no change of it (a remake lost with
+    # an unsaved close, say), remade to the wanted ratio — also in ``ratios``; and a gear mate the plan asked to
+    # change found already at the wanted ratio, so not remade (the record should take the plan's ratio for it).
+    ratios_found: List[str] = field(default_factory=list)
+    ratios_already: List[str] = field(default_factory=list)
     extra_mates: List[str] = field(default_factory=list)
     mates: List[MateState] = field(default_factory=list)
 
@@ -2069,6 +2076,11 @@ class GearboxUpdate:
             lines.append("ok      moved along their shafts: " + ", ".join(self.axial))
         if self.ratios:
             lines.append("ok      given their new ratio: " + ", ".join(self.ratios))
+        if self.ratios_found:
+            lines.append("ok      found in SolidWorks at another ratio than the workbook's, and remade: "
+                         + ", ".join(self.ratios_found))
+        if self.ratios_already:
+            lines.append("ok      already at the ratio the workbook asks, so not remade: " + ", ".join(self.ratios_already))
         if self.extra_mates:
             lines.append("CHECK   suppressed mates Gear Generator did not make, left as they are: "
                          + ", ".join(self.extra_mates))
@@ -2345,6 +2357,7 @@ MOTION_UPDATE_FINDINGS = (
     ("LAYOUT_MOVE_CARRIES_MATES", True, "a mated gear following its shaft when the layout moves", ""),
     ("LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE", True, "a lock keeping the angle a gear was put at", "locks"),
     ("AXIAL_GLOBAL_MOVES_GEAR", True, "a gear moved along its shaft by its Face Z global", "face_globals"),
+    ("GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", _SET, "reading a gear mate's ratio", "meshes"),
     ("GEAR_MATE_RATIO_REMAKE_WORKS", True, "making a gear mate again at a new ratio", "ratios"),
     ("MATE_DELETE_ROUTE", "Select2 then EditDelete()", "making a gear mate again at a new ratio", "ratios"),
     ("MATE_RENAME_ROUTE", "IFeature.Name put", "making a gear mate again at a new ratio", "ratios"),
@@ -2370,6 +2383,48 @@ def _motion_gate(motion: MotionUpdate) -> None:
         if value is None or (wanted is not _SET and value != wanted):
             raise BuildError(f"Update SolidWorks on a gearbox built to turn needs {what} settled on SolidWorks "
                              f"(findings.{name} is {value!r}), so nothing is changed; run probe tier 8 first.")
+
+
+def _remake_gate() -> None:
+    """The remake's findings (:data:`MOTION_UPDATE_FINDINGS` marked "ratios"), for a remake the live check phase
+    found needed though the plan asked none; read before anything changes."""
+    for name, wanted, what, needed_for in MOTION_UPDATE_FINDINGS:
+        if needed_for != "ratios":
+            continue
+        value = getattr(findings, name, None)
+        if value is None or (wanted is not _SET and value != wanted):
+            raise BuildError(f"Update SolidWorks on a gearbox built to turn needs {what} settled on SolidWorks "
+                             f"(findings.{name} is {value!r}), so nothing is changed; run probe tier 8 first.")
+
+
+def _wanted_teeth(motion: MotionUpdate) -> Dict[str, Tuple[int, int]]:
+    """Each recorded gear mate's wanted tooth counts, in its own gear order: the plan's ``ratios`` entry where it
+    lists one, else from its ``MeshLink`` (``meshes`` holds the counts now wanted: ``pitch`` = 360 / zb and
+    ``|k|`` = za / zb, review M2). A link whose counts are not whole numbers is a fault, refused with a sentence."""
+    asked = {name: (int(n), int(d)) for name, n, d in motion.ratios}
+    out: Dict[str, Tuple[int, int]] = {}
+    for mate in motion.mates:
+        if mate.kind != "mesh" or len(mate.gears) != 2:
+            continue
+        if mate.name in asked:
+            out[mate.name] = asked[mate.name]
+            continue
+        link = next((m for m in motion.meshes if (m.a, m.b) == tuple(mate.gears)), None)
+        if link is None or not link.pitch:
+            continue
+        zb = 360.0 / link.pitch
+        za = abs(link.k) * zb
+        if abs(zb - round(zb)) > 1e-6 or abs(za - round(za)) > 1e-6:
+            raise BuildError(f"Update SolidWorks was given {mate.name} with tooth counts that are not whole numbers "
+                             f"({za:g} : {zb:g}), so nothing is changed; that is a fault in Gear Generator, not in "
+                             "SolidWorks.")
+        out[mate.name] = (int(round(za)), int(round(zb)))
+    return out
+
+
+def _same_ratio(live: Tuple[float, float], wanted: Tuple[int, int]) -> bool:
+    """Two ratios as proportions (a·d == b·c), to the read's precision."""
+    return abs(live[0] * wanted[1] - live[1] * wanted[0]) <= 1e-6 * max(1.0, abs(live[1] * wanted[0]))
 
 
 def _motion_consistent(motion: MotionUpdate, placements: Sequence[Placement]) -> None:
@@ -2414,6 +2469,11 @@ def _trains(mated: Sequence[str], meshes: Sequence[MeshLink], locks: Sequence[Lo
     for g in mated:
         groups.setdefault(root(g), []).append(g)
     return [tuple(group) for group in groups.values()]
+
+
+def _moved(before: Optional[Frame9], after: Frame9) -> bool:
+    """Whether a gear's origin moved between two frames (a turn about its own axis is not a move)."""
+    return before is not None and any(abs(float(a) - float(b)) > POSE_TOLERANCE for a, b in zip(before[1], after[1]))
 
 
 def _not_whole(turn: float, pitch: float) -> bool:
@@ -2501,6 +2561,8 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
         holds.append(_held_unit(by_unit, values, doc.variables))
     say(Step(STAGE_CHECK, _stem(assembly), total, total))
     recorded_names = {m.name for m in motion.mates}
+    wanted_teeth = _wanted_teeth(motion)
+    remakes: List[Tuple[str, int, int]] = []         # gear mates found live at another ratio than wanted
     suppressed: List[str] = []                       # recorded mates found suppressed: turned back on (D10)
     axial: List[Tuple[str, GlobalVariable]] = []     # Face Z globals the assembly holds otherwise
     sw.begin_build()
@@ -2534,6 +2596,29 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
                                  f"changed; suppress {state.name} in SolidWorks and press Update SolidWorks again.")
             else:
                 result.extra_mates.append(state.name)
+        # Every recorded gear mate judged live, as the frames are (a remake lost with an unsaved close leaves the
+        # old ratio in SolidWorks whatever the record says).
+        asked = {name for name, _, _ in motion.ratios}
+        route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
+        for index, mate in enumerate(motion.mates, 1):
+            if mate.name not in wanted_teeth:
+                continue
+            live = tuple(float(n) for n in sw.gear_mate_ratio(f"mate{index}"))
+            want = wanted_teeth[mate.name]
+            if _same_ratio(live, want):
+                if mate.name in asked:
+                    result.ratios_already.append(mate.name)
+                continue
+            if route != "remake":
+                raise BuildError(f"The gear mate {mate.name} in {_file(assembly)} is at {live[0]:g} : {live[1]:g} "
+                                 f"and the workbook wants {want[0]} : {want[1]}, and giving a gear mate a new ratio "
+                                 f"has not been settled on SolidWorks (findings.GEAR_MATE_RATIO_ROUTE is {route!r}), "
+                                 "so nothing is changed; build the gearbox again.")
+            remakes.append((mate.name, want[0], want[1]))
+            if mate.name not in asked:
+                result.ratios_found.append(mate.name)
+        if remakes:
+            _remake_gate()
         held = _held(sw.equations()) if motion.face_globals else {}
         for gear, variable in motion.face_globals:
             if variable.name not in held:
@@ -2575,7 +2660,7 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
             sw.begin_build()
             try:
                 _motion_assembly(sw, result, assembly, placements, motion, mated, route, suppressed, axial,
-                                 turned_back, say, touched)
+                                 turned_back, say, touched, remakes)
             finally:
                 sw.end_build()
     except _LocksLeftOff:
@@ -2598,7 +2683,8 @@ class _LocksLeftOff(Exception):
 def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, placements: Sequence[Placement],
                      motion: MotionUpdate, mated: Sequence[str], route: Optional[str], suppressed: Sequence[str],
                      axial: Sequence[Tuple[str, GlobalVariable]], turned_back: Mapping[str, bool],
-                     say: Callable[[Step], None], touched: List[bool]) -> None:
+                     say: Callable[[Step], None], touched: List[bool],
+                     remakes: Sequence[Tuple[str, int, int]] = ()) -> None:
     """Steps 2-7 of the motion path's change phase, in the build begun by :func:`_update_motion`."""
     file, stem = _file(assembly), _stem(assembly)
     sw.open_document(assembly)
@@ -2636,18 +2722,22 @@ def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, place
         rebuild()
     # 5. every frame as it now stands; each train that needs a put is put whole, its locks off around the puts
     live = {p.gear: sw.component_frame(handle[p.gear]) for p in placements}
+    axial_gears = {gear for gear, _ in axial}
     wanted = {p.gear: (p.rotation, p.at) for p in placements}
     pitch = {p.gear: p.pitch for p in placements}
     put_trains: List[Tuple[str, ...]] = []
     for train in _trains(mated, motion.meshes, motion.locks):
         meshes = [m for m in motion.meshes if m.a in train and m.b in train]
         locks = [lock for lock in motion.locks if lock.anchor in train and lock.follower in train]
-        ratios = [r for r in motion.ratios if all(g in train for m in motion.mates if m.name == r[0] for g in m.gears)]
+        ratios = [r for r in remakes if all(g in train for m in motion.mates if m.name == r[0] for g in m.gears)]
         here = train_check({g: live[g] for g in train}, {g: wanted[g] for g in train}, meshes, locks, pitch)
+        # Update moves a gear of this train (a shaft moved under it, its Face Z set, its gear mate remade): the user's
+        # answer 2 — whenever Update moves any gear of a train, the train goes back to its built turn, whole.
+        moved = any(g in axial_gears or _moved(result.found.get(g), live[g]) for g in train)
         if not (meshes or locks):
-            needed = bool(here.off_axis)          # a lone mated gear turns freely: put only when off its axis
+            needed = bool(here.off_axis) or moved     # a lone mated gear turns freely: put when off its axis or moved
         else:
-            needed = not here.in_step or bool(ratios)
+            needed = not here.in_step or bool(ratios) or moved
         if not needed:
             continue
         _put_train(sw, result, motion, train, locks, ratios, handle, mate_handle, wanted, rebuild, file, touched)

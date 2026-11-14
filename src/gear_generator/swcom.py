@@ -2138,6 +2138,40 @@ class Session:
             raise SolidWorksError(f"SolidWorks would not turn the mate {name} back on in {title}: it still reads it "
                                   "suppressed.")
 
+    def gear_mate_ratio(self, handle: str) -> Tuple[float, float]:
+        """A kept gear mate's ratio as SolidWorks holds it now, as ``(teeth of its first selection, of its second)``
+        — the order ``add_mate`` and :meth:`set_gear_ratio` take it in — so Update judges a gear mate live, as it
+        judges frames, never by the record (a remake lost with an unsaved close leaves the old ratio).
+
+        Read only, by the calls the probes made: ``IFeature.GetDefinition`` (read, invoked if a method comes back),
+        then its ``IGearMateFeatureData.GearRatioNumerator`` and ``GearRatioDenominator`` (likewise), which hold the
+        two counts the other way round from AddMate5 (``findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND``):
+        probe gear_mate_ratio's remake at 17 : 60 read Numerator 60, Denominator 17. ``ModifyDefinition`` is never
+        called: on SolidWorks 2024 it leaves an assembly that cannot be closed
+        (``findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024``). A read with no modify closed cleanly on 2024
+        (probe/results/sw2024/probe-results-20261114-071324): gear_mate_ratio read the definition after the remake
+        and again in the reopened train, and each time the train then closed with nothing left open; gear_mate_update
+        read it in the train reopened after an unsaved close (17 : 51 back, the remake lost) and after a saved one
+        (18 : 50), each left with nothing open. Missing finding, no definition or a count that is not a number: a
+        sentence."""
+        order = getattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", None)
+        if order is None:
+            raise SolidWorksError("Reading a gear mate's ratio has not been settled on SolidWorks yet "
+                                  "(findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND is None), so nothing is "
+                                  "changed; run probe tier 8 first.")
+        name, feature = self._kept_mate(handle)
+        title = call(self._doc(), "GetTitle")
+        data = _read(feature, "GetDefinition")
+        if data is None:
+            raise SolidWorksError(f"SolidWorks gave no definition for the gear mate {name} in {title}, so its ratio "
+                                  "cannot be read.")
+        try:
+            numerator = float(_read(data, "GearRatioNumerator"))
+            denominator = float(_read(data, "GearRatioDenominator"))
+        except (TypeError, ValueError):
+            raise SolidWorksError(f"The gear mate {name} in {title} gave a ratio that is not two numbers.") from None
+        return (denominator, numerator) if order else (numerator, denominator)
+
     def set_gear_ratio(self, handle: str, a: str, b: str, ratio: Tuple[int, int]) -> None:
         """Give a kept gear mate a new ratio, ``ratio[0]`` the teeth of its first selection (W5-PLAN D7), by
         ``findings.GEAR_MATE_RATIO_ROUTE``. ``a`` and ``b`` are the mate's two references in its selection order,

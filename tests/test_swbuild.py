@@ -671,6 +671,23 @@ class FakeSolidWorks:
         if planned is not None and planned[0] == self.counts_after["set_mate_suppressed"]:
             raise planned[1]
 
+    def definition(self, name, path=None):
+        """A gear mate's IGearMateFeatureData as SolidWorks reads it: (GearRatioNumerator, GearRatioDenominator), the
+        counts the other way round from AddMate5 (findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND)."""
+        first, second = self.mate(name, path).ratio
+        return float(second), float(first)
+
+    def gear_mate_ratio(self, handle):
+        """As swcom.Session.gear_mate_ratio: the definition read, and turned back into the mate's own order by the
+        finding (refused while it is missing). The ratio is the mate's as this document holds it: saved with it,
+        and lost with an unsaved close (a remake included)."""
+        self._log("gear_mate_ratio", handle)
+        order = getattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", None)
+        if order is None:
+            raise SolidWorksError("Reading a gear mate's ratio has not been settled on SolidWorks yet.")
+        numerator, denominator = self.definition(self.mate_handles[handle])
+        return (denominator, numerator) if order else (numerator, denominator)
+
     def set_gear_ratio(self, handle, a, b, ratio):
         self._log("set_gear_ratio", handle, a, b, tuple(ratio))
         route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
@@ -683,10 +700,12 @@ class FakeSolidWorks:
 
 @pytest.fixture(autouse=True)
 def _train_routes_agree(monkeypatch):
-    """Every test here builds a train under the route it re-solves under, set here rather than read from findings.py,
-    so a probe round moving either finding never turns a test red (a test about the two routes sets its own)."""
+    """Every test here builds a train under the route it re-solves under, and reads a gear mate's ratio as probe
+    gear_mate_ratio did, set here rather than read from findings.py, so a probe round moving a finding never turns a
+    test red (a test about one of them sets its own)."""
     monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
     monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", True, raising=False)
 
 
 def plan(spec=None, recipe="A", path=PATH):
@@ -2864,14 +2883,30 @@ def test_a_face_z_change_is_set_and_rebuilt_before_any_put():
     assert set_at < next(i for i, (n, _) in enumerate(called) if n == "rebuild") < first_put
 
 
-def test_a_face_z_change_alone_moves_the_anchor_and_puts_nothing():
+def test_a_face_z_change_alone_moves_the_anchor_and_puts_its_train_back_whole():
+    """The user's answer 2 (W5-DECISIONS): whenever Update moves a gear of a train — a Face Z set moves its anchor —
+    the train goes back to its built turn, every mated gear of it put; nothing was turned, so nothing is restored."""
     fake = _built_train()
     wanted = _train_frames(z4=25.0)
     result = _update_train(fake, placements=_train_placements(wanted),
                            motion=_motion(face_globals=(("G4", GlobalVariable("G4 Face Z", "25")),)))
-    assert result.ok and result.axial == ["G4"] and result.placed == [] and result.changed == [T_ASM]
-    assert _at_built(fake, wanted) and result.rebuilt
+    assert result.ok and result.axial == ["G4"] and result.placed == list(TRAIN_ORDER) and result.changed == [T_ASM]
+    assert result.restored == [] and _at_built(fake, wanted) and result.rebuilt and fake.locked_puts == []
     assert "ok      moved along their shafts: G4" in result.log_lines()
+
+
+def test_a_turned_train_whose_anchor_update_moves_along_its_shaft_is_put_back_at_its_built_turn():
+    """The demonstration's dry run (package E): the train turned in step, then G4's At changed. The Face Z set moved
+    G4 and the post-check found the train in step, so nothing was put; the train must go back whole."""
+    fake = _built_train()
+    _drag(fake, 10.0)
+    wanted = _train_frames(z4=25.0)
+    result = _update_train(fake, placements=_train_placements(wanted),
+                           motion=_motion(face_globals=(("G4", GlobalVariable("G4 Face Z", "25")),)))
+    assert result.ok, result.log_lines()
+    assert result.turned and result.axial == ["G4"] and result.placed == list(TRAIN_ORDER)
+    assert result.restored == [("G1", "G2", "G3", "G4")]
+    assert _at_built(fake, wanted) and fake.locked_puts == [] and not fake.mate("G3 locked to G2", T_ASM).suppressed
 
 
 def test_a_mate_renamed_or_deleted_in_solidworks_is_not_as_built_and_nothing_changes():
@@ -3328,3 +3363,87 @@ def test_a_static_gearbox_is_not_gated_on_the_build_route(train_routes):
     train_routes(None, None)
     _, result = _build()
     assert result.ok and result.kind == "static"
+
+
+# -- the gear mates judged live (the demonstration's dry runs m5 and a3, package E)
+
+MESHES_69 = (MeshLink("G1", "G2", -17.0 / 69, 360.0 / 69), MESHES[1])
+
+
+@pytest.fixture
+def remake_route(monkeypatch):
+    for name, value in (("GEAR_MATE_RATIO_ROUTE", "remake"), ("GEAR_MATE_RATIO_REMAKE_WORKS", True),
+                        ("GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", True)):
+        monkeypatch.setattr(findings, name, value)
+
+
+def _remade_then_lost(fake):
+    """G2 68 → 69 carried by Update (the remake to 17 : 69), then SolidWorks closed without saving: the reopened
+    assembly holds 17 : 68 again whatever the record says."""
+    result = _update_train(fake, motion=_motion(meshes=MESHES_69, ratios=(("G1 meshes G2", 17, 69),)))
+    assert result.ok and result.ratios == ["G1 meshes G2"], result.log_lines()
+    assert fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 69.0) and fake.definition("G1 meshes G2", T_ASM) == (69, 17)
+    fake.close_all()
+    fake.calls.clear()
+    fake.open_document(T_ASM)
+    assert fake.mate("G1 meshes G2").ratio == (17.0, 68.0)                     # the remake was not saved
+
+
+def test_a_gear_mate_found_at_another_ratio_though_none_was_asked_is_remade_once_and_its_train_put(remake_route):
+    """m5: the record already says 17 : 69, so the plan asks no ratio; the live gear mate is 17 : 68."""
+    fake = _built_train()
+    _remade_then_lost(fake)
+    result = _update_train(fake, motion=_motion(meshes=MESHES_69, recorded_meshes=MESHES_69))
+    assert result.ok, result.log_lines()
+    assert result.ratios == ["G1 meshes G2"] and result.ratios_found == ["G1 meshes G2"] and result.ratios_already == []
+    assert [a[0] for n, a in fake.calls if n == "set_gear_ratio"] == ["mate8"]       # exactly one remake
+    assert fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 69.0)
+    assert result.placed == list(TRAIN_ORDER) and fake.locked_puts == []
+    assert not fake.mate("G3 locked to G2", T_ASM).suppressed and result.changed == [T_ASM]
+    assert ("ok      found in SolidWorks at another ratio than the workbook's, and remade: G1 meshes G2"
+            in result.log_lines())
+
+
+def test_a_gear_mate_asked_to_change_but_already_at_the_wanted_ratio_is_not_remade(remake_route):
+    """a3: after the same loss the user types the edit back (69 → 68); the record says 17 : 69 so the plan asks for
+    17 : 68, which the reopened gear mate already is."""
+    fake = _built_train()
+    _remade_then_lost(fake)
+    result = _update_train(fake, motion=_motion(meshes=MESHES, recorded_meshes=MESHES_69,
+                                                ratios=(("G1 meshes G2", 17, 68),)))
+    assert result.ok, result.log_lines()
+    assert result.ratios == [] and result.ratios_found == [] and result.ratios_already == ["G1 meshes G2"]
+    assert "set_gear_ratio" not in names(fake) and fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 68.0)
+    assert result.placed == [] and fake.locked_puts == []
+    assert "ok      already at the ratio the workbook asks, so not remade: G1 meshes G2" in result.log_lines()
+
+
+def test_a_gear_mate_at_another_ratio_is_refused_before_anything_changes_while_the_route_is_not_the_remake(
+        remake_route, monkeypatch):
+    fake = _built_train()
+    _remade_then_lost(fake)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake, motion=_motion(meshes=MESHES_69, recorded_meshes=MESHES_69))
+    assert str(raised.value) == ("The gear mate G1 meshes G2 in T.SLDASM is at 17 : 68 and the workbook wants 17 : 69, "
+                                 "and giving a gear mate a new ratio has not been settled on SolidWorks "
+                                 "(findings.GEAR_MATE_RATIO_ROUTE is None), so nothing is changed; build the gearbox "
+                                 "again.")
+    assert not any(n in CHANGING for n in names(fake))
+
+
+def test_every_gear_mate_is_read_live_in_the_check_phase_before_anything_changes(remake_route):
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    _update_train(fake)
+    called = names(fake)
+    reads = [i for i, n in enumerate(called) if n == "gear_mate_ratio"]
+    assert len(reads) == 2 and max(reads) < min(i for i, n in enumerate(called) if n in CHANGING)
+
+
+def test_without_the_definition_finding_a_motion_update_is_refused_before_anything_is_read(remake_route, monkeypatch):
+    fake = _built_train()
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", None)
+    with pytest.raises(swbuild.BuildError, match=r"GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND is None\), so nothing"):
+        _update_train(fake)
+    assert fake.calls == []
