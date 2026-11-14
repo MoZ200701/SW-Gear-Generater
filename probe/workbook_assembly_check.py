@@ -971,9 +971,9 @@ def section_a(worker, excel):
     check(unsaved == ["Gear_m1.5_N68.SLDPRT", "Reducer_12to1.SLDASM", "Reducer_12to1_Layout.SLDPRT"],
           f"the record marks them unsaved: {unsaved}")
     n68 = desk.record.parts[1].path
-    marked = store.read_sidecar(n68)
-    check(marked is not None and marked.record.unsaved_since > 0 and marked.record.spec.get("teeth") == "69",
-          f"Gear_m1.5_N68.gear.json says 69 teeth, marked unsaved since {marked and marked.record.unsaved_since}")
+    sidecar = store.read_sidecar(n68)
+    check(sidecar is not None and sidecar.record.unsaved_since > 0 and sidecar.record.spec.get("teeth") == "69",
+          f"Gear_m1.5_N68.gear.json says 69 teeth, marked unsaved since {sidecar and sidecar.record.unsaved_since}")
     flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in before_update]))
     say(f"        marked modified in SolidWorks right after the update: {flags}")
     wanted_marks = expected_marks(update_result, desk.record.gearbox.assembly)
