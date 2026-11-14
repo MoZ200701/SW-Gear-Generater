@@ -1065,11 +1065,11 @@ def test_the_demonstrations_structural_step_with_update_unsaved_asks_for_the_sav
                          "changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's "
                          "part new, as Gear_m1.5_N69, rather than reuse it.")
     assert text.startswith(f"Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its "
-                           f"values, so it needs a new part. Update SolidWorks offers to build again as {NAME}_r2. "
-                           "It was built static, before gears could be mated to turn: Build again… makes a new "
-                           "revision whose gears turn.")
-    # The offer once, and once what W5 adds to it for a gearbox W4 built (D5): its new revision's gears turn.
-    assert text.count("save them") == 1 and text.lower().count("build again") == 2
+                           f"values, so it needs a new part. Update SolidWorks offers to build again as {NAME}_r2; it "
+                           "was built static, before gears could be mated to turn, and the new revision's gears "
+                           "turn.")
+    # The offer once, with what W5 adds to it for a gearbox W4 built (D5) said inside it.
+    assert text.count("save them") == 1 and text.lower().count("build again") == 1
     footer = window.footer()
     assert footer.ok and footer.build_enabled and footer.update_enabled
     assert window.read_line.get().endswith(" · changed since it was built")
@@ -1422,6 +1422,7 @@ def test_a_refused_mate_greys_build_for_that_read_and_a_changed_workbook_offers_
     assert record.gearbox.layout and not record.gearbox.assembly and len(record.parts) == 4
     assert record.gearbox.mate_problems == ["The mate G3 locked to G2 is in error in SolidWorks."]
     assert record.gearbox.mate_problems_digest == window.reading.digest
+    assert window.read_line.get().endswith(" · its assembly was refused for this version")
     calls = len(desk.worker.calls)
     window.press_build()                                       # greyed: a press does nothing
     assert len(desk.worker.calls) == calls
@@ -1437,6 +1438,7 @@ def test_a_refused_mate_greys_build_for_that_read_and_a_changed_workbook_offers_
     save_in_excel(window, {"Gears": {"U2": "pinion, checked"}})    # any save: a new read of the workbook
     footer = window.footer()
     assert footer.build_enabled and footer.ok and not footer.update_enabled
+    assert window.read_line.get().endswith(" · changed since its assembly was refused")
     assert window.status.get() == (
         f"Ready: Build makes {NAME}.SLDASM in {ui_text.short_path(str(desk.folder), 48)}, reusing {NAME}_Layout and "
         "the 4 parts already built. Its gears are mated to their shafts and to each other, so they turn together in "
@@ -1482,7 +1484,7 @@ def test_the_turning_demonstration_edit_is_an_update_and_puts_a_turned_train_bac
     turn_train(desk, window, 30.0)
     save_in_excel(window, TURNING_EDIT)
     assert window.status.get() == (f"Update SolidWorks will change the values in Gear_m2_N17 (G3) and OutputGear (G4), "
-                                   f"move S3 in {NAME}_Layout, move G4 along S3, and re-place G4. {TURNS}")
+                                   f"move S3 in {NAME}_Layout, move G4 along S3, and re-place G1, G2, G3 and G4. {TURNS}")
     assert window.update_button._enabled and window.update_button._primary
     window.press_update()
     desk.finish(window)
@@ -1541,8 +1543,8 @@ def test_a_tooth_change_is_an_update_that_sets_the_gear_mate_once_its_ratio_can_
     window = built(desk)
     save_in_excel(window, DEMONSTRATION)
     assert window.status.get() == (f"Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in "
-                                   f"{NAME}_Layout, set the gear mate G1 meshes G2 to 17 : 69, and re-place G2, G3 and "
-                                   f"G4. {TURNS}")
+                                   f"{NAME}_Layout, set the gear mate G1 meshes G2 to 17 : 69, and re-place G1, G2, G3 "
+                                   f"and G4. {TURNS}")
     window.press_update()
     desk.finish(window)
     assert window.status.get() == (
@@ -1599,5 +1601,127 @@ def test_a_recorded_mate_update_cannot_read_still_offers_build_again(desk, monke
     monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append((title, text)) or False)
     window.press_build()
     ((title, question),) = asked
-    assert title == "Build again?" and f"Build again as {NAME}_r2?" in question
+    assert title == "Build again?" and question == (
+        f"{refusal} Build again as {NAME}_r2? That reuses 4 parts that have not changed and makes a new layout part "
+        f"and assembly ({NAME}_r2_Layout and {NAME}_r2.SLDASM). Nothing is overwritten, and what is already built is "
+        "left as it is.")
     assert window.status.get() == f"{ui_text.NOTHING_CHANGED} {refusal}"
+
+
+# -- W5, the W4 review's failure cases on a gearbox that turns -------------------------------------------------------
+
+
+def test_an_update_of_a_turning_gearbox_lost_with_solidworks_is_made_again_by_the_next_press(desk):
+    """SolidWorks closed without saving after Update: the footer still asks for the save and says Update makes the
+    changes again; the next press does, from the files, and marks them unsaved again."""
+    window = built(desk)
+    save_in_excel(window, TURNING_EDIT)
+    window.press_update()
+    desk.finish(window)
+    unsaved = {"Gear_m2_N17.SLDPRT", "OutputGear.SLDPRT", f"{NAME}_Layout.SLDPRT", f"{NAME}.SLDASM"}
+    assert {os.path.basename(p) for p in record_of(window).unsaved} == unsaved
+    desk.sw.close_all()                                        # SolidWorks closed, nothing saved
+    window.note = None
+    window._refresh_state()
+    assert window.status.get().endswith(
+        f"Gear_m2_N17, OutputGear, {NAME}_Layout and {NAME} have changes from Update SolidWorks that are not saved: "
+        "save them in SolidWorks to keep them. If SolidWorks closed them without saving, press Update SolidWorks to "
+        "make them again.")
+    assert window.footer().update_enabled
+    start = len(desk.sw.calls)
+    window.press_update()
+    desk.finish(window)
+    text = window.status.get()
+    assert text.startswith("Updated SolidWorks: changed 1 variable in Gear_m2_N17 (it is now module 2.5; its file "
+                           f"keeps its name), changed 1 variable in OutputGear, moved S3 in {NAME}_Layout, moved G4 "
+                           "along S3, re-placed G1, G2")
+    assert text.endswith(f"Save Gear_m2_N17, OutputGear, {NAME}_Layout and {NAME} in SolidWorks to keep them.")
+    sets = [args for name, args in desk.sw.calls[start:] if name == "set_global_variable"]
+    assert ("S3 X", "148.75") in sets and ("G4 Face Z", "20") in sets
+    assert {os.path.basename(p) for p in record_of(window).unsaved} == unsaved
+    assert desk.sw.locked_puts == [] and window.update_plan.record_matches
+
+
+@pytest.mark.xfail(strict=True, reason="update.finish_update calls a gear off its recorded frame dragged even when "
+                                       "the frames on record are the lost Update's: G4 is said to have been moved "
+                                       "in SolidWorks (W4's static path says the same; packages B and C)")
+def test_a_lost_update_is_not_said_to_be_a_gear_moved_by_hand(desk):
+    window = built(desk)
+    save_in_excel(window, TURNING_EDIT)
+    window.press_update()
+    desk.finish(window)
+    desk.sw.close_all()
+    window.press_update()
+    desk.finish(window)
+    assert "had been moved in SolidWorks" not in window.status.get()
+
+
+def test_an_update_of_a_turning_gearbox_that_stops_part_way_turns_the_locks_back_on_and_the_next_press_finishes(
+        desk):
+    """A put raising part way (the third gear of the train, after a turn by hand): the locks are back on, nothing
+    was put with a lock on, the assembly is among what was changed and not saved, every failure is said, and the
+    next press puts the rest and leaves nothing on record to do."""
+    from gear_generator import swcom
+    window = built(desk)
+    turn_train(desk, window, 30.0)
+    save_in_excel(window, TURNING_EDIT)
+    desk.sw.raises = {"place_component": (desk.sw.counts.get("place_component", 0) + 3,
+                                          swcom.SolidWorksError("gear3-1 did not take its frame."))}
+    window.press_update()
+    desk.finish(window)
+    assert window.status.get() == (
+        f"Update SolidWorks stopped. {NAME}.SLDASM: gear3-1 did not take its frame. It had already changed "
+        f"Gear_m2_N17, OutputGear, {NAME}_Layout and {NAME}, not saved: press Update SolidWorks again once that is put "
+        "right, or save them in SolidWorks to keep what it did.")
+    assert not window.footer().ok
+    assert {os.path.basename(p) for p in record_of(window).unsaved} == {
+        "Gear_m2_N17.SLDPRT", "OutputGear.SLDPRT", f"{NAME}_Layout.SLDPRT", f"{NAME}.SLDASM"}
+    assert desk.sw.locked_puts == [] and not [m.name for m in desk.sw.mates if m.suppressed]
+    desk.sw.raises = {}
+    window.press_update()
+    desk.finish(window)
+    assert window.footer().ok and window.status.get().startswith("Updated SolidWorks: re-placed G1, G2 and G3")
+    assert desk.sw.locked_puts == [] and not [m.name for m in desk.sw.mates if m.suppressed]
+    assert window.update_plan.record_matches and record_of(window).digest == window.reading.digest
+
+
+@pytest.mark.xfail(strict=True, reason="after an Update that stopped part way, the next one blames the user for what "
+                                       "the stopped job left: 'G4 had been moved in SolidWorks' and 'G2 and G3 had "
+                                       "been turned out of step with each other in SolidWorks' (update.finish_update "
+                                       "and ui_text; packages B and C)")
+def test_the_press_after_a_stopped_update_never_says_the_user_moved_what_the_job_left(desk):
+    from gear_generator import swcom
+    window = built(desk)
+    turn_train(desk, window, 30.0)
+    save_in_excel(window, TURNING_EDIT)
+    desk.sw.raises = {"place_component": (desk.sw.counts.get("place_component", 0) + 3,
+                                          swcom.SolidWorksError("gear3-1 did not take its frame."))}
+    window.press_update()
+    desk.finish(window)
+    desk.sw.raises = {}
+    window.press_update()
+    desk.finish(window)
+    text = window.status.get()
+    assert "had been moved in SolidWorks" not in text and "out of step" not in text
+
+
+def test_the_structural_step_with_update_unsaved_on_a_turning_gearbox_asks_for_the_save_once(desk):
+    """W4's state 06 on a gearbox that turns: after the turning edit's Update, unsaved, G1's bore cleared."""
+    window = built(desk)
+    save_in_excel(window, TURNING_EDIT)
+    window.press_update()
+    desk.finish(window)
+    save_in_excel(window, {"Gears": {"J2": ""}}, seconds=4)
+    text = window.status.get()
+    assert text == (
+        "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs "
+        f"a new part. Update SolidWorks offers to build again as {NAME}_r2. {TURNS} Gear_m2_N17, OutputGear, "
+        f"{NAME}_Layout and {NAME} have changes from Update SolidWorks that are not saved: save them in SolidWorks to "
+        "keep them. If SolidWorks closed them without saving, those changes are gone. While the changes in "
+        "Gear_m2_N17 and OutputGear are not saved, the new revision makes the parts for G3 and G4 new, as "
+        "Gear_m2.5_N17 and OutputGear_r2, rather than reuse them.")
+    assert text.count("save them") == 1 and text.lower().count("build again") == 1
+    footer = window.footer()
+    assert footer.ok and footer.build_enabled and footer.update_enabled
+    assert gear_states(window) == {"G1": "needs a new part", "G2": "built", "G3": "built · new part on Build",
+                                   "G4": "built · new part on Build"}

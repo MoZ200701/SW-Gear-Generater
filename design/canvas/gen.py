@@ -1035,7 +1035,7 @@ boards["WorkbookChosen"] = ("Workbook · the move chosen, waiting for Export",
                             workbook_board(off, before=reducer, choose=[("Meshes!A2", 0)]), WINDOW_WIDTH)
 
 # W4 and W5. Build pressed on the reducer: its gears mated so the train turns. Then an edit Update carries on a
-# turning gearbox — G3 and G4 to module 2.5 with S3 moved out to their centre (132.5 → 148.75) and G4's At
+# turning gearbox — G3 and G4 to module 2.5 with S3 moved out to their centre (S3 X 131.75 → 148.75) and G4's At
 # 27 → 30, which moves S3's anchor along its shaft — before and after Update SolidWorks. (PLAN-WORKBOOK §6's
 # demonstration edit, G2's teeth 68 → 69, changes the gear mate G1 meshes G2's ratio: Build again… until the probes
 # settle how a ratio is changed, so these boards use an edit that is an Update whatever that finding says.) Then, on
@@ -1059,10 +1059,10 @@ boards["WorkbookAgain"] = ("Workbook · a change that needs a new part, and Buil
                            workbook_board(arcs, before=reducer, desk=built_desk, ask=True), WINDOW_WIDTH)
 # The W4 review's rework of the footer, in the two states it found worst or new. After Update, not yet saved,
 # G1's bore cleared (the demonstration's structural step, its window log's state 06): the save asked once — as
-# what may no longer be possible, since the second review — both buttons on, and G2's part made new by the new
-# revision while Gear_m2_N17's changes are not saved. And the reducer's folder copied whole, workbook and
-# record: the record is the original's, so Build makes the copy's own gearbox, each part under the name it will
-# have (the Gears table shows plan.part_of since the second review).
+# what may no longer be possible, since the second review — both buttons on, and the parts for G3 and G4 made new
+# by the new revision while the changes in Gear_m2_N17 and OutputGear are not saved. And the reducer's folder
+# copied whole, workbook and record: the record is the original's, so Build makes the copy's own gearbox, each
+# part under the name it will have (the Gears table shows plan.part_of since the second review).
 bored = wb_model.replace(edited, gears=(wb_model.replace(edited.gears[0], bore=""),) + edited.gears[1:])
 boards["WorkbookUnsaved"] = ("Workbook · after Update, not yet saved, a change that needs a new part",
                              workbook_board(bored, before=edited, desk=updated_desk), WINDOW_WIDTH)
