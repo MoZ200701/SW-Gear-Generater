@@ -9,7 +9,8 @@ this note departs from W5-PLAN it says so (§4) and why.
 
 ## 1. Where it starts
 
-- **Starting commit: `0551abc`** (branch `workbook`). The interface commit is the one after it that adds this note.
+- **Starting commit: `0551abc`** (branch `workbook`). The interface commit is `2f82a0e`; its independent review
+  said go once its points were written in, which the follow-up commit after it does (rulings in §6).
 - Review ruling M3 asked for the commit that *closes* W4 (the rebuild fix, its review's changes and the
   demonstration reruns on SolidWorks 2026 and 2024). W4's code is at `388c8d3` and reviewed; the W4-closing
   demonstration reruns were **still in flight on SolidWorks** when this was written. The orchestrator chose to start
@@ -92,7 +93,10 @@ Shapes (A fills them):
   making the mate G1 meshes G2.* · *The mate G1 meshes G2 is in error in SolidWorks.* · *The mate G4 along S3 is
   missing from the assembly.* / *… is suppressed in SolidWorks.* · *G2 is over-defined in SolidWorks.* · *G2
   cannot turn: SolidWorks reads it fully defined.* · *G2 reads 0 in SolidWorks, not free to turn.* Error-code
-  numbers are logged, never interpreted.
+  numbers are logged, never interpreted. **Only real refusals** go into `mate_problems`: `MateRefused` from a
+  `Mate` op, and the mate check's own findings (status, error code, missing, suppressed, constrained status). Any
+  other raise during a mate (a COM or RPC failure, a selection that did not take) is an ordinary failed build as
+  in W4: no mate problem, nothing recorded, Build stays enabled.
 - `GearboxResult.kind: str = ""` — `GEARBOX_MOTION` if a train saved, `GEARBOX_STATIC` if a static assembly saved,
   `""` if none did. A refused train: `assembly` is that failed `BuildResult` (its `mate_problems`, and `document`
   the title it is left open under), `kind` `""`, nothing saved in its place, the parts and layout part saved
@@ -108,11 +112,17 @@ Shapes (A fills them):
   `GEAR_MATE_RATIO_ROUTE == "remake"`. `fixed` = gears left fixed (D9, M9), re-placed as W4 does.
 - `update_gearbox(sw, parts, layout, assembly, placements, *, motion: Optional[MotionUpdate] = None, exists,
   progress, mtime)` — None is W4's static path byte for byte; given, the stub raises until A writes it.
+- `MotionUpdate.recorded`: each `Placement`'s `pitch` is from the teeth **as built** (as `recorded_meshes`), not
+  the pitch now wanted; `placements` carry the wanted ones.
 - `GearboxUpdate` gains `turned: bool`, `out_of_step: List[Tuple[str,str]]`, `off_axis: List[str]`, `residuals:
-  List[Tuple[str,str,float]]` (all from the check-phase `train_check` against the record), `restored: bool`,
+  List[Tuple[str,str,float]]` (all from the check-phase `train_check` against the record, both maps restricted
+  to the mated gears), `restored: List[Tuple[str, ...]]` (**changed from `bool` in the follow-up**: one entry per
+  train that was put, its gears in `placements` order whose check-phase δ was not a whole number of their pitch —
+  the gears turned back; no entry for a train put with none turned, never one for a train not put),
   `unsuppressed: List[str]` (mate names), `axial: List[str]` (**gear ids** whose Face Z was set),
   `ratios: List[str]` (mate names), `extra_mates: List[str]` (suppressed mates not on record, left alone),
-  `mates: List[MateState]` (after the last rebuild).
+  `mates: List[MateState]` (after the last rebuild). `found` and `placed` keep their W4 meanings on the motion
+  path (every gear's frame as read before anything moved; every gear put, mated or fixed).
 - Imported for A's use: `GEARBOX_MOTION`, `GEARBOX_STATIC` (from store), `MateGone`, `MateRefused`, `MateState`.
 - No new `STAGE_*`.
 
@@ -122,8 +132,10 @@ Shapes (A fills them):
 placement; read every frame (`found`); `find_mate` every `MateRef` (`MateGone` → `NotAsBuilt`); `mate_states()` —
 a mate not on record and **not suppressed** refuses the Update with a `BuildError` naming it (*… suppress Angle1
 in SolidWorks and press Update SolidWorks again.*: M7), a suppressed one goes to `extra_mates`; recorded mates
-found suppressed are noted; `train_check(found of the mated gears, recorded, recorded_meshes, locks, pitch)` →
-`turned`, `out_of_step`, `off_axis`, `residuals`.
+found suppressed are noted; `train_check(found, recorded, recorded_meshes, locks, pitch)` with **both maps
+restricted to the mated gears** (a fixed gear must never read as missing or off its axis) → `turned`,
+`out_of_step`, `off_axis`, `residuals`. Counting mates for M7: a MateGroup sub-feature that is not a mate (a
+folder) is not an unknown mate.
 *Change — nothing raises out (B1):* 1. part and layout values (W4). 2. open/activate the assembly; a part or the
 layout changed → `rebuild(kind=ASSEMBLY_TRAIN)`. 3. recorded mates found suppressed → unsuppressed (D10). 4. each
 differing Face Z → `set_global_variable`, then rebuild (before any put). 5. read every frame (`live`). A train
@@ -132,8 +144,8 @@ its axis or any relation is out of step, or a ratio of it is to be set; then **e
 (M1), with **every lock of that train suppressed** (the ruling: a lock does not hold against a put), rebuilt, put
 (`place_component(..., kind=ASSEMBLY_TRAIN)`; ratios via `set_gear_ratio` inside this block, as P1b will run
 it), the locks unsuppressed **in a `finally`** (M8: a failure there is a failure sentence naming the compound
-gears not locked), rebuilt. A lone mated gear (no links) is put only when off its axis. `restored` = `turned`
-and something was put. Fixed gears: W4's rule, `same_frame` modulo pitch, `REPLACE_FIXED_ROUTE`. Nothing to put:
+gears not locked), rebuilt. A lone mated gear (no links) is put only when off its axis. `restored` gets an
+entry per train put, from the check-phase δ's (see the field). Fixed gears: W4's rule, `same_frame` modulo pitch, `REPLACE_FIXED_ROUTE`. Nothing to put:
 the train stays where the user turned it (D4). 6. Post-check: each put gear where it was put; `train_check(live
 after, wanted)` in step for every train put; every recorded mate present, unsuppressed, code 0; every mated gear
 `COMPONENT_UNDER_DEFINED`; each problem a failure sentence. 7. Interference (W4). `changed` gains the assembly when
@@ -154,8 +166,9 @@ already accepts bare handles.
 - Written: `mate_name(kind, gears, shaft="")` (AXIS *G1 on S1 Axis*, ALONG *G1 along S1*, LOCK gears (anchor,
   follower) → *G3 locked to G2*, MESH *G1 meshes G2*; anything else a ValueError), `face_global(gear)` → *G4 Face
   Z*, `mate_entry(MatePlan) -> store.MateEntry`, `mate_ref(store.MateEntry) -> swbuild.MateRef`.
-- Stubs: `motion_reason() -> str`, `update_reason() -> str` (also refuses `GEAR_MATE_RATIO_ROUTE` other than None
-  or `"remake"`), `motion_plan(spec, report, frames) -> MotionPlan`, `motion_assembly_plan(layout_path, components,
+- Stubs: `motion_reason() -> str` (its findings include `GEAR_MATE_ROUTE`, `MATE_COINCIDENT`, `MATE_DISTANCE`,
+  `MATED_ASSEMBLY_REBUILD_ROUTE`), `update_reason() -> str` (does **not** read `GEAR_MATE_RATIO_ROUTE`: ruling
+  c), `motion_plan(spec, report, frames) -> MotionPlan`, `motion_assembly_plan(layout_path, components,
   handle_of, motion, template, path) -> BuildPlan`, `mesh_links(meshes, teeth, sigma, internal) ->
   Tuple[MeshLink,...]`, `lock_links(locks, teeth) -> Tuple[LockLink,...]`. Each docstring is the contract.
 
@@ -165,8 +178,9 @@ already accepts bare handles.
   unchanged (no `"static"`).
 - `plan_gearbox`: `motion_reason() == ""` → `assembly = motion_assembly_plan(...)`, `motion = motion_plan(...)`;
   otherwise W4's `layout.assembly_plan(...)` and `static_reason` = the sentence. A continued revision likewise.
-- `finish_build` writes, whenever the gearbox block is written: when the assembly saved, `gearbox.kind =
-  result.kind`; for `MOTION`, `mates = [mate_entry(m) for m in plan.motion.mates]`, `unmated`, `fixed`, `drag` from
+- `finish_build` writes, whenever the gearbox block is written: when the assembly saved, `gearbox.kind` =
+  MOTION if `plan.motion` else STATIC — the plan is the one source; a non-empty `result.kind` must agree, a
+  disagreement is a sentence in `Finished.notes`, an empty `result.kind` is never written; for `MOTION`, `mates = [mate_entry(m) for m in plan.motion.mates]`, `unmated`, `fixed`, `drag` from
   the plan, `static_reason = ""`; for `STATIC`, those empty and `static_reason = plan.static_reason`. Whenever the
   assembly was attempted (`result.assembly` not None): `mate_problems = list(result.assembly.mate_problems)` and
   `mate_problems_digest = digest` if any, else `""`. A refused train therefore leaves W4's continued revision
@@ -180,9 +194,13 @@ already accepts bare handles.
 - `classify`, `finish_update`: W5-PLAN §1.6's rules, with the rulings: refusal from `update_reason()`;
   structural — D8's cases, an anchor's front face reaching/leaving/crossing the Front plane **naming the edit**
   (*G1's face width moves its front face off the Front plane …*), and a meshed gear's tooth change while
-  `GEAR_MATE_RATIO_ROUTE` is not `"remake"` (today: None); a **follower's** At or face-width change is an Update
+  `GEAR_MATE_RATIO_ROUTE` is not `"remake"` (today: None; for `"modify definition"` the sentence says it leaves
+  an assembly SolidWorks 2024 cannot close) — only the tooth change: Face Z changes, layout moves and turn-backs
+  still go through Update (ruling c); a **follower's** At or face-width change is an Update
   (`LOCK_RETAKES_AN_OFFSET` True; read by getattr, missing → structural); M9's still shafts; M10's ratio order;
-  recorded anchors never re-derived. `finish_update`: `dragged` only from `off_axis`; frames on record follow what
+  recorded anchors never re-derived; a recorded MateEntry with a bad kind or gear count refuses with a sentence,
+  never an IndexError. `finish_update`: `dragged` = `off_axis` plus W4's rule for fixed gears (a turn is never a
+  drag); frames on record follow what
   was put; MESH `ratio` follows `result.ratios`, ALONG `z_front` follows `result.axial`.
 
 ### `store.py` (shapes and parse done here; C owns it from now)
@@ -195,12 +213,15 @@ already accepts bare handles.
 - Parse: `_checked` knows `List[int]` (whole floats become ints); `gearbox.mates` read with `_entries(MateEntry)`;
   a `kind` outside `GEARBOX_KINDS` is a `StoreError`. A v2 file reads as v3, kind static, no mates; a v4 file is
   refused and left byte-identical; `schema_version` on disk stays 1 for W2 builds. Tests in `tests/test_store.py`.
+  C adds to the parse: a MateEntry whose `kind` is not one of the four, whose `gears` count is wrong for its kind,
+  or a mesh whose `ratio` is not two numbers is a `StoreError` sentence.
 
 ### `ui_text.py` (C writes)
 
 - `workbook_footer(..., digest: str = "")` — new keyword (D passes `self.reading.digest`). While the gearbox has no
-  assembly and `mate_problems_digest == digest`, Build is **not enabled** and the sentence names the refused mate
-  and says Build waits for a change to the workbook.
+  assembly and `mate_problems_digest == digest`, Build is **not enabled** (ruled to stay) and the sentence names the
+  refused mate and says that **changing the workbook makes Build available again**. `motion_ready_line` says
+  before Build when a W5 finding is missing and the gearbox will be built static (ruled to stay).
 - New helpers (stubs): `drag_phrase(drag) -> str`, `motion_ready_line(plan) -> str`, `motion_done_line(plan,
   result) -> str`, `mate_refused_status(plan, result, again=False) -> Tuple[str, bool]`, `motion_record_line(record,
   digest="") -> str`, `motion_update_lines(update, result) -> List[str]`. Existing functions keep their signatures
@@ -233,7 +254,8 @@ From **the review and the rulings**:
 - M8: locks unsuppressed in a `finally`.
 - Ruling on P0: a put is made only with every lock of its train suppressed; the fake's `place_component` takes a
   put on a locked gear silently and leaves the partner (A).
-- D7 ruling: `set_gear_ratio` and `update_reason` refuse `"modify definition"`; `ratios` stays empty today.
+- D7 ruling, narrowed on review (§6 c): a route other than `"remake"` makes only a tooth change structural;
+  `set_gear_ratio` refuses `"modify definition"` as the second guard; `ratios` stays empty today.
 
 From **layering or clarity** (no ruling involved):
 
@@ -248,9 +270,43 @@ From **layering or clarity** (no ruling involved):
 - `TrainCheck.residuals` and `GearboxUpdate.residuals` added for the demonstration's log.
 - The constants `"static"`/`"motion"` are defined once, in `store`; `motion.STATIC/MOTION` re-export them.
 
-## 5. Open points
+## 5. How each package reaches green on its own
 
-**A.** The build of a train takes `MATED_ASSEMBLY_REBUILD_ROUTE` (top-only) "on probation" until P0b; if P0b says a
+Every command runs on a clean copy (`git archive` of your commit, `PYTHONPATH=src`), as the suite does.
+
+- **A is green** when `pytest tests/test_swbuild.py tests/test_swcom.py tests/test_swbuild_train.py` passes **and**
+  every other importer of the fake still does: `tests/test_bevel_forms.py tests/test_custom_properties.py
+  tests/test_gear_mate.py tests/test_gears_bevel.py tests/test_gears_crossed.py tests/test_gears_internal.py
+  tests/test_profile_shift.py tests/test_gears_helical.py tests/test_groove.py`. A owns the fake: a default
+  `FakeSolidWorks()` answers clean mate states (status 1, code 0, nothing suppressed, mated gears 2) for an
+  undoctored plan, and an override per test doctors it.
+- **B is green** when `pytest tests/test_workbook_motion.py tests/test_workbook_gearbox.py tests/test_workbook_update.py
+  tests/test_workbook_layout.py tests/test_workbook_demo_fixtures.py tests/test_probe_workbook.py` passes. Once
+  `plan_gearbox` makes turning assemblies, the W4 end-to-end tests that run plan → `build_gearbox` on the fake →
+  `update_gearbox` (`tests/test_workbook_update.py`'s `test_build_then_update_through_the_worker_and_nothing_is_left`,
+  and those in `tests/test_workbook_gearbox.py` around lines 840, 927 and 1174) would hit A's stubs: B keeps them
+  static with a fixture that monkeypatches `motion.motion_reason` to return a sentence (the G2 68 → 69 edit there
+  would be structural on a turning gearbox anyway).
+- **C is green** when `pytest tests/test_store.py tests/test_ui_text.py` passes (C's tests build plans and results
+  by hand, never through A's or B's bodies).
+- **May be red until D**: `tests/test_workbook_build.py` and `tests/test_workbook_window.py` (the window builds
+  through the fake with B's turning plans); D restores them. Anything else red is a fault of the package that
+  made it so.
+- **The turning end-to-end round trip** (plan → fake build → finish → classify → update → finish → classify) is
+  written once A's fake and motion path and B's bodies exist. I suggest **B, in a second pass** after A lands: it
+  pins B's finish rules against A's results, in B's own test files; D then only wires the window.
+
+## 6. Rulings on the review of `2f82a0e`
+
+(a) The static build when a W5 finding is missing **stays**, said before Build. (b) Build **stays greyed** after a
+refused mate for the same read, and the sentence says changing the workbook makes Build available again. (c)
+**Narrowed**: a `GEAR_MATE_RATIO_ROUTE` other than None or `"remake"` makes only a tooth change structural; Face Z
+changes, layout moves and turn-backs still go through Update; `set_gear_ratio` refusing `"modify definition"` is
+the second guard. The follow-up's one shape change: `GearboxUpdate.restored` is a list per put train, not a bool.
+
+## 7. Open points
+
+**A.** Folders in the MateGroup are not mates (M7's count). The build of a train takes `MATED_ASSEMBLY_REBUILD_ROUTE` (top-only) "on probation" until P0b; if P0b says a
 build needs the full rebuild, give it its own kind in `swcom.rebuild_call` — nothing else changes. Check that the
 refused `Assem<n>` left open does not trip the same-name check or the journal on the next build (review: not
 checked; unsaved documents are not compared today). The fake: model W5-PLAN §3.1 with the ruling above, and keep
@@ -266,11 +322,10 @@ is tested by monkeypatching a finding away.
 sentence says the parts and layout part are kept, the open assembly's parts are the saved ones, and Build waits
 for a changed workbook. M11's "the rest of its train follow".
 
+**E.** After a real drag (the person's step and the drive-and-delete), log the origin and axis residuals of every
+gear as well as the relation residuals: `POSE_TOLERANCE` 1e-6 mm against a mouse drag has not been measured.
+
 **D.** Pass `digest=` to `workbook_footer`; the board `WorkbookRefused` in place of `WorkbookFallback`; PLAN-WORKBOOK
 §4.4's dated note (W5-PLAN §0.4) and §4.5's W5 readings, now with answer 1 instead of D2.
 
-**For the orchestrator (my uncertainties).** (1) I kept *static by necessity* (D1): with a W5 finding missing,
-Build makes W4's static assembly and says why, rather than refusing. Every finding is set today, so only tests
-reach it. (2) After a refusal I made Build **disabled** for the same read; "the footer never invites a retry"
-could also be read as enabled-but-not-invited. (3) `GEAR_MATE_RATIO_ROUTE` other than None/"remake" refuses all of
-Update on a turning gearbox (`update_reason`), not just a tooth change.
+The three choices flagged in the first version of this note were ruled on: §6.

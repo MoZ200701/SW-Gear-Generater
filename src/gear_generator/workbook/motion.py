@@ -146,11 +146,14 @@ def motion_reason() -> str:
     """``""`` when every finding a turning Build needs is settled, else the sentence why the gearbox is built
     static instead (W5-PLAN D1's static-by-necessity case; ``GearboxPlan.static_reason``), naming the finding:
     e.g. *how gears are mated to turn is not settled for this version (findings.MOTION_ROUTE).* Read with
-    ``getattr(findings, NAME, None)``: ``MOTION_ROUTE == "mates"``, ``AXIS_MATE_ROUTE == "axis coincident"``,
+    ``getattr(findings, NAME, None)``: ``MOTION_ROUTE == "mates"``, ``GEAR_MATE_ROUTE == "mates"``,
+    ``MATED_ASSEMBLY_REBUILD_ROUTE`` set, ``MATE_COINCIDENT`` and ``MATE_DISTANCE`` not None,
+    ``AXIS_MATE_ROUTE == "axis coincident"``,
     ``AXIAL_MATE_ROUTE == "origin distance"``, ``GEAR_MATE_FLIP_RULE == "mesh"`` with ``GEAR_MATE_FLIP`` not None,
     ``GEAR_MATE_NUMERATOR_FIRST is True``, ``COMPOUND_LOCK_ROUTE == "lock alone"``, ``MATE_RENAME_ROUTE`` and
     ``MATE_FIND_ROUTE`` set, and ``MATE_LOCK``, ``MATE_GEAR``, ``ADD_MATE_NO_ERROR``, ``LOCK_SELECT_ROUTE``,
-    ``COMPONENT_UNDER_DEFINED`` not None. Never a refusal of Build: the W4 static assembly is built instead."""
+    ``COMPONENT_UNDER_DEFINED`` not None. Never a refusal of Build: the W4 static assembly is built instead, and
+    the sentence before Build says so (``ui_text.motion_ready_line``; ruled to stay, review of 2f82a0e)."""
     raise NotImplementedError("W5: Agent B, workbook.motion.motion_reason")
 
 
@@ -159,9 +162,11 @@ def update_reason() -> str:
     ``UpdatePlan.refusal``), naming the finding: ``MESH_PHASE_ROUTE == "Transform2 put with the gear mate on"``;
     ``LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE``, ``LAYOUT_MOVE_CARRIES_MATES``, ``AXIAL_GLOBAL_MOVES_GEAR`` all True;
     ``SUPPRESSION_ROUTE``, ``FEATURE_SUPPRESS``, ``FEATURE_UNSUPPRESS``, ``THIS_CONFIGURATION``,
-    ``MATE_FIND_ROUTE`` not None. Also refused: ``GEAR_MATE_RATIO_ROUTE`` set to anything but None or
-    ``"remake"`` — ``"modify definition"`` leaves an assembly SolidWorks 2024 cannot close (W5-DECISIONS), and
-    the sentence says so. (``GEAR_MATE_RATIO_ROUTE`` None is not a refusal: a tooth change is then structural.)"""
+    ``MATE_FIND_ROUTE`` not None. ``GEAR_MATE_RATIO_ROUTE`` is NOT read here (review of 2f82a0e, ruling c): any
+    value but ``"remake"`` makes only a meshed gear's tooth change structural in ``classify`` — its sentence says
+    why, and for ``"modify definition"`` that it leaves an assembly SolidWorks 2024 cannot close — while Face Z
+    changes, layout moves and turn-backs still go through Update; ``swcom.Session.set_gear_ratio`` refusing
+    ``"modify definition"`` is the second guard."""
     raise NotImplementedError("W5: Agent B, workbook.motion.update_reason")
 
 

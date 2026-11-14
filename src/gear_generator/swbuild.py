@@ -143,9 +143,11 @@ class BuildResult:
     rebuilt: bool = False
     saved: str = ""
     components: Dict[str, str] = field(default_factory=dict)   # an assembly's plan handle -> the Name2 it kept
-    # W5, a train's mate check (filled only for a build of kind ASSEMBLY_TRAIN; see :func:`build`): every problem
-    # found as a full sentence naming the mate or gear, each also a failure (so the assembly is not saved), and every
-    # mate as SolidWorks held it when checked, for the log.
+    # W5, a train's mate check (filled only for a build of kind ASSEMBLY_TRAIN; see :func:`build`): every REFUSAL
+    # found, as a full sentence naming the mate or gear, each also a failure (so the assembly is not saved), and every
+    # mate as SolidWorks held it when checked, for the log. Only SolidWorks' own refusals go here (MateRefused, and
+    # the check's status, error code, suppressed and constrained findings); a COM or any other failure is an
+    # ordinary failed build, as in W4, with no mate problem.
     mate_problems: List[str] = field(default_factory=list)
     mates: List[MateState] = field(default_factory=list)
 
@@ -469,8 +471,12 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     gear (a handle in a ``Mate`` op whose last ``Fix``/``Unfix`` op is
     ``Unfix``) reads ``findings.COMPONENT_UNDER_DEFINED`` — each problem a
     sentence in :attr:`BuildResult.mate_problems` and a failure, so the
-    document is left open, unsaved. A ``Mate`` op's own refusal in ``_run``
-    is copied into ``mate_problems`` too. There is no ``mates=`` keyword: the
+    document is left open, unsaved. A ``Mate`` op that raises
+    ``swcom.MateRefused`` in ``_run`` puts its sentence in ``mate_problems``
+    too; any other raise during a mate (a COM or RPC failure, a selection
+    that did not take) is an ordinary failure, as in W4, and adds nothing to
+    ``mate_problems`` — so the record holds Build back only for a refusal
+    that repeats on every press. There is no ``mates=`` keyword: the
     kind decides, so a pair (``ASSEMBLY_PAIR``) and a static assembly are
     never mate-checked.
     """
@@ -1099,8 +1105,9 @@ class MotionUpdate:
     recorded MESH mate with the tooth counts now wanted, in its recorded gear
     order. ``locks``: a :class:`LockLink` per recorded LOCK mate.
     ``recorded``: the frames on record (what was last put), one
-    ``Placement`` per gear of the assembly with its pitch now wanted; the
-    frames now wanted are ``update_gearbox``'s ``placements``.
+    ``Placement`` per gear of the assembly, its ``pitch`` from the teeth AS
+    BUILT (as ``recorded_meshes``); the frames now wanted, with the pitch
+    now wanted, are ``update_gearbox``'s ``placements``.
     ``recorded_meshes``: as ``meshes``, with the tooth counts the gear mates
     hold now (the record's MESH ratios). ``face_globals``: ``(gear, its
     "<Gear> Face Z" global as now wanted)`` for every recorded ALONG mate
@@ -1776,11 +1783,15 @@ class GearboxUpdate:
     mtimes: Dict[str, float] = field(default_factory=dict)
     open_before: Optional[List[str]] = None
     opened: List[str] = field(default_factory=list)
-    # W5, the motion path only (``update_gearbox(..., motion=...)``); all empty on W4's static path. Found before
-    # anything changed, against the record (``train_check(found, recorded, recorded_meshes, locks)``): ``turned``,
-    # ``out_of_step`` and ``off_axis`` as TrainCheck has them, and its ``residuals`` for the log. ``restored``: the
-    # train had been turned (``turned``) and Update put it back to the built turn, because something had to be put
-    # (W5-PLAN D4 and review M1: when a train needs any put, every mated gear of it is put). ``unsuppressed``:
+    # W5, the motion path only (``update_gearbox(..., motion=...)``); all empty on W4's static path, and ``found``
+    # and ``placed`` keep their W4 meanings on the motion path too (every gear's frame as read before anything moved;
+    # every gear put, mated or fixed). Found before anything changed, against the record — ``train_check`` with both
+    # maps restricted to the MATED gears (fixed ones are W4's business, never "missing" or off axis here):
+    # ``turned``, ``out_of_step`` and ``off_axis`` as TrainCheck has them, and its ``residuals`` for the log.
+    # ``restored``: one entry per train that was put (W5-PLAN D4 and review M1: when a train needs any put, every
+    # mated gear of it is put), listing that train's gears, in ``placements`` order, whose check-phase δ was not a
+    # whole number of their pitch — the gears the put turned back to the built turn; a train put with none turned
+    # (a layout move alone) has no entry, and a train not put is never listed. ``unsuppressed``:
     # recorded mates found suppressed and turned back on (D10), by name. ``axial``: gears whose "<Gear> Face Z" was
     # set, in ``face_globals`` order. ``ratios``: gear mates given a new ratio, by name (empty while
     # ``findings.GEAR_MATE_RATIO_ROUTE`` is None). ``extra_mates``: mates in the assembly the record does not list,
@@ -1790,7 +1801,7 @@ class GearboxUpdate:
     out_of_step: List[Tuple[str, str]] = field(default_factory=list)
     off_axis: List[str] = field(default_factory=list)
     residuals: List[Tuple[str, str, float]] = field(default_factory=list)
-    restored: bool = False
+    restored: List[Tuple[str, ...]] = field(default_factory=list)
     unsuppressed: List[str] = field(default_factory=list)
     axial: List[str] = field(default_factory=list)
     ratios: List[str] = field(default_factory=list)

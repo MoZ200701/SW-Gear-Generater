@@ -217,7 +217,11 @@ class GearboxPlan:
     planned because a W5 finding is missing (``motion.motion_reason()``), it
     is that sentence. There is no static fallback plan: a turning assembly
     SolidWorks refuses is not replaced by a static one (W5-DECISIONS,
-    answer 1), so ``build_kwargs`` is as in W4.
+    answer 1), so ``build_kwargs`` is as in W4. ``plan.motion`` is the one
+    source of the record's ``GearboxRecord.kind``: ``finish_build`` writes
+    MOTION when it is set and STATIC when not; a non-empty
+    ``GearboxResult.kind`` must agree, a disagreement is a sentence in
+    ``Finished.notes``, and an empty one is never written.
     """
 
     revision: int

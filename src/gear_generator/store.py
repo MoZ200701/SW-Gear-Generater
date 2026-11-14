@@ -479,7 +479,10 @@ class MateEntry:
     mate, else ``""``; ``ratio`` a mesh's ``[teeth of a, teeth of b]`` as the gear mate now holds it, else ``[]``;
     ``face_global`` an along mate's assembly global (``G4 Face Z``), ``""`` when the gear's origin sits on the
     Front plane (a coincident mate, with no distance) and for every other kind; ``z_front`` an along mate's origin's
-    signed distance from the Front plane in mm, as made or last updated, else 0."""
+    signed distance from the Front plane in mm, as made or last updated, else 0. The parse (C) refuses, with a
+    ``StoreError`` sentence, an entry whose ``kind`` is not one of the four or whose ``gears`` are not as many as
+    its kind holds (1 for axis and along, 2 for lock and mesh), and a mesh whose ``ratio`` is not two numbers;
+    ``workbook.update.classify`` (B) guards the same with a refusal sentence, never an IndexError."""
 
     name: str = ""
     kind: str = ""

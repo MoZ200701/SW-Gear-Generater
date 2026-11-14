@@ -1901,7 +1901,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     the record's gearbox has no assembly and its ``mate_problems`` came from
     this same read (``mate_problems_digest == digest``), Build is not
     enabled and the sentence says SolidWorks refused a mate, naming it, and
-    that Build waits for a change to the workbook (W5-DECISIONS, answer 1:
+    that changing the workbook makes Build available again (W5-DECISIONS, answer 1:
     the footer never invites a retry of an unchanged workbook). ``""``, as
     every W4 caller passes, never matches.
     """
@@ -2304,8 +2304,9 @@ def drag_phrase(drag: Sequence[str]) -> str:
 def motion_ready_line(plan) -> str:
     """Appended to the sentence before Build (``_ready_build``) from a ``workbook.gearbox.GearboxPlan``: with
     ``plan.motion``, *Its gears are mated to their shafts and to each other, so they turn together in
-    SolidWorks.*; with ``plan.static_reason``, *Its gears are placed meshed and fixed, not mated to turn:
-    {static_reason}*; ``""`` for a parts-only or refused plan."""
+    SolidWorks.*; with ``plan.static_reason`` (a W5 finding missing: the static build is kept and said here, as
+    ruled on review of 2f82a0e), *Its gears are placed meshed and fixed, not mated to turn: {static_reason}*;
+    ``""`` for a parts-only or refused plan."""
     raise NotImplementedError("W5: Agent C, ui_text.motion_ready_line")
 
 
@@ -2322,8 +2323,8 @@ def mate_refused_status(plan, result, again: bool = False) -> Tuple[str, bool]:
     """A build whose assembly SolidWorks refused or flagged a mate of (``result.assembly.mate_problems``, the
     assembly not saved and nothing saved in its place): what was built and kept (the parts, the layout part),
     each mate problem as the worker's sentence, that the assembly is left open in SolidWorks as
-    ``result.assembly.document``, not saved, its parts the saved ones, and that Build makes the assembly once the
-    workbook has changed; never an invitation to press again unchanged. ``ok`` is False. ``again`` as
+    ``result.assembly.document``, not saved, its parts the saved ones, and that changing the workbook makes Build
+    available again; never an invitation to press again unchanged. ``ok`` is False. ``again`` as
     :func:`gearbox_status`'s."""
     raise NotImplementedError("W5: Agent C, ui_text.mate_refused_status")
 
@@ -2335,8 +2336,8 @@ def motion_record_line(record, digest: str = "") -> str:
     turn its trains.*); ``static`` with no ``static_reason`` (W4's) — *It was built static, before gears could be
     mated to turn: Build again… makes a new revision whose gears turn.*; ``static`` with a ``static_reason`` —
     built static because that was not settled, and Build again… tries a turning revision; no assembly and
-    ``mate_problems`` — the refusal, and, when ``mate_problems_digest == digest``, that Build waits for a change
-    to the workbook. ``""`` with no gearbox."""
+    ``mate_problems`` — the refusal, and, when ``mate_problems_digest == digest``, that changing the workbook
+    makes Build available again. ``""`` with no gearbox."""
     raise NotImplementedError("W5: Agent C, ui_text.motion_record_line")
 
 
@@ -2344,9 +2345,12 @@ def motion_update_lines(update, result) -> List[str]:
     """The W5 pieces of a finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate`` of the motion
     path), in order, each a whole sentence: *Moved G4 along S3.* (``result.axial``, the shaft from the ALONG mate
     in ``update.motion.mates``), *Set the gear mate G1 meshes G2 to 17 : 69.* (``result.ratios``), *Turned the
-    mate G1 meshes G2 back on (it was suppressed in SolidWorks).* (``result.unsuppressed``), *The gears had been
-    turned in SolidWorks; they are back at the turn they were built at.* (``result.restored``), *G4 had been turned
-    out of step with G3 in SolidWorks; it is back in mesh.* (``result.out_of_step``), *Reducer_12to1.SLDASM also
+    mate G1 meshes G2 back on (it was suppressed in SolidWorks).* (``result.unsuppressed``), per entry of
+    ``result.restored`` (one per train put, its gears that had stood turned) *G1, G2, G3 and G4 had been turned in
+    SolidWorks; they are back at the turn they were built at.* — only that train's gears, never "the gears" when
+    another train was left as turned — *G4 had been turned out of step with G3 in SolidWorks; it is back in mesh.*
+    (``result.out_of_step``; when a train was put for that, the restored sentence names the other gears turned
+    back with it), *Reducer_12to1.SLDASM also
     has mates the app did not make (Angle1), suppressed; Update SolidWorks left them as they are.*
     (``result.extra_mates``); and, with nothing changed and ``result.turned``, *The gears stand where they were
     turned in SolidWorks.* after ``ALREADY_MATCHES``. ``[]`` for W4's static path."""
