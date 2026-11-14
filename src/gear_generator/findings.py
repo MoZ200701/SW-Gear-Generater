@@ -786,3 +786,106 @@ MATED_ASSEMBLY_REBUILD_ROUTE = "ForceRebuild3(True)"
 MATED_REBUILD_KEEPS_COMPONENTS_UNMODIFIED = True
 MATED_BUILD_REBUILD_ROUTE = "ForceRebuild3(True)"      # building the train, with nothing else
 MATED_BUILD_KEEPS_COMPONENTS_UNMODIFIED = True
+
+# -- probe round P0c: what W5's build and Update code do that no probe had done -------------
+# Evidence: probe/results/probe-results-20261114-095421.json (2026) and
+# probe/results/sw2024/probe-results-20261114-102300.json (2024), each in a SolidWorks started
+# fresh for it. The same on both versions except where a line says otherwise.
+
+# gear_mate_update and idler_update (P1b, the review's additions). On W4's 12 : 1, every pass
+# also read interference at the old frames before the put (4 clashes) and with G4 put half a
+# pitch off its new phase (4), then 0 after the put: the interference reading tells. A train
+# with an idler (17/30/40 -> 15/32/38, module 2, no shaft moved), built by the app and mated as
+# W5 does, carried the change as an Update. Both of the idler's gear mates were deleted, made
+# again at the new ratio and given their old names (found by name; they were last in the mate
+# group already and stayed there). Every gear stood at its new built frame to 8e-15. The check
+# was clean and a full rebuild moved nothing. Driven 30°, G2 turned -14.0625° and G3 +11.842°.
+# Interference was 0 after the put. At the old frames it was 0 too (a changed phase can happen
+# to clear), and with G2 half a pitch off it was 6, so the half-pitch reading is the control.
+# Closed unsaved and reopened, the train was as saved (17/30/40, the old definitions); saved and
+# reopened, it had 15/32/38, ratios 32 : 15 and 38 : 32, the same turns and no interference.
+IDLER_UPDATE_HOLDS = True
+UPDATE_INTERFERENCE_CONTROL_HOLDS = True        # a gear half a pitch off clashes; at its built phase none
+
+# unsaved_update_close: after an unsaved Update (G3 and G4 changed in their own documents, the
+# assembly updated, nothing saved: the assembly and both parts GetSaveFlag True), CloseDoc on
+# the assembly returned at once (0.34 s) with no window opened. The two parts stayed open,
+# still modified, and CloseDoc on each closed it silently. On disk afterwards nothing had been
+# written and the parts still had their saved teeth. QuitDoc did exactly the same. On 2024 too:
+# no "Save Modified Documents" here. That dialog (scaffold.save_created_parts, 2026-11-02) came
+# from parts modified while loaded only as components, not from parts open in their own
+# windows, as Update opens them.
+UNSAVED_UPDATE_CLOSE_ASKS = False
+UNSAVED_UPDATE_CLOSE_DISCARDS = True            # CloseDoc and QuitDoc alike, assembly first then each part
+
+# gear_mate_definition_read: the saved 12 : 1 reopened, every document GetSaveFlag False. Each of
+# its two gear mates read as the app's Update check reads it (IFeature.GetDefinition, then
+# GearRatioNumerator and GearRatioDenominator, the object released; no ModifyDefinition, no
+# AccessSelections), both in one session. The reads gave 68 : 17 and 50 : 18 (numerator the
+# second gear's). Every flag stayed False after the get, after the reads and after the release,
+# and the train then closed with nothing left. So an Update with nothing to do may read the
+# ratios and still change nothing.
+GEAR_MATE_DEFINITION_READ_MARKS = "nothing"
+
+# origin_noise: each gear's origin read at full precision before and after ForceRebuild3(True)
+# moved 0.0 mm after nothing, after a part's teeth changed by its globals, and after another
+# shaft moved 1 mm by its layout global. That shaft's own gear had moved its full 1 mm by the
+# first read, once the assembly was active again. After the temporary drive was added, driven,
+# set back and taken away it also moved 0.0 mm; from before the drive to after it, the largest
+# move was 2.8e-14 mm. So the app's 1e-6 mm "moved" tolerance sits eight orders above the noise.
+ORIGIN_NOISE_MM = 0.0                           # around a top-only rebuild, every case
+ORIGIN_NOISE_AFTER_A_DRIVE_MM = 2.8474599777423056e-14   # from before the drive to after its removal
+
+# mates_under_command_in_progress: with ISldWorks.CommandInProgress True, the whole W5 mate set
+# (18 AddMate5 calls) answered status 1, every mate code 0, every gear under-defined, none moved,
+# one drive defined it and it turned 1/12. A conflicting angle mate under it answered status 5
+# with the codes P0b saw (47 / 46 on 2026, 51 on 2024). Each mate renamed straight after its
+# AddMate5, in a new unsaved assembly, read its new name back at once and was found by it; saved
+# and reopened, every mate was found by its new name and no first name was left.
+# SetSuppression2(unsuppress) on a lock already on returned True, left it on, raised no error,
+# and marked the assembly modified. Suppressed, a sound lock and a conflicting angle mate both
+# read GetErrorCode2 0 with the warning flag False.
+MATES_UNDER_COMMAND_IN_PROGRESS = True
+MATE_RENAME_AT_ONCE = True
+UNSUPPRESS_ON_LOCK_ALREADY_ON_MARKS_MODIFIED = True
+SUPPRESSED_MATE_ERROR_CODE = 0                  # warning flag False, whatever the mate would report on
+
+# mate_folders: IFeatureManager.InsertFeatureTreeFolder2(swFeatureTreeFolder_Containing = 2) with
+# two mates selected made a folder in the mate group. The MateGroup walk then lists the folder
+# (GetTypeName2 "FtrFolder"), the mates inside it as ordinary following siblings, and an end
+# marker "Folder1___EndTag___" (also "FtrFolder"). FeatureByName finds a mate inside it. Every
+# type met: FtrFolder, MateCoincident, MateDistanceDim, MateGearDim, MateLock,
+# MatePlanarAngleDim. A walk that keeps only types starting with "Mate" skips both folder
+# entries and still sees every mate.
+MATE_FOLDER_ROUTE = "IFeatureManager.InsertFeatureTreeFolder2(swFeatureTreeFolder_Containing)"
+MATE_FOLDER_TYPE_NAME = "FtrFolder"
+MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER = True
+
+# lightweight_remake: OpenDoc6 with swOpenDocOptions_LoadLightweight (128) alone left every
+# component swComponentFullyResolved. Adding swOpenDocOptions_OverrideDefaultLoadLightweight
+# (64) made all eight swComponentLightweight. On both versions the SOLIDWORKS CAM add-in then put
+# up a modal "SOLIDWORKS CAM Error" box ("...loading of lightweight parts has been detected"),
+# which blocks OpenDoc6 until it is closed: the probe's watch closed it with WM_CLOSE. Lightweight,
+# a component's "Gear Axis" was found, the remake made the gear mate (status 1, no error), and
+# the train turned at the new ratio (TG4 2.125° for 30°). Every component was fully resolved
+# afterwards. W5 does not open lightweight; if it ever does, the add-in's box must be expected.
+LIGHTWEIGHT_FORCED_BY = "swOpenDocOptions_LoadLightweight | swOpenDocOptions_OverrideDefaultLoadLightweight"
+LIGHTWEIGHT_REMAKE_HOLDS = True
+LIGHTWEIGHT_OPEN_RAISES_AN_ADDIN_DIALOG = True  # SOLIDWORKS CAM, modal, on this machine's install
+
+# second_assembly_beside_unsaved: a new assembly left open and unsaved ("Assem20"), holding a
+# component of a saved part with its mate. A second new assembly ("Assem21") from the same part
+# took the same component name, its mate, and saved to its path under the file's name. There
+# was no dialog, no refusal and no name clash, and both closed afterwards.
+SECOND_ASSEMBLY_BESIDE_UNSAVED_HOLDS = True
+
+# drag_operator_turns_train (optional): the saved 12 : 1 train, its drives suppressed, dragged by
+# SW-Macro-Database entries/assemblies/05's recipe: AddComponent(gear, False), TransformType 0,
+# UseAbsoluteTransform False, DragMode left at 3, BeginDrag, Drag with a relative turn per step
+# about the gear's own axis, EndDrag. It was dragged 10°, since 30° on the output would turn the
+# input 360°. Every Drag returned True. The output (10 steps, the entry's success; then 1 and 30
+# steps), the input and the compound follower each turned exactly 10° and every other gear 0°.
+# No mate reported an error, nothing was left selected and CommandInProgress read False. Not
+# varied: the mate holding a gear to its axis (W5's axis coincident; the entry's held case was
+# concentric to sketch points). So the demonstration keeps its temporary driving mate.
+DRAG_OPERATOR_TURNS_TRAIN = False

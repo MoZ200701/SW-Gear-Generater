@@ -706,3 +706,106 @@ def test_a_lock_after_a_put_and_the_remake_on_a_twice_meshed_gear(package_p0):
     e = twice["put_on_twice_meshed_gear"]["remake_on_twice_meshed"]
     assert e["mates_after"][-1] == "GearMate2" and e["mates_before"].index("GearMate2") < len(e["mates_before"]) - 1
     assert e["turns"]["UG1"] == pytest.approx(-10 * 17 / 68 * 17 / 60 * 51 / 17)
+
+
+P0C_2026 = LATEST.parent / "probe-results-20261114-095421.json"
+P0C_2024 = LATEST.parent / "sw2024" / "probe-results-20261114-102300.json"
+
+
+@pytest.fixture(params=["2026", "2024"])
+def round_p0c(request):
+    data = json.loads((P0C_2026 if request.param == "2026" else P0C_2024).read_text(encoding="utf-8"))
+    assert data["meta"]["version"].startswith(f"SolidWorks {request.param} ")
+    records = {r["name"]: r for r in data["records"]}
+    assert all(r["status"] == "pass" for r in records.values())
+    return records, decide.decide(records), request.param
+
+
+def test_p1b_carries_an_idlers_tooth_change_and_its_interference_reading_tells(round_p0c):
+    """Probes idler_update and gear_mate_update (round P0c): both of the idler's gear mates remade in the whole
+    Update shape; a gear half a pitch off clashes where the built phase does not."""
+    records, decided, _version = round_p0c
+    assert decided["idler_update_holds"] is findings.IDLER_UPDATE_HOLDS is True
+    assert decided["gear_mate_update_holds"] is findings.GEAR_MATE_UPDATE_HOLDS
+    assert (decided["idler_interference_control_discriminates"] and
+            decided["update_interference_control_discriminates"]) is findings.UPDATE_INTERFERENCE_CONTROL_HOLDS
+    idler = facts(records, "idler_update")["idler_update"]
+    for label in ("unsaved", "saved"):
+        p = idler[label]
+        assert p8.update_pass_holds(p, idler["teeth_after"], p8.IDLER), label
+        assert set(p8.remakes_of(p)) == {"G1 meshes G2", "G2 meshes G3"}
+        assert p["drive"]["turns"]["G2"] == pytest.approx(-30 * 15 / 32)
+        assert p["drive"]["turns"]["G3"] == pytest.approx(30 * 15 / 38)
+        assert idler["interference_control"][label] == {"before_put": 0, "half_pitch": 6, "after": 0}
+    assert idler["unsaved"]["reopened"]["teeth"] == {"G1": 17.0, "G2": 30.0, "G3": 40.0}
+    assert idler["saved"]["reopened"]["teeth"] == {"G1": 15.0, "G2": 32.0, "G3": 38.0}
+    assert idler["saved"]["reopened"]["definitions"]["G2 meshes G3"]["GearRatioNumerator"] == 38.0
+    reducer = facts(records, "gear_mate_update")["update_interference_control"]
+    assert all(c["half_pitch"] > 0 and c["after"] == 0 for c in reducer.values())
+
+
+def test_an_unsaved_update_closes_without_asking_and_writes_nothing(round_p0c):
+    """Probe unsaved_update_close: CloseDoc and QuitDoc on the assembly, then on each part still open, after an
+    unsaved Update left the parts modified."""
+    records, decided, _version = round_p0c
+    assert all(v is findings.UNSAVED_UPDATE_CLOSE_ASKS for v in decided["unsaved_update_close_asks"].values())
+    assert all(v is findings.UNSAVED_UPDATE_CLOSE_DISCARDS for v in decided["unsaved_update_close_discards"].values())
+    for how, r in facts(records, "unsaved_update_close")["unsaved_update_close"].items():
+        assert r["open_before"]["Probe W8 Update.SLDASM"]["modified"] is True, how
+        assert r["teeth_in_memory"] != r["teeth_on_disk"] == r["teeth_on_disk_after"], how
+        assert not r["written"] and not r["open_after"] and not r["assembly"]["windows"], how
+
+
+def test_reading_gear_mate_ratios_marks_nothing_and_origins_do_not_drift(round_p0c):
+    """Probes gear_mate_definition_read and origin_noise: what the app's Update check reads and measures."""
+    records, decided, _version = round_p0c
+    assert decided["gear_mate_definition_read_marks"] == findings.GEAR_MATE_DEFINITION_READ_MARKS == "nothing"
+    read = facts(records, "gear_mate_definition_read")["gear_mate_definition_read"]
+    assert not any(read["flags_on_open"].values()) and not any(read["flags_after_both"].values())
+    assert [(r["GearRatioNumerator"], r["GearRatioDenominator"]) for r in read["reads"]] == [(68.0, 17.0), (50.0, 18.0)]
+    assert read["close"]["closed"] and not read["open_after"]
+    noise = decided["origin_noise_mm"]
+    assert max(v for k, v in noise.items() if k != "drive_start_to_end") == findings.ORIGIN_NOISE_MM
+    assert noise["drive_start_to_end"] <= findings.ORIGIN_NOISE_AFTER_A_DRIVE_MM < 1e-6
+    assert decided["origin_noise_within_moved_tolerance"] is True
+    moved = facts(records, "origin_noise")["origin_noise_detail"]["layout_move"]["moved_shaft_gears_mm"]
+    assert moved["G4"] == pytest.approx(1.0)
+
+
+def test_mates_under_command_in_progress_folders_lightweight_and_a_second_assembly(round_p0c):
+    """Probes mates_under_command_in_progress, mate_folders, lightweight_remake, second_assembly_beside_unsaved."""
+    records, decided, version = round_p0c
+    assert decided["mates_under_command_in_progress"] is findings.MATES_UNDER_COMMAND_IN_PROGRESS
+    assert decided["mate_rename_at_once"] is findings.MATE_RENAME_AT_ONCE
+    cip = facts(records, "mates_under_command_in_progress")
+    assert cip["unsuppress_on_a_lock_already_on"] == {"returned": True, "suppressed_after": False, "errors": {},
+                                                      "marks_assembly": findings.UNSUPPRESS_ON_LOCK_ALREADY_ON_MARKS_MODIFIED}
+    assert {v["code"] for v in cip["suppressed_mate_error_codes"].values()} == {findings.SUPPRESSED_MATE_ERROR_CODE}
+    assert not any(v["warning"] for v in cip["suppressed_mate_error_codes"].values())
+    folders = facts(records, "mate_folders")
+    assert decided["mate_group_walk_sees_mates_in_a_folder"] is findings.MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER
+    assert folders["mate_folders"]["folder_type"] == findings.MATE_FOLDER_TYPE_NAME
+    assert [w["name"] for w in folders["mate_folders"]["walk"] if w["type"] == "FtrFolder"] == \
+        ["Probe W8 Mate Folder", "Folder1___EndTag___"]
+    assert decided["lightweight_remake"] is findings.LIGHTWEIGHT_REMAKE_HOLDS
+    light = facts(records, "lightweight_remake")
+    attempts = light["lightweight_remake"]["attempts"]
+    assert [set(a["suppression"].values()) for a in attempts] == [{"swComponentFullyResolved"}, {"swComponentLightweight"}]
+    assert attempts[1]["options"] - attempts[0]["options"] == 64     # the override flag
+    titles = [w[0] for w in light["lightweight_open_dialogs"]["silent, lightweight, overriding the default"]]
+    assert ("SOLIDWORKS CAM Error" in titles) is findings.LIGHTWEIGHT_OPEN_RAISES_AN_ADDIN_DIALOG
+    assert decided["second_assembly_beside_unsaved"] is findings.SECOND_ASSEMBLY_BESIDE_UNSAVED_HOLDS
+
+
+def test_the_drag_operator_by_the_knowledge_base_recipe_turns_only_the_gear_it_drags(round_p0c):
+    """Probe drag_operator_turns_train (optional): SW-Macro-Database entries/assemblies/05's recipe, then one
+    thing varied at a time."""
+    records, decided, _version = round_p0c
+    assert decided["drag_operator_turns_train"]["holds"] is findings.DRAG_OPERATOR_TURNS_TRAIN
+    cases = facts(records, "drag_operator_turns_train")["drag_operator"]["cases"]
+    assert len(cases) == len(p8.DRAG_CASES)
+    for label, c in cases.items():
+        turned = {k: v for k, v in c["train"]["turns"].items() if abs(v) > 1e-6}
+        assert turned == {c["dragged"]: pytest.approx(p8.DRAG_DEGREES)}, label
+        assert all(ok is True for ok in c["calls"]["Drag"]) and not c["errors"], label
+        assert c["calls"]["TransformType as it came"] == 0 and c["calls"]["DragMode as it came"] == 3, label
