@@ -11,12 +11,21 @@ edit; the buttons are pressed by invoking their commands. Each stage is captured
 with PrintWindow into <scratch>\shots, and the footer, read line and gear table are logged.
 
 1. The 12 : 1 fixture, its Output folder cell set to the scratch folder in Excel; the window opened; Build.
-2. The demonstration edit in Excel (S2 X 64.5, G2 Teeth 69): the summary, then Update SolidWorks.
-3. G1's bore cleared in Excel: Build again waits for Update's changes to be saved; they are saved in
-   SolidWorks, as a person would (by this driver, through COM, on its own thread); then Update SolidWorks
-   asks Build again? and the answer is Yes.
+2. The demonstration edit in Excel (S2 X 64.5, G2 Teeth 69): the summary, then Update SolidWorks. The header
+   then says "updated from this version, not yet saved", never "built from this version".
+3. G1's bore cleared in Excel. Since the W4 review (B2) nothing waits for a save: Build again… and Update
+   SolidWorks are both enabled, and the footer gives the structural reason, asks once for the save of
+   Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1, and says that until Gear_m1.5_N68 is saved the new
+   revision makes G2's part new, as Gear_m1.5_N69. The three are then saved in SolidWorks, as a person would
+   (by this driver, through COM, on its own thread), so G2's part is reused; then Update SolidWorks asks
+   Build again? and the answer is Yes, and the record ends at revision 2 with N68 reused.
 
 Afterwards the window is closed, Excel quit, and this run's SolidWorks documents saved and closed.
+
+Run on SolidWorks 2026 on 2026-11-13 (w4-window-20261113-195843.log) before the review's fixes: the stages
+then read as the review quotes them (state 06 asked for the save twice and said Build again… waited). A rerun
+should log state 06 with both buttons on, one save request and the "Until … is saved" sentence, and pass
+every check below.
 """
 
 import ctypes
@@ -219,9 +228,9 @@ workbook_gui.ask_yes_no = answer_yes
 
 
 def shoot(name):
-    # WorkbookWindow.update is the window's UpdatePlan, which hides Tk's own update(): call Tk's by its class.
-    tk.Misc.update_idletasks(win)
-    tk.Misc.update(win)
+    # Tk's own update(): the window's UpdatePlan is update_plan since the W4 review, so nothing hides it now.
+    win.update_idletasks()
+    win.update()
     hwnd = int(win.wm_frame(), 16)
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
     w, h = right - left, bottom - top
@@ -295,6 +304,25 @@ def record_check():
     record = store.read_link_record(PATH)
     check(record.gearbox.revision == 2 and [e.revision for e in record.earlier] == [0],
           f"the record: revision {record.gearbox.revision}, earlier {[e.revision for e in record.earlier]}")
+    parts = sorted(os.path.basename(c.part) for c in record.gearbox.components)
+    check("Gear_m1.5_N68.SLDPRT" in parts and "Gear_m1.5_N69.SLDPRT" not in parts,
+          f"G2's part reused once saved: {parts}")
+
+
+def updated_check():
+    check(win.read_line.get().endswith(" · updated from this version, not yet saved"),
+          f"the header after Update: {win.read_line.get()!r}")
+
+
+def structural_unsaved_check():
+    text, footer = win.status.get(), win.footer()
+    check(footer.build_enabled and footer.update_enabled, "both buttons on with Update's changes unsaved")
+    check(text.count("save them in SolidWorks") == 1 and text.lower().count("build again") == 1,
+          "the save asked once, and build again said once")
+    check("Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks" in text,
+          "the three unsaved documents named")
+    check("Until Gear_m1.5_N68 is saved, the new revision makes G2's part new, as Gear_m1.5_N69" in text,
+          "the part made new while unsaved said")
 
 
 STEPS = [
@@ -321,11 +349,13 @@ STEPS = [
     ("wait", status_starts("Updated SolidWorks", "Update SolidWorks stopped", "SolidWorks already")),
     ("pause", 1.5),
     ("do", lambda: shoot("05-updated")),
+    ("do", updated_check),
     ("do", lambda: excel("set-save", ("Gears", "J2", None))),
     ("wait", excel_done("set-save")),
     ("wait", lambda: idle() and "build again" in win.status.get().lower()),
     ("pause", 1.0),
     ("do", lambda: shoot("06-structural-unsaved")),
+    ("do", structural_unsaved_check),
     ("do", save_unsaved),
     ("wait", lambda: idle() and "not saved" not in win.status.get() and win.footer().build_enabled),
     ("pause", 1.0),
