@@ -4287,7 +4287,7 @@ def mated_rebuild_scope(px: Px) -> None:
        members=("IFeature.GetDefinition", "IGearMateFeatureData.GearRatioNumerator",
                 "IGearMateFeatureData.GearRatioDenominator", "IMateFeatureData.AccessSelections",
                 "IFeature.ModifyDefinition", "ISldWorks.CloseDoc"))
-def gear_mate_definition(px: Px) -> None:
+def gear_mate_definition_route(px: Px) -> None:
     """A saved gear mate's ratio changed through its definition, each recipe on its own copy: what it turns, what it
     reads back, and whether the copy can be closed afterwards. Recorded only: W5 never takes this route."""
     info = px.shared.get("w8_train")

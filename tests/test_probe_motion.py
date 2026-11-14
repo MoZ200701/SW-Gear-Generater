@@ -583,3 +583,15 @@ def test_p1b_plans_w4s_static_gearbox_whatever_w5_would_choose(monkeypatch):
     with pytest.raises(harness.Require, match="turning assembly"):
         p8.static_plan(px, object())
     assert motion.motion_reason is original
+
+
+def test_no_probe_shadows_a_helper_of_the_same_name():
+    """A probe body named like a helper replaces it in the module (the first P0b run on 2026 found
+    gear_mate_definition, the probe, shadowing gear_mate_definition, the reader of a gear mate's ratio)."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(p8))
+    names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
+    assert len(names) == len(set(names)), sorted({n for n in names if names.count(n) > 1})
+    assert p8.gear_mate_definition.__code__.co_argcount == 3      # the reader: (px, asm, name)
