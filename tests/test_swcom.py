@@ -1448,6 +1448,7 @@ class MatedDoc:
         self.log, self.selected, self.mates = [], [], []
         self.tuple_answers, self.suppression_takes, self.select_takes = False, True, True
         self.refuse, self.status, self.made = False, 1, 0
+        self.components = {}
         self.group = MateGroup(self) if with_group else None
         self.SelectionManager = MatedSelection(self)
 
@@ -1467,6 +1468,10 @@ class MatedDoc:
         self.mates.append(mate)
         args[-1].value = self.status
         return mate
+
+    def GetComponentByName(self, name):
+        self.log.append(("GetComponentByName", name))
+        return self.components.get(name)
 
     def EditDelete(self):
         self.log.append(("EditDelete",))
@@ -1645,8 +1650,9 @@ def test_a_mate_renamed_since_it_was_found_is_gone_when_it_is_suppressed(mated):
 
 def _ratio_world(session, doc):
     doc.mates = [MateFeature(doc, "G3 meshes G4", "MateGearDim")]
-    session._handles.update({"placed3": {"component": MatedComponent(doc, "Gear_m1.5_N17-2")},
-                             "placed4": {"component": MatedComponent(doc, "Gear_m1.5_N51-1")}})
+    doc.components = {n: MatedComponent(doc, n) for n in ("Gear_m1.5_N17-2", "Gear_m1.5_N51-1")}
+    session._handles.update({"placed3": {"component": doc.components["Gear_m1.5_N17-2"]},
+                             "placed4": {"component": doc.components["Gear_m1.5_N51-1"]}})
     session.find_mate("mesh2", "G3 meshes G4")
 
 
@@ -1677,8 +1683,9 @@ def test_the_remake_deletes_the_gear_mate_makes_it_again_at_the_ratio_and_gives_
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
-    steps = [e[:2] for e in doc.log if e[0] in ("Select2", "EditDelete", "AddMate5")]
-    assert steps == [("Select2", "G3 meshes G4"), ("EditDelete",), ("Select2", "Gear Axis@Gear_m1.5_N17-2"),
+    steps = [e[:2] for e in doc.log if e[0] in ("Select2", "EditDelete", "GetComponentByName", "AddMate5")]
+    assert steps == [("Select2", "G3 meshes G4"), ("EditDelete",), ("GetComponentByName", "Gear_m1.5_N17-2"),
+                     ("GetComponentByName", "Gear_m1.5_N51-1"), ("Select2", "Gear Axis@Gear_m1.5_N17-2"),
                      ("Select2", "Gear Axis@Gear_m1.5_N51-1"), ("AddMate5", findings.MATE_GEAR)]
     (made,) = [e for e in doc.log if e[0] == "AddMate5"]
     assert made[3] is findings.GEAR_MATE_FLIP and made[7:9] == (18.0, 50.0)      # numerator with the first selection
@@ -1707,8 +1714,7 @@ def test_a_remake_whose_selection_fails_is_an_ordinary_failure_not_mate_refused(
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
-    session._handles["placed4"] = {"component": MatedComponent(doc, "Gear_m1.5_N51-1")}
-    session._handles["placed4"]["component"].FeatureByName = lambda name: None
+    doc.components["Gear_m1.5_N51-1"].FeatureByName = lambda name: None
     doc.Extension = type("NoSelect", (), {"SelectByID2": lambda self, *args: False})()
     with pytest.raises(SolidWorksError) as raised:
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
@@ -1791,3 +1797,18 @@ def test_a_gear_mate_keeps_its_status_and_a_refused_one_is_mate_refused(mated):
     doc.refuse = True
     with pytest.raises(swcom.MateRefused, match="AddMate5 would not make a gear mate between gear1:Gear Axis and "):
         session.add_mate("mesh2", "gear", "gear1:Gear Axis", "gear2:Gear Axis", ratio=(17.0, 68.0))
+
+
+def test_a_component_not_found_again_after_the_delete_says_the_open_assembly_lost_the_gear_mate(mated, monkeypatch):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
+    del doc.components["Gear_m1.5_N51-1"]
+    with pytest.raises(SolidWorksError) as raised:
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert not isinstance(raised.value, swcom.MateRefused)
+    assert str(raised.value) == ("The open R.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its "
+                                 "new ratio, and making it again stopped. The saved R.SLDASM still has it: close "
+                                 "R.SLDASM in SolidWorks without saving to bring it back. Gear_m1.5_N51-1 could not be "
+                                 "found again in R.SLDASM after the delete.")

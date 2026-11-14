@@ -2153,7 +2153,9 @@ class Session:
         gear_mate_ratio's (and P1b's gear_mate_update's): ``ClearSelection2``, the mate's ``Select2(False, 0)``,
         ``EditDelete()`` (invoked: it takes no arguments, as ``FixComponent``), the name read gone from the
         MateGroup, then :meth:`_gear_mate` between ``a`` and ``b`` at ``ratio`` with ``GEAR_MATE_FLIP`` and the
-        old name (``MATE_RENAME_ROUTE``). Deleted but not made again is a :class:`MateRefused` saying so."""
+        old name (``MATE_RENAME_ROUTE``), the two components found again by ``GetComponentByName`` after the
+        delete, as the probe did. After the delete, whatever stops the remake says the open assembly has lost the
+        gear mate and how to get it back; only SolidWorks' own refusal is a :class:`MateRefused`."""
         route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
         name = self._handles.get(handle, {}).get("mate", handle) if hasattr(self, "_handles") else handle
         if route is None:
@@ -2183,6 +2185,14 @@ class Session:
         name, feature = self._kept_mate(handle)
         doc = self._doc()
         title = call(doc, "GetTitle")
+        refs = []                                  # (handle, the Name2 to find it by again after the delete)
+        for ref in (a, b):
+            kept = self._handles.get(ref.partition(":")[0], {}).get("component")
+            if kept is None:
+                raise SolidWorksError(f"A gear mate is made between two components, and {ref!r} is not one this job "
+                                      "found, so nothing is changed; that is a fault in Gear Generator, not in "
+                                      "SolidWorks.")
+            refs.append((ref.partition(":")[0], str(call(kept, "Name2"))))
         call(doc, "ClearSelection2", True)
         call(feature, "Select2", False, 0)
         _guarded("EditDelete", lambda: doc.EditDelete())
@@ -2193,6 +2203,13 @@ class Session:
         lost = f"The open {title} has lost the gear mate {name}: it was deleted to give it its new ratio"
         restore = f"The saved {title} still has it: close {title} in SolidWorks without saving to bring it back."
         try:
+            # As the probe's remake (gear_mate_ratio, P1b): the two components found again by GetComponentByName
+            # after the delete, then the gear mate made between them.
+            for ref, component_name in refs:
+                found = call(doc, "GetComponentByName", component_name)
+                if found is None:
+                    raise SolidWorksError(f"{component_name} could not be found again in {title} after the delete.")
+                self._handles[ref] = dict(self._handles[ref], component=found)
             kept, _ = self._gear_mate(handle, a, b, (float(ratio[0]), float(ratio[1])), bool(flip), name)
         except MateRefused as exc:              # SolidWorks' own refusal: the one failure that is a MateRefused
             raise MateRefused(f"{lost}, and SolidWorks would not make it again. {restore} {_as_sentence(exc)}") \

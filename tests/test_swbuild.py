@@ -681,6 +681,14 @@ class FakeSolidWorks:
         self._keep_mate(handle, old.name, "gear", a, b, 0.0, tuple(float(n) for n in ratio), old.flip)
 
 
+@pytest.fixture(autouse=True)
+def _train_routes_agree(monkeypatch):
+    """Every test here builds a train under the route it re-solves under, set here rather than read from findings.py,
+    so a probe round moving either finding never turns a test red (a test about the two routes sets its own)."""
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
+    monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
+
+
 def plan(spec=None, recipe="A", path=PATH):
     spec = spec or GearSpec()
     return SPUR.plan(spec, SPUR.derive(spec), recipe, "", path)
@@ -2098,12 +2106,14 @@ def _pair_kinds():
 
 @pytest.fixture
 def gear_mates_settled(monkeypatch):
-    """The gear-mate findings, and neither the train's nor a pair's rebuild finding: what the full route is pinned
-    under, whatever the W5 probe batch later sets the train's to (a test that wants one set sets it)."""
+    """The gear-mate findings, no pair rebuild finding, and the train built and re-solved by the full rebuild
+    (``"ForceRebuild3(False)"`` for both of its findings, which agree as a train Build requires): what the full
+    route is pinned under, whatever a probe round later sets the train's to (a test that wants another sets it)."""
     for name, value in (("GEAR_MATE_ROUTE", "mates"), ("MATE_GEAR", 10), ("GEAR_MATE_NUMERATOR_FIRST", True),
                         ("GEAR_MATE_EXTERNAL_FLIP", False)):
         monkeypatch.setattr(findings, name, value)
-    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None, raising=False)
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "ForceRebuild3(False)", raising=False)
+    monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", "ForceRebuild3(False)", raising=False)
     monkeypatch.setattr(findings, "PAIR_ASSEMBLY_REBUILD_ROUTE", None, raising=False)
 
 
@@ -2147,15 +2157,23 @@ def test_a_crossed_pair_placed_fixed_has_no_mate_and_is_still_built_as_a_pair(ge
 def test_a_plan_with_mates_built_outside_build_pair_is_a_train(gear_mates_settled, monkeypatch, train_route, wanted):
     monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)            # a train does not lean on tier 7
     monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", train_route, raising=False)
+    monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", train_route, raising=False)
     mated = _pair_kinds()["spur, gear mate"]
     assert swbuild.workbook_assembly_kind(mated) == TRAIN
+    assert swcom.rebuild_call(swcom.DOC_ASSEMBLY, TRAIN) == wanted
     fake = FakeSolidWorks()
+    if train_route is None:                  # a train Build waits for the route it may be built under (probe P0b)
+        with pytest.raises(swbuild.BuildError, match="MATED_BUILD_REBUILD_ROUTE is None"):
+            swbuild.build(fake, mated, never_exists)
+        assert fake.calls == []
+        return
     result = swbuild.build(fake, mated, never_exists)
     assert result.ok and fake.rebuild_kinds == [TRAIN] and set(fake.rebuild_members) == {wanted}
 
 
 def test_with_the_trains_route_set_a_train_is_top_only_and_a_pair_still_full(monkeypatch, gear_mates_settled):
     monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
+    monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
     mated = _pair_kinds()["spur, gear mate"]
     train = FakeSolidWorks()
     swbuild.build(train, mated, never_exists)
@@ -3253,3 +3271,60 @@ def test_with_two_trains_only_the_one_that_needs_a_put_is_touched():
     assert {g: fake.frames[f"gear{g[1]}-1"] for g in TRAIN_ORDER} == second_before          # the first untouched
     assert all(_close(fake.frames[f"gear{g[1]}-1"], frames[g]) for g in ("G5", "G6", "G7", "G8"))
     assert fake.locked_puts == []
+
+
+
+# -- probe round P0b: the route a train may be BUILT under, beside the one a built train re-solves under -------------
+
+@pytest.fixture
+def train_routes(monkeypatch):
+    """Both of a train's rebuild findings set here, whatever findings.py holds."""
+    def set_routes(built, solved):
+        monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", built, raising=False)
+        monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", solved, raising=False)
+    return set_routes
+
+
+@pytest.mark.parametrize("route, call", [("ForceRebuild3(True)", TOP_CALL), ("ForceRebuild3(False)", FULL_CALL)])
+def test_a_train_builds_when_its_build_route_is_the_one_it_rebuilds_under(train_routes, route, call):
+    train_routes(route, route)
+    fake, result = _build_train()
+    assert result.ok and result.kind == "motion", result.log_lines()
+    assert fake.assembly_kinds and set(fake.assembly_kinds) == {TRAIN}
+    assert fake.rebuild_members[-1] == call
+
+
+@pytest.mark.parametrize("built, solved, sentence", [
+    (None, "ForceRebuild3(True)",
+     "How a gearbox built to turn may be rebuilt while it is built has not been settled on SolidWorks "
+     "(findings.MATED_BUILD_REBUILD_ROUTE is None, and findings.MATED_ASSEMBLY_REBUILD_ROUTE is 'ForceRebuild3(True)'), "
+     "so nothing is made or changed; run probe tier 8 first."),
+    ("ForceRebuild3(True)", "ForceRebuild3(False)",
+     "A gearbox built to turn would be built under findings.MATED_BUILD_REBUILD_ROUTE 'ForceRebuild3(True)', but Gear "
+     "Generator rebuilds a train under findings.MATED_ASSEMBLY_REBUILD_ROUTE 'ForceRebuild3(False)', and the two "
+     "differ, so nothing is made or changed; run probe tier 8 again."),
+])
+def test_a_train_build_is_refused_before_anything_is_made_while_its_build_route_is_unsettled_or_differs(
+        train_routes, built, solved, sentence):
+    train_routes(built, solved)
+    for make in (lambda fake: _build_train(fake), lambda fake: swbuild.build(fake, _train_plan(), never_exists)):
+        fake = FakeSolidWorks()
+        with pytest.raises(swbuild.BuildError) as raised:
+            make(fake)
+        assert str(raised.value) == sentence
+        assert fake.calls == [] and fake.saved == {}
+
+
+def test_an_update_is_not_gated_on_the_build_route(train_routes):
+    train_routes("ForceRebuild3(True)", "ForceRebuild3(True)")
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    train_routes(None, "ForceRebuild3(True)")
+    result = _update_train(fake)
+    assert result.ok and result.placed == list(TRAIN_ORDER), result.log_lines()
+
+
+def test_a_static_gearbox_is_not_gated_on_the_build_route(train_routes):
+    train_routes(None, None)
+    _, result = _build()
+    assert result.ok and result.kind == "static"

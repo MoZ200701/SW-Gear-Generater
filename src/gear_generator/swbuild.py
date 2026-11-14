@@ -257,10 +257,29 @@ def _settled(needed: Sequence[Tuple[str, object]]) -> Optional[Tuple[str, object
     return None
 
 
-def _train_gate(plan: Optional[BuildPlan] = None) -> None:
+def _train_gate(plan: Optional[BuildPlan] = None, *, building: bool = False) -> None:
     """Refuse, before anything is made or changed in SolidWorks, a train whose SolidWorks calls are not all settled:
     every finding of :data:`TRAIN_CHECK_FINDINGS`, and for ``plan`` the lock findings when it locks a gear and the
-    rename finding when it names a mate (each read with getattr)."""
+    rename finding when it names a mate (each read with getattr).
+
+    ``building`` (a Build, not an Update): ``swcom.rebuild_call`` gives a train one route, the one a built train
+    re-solves under (``findings.MATED_ASSEMBLY_REBUILD_ROUTE``), for Build and Update alike; probe round P0b
+    measured the route a train may be built under apart (``findings.MATED_BUILD_REBUILD_ROUTE``). A Build is refused
+    while that is not settled, or while it differs from the one the build would take, so a later probe changing one
+    never leaves the build silently following the other."""
+    if building:
+        built = getattr(findings, "MATED_BUILD_REBUILD_ROUTE", None)
+        solved = getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None)
+        if built is None:
+            raise BuildError(f"How a gearbox built to turn may be rebuilt while it is built has not been settled on "
+                             f"SolidWorks (findings.MATED_BUILD_REBUILD_ROUTE is None, and findings."
+                             f"MATED_ASSEMBLY_REBUILD_ROUTE is {solved!r}), so nothing is made or changed; run probe "
+                             "tier 8 first.")
+        if built != solved:
+            raise BuildError(f"A gearbox built to turn would be built under findings.MATED_BUILD_REBUILD_ROUTE "
+                             f"{built!r}, but Gear Generator rebuilds a train under findings."
+                             f"MATED_ASSEMBLY_REBUILD_ROUTE {solved!r}, and the two differ, so nothing is made or "
+                             "changed; run probe tier 8 again.")
     needed = list(TRAIN_CHECK_FINDINGS)
     mates = [op for op in plan.ops if isinstance(op, base.Mate)] if plan is not None else []
     if any(op.kind == "lock" for op in mates):
@@ -559,7 +578,7 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     if isinstance(first, base.NewAssembly):
         _assembly_rebuild_gate(kind)
         if kind == ASSEMBLY_TRAIN:
-            _train_gate(plan)
+            _train_gate(plan, building=True)
     save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
     if save is not None and save.path and exists(save.path):
         raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
@@ -1802,7 +1821,7 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     if assembly is not None:
         _assembly_rebuild_gate(workbook_assembly_kind(assembly))
         if workbook_assembly_kind(assembly) == ASSEMBLY_TRAIN:
-            _train_gate(assembly)
+            _train_gate(assembly, building=True)
     plans = list(parts) + [p for p in (layout_plan, assembly) if p is not None]
     for plan in plans:
         problems = plan.check()
