@@ -39,6 +39,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
 
 from . import findings
 from .gears.equations import DEGREES, RADIANS, equation_text, split_equation
+from .probe import comerr
 from .store import same_path
 
 try:  # pragma: no cover - exercised only on Windows with pywin32 present
@@ -230,7 +231,6 @@ class ComError(SolidWorksError):
     """
 
     def __init__(self, member: str, error: BaseException) -> None:
-        from .probe import comerr
         super().__init__(*getattr(error, "args", ()))
         info = comerr.describe_error(error)
         self.member = member

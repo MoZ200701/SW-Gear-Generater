@@ -967,3 +967,20 @@ def test_build_again_greyed_always_says_why(ready):
                 folder_exists=False)
     assert not f.build_enabled and f.update_enabled and f.text.startswith("Update SolidWorks will change")
     assert f.text.endswith("does not exist; make it, or change it on the Box sheet.")
+
+
+def test_a_job_that_stopped_between_documents_says_so_and_what_it_saved():
+    """W4 fix pass 1: build_gearbox no longer raises after its pre-flight; a raise between documents is a failure on
+    the result (GearboxResult.failures), and the finish still says what was saved. Pass 2 words it for good."""
+    from gear_generator import swbuild
+    result = swbuild.GearboxResult()
+    result.parts.built = [swbuild.BuildResult(saved=r"C:\P\A.SLDPRT", rebuilt=True),
+                          swbuild.BuildResult(saved=r"C:\P\B.SLDPRT", rebuilt=True)]
+    result.failures = [("the layout part", "SolidWorks did not complete SaveAs3: The remote procedure call failed "
+                                           "(RPC_S_CALL_FAILED).")]
+    text, ok = ui_text.gearbox_status(_gearbox(), result)
+    assert not ok and text == ("Built 2 parts. The job stopped during the layout part: SolidWorks did not complete "
+                               "SaveAs3: The remote procedure call failed (RPC_S_CALL_FAILED). Press Build to carry "
+                               "on: what was built is reused.")
+    result.parts.built = []
+    assert ui_text.gearbox_status(_gearbox(), result)[0].startswith("Nothing was built. The job stopped during")
