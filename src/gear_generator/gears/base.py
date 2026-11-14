@@ -395,6 +395,11 @@ class Mate:
     ``gear`` between two axes, turning them at ``ratio`` — the tooth counts of
     ``a`` and ``b`` — the same way or, with ``flip``, the other.
     ``asm:planeN`` is the assembly's own Nth plane.
+
+    ``lock`` (W5) holds one component to another as they stand: ``a`` and
+    ``b`` are bare component handles (``gear2``, ``gear3``), not
+    ``component:reference``, ``a`` the anchor and ``b`` the follower locked
+    to it; no value, ratio or flip (probe tier 8, ``findings.COMPOUND_LOCK_ROUTE``).
     """
 
     id: str

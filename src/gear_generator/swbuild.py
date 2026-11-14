@@ -31,9 +31,10 @@ from . import findings
 from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
 from .gears.equations import DEGREES, RADIANS, EquationError, evaluate_all, split_equation
-from .store import same_path
+from .store import GEARBOX_MOTION, GEARBOX_STATIC, same_path
 from .swcom import (ASSEMBLY_PAIR, ASSEMBLY_STATIC, ASSEMBLY_TRAIN, DOC_ASSEMBLY, MINIMUM_MAJOR, ComponentGone,
-                    DocInfo, SolidWorksError, meets_minimum, rebuild_call, release_year)
+                    DocInfo, MateGone, MateRefused, MateState, SolidWorksError, meets_minimum, rebuild_call,
+                    release_year)
 
 VALUE_TOLERANCE = 1e-6
 FULLY_DEFINED = 3
@@ -99,6 +100,14 @@ class SolidWorks(Protocol):
     def find_component(self, handle: str, name: str) -> str: ...
     def component_frame(self, handle: str) -> Tuple[Tuple[float, ...], Tuple[float, float, float]]: ...
     def interferences(self) -> List[Tuple[Tuple[str, ...], float]]: ...
+    # W5 (the workbook gearbox that turns): new in swcom.Session, each docstring there says what it does. ``add_mate``
+    # also takes kind "lock" (bare handles, anchor first: gears.base.Mate) and keeps AddMate5's status.
+    def mate_status(self, name: str) -> Optional[int]: ...
+    def mate_states(self) -> List[MateState]: ...
+    def constrained_status(self, handle: str) -> int: ...
+    def find_mate(self, handle: str, name: str) -> str: ...
+    def set_mate_suppressed(self, handle: str, suppressed: bool) -> None: ...
+    def set_gear_ratio(self, handle: str, a: str, b: str, ratio: Tuple[int, int]) -> None: ...
 
 
 class BuildError(SolidWorksError):
@@ -134,6 +143,11 @@ class BuildResult:
     rebuilt: bool = False
     saved: str = ""
     components: Dict[str, str] = field(default_factory=dict)   # an assembly's plan handle -> the Name2 it kept
+    # W5, a train's mate check (filled only for a build of kind ASSEMBLY_TRAIN; see :func:`build`): every problem
+    # found as a full sentence naming the mate or gear, each also a failure (so the assembly is not saved), and every
+    # mate as SolidWorks held it when checked, for the log.
+    mate_problems: List[str] = field(default_factory=list)
+    mates: List[MateState] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -446,6 +460,19 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     components, else static). :func:`build_pair` passes ``ASSEMBLY_PAIR``, so a
     pair keeps its own route whatever its plan holds, the puts before its
     mates included.
+
+    W5 (Agent A writes it; W5-INTERFACES.md): a build whose kind, as
+    resolved here, is ``ASSEMBLY_TRAIN`` runs the mate check after ``_run``,
+    the rebuild and ``_verify``, before the save — every ``Mate`` op's
+    ``sw.mate_status`` is ``findings.ADD_MATE_NO_ERROR``, ``sw.mate_states()``
+    holds every planned mate with code 0 and not suppressed, and every mated
+    gear (a handle in a ``Mate`` op whose last ``Fix``/``Unfix`` op is
+    ``Unfix``) reads ``findings.COMPONENT_UNDER_DEFINED`` — each problem a
+    sentence in :attr:`BuildResult.mate_problems` and a failure, so the
+    document is left open, unsaved. A ``Mate`` op's own refusal in ``_run``
+    is copied into ``mate_problems`` too. There is no ``mates=`` keyword: the
+    kind decides, so a pair (``ASSEMBLY_PAIR``) and a static assembly are
+    never mate-checked.
     """
     _gate(sw)
     problems = plan.check()
@@ -888,6 +915,25 @@ class Clash:
     volume: float
 
 
+def turn_between(rotation_a: Sequence[float], rotation_b: Sequence[float],
+                 tolerance: float = POSE_TOLERANCE) -> Optional[float]:
+    """The turn about frame a's own Z (its gear axis) that takes rotation a to rotation b, in radians in (−π, π]
+    — positive the right-handed way about a's own +Z — or None when the two differ otherwise (a tilt, a gear
+    turned over): ``M = Raᵀ·Rb`` must be a turn about local Z to ``tolerance`` per entry. Rotations are 9 numbers
+    by rows, ``v_global = R · v_local + at``, as everywhere here. Pure (W5; :func:`same_frame` and
+    :func:`train_check` both rest on it)."""
+    ra = [[float(rotation_a[i * 3 + j]) for j in range(3)] for i in range(3)]
+    rb = [[float(rotation_b[i * 3 + j]) for j in range(3)] for i in range(3)]
+    # M = Ra^T Rb: the turn, in a's own frame, that takes a to b. It must be a turn about local Z.
+    m = [[sum(ra[k][i] * rb[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    turn = math.atan2(m[1][0], m[0][0])
+    c, s = math.cos(turn), math.sin(turn)
+    about_z = ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
+    if any(abs(m[i][j] - about_z[i][j]) > tolerance for i in range(3) for j in range(3)):
+        return None
+    return turn
+
+
 def same_frame(rotation_a: Sequence[float], at_a: Sequence[float], rotation_b: Sequence[float],
                at_b: Sequence[float], pitch: float = 0.0, tolerance: float = POSE_TOLERANCE) -> bool:
     """Whether two component frames place the same gear the same way.
@@ -898,23 +944,186 @@ def same_frame(rotation_a: Sequence[float], at_a: Sequence[float], rotation_b: S
     gear in the same place (review 14: comparing θ itself would call
     2.5e-14 and one whole pitch different). ``pitch`` 0 asks for the same
     rotation. Rotations are 9 numbers by rows, ``v_global = R · v_local + at``.
+    The turn is :func:`turn_between`'s.
     """
     if any(abs(float(a) - float(b)) > tolerance for a, b in zip(at_a, at_b)):
         return False
-    ra = [[float(rotation_a[i * 3 + j]) for j in range(3)] for i in range(3)]
-    rb = [[float(rotation_b[i * 3 + j]) for j in range(3)] for i in range(3)]
-    # M = Ra^T Rb: the turn, in a's own frame, that takes a to b. It must be a turn about local Z.
-    m = [[sum(ra[k][i] * rb[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    turn = math.atan2(m[1][0], m[0][0])
-    c, s = math.cos(turn), math.sin(turn)
-    about_z = ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
-    if any(abs(m[i][j] - about_z[i][j]) > tolerance for i in range(3) for j in range(3)):
+    turn = turn_between(rotation_a, rotation_b, tolerance)
+    if turn is None:
         return False
     if pitch <= 0:
         return abs(turn) <= tolerance
     step = math.radians(pitch)
     off = turn % step
     return min(off, step - off) <= tolerance
+
+
+# -- W5: whether a mated train stands as built, up to a turn (W5-PLAN §1.6, review M1/M2) -----------------------
+
+TRAIN_TOLERANCE = 1e-5     # radians on each relation; the demonstration logs the residuals it sees (W5-PLAN §4)
+
+
+@dataclass(frozen=True)
+class MeshLink:
+    """One listed, gear-mated mesh (a, b) as :func:`train_check` reads it: b turns ``k`` times a's turn, each
+    about its OWN part's +Z (review M2: ``k == ω_b/ω_a`` with ``kinematics.solve``'s speeds, which are about each
+    shaft's own axis; ``workbook.motion.mesh_links`` makes them), and ``pitch`` is b's angular pitch in degrees
+    (360 / b's teeth): the relation holds modulo it, since a whole tooth of a times k is a whole tooth of b."""
+
+    a: str
+    b: str
+    k: float
+    pitch: float
+
+
+@dataclass(frozen=True)
+class LockLink:
+    """One lock mate: ``follower`` is held to ``anchor``. :func:`train_check` tests it EXACTLY (review M1: the
+    follower's turn equals the anchor's, to tolerance, never modulo a pitch); ``pitch`` is the follower's angular
+    pitch in degrees, kept for the log and for W8, and not used by the test."""
+
+    anchor: str
+    follower: str
+    pitch: float
+
+
+@dataclass(frozen=True)
+class TrainCheck:
+    """What :func:`train_check` found. ``off_axis``: gears not at their place or not along their axis (or not
+    found at all), in ``wanted``'s order; their relations are not judged. ``out_of_step``: (a, b) meshes and
+    (anchor, follower) locks whose relation does not hold, in the order given (meshes first). ``turned``: in step,
+    and some gear stands turned other than by a whole number of its own pitch. ``residuals``: every relation
+    judged, (a, b, residual in radians) — a mesh's distance from the nearest whole pitch of b, a lock's from no
+    difference at all — meshes then locks, for the log (the demonstration reports what a real drag leaves)."""
+
+    off_axis: Tuple[str, ...] = ()
+    out_of_step: Tuple[Tuple[str, str], ...] = ()
+    turned: bool = False
+    residuals: Tuple[Tuple[str, str, float], ...] = ()
+
+    @property
+    def in_step(self) -> bool:
+        return not (self.off_axis or self.out_of_step)
+
+
+Frame9 = Tuple[Sequence[float], Sequence[float]]     # (rotation, 9 numbers by rows; origin in mm)
+
+
+def _wrapped(angle: float) -> float:
+    """``angle`` (radians) brought into (−π, π]."""
+    out = math.remainder(angle, 2 * math.pi)
+    return math.pi if out == -math.pi else out
+
+
+def _off_whole(angle: float, step: float) -> float:
+    """How far ``angle`` is from the nearest whole multiple of ``step`` (radians; ``step`` ≤ 0: of a full turn)."""
+    if step <= 0:
+        return abs(_wrapped(angle))
+    off = angle % step
+    return min(off, step - off)
+
+
+def train_check(found: Mapping[str, Frame9], wanted: Mapping[str, Frame9], meshes: Sequence[MeshLink],
+                locks: Sequence[LockLink], pitch: Mapping[str, float],
+                tolerance: float = TRAIN_TOLERANCE) -> TrainCheck:
+    """Whether the gears ``found`` stand as ``wanted`` does, up to a turn of each train and whole teeth (pure).
+
+    ``found`` and ``wanted`` map a gear id to its frame (rotation 9 numbers
+    by rows, origin in mm). Per gear of ``wanted``: missing from ``found``,
+    an origin off by more than :data:`POSE_TOLERANCE` mm on any axis, or a
+    rotation that is not ``wanted``'s turned about its own Z
+    (:func:`turn_between`) is off its axis. Otherwise δ is its turn from
+    wanted to found about its own +Z. Per mesh, ``δb − k·δa`` must be a whole
+    number of b's pitch, to ``tolerance`` radians; per lock, ``δf − δa`` must
+    be 0 (modulo a full turn), to ``tolerance`` — exactly, not modulo a pitch
+    (review M1: a lock left a whole anchor tooth off is out of step). A
+    relation with an off-axis gear is not judged. ``turned``: in step, and
+    some gear's δ is not a whole number of its ``pitch`` (degrees; missing or
+    0: any turn at all). Gears of ``found`` not in ``wanted`` are ignored.
+    """
+    off_axis: List[str] = []
+    delta: Dict[str, float] = {}
+    for gear, (rotation_w, at_w) in wanted.items():
+        frame = found.get(gear)
+        if frame is None:
+            off_axis.append(gear)
+            continue
+        rotation_f, at_f = frame
+        if any(abs(float(a) - float(b)) > POSE_TOLERANCE for a, b in zip(at_w, at_f)):
+            off_axis.append(gear)
+            continue
+        turn = turn_between(rotation_w, rotation_f)
+        if turn is None:
+            off_axis.append(gear)
+            continue
+        delta[gear] = turn
+    out: List[Tuple[str, str]] = []
+    residuals: List[Tuple[str, str, float]] = []
+    for mesh in meshes:
+        if mesh.a in delta and mesh.b in delta:
+            residual = _off_whole(delta[mesh.b] - mesh.k * delta[mesh.a], math.radians(mesh.pitch))
+            residuals.append((mesh.a, mesh.b, residual))
+            if residual > tolerance:
+                out.append((mesh.a, mesh.b))
+    for lock in locks:
+        if lock.anchor in delta and lock.follower in delta:
+            residual = abs(_wrapped(delta[lock.follower] - delta[lock.anchor]))
+            residuals.append((lock.anchor, lock.follower, residual))
+            if residual > tolerance:
+                out.append((lock.anchor, lock.follower))
+    in_step = not (off_axis or out)
+    turned = in_step and any(_off_whole(turn, math.radians(pitch.get(gear, 0.0) or 0.0)) > tolerance
+                             for gear, turn in delta.items())
+    return TrainCheck(tuple(off_axis), tuple(out), turned, tuple(residuals))
+
+
+@dataclass(frozen=True)
+class MateRef:
+    """A mate on record, as Update needs it: its name in SolidWorks' tree, its kind (``workbook.motion`` AXIS,
+    ALONG, LOCK or MESH, the strings ``"axis"``, ``"along"``, ``"lock"``, ``"mesh"``), its gears by id (AXIS/ALONG
+    ``(gear,)``; LOCK ``(anchor, follower)``; MESH ``(a, b)`` in the order the gear mate was made, its first
+    selection first) and, for AXIS/ALONG, its shaft. ``store.MateEntry`` without the numbers."""
+
+    name: str
+    kind: str
+    gears: Tuple[str, ...]
+    shaft: str = ""
+
+
+@dataclass(frozen=True)
+class MotionUpdate:
+    """What Update SolidWorks is given for a gearbox built to turn (``workbook.update.classify``, Agent B; the
+    worker's motion path, Agent A). None in ``update_gearbox``'s ``motion`` is W4's static path, untouched.
+
+    ``mates``: every mate on record. ``meshes``: a :class:`MeshLink` per
+    recorded MESH mate with the tooth counts now wanted, in its recorded gear
+    order. ``locks``: a :class:`LockLink` per recorded LOCK mate.
+    ``recorded``: the frames on record (what was last put), one
+    ``Placement`` per gear of the assembly with its pitch now wanted; the
+    frames now wanted are ``update_gearbox``'s ``placements``.
+    ``recorded_meshes``: as ``meshes``, with the tooth counts the gear mates
+    hold now (the record's MESH ratios). ``face_globals``: ``(gear, its
+    "<Gear> Face Z" global as now wanted)`` for every recorded ALONG mate
+    with a face global, its expression the literal |z_front| in mm
+    (``workbook.motion.face_global`` names it); the worker sets only those
+    the assembly holds differently. ``ratios``: ``(gear mate name, numerator,
+    denominator)`` for every MESH whose (za, zb) changed, in the mate's own
+    gear order (review M10) — always empty while
+    ``findings.GEAR_MATE_RATIO_ROUTE`` is not ``"remake"`` (W5-DECISIONS: a
+    tooth change is then structural). ``fixed``: gears left fixed (on a
+    fixed shaft, or held still by one: W5-PLAN D9, review M9), which Update
+    re-places as W4 does, modulo pitch, with
+    ``findings.REPLACE_FIXED_ROUTE``.
+    """
+
+    mates: Tuple[MateRef, ...] = ()
+    meshes: Tuple[MeshLink, ...] = ()
+    locks: Tuple[LockLink, ...] = ()
+    recorded: Tuple["Placement", ...] = ()
+    recorded_meshes: Tuple[MeshLink, ...] = ()
+    face_globals: Tuple[Tuple[str, GlobalVariable], ...] = ()
+    ratios: Tuple[Tuple[str, int, int], ...] = ()
+    fixed: Tuple[str, ...] = ()
 
 
 def same_named_elsewhere(documents: Sequence[DocInfo], paths: Sequence[str]) -> List[Tuple[str, str]]:
@@ -1289,6 +1498,11 @@ class GearboxResult:
     held: Dict[str, str] = field(default_factory=dict)
     open_before: Optional[List[str]] = None
     opened: List[str] = field(default_factory=list)
+    # W5: which assembly saved — GEARBOX_MOTION (its plan mates its gears: a train) or GEARBOX_STATIC (W4's fixed
+    # one) — or "" when none did. A train SolidWorks refused or flagged a mate of is not saved, and nothing is
+    # saved in its place (W5-DECISIONS, answer 1): ``assembly`` is then that failed BuildResult, its
+    # ``mate_problems`` the sentences and its ``document`` the title it is left open under, and ``kind`` is "".
+    kind: str = ""
 
     @property
     def ok(self) -> bool:
@@ -1383,6 +1597,15 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     part and the layout were built, rebuilt and saved in their own documents
     first, and a reused one is only read. Refused before anything is made: an
     assembly while ``findings.ASSEMBLY_REBUILD_ROUTE`` is not settled.
+
+    W5 (Agent A; W5-INTERFACES.md): an assembly plan that mates its gears is
+    a train (:func:`workbook_assembly_kind`) and its :func:`build` runs the
+    mate check before the save. A train SolidWorks refuses or flags a mate of
+    is left open, unsaved, and nothing is built in its place — no static
+    fallback (W5-DECISIONS, answer 1, overruling W5-PLAN D2): the parts and
+    the layout part already saved stay saved and reach the finish, which
+    records them as W4's continued revision. :attr:`GearboxResult.kind` says
+    which assembly saved. The signature is unchanged: no ``static=``.
     """
     say = progress or _quiet
     _gate(sw)
@@ -1553,6 +1776,26 @@ class GearboxUpdate:
     mtimes: Dict[str, float] = field(default_factory=dict)
     open_before: Optional[List[str]] = None
     opened: List[str] = field(default_factory=list)
+    # W5, the motion path only (``update_gearbox(..., motion=...)``); all empty on W4's static path. Found before
+    # anything changed, against the record (``train_check(found, recorded, recorded_meshes, locks)``): ``turned``,
+    # ``out_of_step`` and ``off_axis`` as TrainCheck has them, and its ``residuals`` for the log. ``restored``: the
+    # train had been turned (``turned``) and Update put it back to the built turn, because something had to be put
+    # (W5-PLAN D4 and review M1: when a train needs any put, every mated gear of it is put). ``unsuppressed``:
+    # recorded mates found suppressed and turned back on (D10), by name. ``axial``: gears whose "<Gear> Face Z" was
+    # set, in ``face_globals`` order. ``ratios``: gear mates given a new ratio, by name (empty while
+    # ``findings.GEAR_MATE_RATIO_ROUTE`` is None). ``extra_mates``: mates in the assembly the record does not list,
+    # found suppressed and left as they are (an unsuppressed one refuses the Update in its check phase instead:
+    # review M7). ``mates``: every mate as read after the last rebuild.
+    turned: bool = False
+    out_of_step: List[Tuple[str, str]] = field(default_factory=list)
+    off_axis: List[str] = field(default_factory=list)
+    residuals: List[Tuple[str, str, float]] = field(default_factory=list)
+    restored: bool = False
+    unsuppressed: List[str] = field(default_factory=list)
+    axial: List[str] = field(default_factory=list)
+    ratios: List[str] = field(default_factory=list)
+    extra_mates: List[str] = field(default_factory=list)
+    mates: List[MateState] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -1609,6 +1852,7 @@ def _update_document(sw: SolidWorks, doc: DocumentValues) -> Tuple[UpdateResult,
 
 def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout: Optional[DocumentValues] = None,
                    assembly: str = "", placements: Sequence[Placement] = (), *,
+                   motion: Optional[MotionUpdate] = None,
                    exists: Callable[[str], bool] = os.path.exists,
                    progress: Optional[Callable[[Step], None]] = None,
                    mtime: Callable[[str], float] = os.path.getmtime) -> GearboxUpdate:
@@ -1668,7 +1912,15 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     full rebuild of the assembly marked every part modified, those Update
     never touched among them. Refused in the check phase too: an assembly
     while ``findings.ASSEMBLY_REBUILD_ROUTE`` is not settled.
+
+    W5: ``motion`` None is all of the above, unchanged (a W4 static
+    gearbox, W5-PLAN D5). Given, the assembly is a train
+    (``ASSEMBLY_TRAIN`` for every rebuild and put) and the motion path runs
+    in W5-PLAN §1.6's order as W5-INTERFACES.md amends it — Agent A writes
+    it; until then it is refused before anything is read.
     """
+    if motion is not None:
+        raise NotImplementedError("W5: Agent A, swbuild.update_gearbox's motion path")
     say = progress or _quiet
     _gate(sw)
     result = GearboxUpdate()

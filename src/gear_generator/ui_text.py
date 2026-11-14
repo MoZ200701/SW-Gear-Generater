@@ -1857,7 +1857,8 @@ def _unsaved_line(paths: Sequence[str], update_puts_back: bool = False) -> str:
 
 def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=None, update=None,
                     error: str = "", folder: str = "", folder_exists: bool = True, building: bool = False,
-                    updating: bool = False, progress=None, note=None, results_due: bool = False) -> Footer:
+                    updating: bool = False, progress=None, note=None, results_due: bool = False,
+                    digest: str = "") -> Footer:
     """The footer for every state of the window (design/UI-DESIGN.md §9's table): its sentence, colour, buttons.
 
     ``assessment`` is the last good read's ``workbook.assess.Assessment``
@@ -1894,6 +1895,15 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     (:func:`_unsaved_line`), and the parts a build makes new rather than reuse
     are said from ``plan.made_new`` (:func:`_occupied`, :func:`_held_back`).
     The note joins as its kind says (:class:`Note`).
+
+    W5 (Agent C; W5-INTERFACES.md): ``digest`` is the sha256 of the read the
+    window shows (``Reading.digest``; the window passes it, Agent D). While
+    the record's gearbox has no assembly and its ``mate_problems`` came from
+    this same read (``mate_problems_digest == digest``), Build is not
+    enabled and the sentence says SolidWorks refused a mate, naming it, and
+    that Build waits for a change to the workbook (W5-DECISIONS, answer 1:
+    the footer never invites a retry of an unchanged workbook). ``""``, as
+    every W4 caller passes, never matches.
     """
     from .store import LINK_WAITS
     a = assessment
@@ -2270,3 +2280,74 @@ def answer_not_kept(error: BaseException) -> str:
 
 APP_STAYED_OPEN = ("Gear Generator stayed open: a workbook's job has something to say in its window. Close this window "
                    "again to quit.")
+
+
+# -- W5: the gearbox that turns (docs/notes-workbook/W5-PLAN.md §1.8, as W5-INTERFACES.md amends it) ---------------
+#
+# Interfaces pinned in the W5 interface commit; Agent C writes each, and calls them from the functions above that
+# already exist (``_ready_build``, ``gearbox_status``, ``workbook_footer``, ``build_again_question``,
+# ``update_summary``, ``gearbox_update_status``), whose signatures stay as they are (``workbook_footer`` gained
+# ``digest``). Every sentence is decided from fields, never from another sentence's words, and is true in every
+# state; a mate problem (``BuildResult.mate_problems``, ``GearboxRecord.mate_problems``) is a whole sentence of the
+# worker's and is shown as one, never lower-cased or cut into another sentence. There is no static fallback, so no
+# sentence about one (W5-DECISIONS, answer 1).
+
+
+def drag_phrase(drag: Sequence[str]) -> str:
+    """The gear(s) to drag, from ``MotionPlan.drag`` / ``GearboxRecord.drag`` (one per train): *drag G1 in
+    SolidWorks and the rest of its train follow* for one train (review M11: "of its train", since a lone gear or a
+    fixed one does not follow), *drag G1 to turn one train and G5 to turn the other* for two, *drag G1, G5 and G9,
+    one for each train* for three or more; ``""`` for none."""
+    raise NotImplementedError("W5: Agent C, ui_text.drag_phrase")
+
+
+def motion_ready_line(plan) -> str:
+    """Appended to the sentence before Build (``_ready_build``) from a ``workbook.gearbox.GearboxPlan``: with
+    ``plan.motion``, *Its gears are mated to their shafts and to each other, so they turn together in
+    SolidWorks.*; with ``plan.static_reason``, *Its gears are placed meshed and fixed, not mated to turn:
+    {static_reason}*; ``""`` for a parts-only or refused plan."""
+    raise NotImplementedError("W5: Agent C, ui_text.motion_ready_line")
+
+
+def motion_done_line(plan, result) -> str:
+    """After a build whose assembly saved (``swbuild.GearboxResult.kind``): for ``motion.MOTION``, that the gears
+    are mated to turn and SolidWorks reports no mate in error, with :func:`drag_phrase` of ``plan.motion.drag``
+    (no train: *Its gears are each mated to their shaft, free to turn, …*); for ``motion.STATIC`` with
+    ``plan.static_reason``, that they are placed fixed and why; ``""`` otherwise (W4's static build says nothing
+    new)."""
+    raise NotImplementedError("W5: Agent C, ui_text.motion_done_line")
+
+
+def mate_refused_status(plan, result, again: bool = False) -> Tuple[str, bool]:
+    """A build whose assembly SolidWorks refused or flagged a mate of (``result.assembly.mate_problems``, the
+    assembly not saved and nothing saved in its place): what was built and kept (the parts, the layout part),
+    each mate problem as the worker's sentence, that the assembly is left open in SolidWorks as
+    ``result.assembly.document``, not saved, its parts the saved ones, and that Build makes the assembly once the
+    workbook has changed; never an invitation to press again unchanged. ``ok`` is False. ``again`` as
+    :func:`gearbox_status`'s."""
+    raise NotImplementedError("W5: Agent C, ui_text.mate_refused_status")
+
+
+def motion_record_line(record, digest: str = "") -> str:
+    """The footer's line on a gearbox on record (``store.LinkRecord``), appended in the Build again… states whose
+    sentence is not an error, and in Build's state after a refusal: ``kind`` ``motion`` — *It was built with its
+    gears mated to turn: drag G1 in SolidWorks to turn the gearbox.* (``drag``; two trains: *… drag G1 or G5 to
+    turn its trains.*); ``static`` with no ``static_reason`` (W4's) — *It was built static, before gears could be
+    mated to turn: Build again… makes a new revision whose gears turn.*; ``static`` with a ``static_reason`` —
+    built static because that was not settled, and Build again… tries a turning revision; no assembly and
+    ``mate_problems`` — the refusal, and, when ``mate_problems_digest == digest``, that Build waits for a change
+    to the workbook. ``""`` with no gearbox."""
+    raise NotImplementedError("W5: Agent C, ui_text.motion_record_line")
+
+
+def motion_update_lines(update, result) -> List[str]:
+    """The W5 pieces of a finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate`` of the motion
+    path), in order, each a whole sentence: *Moved G4 along S3.* (``result.axial``, the shaft from the ALONG mate
+    in ``update.motion.mates``), *Set the gear mate G1 meshes G2 to 17 : 69.* (``result.ratios``), *Turned the
+    mate G1 meshes G2 back on (it was suppressed in SolidWorks).* (``result.unsuppressed``), *The gears had been
+    turned in SolidWorks; they are back at the turn they were built at.* (``result.restored``), *G4 had been turned
+    out of step with G3 in SolidWorks; it is back in mesh.* (``result.out_of_step``), *Reducer_12to1.SLDASM also
+    has mates the app did not make (Angle1), suppressed; Update SolidWorks left them as they are.*
+    (``result.extra_mates``); and, with nothing changed and ``result.turned``, *The gears stand where they were
+    turned in SolidWorks.* after ``ALREADY_MATCHES``. ``[]`` for W4's static path."""
+    raise NotImplementedError("W5: Agent C, ui_text.motion_update_lines")

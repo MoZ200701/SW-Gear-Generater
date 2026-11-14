@@ -235,7 +235,7 @@ def test_build_makes_the_parts_the_layout_and_the_assembly_and_records_them(desk
         sidecar = store.read_sidecar(desk.part(stem))
         assert sidecar is not None and store.same_path(sidecar.record.workbook, window.link.path)
     raw = json.loads(record_bytes(window))
-    assert raw["link_schema_version"] == 2
+    assert raw["link_schema_version"] == store.LINK_SCHEMA_VERSION == 3
     record = record_of(window)
     assert record.gearbox.revision == 0 and store.same_path(record.gearbox.assembly, desk.part(NAME, ".SLDASM"))
     assert store.same_path(record.assembly, record.gearbox.assembly)
@@ -485,7 +485,8 @@ def test_a_question_left_open_while_the_workbook_changes_builds_nothing(desk, mo
 def test_a_newer_record_holds_build_and_update_and_is_left_byte_identical(desk):
     path = write(desk.tmp, desk.spec())
     target = pathlib.Path(store.link_record_path(str(path)))
-    target.write_bytes(json.dumps({"link_schema_version": 3, "schema_version": 1, "workbook": str(path)}).encode())
+    target.write_bytes(json.dumps({"link_schema_version": store.LINK_SCHEMA_VERSION + 1, "schema_version": 1,
+                                   "workbook": str(path)}).encode())
     before = target.read_bytes()
     window = desk.open(path=path)
     footer = window.footer()
@@ -500,7 +501,8 @@ def test_a_record_that_turns_newer_during_a_build_is_left_alone_and_said(desk):
     window = desk.open()
     window.press_build()
     target = pathlib.Path(store.link_record_path(window.link.path))
-    target.write_bytes(json.dumps({"link_schema_version": 3, "workbook": window.link.path}).encode())
+    target.write_bytes(json.dumps({"link_schema_version": store.LINK_SCHEMA_VERSION + 1,
+                                   "workbook": window.link.path}).encode())
     before = target.read_bytes()
     desk.finish(window)
     assert target.read_bytes() == before and window.status.get().endswith(store.LINK_WAITS)
@@ -692,7 +694,8 @@ def test_a_record_locate_could_not_carry_is_joined_plainly_to_the_state(desk, mo
     from gear_generator import workbook_gui
     window = desk.open()
     old_record = pathlib.Path(store.link_record_path(window.link.path))
-    old_record.write_text(json.dumps({"link_schema_version": 3, "workbook": window.link.path}))
+    old_record.write_text(json.dumps({"link_schema_version": store.LINK_SCHEMA_VERSION + 1,
+                                      "workbook": window.link.path}))
     moved = desk.tmp / "Moved.xlsx"
     os.replace(window.link.path, moved)
     desk.folder.rmdir()                                        # and the output folder is gone too

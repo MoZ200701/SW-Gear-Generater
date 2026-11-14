@@ -93,10 +93,11 @@ from ..gears.base import BuildPlan, GlobalVariable
 from ..spec import GearSpec, InputError, sanitize_stem
 from ..store import (ComponentEntry, EarlierRevision, GearboxRecord, LinkRecord, PartEntry, ShaftEntry, Sidecar)
 from ..swbuild import BuildResult, DocumentValues, GearboxResult
-from . import layout
+from . import layout, motion
 from .assess import Assessment
 from .build import PartJob
 from .layout import REVISION_SUFFIX, Frame, ShaftLayout
+from .motion import MotionPlan
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,16 @@ class GearboxPlan:
     until the person answers. ``foreign_said``: that workbook is not there
     any more and the person said this session that this one is a copy of it
     (``store.copy_by_answer``).
+
+    W5 (Agent B fills them; W5-INTERFACES.md): ``motion`` is the turning
+    assembly's :class:`~workbook.motion.MotionPlan` when ``assembly`` is the turning
+    plan (``motion.motion_assembly_plan``), None when ``assembly`` is W4's
+    static plan or there is no assembly. ``static_reason`` is ``""`` with a
+    motion plan and in a parts-only or refused plan; with a static assembly
+    planned because a W5 finding is missing (``motion.motion_reason()``), it
+    is that sentence. There is no static fallback plan: a turning assembly
+    SolidWorks refuses is not replaced by a static one (W5-DECISIONS,
+    answer 1), so ``build_kwargs`` is as in W4.
     """
 
     revision: int
@@ -231,6 +242,8 @@ class GearboxPlan:
     foreign_record: str = ""
     foreign_gone: bool = False
     foreign_said: bool = False
+    motion: Optional[MotionPlan] = None
+    static_reason: str = ""
 
     @property
     def parts_only(self) -> bool:

@@ -197,6 +197,19 @@ class WrongVersion(SolidWorksError):
     """Every reachable session is older than this app supports."""
 
 
+class MateRefused(SolidWorksError):
+    """SolidWorks would not make a mate: ``AddMate5`` answered nothing, or no new mate (or more than one) appeared
+    in the MateGroup (W5). A mate that IS made with a status other than ``findings.ADD_MATE_NO_ERROR`` is not this:
+    the status is kept (:meth:`Session.mate_status`) and the build's mate check judges it."""
+
+
+class MateGone(ComponentGone):
+    """A mate recorded by its name is not in the assembly any more (renamed or deleted in SolidWorks): as for a
+    component, only a new revision puts it back, so Update's check phase turns it into ``swbuild.NotAsBuilt``.
+    Sentence: *The mate "G1 meshes G2" is not in Reducer_12to1.SLDASM any more: it was renamed or deleted in
+    SolidWorks.*"""
+
+
 def is_available() -> bool:
     return pythoncom is not None
 
@@ -552,6 +565,23 @@ class DocInfo:
 class FeatureInfo:
     name: str
     type_name: str
+
+
+@dataclass(frozen=True)
+class MateState:
+    """One mate of the build's assembly as SolidWorks holds it after a rebuild (W5; :meth:`Session.mate_states`).
+
+    Defined here rather than in ``swbuild`` (W5-PLAN §1.4 put it there) because ``swcom`` returns it and must not
+    import ``swbuild``; ``swbuild.MateState`` is this class. ``name`` is the mate's ``IFeature.Name``; ``code`` its
+    ``IFeature.GetErrorCode2`` — any non-zero is a problem, whatever the number, since 2024 and 2026 give different
+    numbers for the same mates (``findings.MATE_ERROR_2024``) — ``warning`` the ``IsWarning`` that comes with it
+    (False marks the mate at fault when several are flagged; True when the code is 0), and ``suppressed`` its
+    ``IFeature.IsSuppressed2`` in this configuration (``findings.THIS_CONFIGURATION``)."""
+
+    name: str
+    code: int = 0
+    warning: bool = True
+    suppressed: bool = False
 
 
 # The most documents ``Session.documents`` walks before it calls the list a runaway (one whose ``GetNext`` never
@@ -1833,6 +1863,8 @@ class Session:
         """
         if kind == "gear":
             return self._gear_mate(handle, a, b, ratio, flip, name)
+        if kind == "lock":
+            return self._lock_mate(handle, a, b, name)
         # Probe nonparallel_mates: a point on a point or a plane is a coincident
         # mate, a point's distance from a plane a distance mate, and the angle
         # between two axes an angle mate, each with its value as dimension D1.
@@ -1889,6 +1921,72 @@ class Session:
         kept = self._rename(self._mate_feature(made[0]), name) if name else made[0]
         self._handles[handle] = {"mate": kept}
         return kept, ""
+
+    # -- W5: the workbook gearbox that turns (docs/notes-workbook/W5-PLAN.md §1.5, W5-INTERFACES.md)
+    #
+    # Interfaces only, pinned in the W5 interface commit; Agent A writes each body from probe tier 8's committed
+    # findings (findings.py, "the workbook gearbox that turns (tier 8)" and "tier 8 items 7-13"), each read with
+    # getattr and refused with a sentence when missing. Every one runs on the worker thread, acts on the build
+    # document (``_doc``), goes through ``call`` / ``_guarded`` / ``_put`` (W4's N3), and raises SolidWorksError
+    # with a full sentence; none saves, closes or overwrites a document. Also Agent A's, in the existing members:
+    # ``add_mate`` / ``_gear_mate`` keep AddMate5's status out-parameter by the kept name (never raising on it, so
+    # the strip's pairs behave as before) and raise :class:`MateRefused` where they now raise a bare
+    # SolidWorksError for "would not make".
+
+    def _lock_mate(self, handle: str, a: str, b: str, name: str) -> Tuple[str, str]:
+        """A LOCK mate between two components given as bare handles, ``a`` the anchor and ``b`` the follower
+        (``findings.COMPOUND_LOCK_ROUTE`` "lock alone", ``MATE_LOCK``): ``ClearSelection2``; for ``a`` then ``b``,
+        ``SelectionManager.CreateSelectData`` with ``Mark = 1`` and ``IComponent2.Select4(append, data, False)``,
+        the selected count read back (``findings.LOCK_SELECT_ROUTE``); ``AddMate5(MATE_LOCK, MATE_ALIGN_CLOSEST,
+        False, 0, 0, 0, 1, 1, 0, 0, 0, False, False, 0, status)``; exactly one new mate in the MateGroup, else
+        :class:`MateRefused`; renamed to ``name`` when one is given (``findings.MATE_RENAME_ROUTE``); the status
+        kept as for every mate. Returns ``(kept name, "")`` — a lock has no dimension."""
+        raise NotImplementedError("W5: Agent A, swcom.Session._lock_mate")
+
+    def mate_status(self, name: str) -> Optional[int]:
+        """The status out-parameter ``AddMate5`` gave when this session made the mate now called ``name``
+        (``findings.ADD_MATE_NO_ERROR`` 1 is sound, ``ADD_MATE_OVER_DEFINED`` 5 made but over-defining), or None
+        for a mate this session did not make. Reads nothing from SolidWorks."""
+        raise NotImplementedError("W5: Agent A, swcom.Session.mate_status")
+
+    def mate_states(self) -> List[MateState]:
+        """Every mate of the build document, in tree order (``findings.MATE_FIND_ROUTE`` "mate group": walk
+        ``FirstFeature`` to the ``MateGroup``, then ``GetFirstSubFeature`` / ``GetNextSubFeature``): its
+        ``Name``; ``GetErrorCode2`` with a by-reference bool for ``IsWarning`` (a tuple back, or the out
+        parameter's ``.value``); ``IsSuppressed2(findings.THIS_CONFIGURATION, null dispatch)`` (a tuple or list
+        back: its first item). An assembly with no MateGroup has no mates: ``[]``."""
+        raise NotImplementedError("W5: Agent A, swcom.Session.mate_states")
+
+    def constrained_status(self, handle: str) -> int:
+        """``IComponent2.GetConstrainedStatus`` of a kept component (``add_component`` or ``find_component``'s
+        handle), read and, if a method comes back, called: ``findings.COMPONENT_UNDER_DEFINED`` 2 for a gear free to
+        turn, ``COMPONENT_FULLY_DEFINED`` 3, ``COMPONENT_OVER_DEFINED`` 4."""
+        raise NotImplementedError("W5: Agent A, swcom.Session.constrained_status")
+
+    def find_mate(self, handle: str, name: str) -> str:
+        """Find a mate of the build document by its name (``findings.MATE_FIND_ROUTE``) and keep it as ``handle``,
+        so :meth:`set_mate_suppressed` and :meth:`set_gear_ratio` act on it; returns its name as read back.
+        Missing: :class:`MateGone` with its sentence."""
+        raise NotImplementedError("W5: Agent A, swcom.Session.find_mate")
+
+    def set_mate_suppressed(self, handle: str, suppressed: bool) -> None:
+        """Suppress or unsuppress a kept mate (one ``add_mate`` made under ``handle``, or ``find_mate`` found):
+        ``IFeature.SetSuppression2(findings.FEATURE_SUPPRESS or FEATURE_UNSUPPRESS, THIS_CONFIGURATION, None)``
+        (``findings.SUPPRESSION_ROUTE``), then ``IsSuppressed2`` read back; one that did not take raises with a
+        sentence naming the mate. Does not rebuild."""
+        raise NotImplementedError("W5: Agent A, swcom.Session.set_mate_suppressed")
+
+    def set_gear_ratio(self, handle: str, a: str, b: str, ratio: Tuple[int, int]) -> None:
+        """Give a kept gear mate a new ratio, ``ratio[0]`` the teeth of its first selection (W5-PLAN D7), by
+        ``findings.GEAR_MATE_RATIO_ROUTE``. ``a`` and ``b`` are the mate's two references in its selection order,
+        as ``add_mate`` takes them (``placed1:Gear Axis``, components kept by ``find_component``). ``"remake"``
+        deletes it (``findings.MATE_DELETE_ROUTE``, "Select2 then EditDelete()") and makes it again between ``a``
+        and ``b`` with ``AddMate5`` (``_gear_mate``: the same name, ``findings.GEAR_MATE_FLIP``), keeping
+        ``handle``; None refuses with a
+        sentence that changing a gear mate's ratio is not settled. ``"modify definition"`` is refused with a
+        sentence too, whatever the finding says (W5-DECISIONS: it leaves an assembly SolidWorks 2024 cannot close,
+        ``findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024``). Does not rebuild."""
+        raise NotImplementedError("W5: Agent A, swcom.Session.set_gear_ratio")
 
     def set_custom_property(self, name: str, value: str) -> None:
         """A text custom property on the build's part, added or replaced, and read back.

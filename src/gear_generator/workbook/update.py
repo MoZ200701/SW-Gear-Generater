@@ -41,7 +41,8 @@ from ..gears import equations, kind_for
 from ..gears.base import GlobalVariable
 from ..spec import GearSpec, InputError
 from ..store import LinkRecord, PartEntry, ShaftEntry, Sidecar
-from ..swbuild import POSE_TOLERANCE, DocumentValues, GearboxUpdate, Placement, same_frame, structural_change
+from ..swbuild import (POSE_TOLERANCE, DocumentValues, GearboxUpdate, MotionUpdate, Placement, same_frame,
+                       structural_change)
 from . import gearbox, layout, schema
 from .assess import Assessment
 from .build import PartJob
@@ -86,6 +87,14 @@ class UpdatePlan:
     a copy of — and Update leaves that workbook's files alone (review S1) —
     or for a workbook that is gone, until the person says this one was moved
     or renamed from it (second review N1c, ``store.record_owner``).
+
+    W5 (Agent B fills them; W5-INTERFACES.md): ``motion`` is what the worker's
+    motion path is given for a gearbox on record as turning
+    (``GearboxRecord.kind == motion.MOTION``), None for a static one (W4's
+    path, unchanged: W5-PLAN D5). For the sentence: ``axial`` the gears whose
+    ``"<Gear> Face Z"`` changes, ``ratios`` the gear mates (by name) whose
+    ratio changes — empty while ``findings.GEAR_MATE_RATIO_ROUTE`` is not
+    ``"remake"``, a tooth change being structural then.
     """
 
     parts: Tuple[PartUpdate, ...] = ()
@@ -100,6 +109,9 @@ class UpdatePlan:
     refusal: str = ""
     shafts: Tuple[ShaftLayout, ...] = ()       # the shafts as now wanted, for the record (Agent B, additive)
     foreign_record: str = ""
+    motion: Optional[MotionUpdate] = None
+    axial: Tuple[str, ...] = ()
+    ratios: Tuple[str, ...] = ()
 
     @property
     def changed_parts(self) -> Tuple[PartUpdate, ...]:
@@ -117,16 +129,20 @@ class UpdatePlan:
 
     def update_kwargs(self) -> Dict[str, Any]:
         """The arguments of ``swbuild.update_gearbox(session, **plan.update_kwargs())``. Never called on a plan
-        that is refused or needs a new revision."""
+        that is refused or needs a new revision. ``"motion"`` is there only for a turning gearbox, so a static
+        one's call is W4's, key for key."""
         if self.refusal or self.needs_new_revision:
             raise ValueError("Update SolidWorks cannot carry this change: "
                              + " ".join((self.refusal,) + self.structural + self.missing).strip())
-        return {
+        kwargs: Dict[str, Any] = {
             "parts": [DocumentValues(p.path, tuple(p.variables)) for p in self.parts],
             "layout": self.layout,
             "assembly": self.assembly,
             "placements": list(self.placements),
         }
+        if self.motion is not None:
+            kwargs["motion"] = self.motion
+        return kwargs
 
 
 MOVE_TOLERANCE = POSE_TOLERANCE         # mm: a shaft coordinate that changed less than this has not moved

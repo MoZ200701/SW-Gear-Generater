@@ -403,7 +403,15 @@ def link_record_path(workbook_path: str) -> str:
     return stem + LINK_SUFFIX
 
 
-LINK_SCHEMA_VERSION = 2          # the link record's own schema, apart from the .gear.json's SCHEMA_VERSION
+LINK_SCHEMA_VERSION = 3          # the link record's own schema, apart from the .gear.json's SCHEMA_VERSION
+# Schema 3 (W5): the gearbox block says which kind of assembly it is and, for one built to turn, its mates. A schema 2
+# record reads as 3 with ``kind`` GEARBOX_STATIC (a W4 gearbox: its gears placed and fixed). A W4-era build reading
+# a schema 3 record refuses it and leaves it byte-identical (it reads ``link_schema_version`` 3 > 2), so it never
+# drops ``kind`` and ``mates`` by rewriting the file (W5-PLAN D11).
+
+GEARBOX_STATIC = "static"        # GearboxRecord.kind: the assembly's gears are placed and fixed (W4's gearbox)
+GEARBOX_MOTION = "motion"        # GearboxRecord.kind: its gears are mated to their shafts and each other (W5)
+GEARBOX_KINDS = (GEARBOX_STATIC, GEARBOX_MOTION)
 
 
 @dataclass
@@ -462,8 +470,29 @@ class ComponentEntry:
 
 
 @dataclass
+class MateEntry:
+    """One mate of an assembly built to turn (W5): ``workbook.motion.MatePlan`` field for field, its tuples as
+    lists (``workbook.motion.mate_entry`` makes one). ``name`` is the mate's name in SolidWorks' tree (``G1 on S1
+    Axis``, ``G1 along S1``, ``G3 locked to G2``, ``G1 meshes G2``), by which Update finds it; ``kind`` ``axis``,
+    ``along``, ``lock`` or ``mesh``; ``gears`` the gear ids it holds (axis and along ``[gear]``; lock ``[anchor,
+    follower]``; mesh ``[a, b]``, the gear mate's first selection first); ``shaft`` the shaft of an axis or along
+    mate, else ``""``; ``ratio`` a mesh's ``[teeth of a, teeth of b]`` as the gear mate now holds it, else ``[]``;
+    ``face_global`` an along mate's assembly global (``G4 Face Z``), ``""`` when the gear's origin sits on the
+    Front plane (a coincident mate, with no distance) and for every other kind; ``z_front`` an along mate's origin's
+    signed distance from the Front plane in mm, as made or last updated, else 0."""
+
+    name: str = ""
+    kind: str = ""
+    gears: List[str] = field(default_factory=list)
+    shaft: str = ""
+    ratio: List[int] = field(default_factory=list)
+    face_global: str = ""
+    z_front: float = 0.0
+
+
+@dataclass
 class GearboxRecord:
-    """The current revision's layout part and static assembly (phase W4).
+    """The current revision's layout part and assembly (phase W4; schema 3 adds W5's turning assembly).
 
     ``name`` is the revision's stem (``Reducer_12to1``, ``Reducer_12to1_r2``).
     ``layout`` and ``shafts`` are written as soon as the layout part saves,
@@ -472,6 +501,24 @@ class GearboxRecord:
     made, and the next Build continues it, reusing the layout. ``meshes`` are
     the listed meshes as ``[a, b]``; ``layout_component`` the layout's
     ``Name2`` in the assembly. ``built`` and ``updated`` are stamps.
+
+    Schema 3 (W5): ``kind`` is the kind of the assembly on record,
+    :data:`GEARBOX_STATIC` (a schema 2 record's, W4's) or
+    :data:`GEARBOX_MOTION`; it is written when an assembly saves and means
+    nothing while ``assembly`` is ``""``. For a turning one: ``mates``,
+    every mate made (and updated: a mesh's ratio, an along mate's
+    ``z_front``); ``unmated``, meshes listed but not gear-mated because they
+    close a loop, ``[a, b]`` (W5-PLAN D6); ``fixed``, gears left fixed (on a
+    fixed shaft, or held still by one: D9, review M9); ``drag``, per train
+    the gear to drag, for the footer. ``static_reason``: why a gearbox
+    planned while a W5 finding was missing was built static — the planning
+    sentence (``GearboxPlan.static_reason``) — and ``""`` for W4's own and
+    for a turning one. ``mate_problems``: the sentences the last build's
+    mate check found (``BuildResult.mate_problems``) when SolidWorks refused
+    or flagged a mate and no assembly was saved (W5-DECISIONS, answer 1),
+    and ``mate_problems_digest`` the workbook's sha256 that build came from,
+    so the window never offers the same build of an unchanged workbook
+    again; both are emptied when an assembly saves.
     """
 
     revision: int = 0
@@ -486,6 +533,14 @@ class GearboxRecord:
     components: List[ComponentEntry] = field(default_factory=list)
     built: str = ""
     updated: str = ""
+    kind: str = GEARBOX_STATIC
+    mates: List[MateEntry] = field(default_factory=list)
+    unmated: List[List[str]] = field(default_factory=list)
+    fixed: List[str] = field(default_factory=list)
+    drag: List[str] = field(default_factory=list)
+    static_reason: str = ""
+    mate_problems: List[str] = field(default_factory=list)
+    mate_problems_digest: str = ""
 
 
 @dataclass
@@ -502,7 +557,7 @@ class EarlierRevision:
 
 @dataclass
 class LinkRecord:
-    """What the app built in SolidWorks from a workbook, beside it as ``<Name>.workbook.json`` (schema 2).
+    """What the app built in SolidWorks from a workbook, beside it as ``<Name>.workbook.json`` (schema 3).
 
     It records what SolidWorks holds — the parts, the layout part and the
     assembly, and the values and frames last put into them — not the
@@ -554,7 +609,8 @@ class LinkRecord:
       so a copy's journal, written into the record that came with it, is
       still its own.
 
-    A v1 file (W2) reads as v2 with ``gearbox`` None; a newer one raises
+    A v1 file (W2) reads as v3 with ``gearbox`` None, a v2 file (W4) with a
+    static gearbox (``GearboxRecord.kind``); a newer one raises
     :class:`UnknownSchema` and is left alone. On disk the schema is
     ``link_schema_version``, and ``schema_version`` stays 1 so a build from
     before schema 2 keeps the parts when it rewrites the file
@@ -686,6 +742,12 @@ def _checked(item: Any) -> Any:
                 setattr(item, f.name, bool(value))
         elif kind == "List[str]":
             ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        elif kind == "List[int]":
+            ok = isinstance(value, list) and all(
+                not isinstance(v, bool) and (isinstance(v, int) or (isinstance(v, float) and v.is_integer()))
+                for v in value)
+            if ok:
+                setattr(item, f.name, [int(v) for v in value])
         elif kind == "List[float]":
             ok = isinstance(value, list) and all(isinstance(v, _NUMBER) and not isinstance(v, bool) for v in value)
             if ok:
@@ -703,12 +765,14 @@ def _checked(item: Any) -> Any:
 
 
 def link_record_from_json(text: str) -> LinkRecord:
-    """Parse a link record of any schema up to :data:`LINK_SCHEMA_VERSION`; a v1 record is read as v2.
+    """Parse a link record of any schema up to :data:`LINK_SCHEMA_VERSION`; a v1 or v2 record is read as v3.
 
     The schema is ``link_schema_version`` when the file has it, else
     ``schema_version`` (a W2 file, or one an old build rewrote; see
     :data:`LINK_SCHEMA_FOR_OLD_READERS`), and the larger of the two counts. A v1
-    record has parts with ``path`` and ``gears`` only, and no gearbox. Every
+    record has parts with ``path`` and ``gears`` only, and no gearbox; a v2
+    record's gearbox has no ``kind``, so it reads as :data:`GEARBOX_STATIC`,
+    with no mates. Every
     field is checked against its type. Raises :class:`UnknownSchema` for a
     newer schema and :class:`StoreError` for anything else wrong, each a phrase
     to follow "cannot be read: "; never touches a file.
@@ -734,6 +798,9 @@ def link_record_from_json(text: str) -> LinkRecord:
             record.gearbox.shafts = [_checked(s) for s in _entries(ShaftEntry, gearbox.get("shafts", []))]
             record.gearbox.components = [_checked(c) for c in _entries(ComponentEntry,
                                                                         gearbox.get("components", []))]
+            record.gearbox.mates = [_checked(m) for m in _entries(MateEntry, gearbox.get("mates", []))]
+            if record.gearbox.kind not in GEARBOX_KINDS:
+                raise ValueError(f"gearbox.kind is {record.gearbox.kind!r}, not one of {', '.join(GEARBOX_KINDS)}")
         record.earlier = [_checked(e) for e in _entries(EarlierRevision, raw.get("earlier", []))]
         record.pending = [_checked(p) for p in _entries(PartEntry, raw.get("pending", []) or [])]
         for key in ("unsaved", "mismatched"):

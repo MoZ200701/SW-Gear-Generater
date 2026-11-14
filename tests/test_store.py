@@ -214,14 +214,14 @@ def link_record(workbook):
     )
 
 
-def test_a_v2_link_record_round_trips(tmp_path):
+def test_a_link_record_round_trips(tmp_path):
     workbook = str(tmp_path / "R.xlsx")
     record = link_record(workbook)
     store.save_link_record(record)
     assert store.read_link_record(workbook) == record
     assert store.open_link_record(workbook) == record
     raw = json.loads((tmp_path / "R.workbook.json").read_text())
-    assert raw["link_schema_version"] == store.LINK_SCHEMA_VERSION == 2
+    assert raw["link_schema_version"] == store.LINK_SCHEMA_VERSION == 3
     assert raw["schema_version"] == 1          # what a build from before schema 2 checks: see the next test
     assert raw["parts"][0]["revision"] == 0 and raw["gearbox"]["components"][0]["name"] == "Gear_m1.5_N17_r2-1"
 
@@ -262,12 +262,12 @@ def test_a_record_written_with_schema_version_2_alone_still_reads(tmp_path):
     assert store.link_record_from_json(json.dumps(raw)) == link_record("R.xlsx")
 
 
-def test_a_v1_link_record_reads_as_v2_with_no_gearbox(tmp_path):
+def test_a_v1_link_record_reads_as_v3_with_no_gearbox(tmp_path):
     (tmp_path / "R.workbook.json").write_text(json.dumps({
         "schema_version": 1, "workbook": "R.xlsx", "digest": "abc", "assembly": "", "last_built": "t",
         "parts": [{"path": r"C:\P\Gear_m1.5_N17.SLDPRT", "gears": ["G1", "G5"]}]}))
     record = store.read_link_record(str(tmp_path / "R.xlsx"))
-    assert record.schema_version == 2 and record.gearbox is None and record.earlier == []
+    assert record.schema_version == 3 and record.gearbox is None and record.earlier == []
     assert record.parts == [store.PartEntry(path=r"C:\P\Gear_m1.5_N17.SLDPRT", gears=["G1", "G5"])]
     assert record.current_parts() == record.parts
 
@@ -284,8 +284,8 @@ def test_a_revision_whose_assembly_is_not_made_yet_acts_on_every_part():
     assert record.current_parts() == record.parts
 
 
-NEWER = [{"link_schema_version": 3, "schema_version": 1, "workbook": "R.xlsx"},
-         {"schema_version": 3, "workbook": "R.xlsx"}]
+NEWER = [{"link_schema_version": 4, "schema_version": 1, "workbook": "R.xlsx"},
+         {"schema_version": 4, "workbook": "R.xlsx"}]
 
 
 @pytest.mark.parametrize("text,error", [
@@ -309,7 +309,7 @@ def test_a_newer_record_is_refused_and_left_byte_identical(tmp_path, raw):
     target.write_bytes(json.dumps(raw).encode() + b"\r\n")
     before = target.read_bytes()
     with pytest.raises(UnknownSchema, match=r"R\.workbook\.json, cannot be read: it was written by a newer Gear "
-                                            r"Generator \(schema 3, this one reads 2\)\. It is left alone, so Build "
+                                            r"Generator \(schema 4, this one reads 3\)\. It is left alone, so Build "
                                             r"and Update SolidWorks wait\."):
         store.open_link_record(str(tmp_path / "R.xlsx"))
     with pytest.raises(UnknownSchema, match=store.LINK_WAITS):
@@ -668,3 +668,84 @@ def test_planning_is_one_pass():
     """plan_gearbox and classify each run as one pass (store.in_one_pass), and the window's planning wraps both."""
     from gear_generator.workbook import gearbox, update
     assert gearbox.plan_gearbox.__wrapped__ and update.classify.__wrapped__
+
+
+# -- schema 3 (W5): the gearbox's kind and a turning assembly's mates -------------------------------------------
+
+
+def turning_record(workbook):
+    record = link_record(workbook)
+    box = record.gearbox
+    box.kind = store.GEARBOX_MOTION
+    box.mates = [store.MateEntry(name="G5 on S2 Axis", kind="axis", gears=["G5"], shaft="S2"),
+                 store.MateEntry(name="G5 along S2", kind="along", gears=["G5"], shaft="S2", face_global="G5 Face Z",
+                                 z_front=-12.5),
+                 store.MateEntry(name="G6 locked to G5", kind="lock", gears=["G5", "G6"]),
+                 store.MateEntry(name="G1 meshes G5", kind="mesh", gears=["G1", "G5"], ratio=[17, 68])]
+    box.unmated, box.fixed, box.drag = [["G7", "G8"]], ["G9"], ["G1"]
+    return record
+
+
+def _gearbox_raw(record, **changes):
+    raw = json.loads(store.link_record_to_json(record))
+    raw["gearbox"].update(changes)
+    return raw
+
+
+def test_a_v2_record_reads_as_v3_with_a_static_gearbox_and_no_mates():
+    raw = json.loads(store.link_record_to_json(link_record("R.xlsx")))
+    raw["link_schema_version"] = 2
+    for key in ("kind", "mates", "unmated", "fixed", "drag", "static_reason", "mate_problems",
+                "mate_problems_digest"):
+        del raw["gearbox"][key]
+    record = store.link_record_from_json(json.dumps(raw))
+    assert record == link_record("R.xlsx") and record.schema_version == 3
+    assert record.gearbox.kind == store.GEARBOX_STATIC == "static"
+    assert (record.gearbox.mates, record.gearbox.unmated, record.gearbox.fixed, record.gearbox.drag) == ([], [], [], [])
+    assert (record.gearbox.static_reason, record.gearbox.mate_problems, record.gearbox.mate_problems_digest) == (
+        "", [], "")
+
+
+def test_a_turning_gearbox_round_trips_byte_for_byte(tmp_path):
+    workbook = str(tmp_path / "R.xlsx")
+    record = turning_record(workbook)
+    store.save_link_record(record)
+    again = store.read_link_record(workbook)
+    text = store.link_record_to_json(again)            # numbers as read: the fixture's frames are whole ints
+    assert again == record and store.link_record_to_json(store.link_record_from_json(text)) == text
+    assert again.gearbox.mates[3].ratio == [17, 68] and again.gearbox.mates[1].z_front == -12.5
+    written = json.loads((tmp_path / "R.workbook.json").read_text())["gearbox"]["mates"][2]
+    assert written == {"name": "G6 locked to G5", "kind": "lock", "gears": ["G5", "G6"], "shaft": "", "ratio": [],
+                       "face_global": "", "z_front": 0.0}
+
+
+def test_a_refused_build_is_kept_with_the_read_it_came_from():
+    record = link_record("R.xlsx")
+    record.gearbox.assembly, record.gearbox.components = "", []
+    record.gearbox.mate_problems = ["The lock G3 locked to G2 over-defines the assembly."]
+    record.gearbox.mate_problems_digest = "abc"
+    assert store.link_record_from_json(store.link_record_to_json(record)) == record
+
+
+def test_whole_numbers_written_as_floats_read_back_as_a_ratio_of_whole_numbers():
+    raw = _gearbox_raw(turning_record("R.xlsx"))
+    raw["gearbox"]["mates"][3]["ratio"] = [17.0, 68.0]
+    assert store.link_record_from_json(json.dumps(raw)).gearbox.mates[3].ratio == [17, 68]
+
+
+@pytest.mark.parametrize("field,value", [("gears", "G1"), ("ratio", ["17", 68]), ("ratio", [17.5, 68]),
+                                         ("ratio", [True, 68]), ("z_front", "far"), ("name", 3)])
+def test_a_mate_entry_of_the_wrong_type_is_refused(field, value):
+    raw = _gearbox_raw(turning_record("R.xlsx"))
+    raw["gearbox"]["mates"][3][field] = value
+    with pytest.raises(StoreError, match=f"MateEntry.{field} is not"):
+        store.link_record_from_json(json.dumps(raw))
+
+
+@pytest.mark.parametrize("changes,match", [({"kind": "turning"}, "gearbox.kind is 'turning'"),
+                                           ({"mates": "G1 meshes G2"}, "MateEntry entries are not a list"),
+                                           ({"unmated": [["G1", 2]]}, r"GearboxRecord.unmated is not"),
+                                           ({"mate_problems": "one"}, r"GearboxRecord.mate_problems is not")])
+def test_a_gearbox_with_a_bad_schema_3_field_is_refused(changes, match):
+    with pytest.raises(StoreError, match=match):
+        store.link_record_from_json(json.dumps(_gearbox_raw(turning_record("R.xlsx"), **changes)))

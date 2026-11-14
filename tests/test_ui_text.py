@@ -809,7 +809,7 @@ def test_a_missing_output_folder_holds_build_but_not_update(ready):
 
 
 def test_a_newer_record_holds_build_and_update(ready, tmp_path):
-    (tmp_path / "R.workbook.json").write_text('{"link_schema_version": 3}')
+    (tmp_path / "R.workbook.json").write_text('{"link_schema_version": %d}' % (store.LINK_SCHEMA_VERSION + 1))
     with pytest.raises(store.UnknownSchema) as caught:
         store.read_link_record(str(tmp_path / "R.xlsx"))
     f = _footer(ready, record_problem=str(caught.value), plan=_gearbox(**FULL))
