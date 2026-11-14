@@ -781,8 +781,9 @@ def _mate_checked(entry: MateEntry, index: int) -> MateEntry:
     if wanted is None:
         raise ValueError(f"{where} has kind {entry.kind!r}, not one of {', '.join(_MATE_GEARS)}")
     if len(entry.gears) != wanted:
-        raise ValueError(f"{where} is {'an' if entry.kind[0] in 'aeiou' else 'a'} {entry.kind} mate with "
-                         f"{len(entry.gears)} gear{'' if len(entry.gears) == 1 else 's'}, where it holds {wanted}")
+        a_kind = f"{'an' if entry.kind[0] in 'aeiou' else 'a'} {entry.kind} mate"
+        count = f"{len(entry.gears)} gear{'' if len(entry.gears) == 1 else 's'}"
+        raise ValueError(f"{where} is {a_kind} with {count}, where {a_kind} holds {wanted}")
     if entry.kind == "mesh" and (len(entry.ratio) != 2 or any(n <= 0 for n in entry.ratio)):
         raise ValueError(f"{where} is a mesh mate whose ratio is {entry.ratio!r}, not two whole numbers above 0")
     return entry

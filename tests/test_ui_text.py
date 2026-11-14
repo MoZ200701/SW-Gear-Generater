@@ -1471,20 +1471,36 @@ def test_before_build_gears_that_turn_alone_or_stay_fixed_are_said():
     """Review M11: the sentence is true in every state, so a lone shaft's gears and fixed ones are named."""
     lone = _turning(extra_shafts={"S4": "G7"}, locks=(("G2", "G3"), ("G7", "G8")))
     assert _clean(ui_text.motion_ready_line(lone)) == (
-        "Its gears are mated to their shafts and, where they mesh, to each other, so they turn together in "
-        "SolidWorks. G7 and G8 turn on their own: they mesh no other gear.")
+        "Its gears are mated to their shafts and, where they mesh, to each other, so those that mesh turn together "
+        "in SolidWorks. G7 and G8 turn apart from the train: they mesh no other gear.")
     one = _turning(extra_shafts={"S4": "G7"})
-    assert ui_text.motion_ready_line(one).endswith(" G7 turns on its own: it meshes no other gear.")
+    assert ui_text.motion_ready_line(one).endswith(" G7 turns apart from the train: it meshes no other gear.")
     assert _clean(ui_text.motion_ready_line(_turning(fixed=("G9",)))) == (
-        "Its gears are mated to their shafts and to each other, so they turn together in SolidWorks. G9 stays fixed "
-        "where it is placed: its shaft does not turn.")
+        "Its turning gears are mated to their shafts and to each other, so they turn together in SolidWorks. G9 "
+        "stays fixed where it is placed: its shaft does not turn.")
     assert ui_text.motion_ready_line(_turning(fixed=("G9", "G10", "G11"))).endswith(
         " G9, G10 and G11 stay fixed where they are placed: their shafts do not turn.")
 
 
+def test_before_build_two_trains_each_turn_together():
+    two = _turning(trains=(("S1", "S2"), ("S3",)), drag=("G1", "G4"))
+    assert _clean(ui_text.motion_ready_line(two)) == (
+        "Its gears are mated to their shafts and to each other, so each train turns together in SolidWorks.")
+    lone = _turning(trains=(("S1", "S2"), ("S3",)), drag=("G1", "G4"), extra_shafts={"S4": "G7"}, fixed=("G9",))
+    assert _clean(ui_text.motion_ready_line(lone)) == (
+        "Its turning gears are mated to their shafts and, where they mesh, to each other, so each train turns "
+        "together in SolidWorks. G7 turns apart from the trains: it meshes no other gear. G9 stays fixed where it is "
+        "placed: its shaft does not turn.")
+
+
 def test_before_build_with_no_mesh_each_gear_is_mated_to_its_shaft():
     plan = _turning(trains=(), drag=(), meshes=())
-    assert _clean(ui_text.motion_ready_line(plan)) == "Its gears are each mated to their shaft, free to turn in SolidWorks."
+    assert _clean(ui_text.motion_ready_line(plan)) == (
+        "Its gears are each mated to their shaft, free to turn in SolidWorks.")
+    fixed = _turning(trains=(), drag=(), meshes=(), fixed=("G9",))
+    assert _clean(ui_text.motion_ready_line(fixed)) == (
+        "Its turning gears are each mated to their shaft, free to turn in SolidWorks. G9 stays fixed where it is "
+        "placed: its shaft does not turn.")
 
 
 def test_before_build_a_missing_finding_says_the_assembly_will_be_static_and_why(ready):
@@ -1532,9 +1548,18 @@ def test_after_build_with_no_train_each_gear_turns_on_its_shaft_and_fixed_or_lon
         "Its gears are each mated to their shaft, free to turn, and SolidWorks reports no mate in error.")
     both = _turning(extra_shafts={"S4": "G7"}, fixed=("G9", "G10"))
     assert _clean(ui_text.motion_done_line(both, _built())) == (
-        "Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and "
-        "the rest of its train follow. G7 turns on its own: it meshes no other gear. G9 and G10 stay fixed where "
-        "they are placed: their shafts do not turn.")
+        "Its turning gears are mated to their shafts and, where they mesh, to each other; SolidWorks reports no mate "
+        "in error: drag G1 in SolidWorks and the rest of its train follow. G7 turns apart from the train: it meshes "
+        "no other gear. G9 and G10 stay fixed where they are placed: their shafts do not turn.")
+    assert ui_text.motion_done_line(_turning(fixed=("G9",)), _built()).startswith(
+        "Its turning gears are mated to turn together, and SolidWorks reports no mate in error: drag G1")
+
+
+def test_a_train_with_no_drag_gear_is_never_said_to_be_gears_each_on_their_shaft():
+    assert ui_text.motion_done_line(_turning(drag=()), _built()) == (
+        "Its gears are mated to turn together, and SolidWorks reports no mate in error.")
+    assert ui_text.motion_done_line(_turning(drag=(), trains=(("S1", "S2"), ("S3",))), _built()) == (
+        "Its gears are mated to turn in 2 trains, and SolidWorks reports no mate in error.")
 
 
 def test_after_build_a_clash_still_stands_out_and_the_mates_are_said_after_it():
@@ -1555,7 +1580,8 @@ def test_after_build_a_static_build_by_necessity_says_why_and_w4s_says_nothing_n
     w4 = "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears."
     assert ui_text.gearbox_status(_gearbox(**FULL), _built(kind="static")) == (w4, True)
     assert ui_text.gearbox_status(_gearbox(**FULL), _built(kind="")) == (w4, True)
-    assert ui_text.motion_done_line(None, _built()) == "Its gears are mated to turn, and SolidWorks reports no mate in error."
+    assert ui_text.motion_done_line(None, _built()) == (
+        "Its gears are mated to turn, and SolidWorks reports no mate in error.")
 
 
 # a refused or flagged mate stops the build (W5-DECISIONS, answer 1): no fallback text anywhere
@@ -1569,6 +1595,16 @@ def test_a_refused_mate_names_it_keeps_the_parts_and_says_build_waits_for_a_chan
         "assembly is left open in SolidWorks as Assem1, not saved; its parts are the saved ones. Build is available "
         "again once the workbook changes: the same workbook would make the same mates.", False)
     assert "static" not in text and "fixed" not in text and "Press" not in text and "try" not in text
+
+
+def test_blank_mate_problems_are_no_refusal_and_never_counted_as_none():
+    """A failed assembly whose problems are all blank is W4's failed assembly, never "found 0 problems"."""
+    result = _refused("", " ")
+    text, _ = ui_text.gearbox_status(_turning(), result)
+    assert "0 problems" not in text and "no assembly was saved" not in text
+    assert text.startswith("Built 4 parts and Reducer_12to1_Layout; the assembly Assem1 was left open, unsaved;")
+    text, _ = ui_text.gearbox_status(_turning(), _refused("", LOCK_PROBLEM))
+    assert "found a problem with its mates. The mate G3 locked to G2 over-defines the assembly. The parts" in text
 
 
 def test_every_problem_is_its_own_whole_sentence_and_they_are_counted():
@@ -1622,40 +1658,67 @@ def test_the_footer_after_a_refusal_keeps_build_greyed_for_the_same_read_and_say
     f = _footer(ready, record=_refused_record(), plan=_carry_on_plan(), update=UpdatePlan(refusal=REFUSED_LAYOUT),
                 digest="d1")
     assert _clean(f.text) == (
-        "The assembly Reducer_12to1 was not saved, because SolidWorks found a problem with its mates. The mate G3 "
-        "locked to G2 over-defines the assembly. Build is available again once the workbook changes: the same "
-        "workbook would make the same mates. Update SolidWorks waits until Build has made the assembly.")
+        "Reducer_12to1.SLDASM was not saved, because SolidWorks found a problem with its mates. The mate G3 locked "
+        "to G2 over-defines the assembly. Build is available again once the workbook changes: the same workbook "
+        "would make the same mates. Update SolidWorks waits until Build has made the assembly.")
     assert (f.ok, f.build_action, f.build_enabled, f.update_shown, f.update_enabled) == (
         False, ui_text.BUILD, False, True, False)
     assert "carries on" not in f.text
 
 
 def test_under_the_refusing_builds_own_sentence_the_footer_does_not_say_it_twice(ready):
-    said = ui_text.gearbox_status(_carry_on_plan(), _refused(LOCK_PROBLEM))
+    said = ui_text.gearbox_status(_carry_on_plan(), _refused(LOCK_PROBLEM, parts=swbuild.ManyResult(), layout=None,
+                                                             layout_reused=_path("Reducer_12to1_Layout")))
     f = _footer(ready, record=_refused_record(), plan=_carry_on_plan(), update=UpdatePlan(refusal=REFUSED_LAYOUT),
                 digest="d1", note=said)
-    assert f.text == said[0] + " Update SolidWorks waits until Build has made the assembly."
+    assert f.text == (
+        "Reused Reducer_12to1_Layout and the 4 parts already built; no assembly was saved, because SolidWorks found a "
+        "problem with its mates. The mate G3 locked to G2 over-defines the assembly. The parts and the layout part "
+        "are kept. The assembly is left open in SolidWorks as Assem1, not saved; its parts are the saved ones. Build "
+        "is available again once the workbook changes: the same workbook would make the same mates. Update "
+        "SolidWorks waits until Build has made the assembly.")
     assert (f.ok, f.build_enabled, f.update_enabled) == (False, False, False)
     assert f.text.count(LOCK_PROBLEM) == 1
 
 
+READY_CARRY_ON = (f"Ready: Build makes Reducer_12to1.SLDASM in {P}, reusing Reducer_12to1_Layout and the 4 parts "
+                  "already built. Its gears are mated to their shafts and to each other, so they turn together in "
+                  "SolidWorks.")
+REFUSAL_ON_RECORD = ("Reducer_12to1.SLDASM was not saved, because SolidWorks found a problem with its mates. The mate "
+                     "G3 locked to G2 over-defines the assembly.")
+
+
 def test_once_the_workbook_changes_build_is_offered_and_the_refusal_still_said(ready):
-    for digest in ("d2", ""):              # "" is what every W4 caller passes: it never matches
-        f = _footer(ready, record=_refused_record(), plan=_carry_on_plan(), update=UpdatePlan(refusal=REFUSED_LAYOUT),
-                    digest=digest)
+    f = _footer(ready, record=_refused_record(), plan=_carry_on_plan(), update=UpdatePlan(refusal=REFUSED_LAYOUT),
+                digest="d2")
+    assert _clean(f.text) == (
+        f"{READY_CARRY_ON} {REFUSAL_ON_RECORD} The workbook has changed since, so Build tries the assembly again. "
+        f"{REFUSED_LAYOUT}")
+    assert (f.ok, f.build_enabled, f.update_enabled) == (True, True, False)
+
+
+def test_a_change_is_never_claimed_when_either_read_is_not_known(ready):
+    """With no digest from the window ("", as today's caller passes) or none on record, the footer cannot tell the
+    workbook changed: it offers Build and says only that it tries the assembly again."""
+    for record_digest, digest in (("d1", ""), ("", "d2"), ("", "")):
+        f = _footer(ready, record=_refused_record(digest=record_digest), plan=_carry_on_plan(),
+                    update=UpdatePlan(refusal=REFUSED_LAYOUT), digest=digest)
         assert _clean(f.text) == (
-            f"Ready: Build makes Reducer_12to1.SLDASM in {P}, reusing Reducer_12to1_Layout and the 4 parts already "
-            "built. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks. The "
-            "assembly Reducer_12to1 was not saved, because SolidWorks found a problem with its mates. The mate G3 "
-            "locked to G2 over-defines the assembly. The workbook has changed since, so Build tries the assembly "
-            f"again. {REFUSED_LAYOUT}")
-        assert (f.ok, f.build_enabled, f.update_enabled) == (True, True, False)
+            f"{READY_CARRY_ON} {REFUSAL_ON_RECORD} Build tries the assembly again. {REFUSED_LAYOUT}")
+        assert "changed since" not in f.text and f.build_enabled
+    assert ui_text.motion_record_line(_refused_record(), "", offer=False) == REFUSAL_ON_RECORD
+    unnamed = _refused_record()
+    unnamed.gearbox.name = ""
+    assert ui_text.motion_record_line(unnamed, "d1").startswith("The assembly was not saved, because SolidWorks found")
 
 
 def test_a_record_with_no_problems_or_no_digest_never_holds_build(ready):
     record = _refused_record(digest="")
     f = _footer(ready, record=record, plan=_carry_on_plan(), digest="")
-    assert f.build_enabled
+    assert f.build_enabled and f.text == f"{READY_CARRY_ON} {REFUSAL_ON_RECORD} Build tries the assembly again."
+    record = _refused_record(problems=(" ", ""))
+    f = _footer(ready, record=record, plan=_carry_on_plan(), digest="d1")
+    assert f.build_enabled and f.text == READY_CARRY_ON
     record = _refused_record(problems=())
     f = _footer(ready, record=record, plan=_carry_on_plan(), digest="d1")
     assert f.build_enabled and f.text == (
@@ -1777,8 +1840,8 @@ def test_a_structural_edit_on_a_turning_gearbox_is_shown_as_classify_wrote_it(re
 # before Update SolidWorks, and after, on a turning gearbox
 
 
-def _motion_update(**changes):
-    refs = tuple(swbuild.MateRef(m.name, m.kind, m.gears, m.shaft) for m in _motion().mates)
+def _motion_update(plan=None, **changes):
+    refs = tuple(swbuild.MateRef(m.name, m.kind, m.gears, m.shaft) for m in (plan or _motion()).mates)
     motion = swbuild.MotionUpdate(mates=refs, locks=(swbuild.LockLink("G2", "G3", 0.0),),
                                   meshes=(swbuild.MeshLink("G1", "G2", -0.25, 5.294),
                                           swbuild.MeshLink("G3", "G4", -1 / 3, 7.059)),
@@ -1825,30 +1888,70 @@ def test_after_update_a_train_that_had_to_move_is_said_to_be_back_at_its_built_t
         ui_text.gearbox_update_status(_motion_update(), one)[0]
 
 
+TWO_TRAINS = _motion(trains=(("S1", "S2", "S3"), ("S4", "S5")), drag=("G1", "G5"),
+                     extra_shafts={"S4": "G5", "S5": "G6"},
+                     meshes=(("G1", "G2", 17, 68), ("G3", "G4", 17, 51), ("G5", "G6", 20, 40)))
+
+
 def test_two_trains_where_only_one_was_put_name_only_that_train():
-    result = _moved(placed=["G1", "G2"], changed=[ASM], turned=True, restored=[("G1", "G2")],
-                    axial=["G2"])
-    text, ok = ui_text.gearbox_update_status(_motion_update(), result)
+    """The first train had to move (G4 along S3) and is said to be back; the second, which the user also turned,
+    was not put: which one stayed turned cannot be told from the result, so the sentence says it of any gear not
+    put back, and never names "the gears" as if all were back."""
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], turned=True, restored=[("G1", "G2", "G3", "G4")],
+                    axial=["G4"])
+    text, ok = ui_text.gearbox_update_status(_motion_update(TWO_TRAINS), result)
     assert (_clean(text), ok) == (
-        "Updated SolidWorks: moved G2 along S2, re-placed G1 and G2; no interference between the gears where they "
-        "stand. G1 and G2 had been turned in SolidWorks; their train is back at the turn it was built at. Save "
-        "Reducer_12to1 in SolidWorks to keep it.", True)
-    assert "G5" not in text and "the gears had been" not in text
+        "Updated SolidWorks: moved G4 along S3, re-placed G1, G2, G3 and G4; no interference between the gears where "
+        "they stand. G1, G2, G3 and G4 had been turned in SolidWorks; their train is back at the turn it was built "
+        "at. Any gear it did not put back stands where it was turned in SolidWorks. Save Reducer_12to1 in SolidWorks "
+        "to keep it.", True)
+    assert "G5" not in text and "G6" not in text
+    # Both trains put: nothing stands turned, so nothing more is said.
+    every = _moved(placed=["G1", "G2", "G3", "G4", "G5", "G6"], changed=[ASM], turned=True,
+                   restored=[("G1", "G2", "G3", "G4"), ("G5", "G6")])
+    assert ui_text.gearbox_update_status(_motion_update(TWO_TRAINS), every)[0] == (
+        "Updated SolidWorks: re-placed G1, G2, G3, G4, G5 and G6; no interference between the gears where they stand. "
+        "G1, G2, G3 and G4 had been turned in SolidWorks; their train is back at the turn it was built at. G5 and G6 "
+        "had been turned in SolidWorks; their train is back at the turn it was built at. Save Reducer_12to1 in "
+        "SolidWorks to keep it.")
 
 
-def test_a_train_put_with_no_gear_turned_back_gets_no_sentence_and_one_left_turned_is_never_mentioned():
+def test_a_train_put_with_no_gear_turned_back_gets_no_sentence():
     put = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], restored=[])
     assert ui_text.gearbox_update_status(_motion_update(), put)[0] == (
         "Updated SolidWorks: re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save "
         "Reducer_12to1 in SolidWorks to keep it.")
+
+
+def test_with_nothing_to_put_a_turned_train_stays_and_the_sentence_says_so():
+    """W5-DECISIONS answer 2: with nothing to put, the train stays where the user turned it, said plainly."""
     turned = _moved(turned=True)
-    assert ui_text.gearbox_update_status(_motion_update(), turned) == (ui_text.ALREADY_MATCHES, True)
+    assert ui_text.gearbox_update_status(_motion_update(), turned) == (
+        "SolidWorks already matches the workbook: nothing was changed. The gears stand where they were turned in "
+        "SolidWorks.", True)
     values = _moved(turned=True, parts=[swbuild.UpdateResult(document="Gear_m1.5_N68.SLDPRT", changed=["No. of Teeth"],
                                                              rebuilt=True)], changed=[_path("Gear_m1.5_N68")])
     text, _ = ui_text.gearbox_update_status(_motion_update(parts=_update().parts), values)
-    assert text == ("Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its "
-                    "name); no interference between the gears where they stand. Save Gear_m1.5_N68 in SolidWorks to "
-                    "keep it.")
+    assert _clean(text) == (
+        "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name); no "
+        "interference between the gears where they stand. The gears stand where they were turned in SolidWorks. Save "
+        "Gear_m1.5_N68 in SolidWorks to keep it.")
+    # A fixed gear re-placed (W4's rule) is no mated gear put: the train still stands as it was turned.
+    fixed = _moved(turned=True, placed=["G9"], changed=[ASM])
+    assert ui_text.gearbox_update_status(_motion_update(), fixed)[0] == (
+        "Updated SolidWorks: re-placed G9; no interference between the gears where they stand. The gears stand where "
+        "they were turned in SolidWorks. Save Reducer_12to1 in SolidWorks to keep it.")
+    # Not turned: nothing about it.
+    assert ui_text.gearbox_update_status(_motion_update(), _moved()) == (ui_text.ALREADY_MATCHES, True)
+
+
+def test_the_summary_before_update_on_a_turning_gearbox_never_promises_to_put_a_turn_back():
+    assert ui_text.update_summary(_motion_update()) == (
+        "SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything "
+        "changed there; gears turned in SolidWorks stay where they are unless something must move.")
+    assert ui_text.update_summary(_update(parts=(), moved_shafts=(), replaced=())) == (
+        "SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything "
+        "changed there.")
 
 
 def test_a_relation_out_of_step_is_said_without_guessing_which_gear_was_turned():

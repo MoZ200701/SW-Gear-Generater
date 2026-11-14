@@ -1369,7 +1369,8 @@ def gearbox_status(plan, result, again: bool = False) -> Tuple[str, bool]:
 
     layout_name = _stem(layout.saved) if layout is not None and layout.saved else ""
     assembly = result.assembly
-    if assembly is not None and not (assembly.ok and assembly.saved) and assembly.mate_problems:
+    if (assembly is not None and not (assembly.ok and assembly.saved)
+            and any(str(p).strip() for p in assembly.mate_problems)):
         return mate_refused_status(plan, result, again)      # W5: a refused or flagged mate stops the build
     if assembly is not None and not (assembly.ok and assembly.saved):
         made_now = made_names + ([layout_name] if layout_name else [])
@@ -1495,8 +1496,11 @@ def update_summary(update) -> str:
     axial = [g for g in getattr(update, "axial", ()) if g]
     ratios = [n for n in getattr(update, "ratios", ()) if n]
     if update.record_matches and not (axial or ratios):
-        return ("SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right "
-                "anything changed there.")
+        text = ("SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right "
+                "anything changed there")
+        if getattr(update, "motion", None) is not None:
+            text += "; gears turned in SolidWorks stay where they are unless something must move"
+        return text + "."
     pieces = []
     changed = update.changed_parts
     if len(changed) == 1 and len(changed[0].gear_ids) == 1:
@@ -1970,7 +1974,8 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     newer = bool(record_problem) and record_problem.rstrip().endswith(LINK_WAITS)
     # W5: SolidWorks refused or flagged a mate of the last assembly, built from this very read: the same press would
     # make the same mates, so Build waits for a changed workbook (W5-DECISIONS answer 1; ruling b on 2f82a0e).
-    refused_here = bool(gearbox is not None and not gearbox.assembly and gearbox.mate_problems
+    refused_here = bool(gearbox is not None and not gearbox.assembly
+                        and any(str(p).strip() for p in gearbox.mate_problems)
                         and gearbox.mate_problems_digest and gearbox.mate_problems_digest == digest)
     refused_shown = False
 
@@ -2060,7 +2065,8 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
             build_on = ok
             subject = "Build"
             if ok and gearbox is not None and not gearbox.assembly:
-                line = motion_record_line(record, digest, offer=build_on)   # W5: the refusal, the workbook since changed
+                # W5: a refusal on record, from an earlier read
+                line = motion_record_line(record, digest, offer=build_on)
                 if line:
                     text += " " + line
         if on_record and update is not None and not update.refusal and update.needs_new_revision:
@@ -2364,10 +2370,11 @@ APP_STAYED_OPEN = ("Gear Generator stayed open: a workbook's job has something t
 # already exist (``_ready_build``, ``gearbox_status``, ``workbook_footer``, ``build_again_question``,
 # ``update_summary``, ``gearbox_update_status``), whose signatures stay as they are (``workbook_footer`` gained
 # ``digest``; ``build_again_question`` and ``motion_record_line`` keyword-only ``record``/``offer``). What a static
-# gearbox of W4's is told stays word for word as it was, except the offer of a turning revision (D5). Every sentence is decided from fields, never from another sentence's words, and is true in every
-# state; a mate problem (``BuildResult.mate_problems``, ``GearboxRecord.mate_problems``) is a whole sentence of the
-# worker's and is shown as one, never lower-cased or cut into another sentence. There is no static fallback, so no
-# sentence about one (W5-DECISIONS, answer 1).
+# gearbox of W4's is told stays word for word as it was, except the offer of a turning revision (D5).
+# Every sentence is decided from fields, never from another sentence's words, and is true in every state; a mate
+# problem (``BuildResult.mate_problems``, ``GearboxRecord.mate_problems``) is a whole sentence of the worker's and is
+# shown as one, never lower-cased or cut into another sentence. There is no static fallback, so no sentence about one
+# (W5-DECISIONS, answer 1).
 
 
 def _gears_alone(motion) -> List[str]:
@@ -2384,13 +2391,24 @@ def _gears_alone(motion) -> List[str]:
     return out
 
 
-def _alone_sentence(gears: Sequence[str]) -> str:
-    """*G7 turns on its own: it meshes no other gear.* (review M11: such a gear does not follow the drag)."""
+def _alone_sentence(gears: Sequence[str], trains: int = 1) -> str:
+    """*G7 turns apart from the train: it meshes no other gear.* (review M11: such a gear does not follow the drag;
+    *apart from the train* stays true of a gear locked to it, which turns with it); *… the trains* for two or more."""
     if not gears:
         return ""
     one = len(gears) == 1
-    return (f"{_and(gears)} {'turns' if one else 'turn'} on {'its' if one else 'their'} own: "
+    return (f"{_and(gears)} {'turns' if one else 'turn'} apart from the train{'' if trains <= 1 else 's'}: "
             f"{'it meshes' if one else 'they mesh'} no other gear.")
+
+
+def _turning_subject(motion) -> str:
+    """``Its gears``, or ``Its turning gears`` when some are left fixed (said after it)."""
+    return "Its turning gears" if any(motion.fixed) else "Its gears"
+
+
+def _train_count(motion) -> int:
+    """How many trains a turning plan has: ``trains``, else one per ``drag`` gear."""
+    return len(motion.trains) or len([g for g in motion.drag if g])
 
 
 def _fixed_sentence(fixed: Sequence[str]) -> str:
@@ -2442,11 +2460,12 @@ def motion_ready_line(plan) -> str:
     """Said before Build (``_ready_build``, right after its first sentence), from a ``workbook.gearbox.GearboxPlan``.
 
     With ``plan.motion``: *Its gears are mated to their shafts and to each
-    other, so they turn together in SolidWorks.*; where a shaft meshes
-    nothing, *Its gears are mated to their shafts and, where they mesh, to
-    each other, …* and which gears turn on their own; with no train, *Its
-    gears are each mated to their shaft, free to turn in SolidWorks.*; and
-    the gears left fixed (:func:`_fixed_sentence`). With
+    other, so they turn together in SolidWorks.*; two or more trains, *… so
+    each train turns together …*; where a shaft meshes nothing, *… and, where
+    they mesh, to each other, so those that mesh turn together …* and which
+    gears turn apart from the train; with no train, *Its gears are each mated
+    to their shaft, free to turn in SolidWorks.*; *Its turning gears* when
+    some are left fixed, and those (:func:`_fixed_sentence`). With
     ``plan.static_reason`` (a W5 finding missing: the static build is kept
     and said here, as ruled on review of 2f82a0e): *Its gears are placed
     meshed and fixed, not mated to turn: {static_reason}*, the reason the
@@ -2460,16 +2479,19 @@ def motion_ready_line(plan) -> str:
         reason = getattr(plan, "static_reason", "")
         return f"Its gears are placed meshed and fixed, not mated to turn: {_sentence(reason)}" if reason else ""
     alone = _gears_alone(motion)
+    trains = _train_count(motion)
+    who = _turning_subject(motion)
+    where = ", where they mesh," if alone else ""
     if not motion.anchors:
         text = ""
-    elif not motion.trains:
-        text = "Its gears are each mated to their shaft, free to turn in SolidWorks."
-    elif alone:
-        text = ("Its gears are mated to their shafts and, where they mesh, to each other, so they turn together in "
-                "SolidWorks.")
+    elif not trains:
+        text = f"{who} are each mated to their shaft, free to turn in SolidWorks."
+    elif trains == 1:
+        together = "those that mesh turn together" if alone else "they turn together"
+        text = f"{who} are mated to their shafts and{where} to each other, so {together} in SolidWorks."
     else:
-        text = "Its gears are mated to their shafts and to each other, so they turn together in SolidWorks."
-    return _joined(text, _alone_sentence(alone) if motion.trains else "", _fixed_sentence(motion.fixed))
+        text = f"{who} are mated to their shafts and{where} to each other, so each train turns together in SolidWorks."
+    return _joined(text, _alone_sentence(alone, trains) if trains else "", _fixed_sentence(motion.fixed))
 
 
 def motion_done_line(plan, result) -> str:
@@ -2478,9 +2500,11 @@ def motion_done_line(plan, result) -> str:
     For ``motion.MOTION``: *Its gears are mated to turn together, and
     SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest
     of its train follow.*; two or more trains, *Its gears are mated to turn
-    in 2 trains, …* with :func:`drag_phrase`; no train, *Its gears are each
-    mated to their shaft, free to turn, and SolidWorks reports no mate in
-    error.*; then the gears that turn on their own and those left fixed. It
+    in 2 trains, …* with :func:`drag_phrase`; where a shaft meshes nothing,
+    *… mated to their shafts and, where they mesh, to each other; SolidWorks
+    reports …*; no train, *Its gears are each mated to their shaft, free to
+    turn, and SolidWorks reports no mate in error.*; then the gears that turn
+    apart from the train and those left fixed (*Its turning gears* then). It
     claims only what the mate check read (W5-PLAN D3: the app does not drive
     the train). For ``motion.STATIC`` with ``plan.static_reason``, that they
     are placed fixed and why. ``""`` otherwise: W4's static build, and a
@@ -2498,16 +2522,21 @@ def motion_done_line(plan, result) -> str:
         return "Its gears are mated to turn, and SolidWorks reports no mate in error."
     drag = [g for g in motion.drag if g]
     alone = _gears_alone(motion)
+    trains = _train_count(motion)
+    who = _turning_subject(motion)
+    tail = f": {drag_phrase(drag)}." if drag else "."
     if not motion.anchors:
         text = ""
-    elif not drag:
-        text = "Its gears are each mated to their shaft, free to turn, and SolidWorks reports no mate in error."
-    elif len(drag) == 1:
-        text = f"Its gears are mated to turn together, and SolidWorks reports no mate in error: {drag_phrase(drag)}."
+    elif not trains:
+        text = f"{who} are each mated to their shaft, free to turn, and SolidWorks reports no mate in error."
+    elif alone:
+        text = (f"{who} are mated to their shafts and, where they mesh, to each other; SolidWorks reports no mate in "
+                f"error{tail}")
+    elif trains == 1:
+        text = f"{who} are mated to turn together, and SolidWorks reports no mate in error{tail}"
     else:
-        text = (f"Its gears are mated to turn in {len(drag)} trains, and SolidWorks reports no mate in error: "
-                f"{drag_phrase(drag)}.")
-    return _joined(text, _alone_sentence(alone) if drag else "", _fixed_sentence(motion.fixed))
+        text = f"{who} are mated to turn in {trains} trains, and SolidWorks reports no mate in error{tail}"
+    return _joined(text, _alone_sentence(alone, trains) if trains else "", _fixed_sentence(motion.fixed))
 
 
 def mate_refused_status(plan, result, again: bool = False) -> Tuple[str, bool]:
@@ -2561,12 +2590,14 @@ def motion_record_line(record, digest: str = "", *, offer: bool = True) -> str:
     ``static_reason``: *It was built static: {static_reason}*, and when
     ``offer``, *That is settled now, so Build again… makes a new revision
     whose gears turn.* No assembly and ``mate_problems`` (a refused build):
-    *The assembly Reducer_12to1 was not saved, because SolidWorks found a
-    problem with its mates.*, each problem, and — when the problems came from
-    this same read (``mate_problems_digest == digest``) — *Build is available
+    *Reducer_12to1.SLDASM was not saved, because SolidWorks found a problem
+    with its mates.*, each problem, and — when the problems came from this
+    same read (``mate_problems_digest == digest``) — *Build is available
     again once the workbook changes: the same workbook would make the same
     mates.*; else, when ``offer``, *The workbook has changed since, so Build
-    tries the assembly again.* ``""`` with no gearbox.
+    tries the assembly again.* when both digests are known and differ, and
+    only *Build tries the assembly again.* when either is ``""`` (a change
+    cannot be claimed then). ``""`` with no gearbox.
     """
     from .store import GEARBOX_MOTION
     box = getattr(record, "gearbox", None)
@@ -2576,12 +2607,16 @@ def motion_record_line(record, digest: str = "", *, offer: bool = True) -> str:
         problems = [p for p in box.mate_problems if str(p).strip()]
         if not problems:
             return ""
-        what = f"The assembly {box.name}" if box.name else "The assembly"
+        what = f"{box.name}.SLDASM" if box.name else "The assembly"
         lead = f"{what} was not saved, because SolidWorks found {_mates_lead(problems)} with its mates."
         if box.mate_problems_digest and box.mate_problems_digest == digest:
             then = f"Build is available again once the workbook changes: {SAME_MATES}."
+        elif not offer:
+            then = ""
+        elif box.mate_problems_digest and digest:
+            then = "The workbook has changed since, so Build tries the assembly again."
         else:
-            then = "The workbook has changed since, so Build tries the assembly again." if offer else ""
+            then = "Build tries the assembly again."      # which read it came from, or this one, is not known
         return _joined(lead, _mate_problems(problems), then)
     if box.kind == GEARBOX_MOTION:
         drag = [g for g in box.drag if g]
@@ -2657,9 +2692,12 @@ def _motion_after(update, result) -> List[str]:
     (*G1 and G2 had been turned out of step with each other in SolidWorks; they are back in mesh.* — which of the
     two was turned cannot be told, so neither is said to be), then one sentence per train put
     (``result.restored``: *G1, G2, G3 and G4 had been turned in SolidWorks; their train is back at the turn it was
-    built at.* — that train's gears only; a train put with none turned, or not put, is never mentioned, and with
-    nothing to put the train stays where it was turned and nothing is said: W5-DECISIONS answer 2), then the mates
-    the app did not make, left alone (``result.extra_mates``)."""
+    built at.* — that train's gears only; a train put with none turned is never mentioned), then, when the check
+    phase found the gears turned (``result.turned``) and no mated gear was put, *The gears stand where they were
+    turned in SolidWorks.* (W5-DECISIONS answer 2: the train stays where it was turned, and the footer says so),
+    or, when some mated gears were put and some not, *Any gear it did not put back stands where it was turned in
+    SolidWorks.* (which train stood turned is not told), then the mates the app did not make, left alone
+    (``result.extra_mates``)."""
     out = []
     for a, b in result.out_of_step:
         back = "they are back in step" if _pair_kind(update, (a, b)) == "lock" else "they are back in mesh"
@@ -2671,6 +2709,15 @@ def _motion_after(update, result) -> List[str]:
         one = len(gears) == 1
         out.append(f"{_and(gears)} had been turned in SolidWorks; {'its' if one else 'their'} train is back at the "
                    "turn it was built at.")
+    if result.turned:
+        # Answer 2: with nothing to put, the train stays where it was turned, and the sentence says so plainly.
+        motion = getattr(update, "motion", None)
+        mated = {g for m in getattr(motion, "mates", ()) or () for g in m.gears if g}
+        put = mated & set(result.placed)
+        if not put:
+            out.append("The gears stand where they were turned in SolidWorks.")
+        elif put != mated:
+            out.append("Any gear it did not put back stands where it was turned in SolidWorks.")
     extra = [n for n in result.extra_mates if n]
     if extra:
         one = len(extra) == 1

@@ -746,10 +746,12 @@ def test_a_mate_entry_of_the_wrong_type_is_refused(field, value):
     (3, {"kind": "gear"}, r"gearbox\.mates\[3\] \('G1 meshes G5'\) has kind 'gear', not one of axis, along, lock, "
                           r"mesh\)"),
     (3, {"kind": ""}, r"has kind '', not one of"),
-    (0, {"gears": []}, r"gearbox\.mates\[0\] \('G5 on S2 Axis'\) is an axis mate with 0 gears, where it holds 1\)"),
-    (1, {"gears": ["G5", "G6"]}, r"is an along mate with 2 gears, where it holds 1\)"),
-    (2, {"gears": ["G6"]}, r"gearbox\.mates\[2\] \('G6 locked to G5'\) is a lock mate with 1 gear, where it holds 2\)"),
-    (3, {"gears": ["G1", "G5", "G7"]}, r"is a mesh mate with 3 gears, where it holds 2\)"),
+    (0, {"gears": []}, r"gearbox\.mates\[0\] \('G5 on S2 Axis'\) is an axis mate with 0 gears, where an axis mate "
+                       r"holds 1\)"),
+    (1, {"gears": ["G5", "G6"]}, r"is an along mate with 2 gears, where an along mate holds 1\)"),
+    (2, {"gears": ["G6"]}, r"gearbox\.mates\[2\] \('G6 locked to G5'\) is a lock mate with 1 gear, where a lock "
+                           r"mate holds 2\)"),
+    (3, {"gears": ["G1", "G5", "G7"]}, r"is a mesh mate with 3 gears, where a mesh mate holds 2\)"),
     (3, {"ratio": [17]}, r"\('G1 meshes G5'\) is a mesh mate whose ratio is \[17\], not two whole numbers above 0\)"),
     (3, {"ratio": []}, r"whose ratio is \[\], not two"),
     (3, {"ratio": [17, 68, 51]}, r"whose ratio is \[17, 68, 51\], not two"),
