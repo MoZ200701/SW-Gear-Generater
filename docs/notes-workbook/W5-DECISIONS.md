@@ -4,7 +4,7 @@ Read in this order: `docs/PLAN-WORKBOOK.md` (the authority), `W5-PLAN.md` (the i
 `W5-PLAN-REVIEW.md` (its independent review), then this file. Where they disagree, this file wins over the
 review, the review over W5-PLAN, and PLAN-WORKBOOK over all three unless this file says a reading was chosen.
 Written 2026-11-14 while the probe batch the review asked for (package P0) was still running; what depended on
-its findings is ruled on in the last two sections, added the same day once they were committed and reviewed.
+its findings is ruled on in the later sections, added the same day as each probe round was committed and reviewed.
 
 ## The user's answers (2026-11-14)
 
@@ -95,7 +95,38 @@ P0 is commits `0d638db` to `8504856`; the findings are in `findings.py` from "ti
   (`MATE_RENAME_ROUTE`), all four kinds, both versions. The demonstration's drive holds and returns every gear
   to its built frame (M12 stands as written). A put on a gear in two gear mates holds.
 
-## Open until probe round P0b is committed
+## Rulings on probe round P0b (2026-11-14, after its independent review)
 
-- D7's Update branch (above). Until then the user is told a tooth change needs Build again….
-- Whether a train's Build may use the top-only rebuild (above).
+P0b is commits `10fb0d4`, `61d390e`, `4ced012`, `771c8eb` (results) and `4f865d8` (findings). Its review found
+no must-fix: the 2024 evidence now comes from fresh sessions in which the remake ran first and nothing was
+stranded beside it (`sw2024/probe-results-20261114-071324`), with the definition route alone in its own session
+(`…-073328`), and the two differences between the versions that P0 had read are gone.
+
+- **D7: a tooth change the globals carry is an Update, by the remake.** `GEAR_MATE_RATIO_ROUTE` is `"remake"`.
+  Probe `gear_mate_update` carried it in an Update's shape on both versions: teeth changed through the part's
+  globals, every lock suppressed, the gear mate deleted, made again at the new ratio and renamed, every gear put
+  to its built frame, locks on, a top-only rebuild, the mate checks, a drive at the new ratio and sense (2.7°
+  for 30°, where the old ratio gives 2.5° and the inverse about 20.8°), no interference, an unsaved close that
+  left the file as saved, and a save, reopen and drive. `"modify definition"` is never used on either version.
+  **Accepted with one gap:** on a gear that carries two gear mates the remake was driven and measured
+  (`put_on_twice_meshed_gear`) but not in the whole Update shape (no tooth change in the parts, no puts, no
+  interference, no unsaved close). A probe step on a train with an idler is asked of round P0c; until it is
+  committed the demonstration's tooth change is on the 12 : 1, which has no such gear.
+- **A train's Build may use the top-only rebuild.** `MATED_BUILD_REBUILD_ROUTE` is `"ForceRebuild3(True)"`: a
+  train built with it as its only rebuild matched the full rebuild's train frame for frame and drove at its
+  ratio, and its build marks nothing but the assembly, where the full rebuild leaves the layout and the part
+  marked. The app has one route for the train kind (`swcom.rebuild_call` reads
+  `MATED_ASSEMBLY_REBUILD_ROUTE`), so a train build refuses, before anything is made, when the two findings
+  differ (package A's gate).
+- **The lock against a put, measured:** after a put with the lock on, a drive turned both gears together with
+  the relative angle the put left — the lock took the new angle and held it. The app still never puts with a
+  lock on (M1, M8).
+
+## Open until probe round P0c is committed and reviewed
+
+Round P0c probes what package A's code does that no probe had done (its review, 2026-11-14): mates made with
+`CommandInProgress` on; a lock renamed straight after it is made in an unsaved assembly; folders in the mate
+group (until then a turning Update refuses when the mate group holds anything that is not a mate); the error
+code of a suppressed mate; unsuppressing a lock that is already on (the app skips that call); the remake on
+lightweight components; a second new assembly made while a refused one stands open and unsaved; and the tooth
+change by remake on a gear in two gear mates. The demonstration on SolidWorks (package E) runs after it.
