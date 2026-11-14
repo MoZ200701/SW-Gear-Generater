@@ -1261,12 +1261,20 @@ def gearbox_status(plan, result) -> Tuple[str, bool]:
         built_names.append(asm_name)
     reused_names = ([reused_layout] if reused_layout else []) + ([_already(reused_parts)] if reused_parts else [])
     done = _done_phrase(built_names, reused_names)
+    # W4 fix pass 1 (temporary, pass 2 words it): a raise between documents is a failure on the result now
+    # (swbuild.GearboxResult.failures), not an exception out of the worker.
+    stopped = ""
+    if getattr(result, "failures", None):
+        what, why = result.failures[0]
+        stopped = f" The job stopped during {what}: {_sentence(why)}"
     if not done:
-        return "Nothing was built.", False
+        return "Nothing was built." + stopped, False
     results = made + [r for r in (layout, assembly) if r is not None and r.saved]
     checks = [c for r in results for c in r.checks]
     ok = not checks
-    if not parts_only and not asm_name:
+    if stopped:
+        text, ok = f"{done}.{stopped} Press {button} to carry on: what was built is reused.", False
+    elif not parts_only and not asm_name:
         # Planned and never reached, with nothing failing: say what the worker said was left.
         skipped = f" {_sentence(result.skipped)}" if result.skipped else " The assembly was not made."
         text, ok = f"{done}.{skipped}", False

@@ -34,10 +34,20 @@ class FakeSolidWorks:
     (what ``find_component`` was asked for), and ``place_component`` writes
     both; ``exists`` answers "is it on disk" from what was saved (or put in
     ``saved`` by a test), so a job's pre-flight sees what an earlier job left.
+
+    For the W4 review's: ``raises`` maps a call's name to ``(n, exception)``:
+    the n-th call of that name raises that exception, whatever its type (a
+    stand-in for ``pywintypes.com_error`` or anything unexpected, part-way
+    through a job). ``touched`` collects the saved documents (lower-cased
+    paths) a call has modified since they were opened — an equation added or
+    deleted (the trig check), a global set, a component moved, a rebuild —
+    so a test can see which documents SolidWorks would now mark modified.
+    Every feature a build makes (not only planes and axes) is kept with the
+    saved document, so ``feature_names`` on a reopened part lists them.
     """
 
     def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None,
-                 interference=(0, 0.0), open_docs=(), missing_components=(), frames=None, clashes=()):
+                 interference=(0, 0.0), open_docs=(), missing_components=(), frames=None, clashes=(), raises=None):
         self.interference = interference
         self.revision = (34, 0, 0)
         self.calls = []
@@ -58,9 +68,17 @@ class FakeSolidWorks:
         self.made = []                 # planes and axes made in the current document, by kept name
         self.saved = {}                # lower-cased path -> (equations_text, made) as saved
         self.found = {}                # handle -> the Name2 find_component found it by
+        self.raises = dict(raises or {})
+        self.counts = {}
+        self.current = ""              # the document calls act on: an opened or saved path, "" for a new one
+        self.touched = set()
 
     def _log(self, name, *args):
         self.calls.append((name, args))
+        self.counts[name] = self.counts.get(name, 0) + 1
+        planned = self.raises.get(name)
+        if planned is not None and planned[0] == self.counts[name]:
+            raise planned[1]
         reason = self.fail_on.get(name)
         if reason and (not isinstance(reason, tuple) or reason[0] in args):
             raise SolidWorksError(reason if isinstance(reason, str) else reason[1])
@@ -74,14 +92,18 @@ class FakeSolidWorks:
     def end_build(self):
         self._log("end_build")
 
+    def _touch(self):
+        if self.current:
+            self.touched.add(_key(self.current))
+
     def new_part(self, template=""):
         self._log("new_part", template)
-        self.equations_text, self.made = [], []
+        self.equations_text, self.made, self.current = [], [], ""
         return DocInfo(title="Part1", path="", doc_type=1)
 
     def new_assembly(self, template=""):
         self._log("new_assembly", template)
-        self.equations_text, self.made = [], []
+        self.equations_text, self.made, self.current = [], [], ""
         return DocInfo(title="Assem1", path="", doc_type=2)
 
     def document_path(self):
@@ -93,15 +115,19 @@ class FakeSolidWorks:
 
     def rebuild(self):
         self._log("rebuild", self.suppressed)
+        self._touch()
         return self.rebuild_ok
 
     def save_as(self, path):
         self._log("save_as", path)
         self.saved[_key(path)] = (self.equations_text, self.made)
+        self.current = path
+        self.touched.discard(_key(path))
         return path
 
     def detect_trig_units(self):
         self._log("detect_trig_units")
+        self._touch()                  # it adds an equation and deletes it: SolidWorks marks the document modified
         return self.trig
 
     def add_global_variable(self, name, expression):
@@ -111,6 +137,7 @@ class FakeSolidWorks:
 
     def set_global_variable(self, name, expression):
         self._log("set_global_variable", name, expression)
+        self._touch()
         for i, text in enumerate(self.equations_text):
             if split_equation(text)[0] == name:
                 self.equations_text[i] = f'"{name}"= {expression}'
@@ -137,9 +164,14 @@ class FakeSolidWorks:
     def open_sketch(self, handle, plane):
         self._log("open_sketch", handle, plane)
 
+    def _made(self, name):
+        kept = self.rename.get(name, name)
+        self.made.append(kept)
+        return kept
+
     def close_sketch(self, handle, name):
         self._log("close_sketch", handle, name)
-        return self.rename.get(name, name)
+        return self._made(name)
 
     def sketch_status(self, name):
         return self.statuses.get(name, 3)
@@ -169,15 +201,15 @@ class FakeSolidWorks:
 
     def extrude(self, handle, sketch, name, depth, depth_dim):
         self._log("extrude", name)
-        return self.rename.get(name, name), depth_dim
+        return self._made(name), depth_dim
 
     def cut_extrude(self, handle, sketch, name):
         self._log("cut_extrude", name)
-        return self.rename.get(name, name)
+        return self._made(name)
 
     def circular_pattern(self, handle, name, axis, feature, count, count_dim):
         self._log("circular_pattern", name, count)
-        return self.rename.get(name, name), count_dim
+        return self._made(name), count_dim
 
     def ref_plane(self, handle, name, plane, offset, flip, offset_dim):
         self._log("ref_plane", name, round(offset, 6), flip)
@@ -187,23 +219,23 @@ class FakeSolidWorks:
 
     def sweep_cut(self, handle, profile, path, name, twist, reverse, twist_dim):
         self._log("sweep_cut", name, round(twist, 6), reverse)
-        return self.rename.get(name, name), twist_dim
+        return self._made(name), twist_dim
 
     def mirror_body(self, handle, name, plane):
         self._log("mirror_body", name, plane)
-        return self.rename.get(name, name)
+        return self._made(name)
 
     def ref_plane_normal(self, handle, name, line, point):
         self._log("ref_plane_normal", name, line, point)
-        return self.rename.get(name, name)
+        return self._made(name)
 
     def revolve(self, handle, sketch, name, axis):
         self._log("revolve", name, axis)
-        return self.rename.get(name, name)
+        return self._made(name)
 
     def loft_cut(self, handle, name, profiles):
         self._log("loft_cut", name, *profiles)
-        return self.rename.get(name, name)
+        return self._made(name)
 
     def add_component(self, handle, path, at):
         self._log("add_component", handle, path)
@@ -222,6 +254,7 @@ class FakeSolidWorks:
 
     def place_component(self, handle, rotation, at):
         self._log("place_component", handle)
+        self._touch()
         self.frames[handle] = (tuple(rotation), tuple(at))
         if handle in self.found:
             self.frames[self.found[handle]] = (tuple(rotation), tuple(at))
@@ -246,6 +279,7 @@ class FakeSolidWorks:
         doc_type = 2 if path.lower().endswith(".sldasm") else 1
         info = DocInfo(title=path.replace("/", "\\").rsplit("\\", 1)[-1], path=path, doc_type=doc_type)
         self.equations_text, self.made = self.saved.get(_key(path), ([], []))
+        self.current = path
         if not any(_key(d.path) == _key(path) for d in self.open_docs):
             self.open_docs.append(info)
         self.active = info
@@ -346,17 +380,31 @@ def test_the_flag_is_restored_and_the_build_stops_at_the_failing_op():
     assert any(line.startswith("FAIL    cut") for line in result.log_lines())
 
 
-def test_a_raise_that_is_not_a_solidworks_error_still_restores_the_flag():
+def test_a_raise_that_is_not_a_solidworks_error_is_a_failure_and_still_restores_the_flag():
+    """W4 review B1: once the document is made, build() keeps its word that every problem is a failure."""
     fake = FakeSolidWorks()
 
     def boom(*_args):
         raise RuntimeError("the COM server went away")
 
     fake.sketch_circle = boom
-    with pytest.raises(RuntimeError):
-        swbuild.build(fake, plan(), never_exists)
+    result = swbuild.build(fake, plan(), never_exists)
+    assert not result.ok and result.document == "Part1" and not result.saved
+    assert result.failures == [("the build", "it stopped on an unexpected RuntimeError: the COM server went away.")]
     assert fake.suppressed is False
-    assert names(fake)[-1] == "end_build"
+    assert names(fake)[-1] == "end_build" and "save_as" not in names(fake)
+
+
+def test_a_save_that_raises_anything_is_the_saves_failure():
+    fake = FakeSolidWorks()
+
+    def gone(_path):
+        raise RuntimeError("(-2147023170, 'The remote procedure call failed.', None, None)")
+
+    fake.save_as = gone
+    result = swbuild.build(fake, plan(), never_exists)
+    assert not result.saved and result.failures[0][0] == "save"
+    assert result.failures[0][1].startswith("it stopped on an unexpected RuntimeError: ")
 
 
 def test_a_name_solidworks_did_not_keep_stops_before_the_link_that_uses_it():
@@ -1058,7 +1106,7 @@ def test_update_steps_check_every_document_then_values_then_place_then_interfere
     _update(fake, progress=say)
     assert steps == [swbuild.Step("check", "Gear_m1.5_N17", 1, 4), swbuild.Step("check", "Gear_m1.5_N68", 2, 4),
                      swbuild.Step("check", "R_Layout", 3, 4), swbuild.Step("check", "R", 4, 4),
-                     swbuild.Step("values", "Gear_m1.5_N17"), swbuild.Step("values", "Gear_m1.5_N68"),
+                     swbuild.Step("values", "Gear_m1.5_N68"),     # N17 holds its values already: not touched
                      swbuild.Step("values", "R_Layout"), swbuild.Step("place", "R"),
                      swbuild.Step("interference", "R")]
 
@@ -1068,7 +1116,9 @@ def test_a_gear_turned_whole_pitches_is_left_where_it_is():
     fake.frames["gear2-1"] = (_turned(180.0 / 68 + 5 * 360.0 / 68), AT2)
     result = _update(fake, parts=[], layout=None, placements=_placements())
     assert result.ok and result.placed == [] and "place_component" not in names(fake)
-    assert result.changed == [] and result.rebuilt
+    # nothing changed and nothing moved: the assembly is only read, not rebuilt (W4 review S2)
+    assert result.changed == [] and not result.rebuilt and "rebuild" not in names(fake)
+    assert "interferences" not in names(fake)
     assert "ok      every gear is where the workbook puts it" in result.log_lines()
     assert result.log_lines()[-1] == "nothing changed in SolidWorks"
 
@@ -1193,7 +1243,7 @@ def test_a_layout_that_fails_stops_before_the_assembly():
 def test_a_failed_assembly_rebuild_is_a_failure_and_no_interference_is_checked():
     fake = _built_gearbox()
     fake.rebuild_ok = False
-    result = _update(fake, parts=[], layout=None, placements=_placements())
+    result = _update(fake, parts=[], layout=None)          # G2 is re-placed, so the assembly is rebuilt
     assert not result.ok and result.failures == [("R.SLDASM", "SolidWorks reported an error rebuilding R.")]
     assert "interferences" not in names(fake)
 
@@ -1259,7 +1309,7 @@ def test_the_reuse_check_writes_nothing_and_reads_the_trig_units_from_the_text(t
     assert "add_global_variable" not in called[:called.index("new_part")]
 
 
-def test_the_update_check_still_measures_the_trig_units_it_evaluates_in():
+def test_a_document_update_changes_still_has_its_trig_units_measured_before_its_values_are_set():
     fake = _built_gearbox()
     _update(fake)
     called = names(fake)
@@ -1273,3 +1323,144 @@ def test_interferences_between_the_same_components_are_one_clash_with_their_volu
     assert result.clashes == [swbuild.Clash(("gear1-1", "gear2-1"), ("G1", "G2"), 91.5),
                               swbuild.Clash((), (), 0.5), swbuild.Clash((), (), 0.25)]
     assert "CHECK   G1 and G2 interfere, 91.500 mm³; look where they meet" in result.log_lines()
+
+
+# -- W4 review: nothing escapes a job once it has saved something (B1) ----------------------------------------
+
+
+class ComErrorLookAlike(Exception):
+    """Stands in for ``pywintypes.com_error`` reaching swbuild unwrapped (or anything else unexpected)."""
+
+
+RPC = ComErrorLookAlike(-2147023170, "The remote procedure call failed.", None, None)
+
+
+def test_a_raise_on_the_third_save_keeps_the_two_parts_saved_before_it_on_the_result():
+    """The review's w4r_crash: the third save_as raised a non-SolidWorksError and build_gearbox raised with it, so
+    the two parts SolidWorks had saved never reached the record."""
+    fake = FakeSolidWorks(raises={"save_as": (2, RPC)})
+    _, result = _build(fake)
+    assert [r.saved for r in result.parts.built] == [P17, ""] and not result.ok
+    assert result.parts.built[1].failures[0][0] == "save"
+    assert result.parts.built[1].failures[0][1].startswith("it stopped on an unexpected ComErrorLookAlike: ")
+    assert result.skipped == "the layout part and the assembly, because a part failed"
+    assert "new_assembly" not in names(fake)
+
+
+def test_a_raise_making_the_first_part_is_a_failed_part_not_a_raise():
+    fake = FakeSolidWorks(raises={"new_part": (1, RPC)})
+    _, result = _build(fake)
+    assert len(result.parts.built) == 1 and result.parts.built[0].failures[0][0] == "new part"
+    assert result.parts.skipped == [P68] and not result.ok
+
+
+def test_a_raise_between_documents_is_a_failure_on_the_result_and_what_saved_stays():
+    def say(step):
+        if step.stage == "layout":
+            raise RPC
+    fake = FakeSolidWorks()
+    _, result = _build(fake, progress=say)
+    assert [r.saved for r in result.parts.built] == [P17, P68] and result.layout is None
+    assert result.failures == [("the layout part", "it stopped on an unexpected ComErrorLookAlike: (-2147023170, "
+                                                   "'The remote procedure call failed.', None, None).")]
+    assert result.skipped == "the assembly, because the job stopped during the layout part"
+    assert not result.ok
+    assert result.log_lines()[-2:] == ["FAIL    the layout part: " + result.failures[0][1],
+                                       "SKIPPED the assembly, because the job stopped during the layout part"]
+
+
+def test_a_raise_in_the_interference_check_is_said_and_the_build_stands():
+    fake = FakeSolidWorks(raises={"interferences": (1, RPC)})
+    _, result = _build(fake)
+    assert result.ok and result.interference_error.startswith("it stopped on an unexpected ComErrorLookAlike")
+
+
+def test_the_reuse_check_still_refuses_before_anything_is_made():
+    """The pre-flight (paths, the reused documents checked live) may still raise: nothing is made by then."""
+    fake = FakeSolidWorks(raises={"open_document": (1, RPC)})
+    _saved_part(fake, S17, P17)
+    with pytest.raises(ComErrorLookAlike):
+        _build(fake, parts=[plan(S68, path=P68)], reuse=[swbuild.DocumentValues(P17, _values(S17))])
+    assert "new_part" not in names(fake)
+
+
+def test_an_update_that_raises_part_way_keeps_what_it_changed_on_the_result():
+    fake = _built_gearbox()
+    fake.raises = {"set_global_variable": (fake.counts.get("set_global_variable", 0) + 2, RPC)}   # S2 X
+    result = _update(fake)
+    assert result.changed == [P68] and result.layout is not None and result.layout.changed == []
+    assert result.failures[0][0] == 'R_Layout.SLDPRT "S2 X"'
+    assert result.skipped == "the assembly, because R_Layout.SLDPRT failed" and "place_component" not in names(fake)
+
+
+def test_an_update_whose_assembly_raises_keeps_the_values_it_set():
+    fake = _built_gearbox()
+    fake.raises = {"component_frame": (fake.counts.get("component_frame", 0) + 1, RPC)}
+    result = _update(fake)
+    assert result.changed == [P68, LAYOUT] and result.placed == []
+    assert result.failures[0][0] == "R.SLDASM" and "ComErrorLookAlike" in result.failures[0][1]
+    assert result.rebuilt                                 # the values changed, so the assembly is still rebuilt
+
+
+def test_an_update_raise_between_documents_is_a_failure_on_the_result():
+    def say(step):
+        if step.stage == "place":
+            raise RPC
+    fake = _built_gearbox()
+    result = _update(fake, progress=say)
+    assert result.changed == [P68, LAYOUT] and not result.ok
+    assert result.failures[0][0] == "R.SLDASM" and result.failures[0][1].startswith("it stopped on an unexpected")
+
+
+# -- W4 review: Update touches only the documents it changes (S2) ---------------------------------------------
+
+
+def test_an_update_leaves_a_part_that_holds_its_values_untouched_and_unmeasured():
+    """W4 review S2: on SolidWorks 2026 every Update marked every part modified, because the check measured each
+    part's trig units (an equation added and deleted)."""
+    fake = _built_gearbox()
+    fake.touched.clear()
+    result = _update(fake)
+    assert result.ok and result.changed == [P68, LAYOUT, ASM]
+    assert fake.touched == {_key(P68), _key(LAYOUT), _key(ASM)}           # not Gear_m1.5_N17
+    assert result.parts[0].changed == [] and result.parts[0].trig == DEGREES and result.parts[0].unchanged
+    measured = [i for i, (n, _) in enumerate(fake.calls) if n == "detect_trig_units"]
+    assert len(measured) == 2                         # once in each document Update changes, by update_variables
+    opened = [a[0] for n, a in fake.calls if n == "open_document"]
+    assert opened.count(P17) == 1                     # read in the check, and never opened again to change it
+
+
+@pytest.mark.parametrize("trig", [DEGREES, RADIANS])
+def test_an_update_that_changes_nothing_touches_nothing(trig):
+    fake = _built_gearbox(trig=trig)
+    fake.touched.clear()
+    result = _update(fake, parts=[swbuild.DocumentValues(P17, _values(S17)), swbuild.DocumentValues(P68, _values(S68))],
+                     layout=swbuild.DocumentValues(LAYOUT, LAYOUT_VALUES, LAYOUT_FEATURES), placements=_placements())
+    assert result.ok and result.changed == [] and fake.touched == set()
+    assert "detect_trig_units" not in names(fake) and "rebuild" not in names(fake)
+    assert [r.trig for r in result.parts] == [trig, trig]
+    assert result.log_lines()[-1] == "nothing changed in SolidWorks"
+
+
+def test_new_values_that_evaluate_in_one_trig_unit_only_are_measured_to_decide():
+    odd = (GlobalVariable("No. of Teeth", "69", radian_expression='"Nowhere" * 2'),)
+    fake = _built_gearbox(trig=DEGREES)
+    result = _update(fake, parts=[swbuild.DocumentValues(P68, odd)], layout=None, assembly="", placements=[])
+    assert result.ok and result.changed == [P68]
+    fake = _built_gearbox(trig=RADIANS)
+    with pytest.raises(swbuild.BuildError, match="Gear_m1.5_N68.SLDPRT cannot be updated: the new values do not "
+                                                 "evaluate: "):
+        _update(fake, parts=[swbuild.DocumentValues(P68, odd)], layout=None, assembly="", placements=[])
+    assert "set_global_variable" not in names(fake)
+
+
+def test_an_update_notes_each_files_time_before_it_changes_anything():
+    fake = _built_gearbox()
+    times = {_key(P17): 1.0, _key(P68): 2.0, _key(LAYOUT): 3.0}
+
+    def mtime(path):
+        if _key(path) not in times:
+            raise OSError("not there")
+        return times[_key(path)]
+    result = _update(fake, mtime=mtime)
+    assert result.mtimes == {P17: 1.0, P68: 2.0, LAYOUT: 3.0}         # the assembly's time could not be read

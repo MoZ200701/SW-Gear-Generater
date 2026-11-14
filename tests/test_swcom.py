@@ -912,3 +912,88 @@ def test_a_missing_template_is_named_as_typed(com, monkeypatch):
     with pytest.raises(swcom.SolidWorksError) as raised:
         sw.new_part("")
     assert str(raised.value) == "SolidWorks' default part template, C:\\SW\\Part.prtdot, is not there."
+
+
+# -- COM errors as sentences (W4 review B1) ------------------------------------------------------------------
+
+
+class com_error(Exception):  # noqa: N801 - pywin32's name, so probe.comerr reads it as it reads the real one
+    pass
+
+
+class Raising:
+    def __init__(self, error):
+        self.error = error
+
+    def SaveAs3(self, *args):  # noqa: N802 - a COM member's name
+        raise self.error
+
+
+RPC_FAILED = com_error(-2147023170, "The remote procedure call failed.", None, None)
+
+
+@pytest.fixture
+def com_errors(monkeypatch):
+    monkeypatch.setattr(swcom, "_COM_ERRORS", (com_error,))
+    swcom.CONNECTION.lost = False
+    yield
+    swcom.CONNECTION.lost = False
+
+
+def test_a_com_error_comes_out_of_call_as_a_solidworks_error_with_a_sentence(com_errors):
+    from gear_generator.probe import comerr
+    with pytest.raises(swcom.ComError) as raised:
+        swcom.call(Raising(RPC_FAILED), "SaveAs3", "C:\\P\\Gear.SLDPRT")
+    error = raised.value
+    assert isinstance(error, SolidWorksError)
+    assert str(error) == ("SolidWorks did not complete SaveAs3: The remote procedure call failed "
+                          "(RPC_S_CALL_FAILED). SolidWorks may have closed or crashed; the next press connects to it "
+                          "again.")
+    assert error.lost and error.hresult == 0x800706BE and error.__cause__ is RPC_FAILED
+    # a probe reads the same evidence from it as from the bare com_error
+    assert comerr.describe_error(error)["hresult"] == "0x800706BE" and error.args == RPC_FAILED.args
+    assert swcom.CONNECTION.lost
+
+
+def test_a_rejected_call_and_a_failed_member_say_so(com_errors):
+    rejected = com_error(-2147418111, "Call was rejected by callee.", None, None)
+    with pytest.raises(swcom.ComError) as raised:
+        swcom.call(Raising(rejected), "SaveAs3", 0)
+    assert str(raised.value) == ("SolidWorks did not complete SaveAs3: Call was rejected by callee "
+                                 "(RPC_E_CALL_REJECTED). SolidWorks was busy, perhaps with a dialog open; close it in "
+                                 "SolidWorks and try again.")
+    failed = com_error(-2147352567, "Exception occurred.", (0, "SolidWorks", "Bad argument", None, 0, -2147024809), 3)
+    with pytest.raises(swcom.ComError) as raised:
+        swcom.call(Raising(failed), "SaveAs3", 0)
+    assert str(raised.value) == ("SolidWorks did not complete SaveAs3: Bad argument "
+                                 "(DISP_E_EXCEPTION).")
+    assert not raised.value.lost and not swcom.CONNECTION.lost
+
+
+def test_anything_else_passes_through_call_untouched(com_errors):
+    with pytest.raises(ZeroDivisionError):
+        swcom.call(Raising(ZeroDivisionError("no")), "SaveAs3", 0)
+
+
+def test_a_job_that_kept_a_lost_connection_as_a_failure_still_drops_the_session():
+    """build_gearbox turns a lost connection into a failure on its result and returns: the worker drops the session
+    anyway, so the next press attaches afresh instead of calling a dead SolidWorks."""
+    made = []
+
+    def connect_fn():
+        made.append(object())
+        return made[-1]
+
+    def kept(_session):
+        swcom.CONNECTION.lost = True          # what call() sets when it wraps an RPC failure
+        return "a partial result"
+
+    worker = swcom.Worker(connect_fn=connect_fn)
+    try:
+        assert worker.submit(kept).wait(timeout=5) == ("a partial result", None)
+        worker.submit(lambda s: None).wait(timeout=5)
+        assert len(made) == 2
+        worker.submit(lambda s: None).wait(timeout=5)
+        assert len(made) == 2
+    finally:
+        worker.shutdown()

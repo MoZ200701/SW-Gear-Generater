@@ -210,6 +210,60 @@ def choose(candidates: Sequence[Candidate]) -> Candidate:
 # -- talking to COM ---------------------------------------------------------
 
 
+_COM_ERRORS: Tuple[type, ...] = (pythoncom.com_error,) if pythoncom is not None else ()
+
+# HRESULTs that mean the session itself has gone: SolidWorks closed or crashed under a call (RPC_S_SERVER_UNAVAILABLE,
+# RPC_S_CALL_FAILED, RPC_S_CALL_FAILED_DNE, RPC_E_DISCONNECTED, RPC_E_SERVER_DIED, RPC_E_SERVER_DIED_DNE).
+CONNECTION_LOST = frozenset({0x800706BA, 0x800706BE, 0x800706BF, 0x80010108, 0x80010007, 0x80010012})
+# A call turned away while SolidWorks is busy, typically with a modal dialog up (RPC_E_CALL_REJECTED,
+# RPC_E_SERVERCALL_RETRYLATER).
+CALL_REJECTED = frozenset({0x80010001, 0x8001010A})
+
+
+class ComError(SolidWorksError):
+    """A COM call that failed, as a sentence naming the member and what SolidWorks (or COM) said.
+
+    ``str()`` is the sentence. ``args`` stay pywin32's own four (HRESULT, text, excepinfo, argerror), so
+    ``probe.comerr.describe_error`` reads a wrapped error exactly as it read a bare ``com_error``: a probe records
+    the same evidence as before. ``hresult`` is the unsigned HRESULT (0 when there was none) and ``lost`` whether
+    it says the session itself has gone.
+    """
+
+    def __init__(self, member: str, error: BaseException) -> None:
+        from .probe import comerr
+        super().__init__(*getattr(error, "args", ()))
+        info = comerr.describe_error(error)
+        self.member = member
+        self.hresult = int(info["hresult"], 16) if info["hresult"] else 0
+        self.lost = self.hresult in CONNECTION_LOST
+        args = tuple(getattr(error, "args", ()))
+        excepinfo = args[2] if len(args) >= 3 and isinstance(args[2], tuple) else ()
+        server = str(excepinfo[2]).strip() if len(excepinfo) >= 3 and excepinfo[2] else ""
+        said = (server or str(args[1] if len(args) >= 2 and args[1] else info["text"] or "")).strip().rstrip(".")
+        said = said or "no reason given"
+        name = f" ({info['name']})" if info["name"] else ""
+        if self.lost:
+            tail = " SolidWorks may have closed or crashed; the next press connects to it again."
+        elif self.hresult in CALL_REJECTED:
+            tail = " SolidWorks was busy, perhaps with a dialog open; close it in SolidWorks and try again."
+        else:
+            tail = ""
+        self.sentence = f"SolidWorks did not complete {member}: {said}{name}.{tail}"
+
+    def __str__(self) -> str:
+        return self.sentence
+
+
+class _Connection:
+    """Whether a call since the last job began said the session has gone (``ComError.lost``). One per process;
+    every COM call is on the worker's one thread, which reads and resets it around each job."""
+
+    lost = False
+
+
+CONNECTION = _Connection()
+
+
 def call(obj: Any, name: str, *args: Any) -> Any:
     """Reach a member of a late-bound COM object.
 
@@ -217,9 +271,23 @@ def call(obj: Any, name: str, *args: Any) -> Any:
     ``RevisionNumber`` and ``GetNextFeature`` all come back as their results.
     Testing ``callable`` and invoking would be wrong: a member returning a
     document is itself callable, and calling it raises "Member not found".
+
+    A ``pywintypes.com_error`` comes out as :class:`ComError`, a
+    :class:`SolidWorksError` whose text is a sentence naming the member: so
+    every caller that turns a SolidWorks refusal into a failure on a result
+    (a build, an update) also catches an RPC failure, a call rejected while a
+    modal dialog is up, or a member that failed, instead of letting it escape
+    and lose what the job had saved (W4 review B1). It happens here, at the
+    one place every COM call passes, rather than in each Session method.
     """
-    member = getattr(obj, name)
-    return member(*args) if args else member
+    try:
+        member = getattr(obj, name)
+        return member(*args) if args else member
+    except _COM_ERRORS as exc:
+        error = ComError(name, exc)
+        if error.lost:
+            CONNECTION.lost = True
+        raise error from exc
 
 
 def _dispatch(raw: Any) -> Any:
@@ -2011,14 +2079,21 @@ class Worker:
                     return
                 work, outbox = job
                 self._busy.set()
+                CONNECTION.lost = False
                 try:
                     if self._session is None:
                         self._session = self._connect()
-                    outbox.put((work(self._session), None))
+                    value = work(self._session)
+                    if CONNECTION.lost:
+                        # The job turned the lost connection into a failure on its result (a build keeps what it
+                        # saved), so nothing raised here: drop the session anyway, and the next job attaches afresh.
+                        self._session = None
+                    outbox.put((value, None))
                 except BaseException as exc:  # noqa: BLE001 - reported, never swallowed
                     self._session = None
                     outbox.put((None, exc))
                 finally:
+                    CONNECTION.lost = False
                     self._busy.clear()
         finally:
             self._session = None

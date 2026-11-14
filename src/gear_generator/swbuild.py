@@ -418,20 +418,33 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
         made = sw.new_part(first.template) if isinstance(first, base.NewPart) else sw.new_assembly(first.template)
         result.document = made.title
         result.done.append(f"new {'part' if isinstance(first, base.NewPart) else 'assembly'} {made.title}")
-        result.trig = sw.detect_trig_units()
-        result.done.append(f"trig units measured: {result.trig}")
-        _run(sw, plan, result)
-        result.rebuilt = bool(sw.rebuild())
-        _verify(sw, plan, result)
+        try:
+            result.trig = sw.detect_trig_units()
+            result.done.append(f"trig units measured: {result.trig}")
+            _run(sw, plan, result)
+            result.rebuilt = bool(sw.rebuild())
+            _verify(sw, plan, result)
+        except Exception as exc:  # noqa: BLE001 - the document is made: every problem is now a failure (B1)
+            result.failures.append(("the build", _said(exc)))
+            result.stopped_at = result.stopped_at or "the build"
     finally:
         sw.end_build()
 
     if save is not None and result.ok and result.rebuilt:
         try:
             result.saved = sw.save_as(save.path)
-        except SolidWorksError as exc:
-            result.failures.append(("save", str(exc)))
+        except Exception as exc:  # noqa: BLE001 - a COM error or anything else on the save is the save's failure
+            result.failures.append(("save", _said(exc)))
     return result
+
+
+def _said(exc: BaseException) -> str:
+    """What a raise says, for a failure line: a SolidWorks refusal (``swcom.ComError`` included) as it came, and
+    anything else named, since it is not a sentence of ours."""
+    if isinstance(exc, SolidWorksError):
+        return str(exc)
+    text = str(exc).strip().rstrip(".")
+    return f"it stopped on an unexpected {type(exc).__name__}" + (f": {text}." if text else ".")
 
 
 def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]) -> BuildResult:
@@ -443,16 +456,18 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
     On SolidWorks 2026 (34.0.0, probe/workbook_assembly_check.py 2026-11-13) a workbook build whose assembly
     template was not there raised "There is no assembly template at …" out of ``build_gearbox`` after its four
     parts and its layout part had saved, so the window's finish never ran and none of the five was on record.
+    Any other raise is caught too (W4 review B1: a ``pywintypes.com_error`` part-way through orphaned every file
+    already saved), with its type named.
     """
     try:
         return build(sw, plan, exists)
-    except SolidWorksError as exc:
+    except Exception as exc:  # noqa: BLE001 - see the docstring
         first = plan.ops[0] if plan.ops else None
         what = ("new part" if isinstance(first, base.NewPart) else "new assembly"
                 if isinstance(first, base.NewAssembly) else "the build")
         save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
         return BuildResult(kind=plan.kind, recipe=plan.recipe, path=save.path if save else "",
-                           failures=[(what, str(exc))], stopped_at=what,
+                           failures=[(what, _said(exc))], stopped_at=what,
                            manual=[op.text for op in plan.manual_steps()])
 
 
@@ -561,7 +576,8 @@ class ManyResult:
 
 def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
                exists: Callable[[str], bool] = os.path.exists, *,
-               progress: "Optional[Callable[[Step], None]]" = None) -> ManyResult:
+               progress: "Optional[Callable[[Step], None]]" = None,
+               into: Optional[ManyResult] = None) -> ManyResult:
     """Every plan's part in order, each by :func:`build`; the first that fails stops the rest.
 
     Every path is checked before anything is made, so a batch either starts
@@ -569,6 +585,13 @@ def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
     (``findings.SAVE_AS_OVERWRITES`` is True, so this check is the only guard).
     ``progress``, if given, is told ``Step(STAGE_PART, stem, i, n)`` as each
     part starts.
+
+    ``into`` is for a job that has done its own checks first
+    (:func:`build_gearbox`): each part's result is put in it as soon as it is
+    known, so whatever raises later loses none of the parts already saved,
+    and the first part too goes through :func:`_build_in_job`, which never
+    raises. Without it, W2's batch, the first part's :class:`BuildError`
+    (nothing made) still raises.
     """
     paths = []
     for plan in plans:
@@ -579,11 +602,12 @@ def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
         if path and any(same_path(path, p) for p in paths):
             raise BuildError(f"Two parts in this batch would both be saved as {path}.")
         paths.append(path)
-    many = ManyResult()
+    many = into if into is not None else ManyResult()
     for index, plan in enumerate(plans):
         if progress is not None:
             progress(Step(STAGE_PART, _stem(paths[index] or plan.path), index + 1, len(plans)))
-        result = _build_in_job(sw, plan, exists) if many.built else build(sw, plan, exists)
+        in_job = into is not None or bool(many.built)
+        result = _build_in_job(sw, plan, exists) if in_job else build(sw, plan, exists)
         many.built.append(result)
         if not (result.ok and result.saved):
             many.skipped = [p for p in paths[index + 1:]]
@@ -705,8 +729,8 @@ def update_variables(sw: SolidWorks, variables: Sequence[GlobalVariable], expect
                 try:
                     sw.set_global_variable(name, expression)
                     result.changed.append(name)
-                except SolidWorksError as exc:
-                    result.failures.append((f"\"{name}\"", str(exc)))
+                except Exception as exc:  # noqa: BLE001 - what was set stays listed in ``changed`` (B1)
+                    result.failures.append((f"\"{name}\"", _said(exc)))
         finally:
             sw.set_rebuild_suppressed(False)
         result.rebuilt = bool(sw.rebuild())
@@ -928,26 +952,22 @@ def _held(current: Sequence[Tuple[str, float]]) -> Dict[str, str]:
     return held
 
 
-def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str, evaluate: bool = False) -> List[Tuple[str, str]]:
-    """Open a saved document and compare it with what it should hold.
+def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tuple[str, float]],
+                                                                        Dict[str, List[Tuple[str, str]]]]:
+    """Open a saved document and read what it holds, writing nothing: its equations, and the planned changes
+    (``planned_changes``) in each trig unit, ``{DEGREES: […], RADIANS: […]}``.
 
     ``open_document`` (which also refuses a same-named document from another
     folder), then ``planned_changes`` — which raises when a global is missing
-    — and every name in ``doc.features`` looked for. Returns the planned
-    changes; every refusal is a :class:`BuildError` naming the file, worded
-    "<file> cannot be <verb>: …".
+    — and every name in ``doc.features`` looked for. Every refusal is a
+    :class:`BuildError` naming the file, worded "<file> cannot be <verb>: …".
 
-    Reuse (``evaluate`` False) writes nothing. Measuring the trig units
-    (``detect_trig_units``) adds and deletes an equation, and on SolidWorks
-    2026 (34.0.0, gearbox_smoke 2026-11-13) that alone left each reused part
-    marked modified, where opening it, reading its equations and walking its
-    features did not. A reused document must hold every expression exactly,
-    so the trig units are read from the text instead: it is accepted when it
-    holds the degree form or the radian form of every global, and the
-    sentence shows whichever differs less. An update (``evaluate`` True) is
-    about to change the document anyway, and measures, as
-    ``update_variables`` always has; the new values are evaluated in those
-    units before anything changes.
+    Nothing here measures the trig units. ``detect_trig_units`` adds and
+    deletes an equation, and on SolidWorks 2026 (34.0.0, gearbox_smoke
+    2026-11-13) that alone left each document marked modified, where opening
+    it, reading its equations and walking its features did not. So the
+    units are read from the text: a document that holds the degree form or
+    the radian form of every global holds what is asked, in those units.
     """
     name = _file(doc.path)
     sw.begin_build()
@@ -955,36 +975,72 @@ def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str, evaluate: bool =
         try:
             sw.open_document(doc.path)
             current = sw.equations()
-            if evaluate:
-                trig = sw.detect_trig_units()
-                changes = planned_changes(current, doc.variables, trig)
-            else:
-                changes = min((planned_changes(current, doc.variables, t) for t in (DEGREES, RADIANS)), key=len)
+            by_unit = {t: planned_changes(current, doc.variables, t) for t in (DEGREES, RADIANS)}
         except BuildError as exc:
             raise BuildError(f"{name} cannot be {verb}: {exc}") from None
         except SolidWorksError as exc:
             raise BuildError(str(exc)) from None
         if doc.features:
-            present = set(sw.feature_names())
+            try:
+                present = set(sw.feature_names())
+            except SolidWorksError as exc:
+                raise BuildError(f"{name} cannot be {verb}: its features could not be read: {exc}") from None
             lost = [f for f in doc.features if f not in present]
             if lost:
                 listed = ", ".join(f'"{f}"' for f in lost)
                 raise BuildError(f"{name} cannot be {verb}: {listed} {'is' if len(lost) == 1 else 'are'} no longer "
                                  "in it; it was renamed or deleted in SolidWorks.")
-        if evaluate:
-            try:
-                evaluate_all([(v.name, v.expression_for(trig)) for v in doc.variables], trig)
-            except EquationError as exc:
-                raise BuildError(f"{name} cannot be {verb}: the new values do not evaluate: {exc}") from None
-        if changes and not evaluate:
-            held = _held(sw.equations())
-            shown = "; ".join(f'"{n}" is {held.get(n, "?")} there and {e} here' for n, e in changes[:3])
-            more = f"; and {len(changes) - 3} more" if len(changes) > 3 else ""
-            raise BuildError(f"{name} does not hold what the workbook asks of it, so it cannot be {verb}: "
-                             f"{shown}{more}.")
-        return changes
+        return current, by_unit
     finally:
         sw.end_build()
+
+
+def _held_unit(by_unit: Mapping[str, Sequence[Tuple[str, str]]]) -> str:
+    """The trig unit in which a document already holds every global as asked (degrees first), or ``""``."""
+    return next((t for t in (DEGREES, RADIANS) if not by_unit[t]), "")
+
+
+def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
+    """A document to be reused, opened and checked, writing nothing (:func:`_read_live`): it must hold every
+    global exactly, in either trig unit, and every feature named; otherwise a :class:`BuildError` saying what
+    differs, in the unit that differs less."""
+    current, by_unit = _read_live(sw, doc, verb)
+    if _held_unit(by_unit):
+        return
+    changes = min((by_unit[t] for t in (DEGREES, RADIANS)), key=len)
+    held = _held(current)
+    shown = "; ".join(f'"{n}" is {held.get(n, "?")} there and {e} here' for n, e in changes[:3])
+    more = f"; and {len(changes) - 3} more" if len(changes) > 3 else ""
+    raise BuildError(f"{_file(doc.path)} does not hold what the workbook asks of it, so it cannot be {verb}: "
+                     f"{shown}{more}.")
+
+
+def _evaluates(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
+    """The new values of a document Update will change, evaluated before anything changes. They are evaluated in
+    both trig units, which needs nothing from SolidWorks; only when they evaluate in one unit and not the other is
+    the document's own unit measured (``detect_trig_units``) — it is about to change anyway — to say which."""
+    failed: Dict[str, EquationError] = {}
+    for trig in (DEGREES, RADIANS):
+        try:
+            evaluate_all([(v.name, v.expression_for(trig)) for v in doc.variables], trig)
+        except EquationError as exc:
+            failed[trig] = exc
+    if not failed:
+        return
+    if len(failed) == 1:
+        sw.begin_build()
+        try:
+            sw.open_document(doc.path)
+            trig = sw.detect_trig_units()
+        except SolidWorksError as exc:
+            raise BuildError(str(exc)) from None
+        finally:
+            sw.end_build()
+        if trig not in failed:
+            return
+    else:
+        trig = DEGREES
+    raise BuildError(f"{_file(doc.path)} cannot be {verb}: the new values do not evaluate: {failed[trig]}")
 
 
 def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], verb_made: str,
@@ -1023,7 +1079,11 @@ class GearboxResult:
     an assembly that built cleanly; a clash is a CHECK, not a failure.
     ``skipped`` says, as a phrase, what a failure left unattempted.
     ``parts.ok`` is False for an empty batch, so :attr:`ok` must not lean
-    on it when every part was reused.
+    on it when every part was reused. ``failures`` are (what, why) for a
+    raise that stopped the job between its documents (each document's own
+    failures stay on its :class:`BuildResult`): after the pre-flight nothing
+    escapes :func:`build_gearbox`, so what saved before it still reaches the
+    finish (W4 review B1).
     """
 
     parts: ManyResult = field(default_factory=ManyResult)
@@ -1035,16 +1095,17 @@ class GearboxResult:
     clashes: List[Clash] = field(default_factory=list)
     interference_error: str = ""
     skipped: str = ""
+    failures: List[Tuple[str, str]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         """Every part planned was saved, the layout saved or reused (when planned), the assembly saved (when
-        planned). Clashes do not count against it."""
+        planned), and nothing stopped the job between them. Clashes do not count against it."""
         def saved(result: Optional[BuildResult]) -> bool:
             return result is None or (result.ok and bool(result.saved))
 
         return (all(saved(r) for r in self.parts.built) and not self.parts.skipped and saved(self.layout)
-                and saved(self.assembly) and not self.skipped)
+                and saved(self.assembly) and not self.skipped and not self.failures)
 
     def _interference_ran(self) -> bool:
         return (self.assembly is not None and self.assembly.ok and bool(self.assembly.saved)
@@ -1063,6 +1124,7 @@ class GearboxResult:
         if self.assembly is not None:
             lines.extend(self.assembly.log_lines())
         lines.extend(_interference_lines(self.clashes, self.interference_error, self._interference_ran()))
+        lines.extend(f"FAIL    {what}: {why}" for what, why in self.failures)
         if self.skipped:
             lines.append(f"SKIPPED {self.skipped}")
         return lines
@@ -1158,39 +1220,69 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
         _check_live(sw, doc, "reused")
         result.checked.append(doc.path)
 
+    # From here on documents are made and saved: nothing raises out (W4 review B1). Each document's own trouble
+    # is a failure on its BuildResult (_build_in_job); anything else becomes a failure on the result, so what
+    # SolidWorks already saved still reaches the finish and the record.
+    stage = ["the parts" if parts else "the layout part" if layout_plan is not None else "the assembly"]
+    try:
+        _build_gearbox_body(sw, result, parts, layout_plan, layout_reuse, assembly, gear_of_handle, exists, say,
+                            stage)
+    except Exception as exc:  # noqa: BLE001 - see above
+        if stage[0] == "the interference check":
+            result.interference_error = _said(exc)        # a clash check that cannot run is a CHECK, not a failure
+            return result
+        result.failures.append((stage[0], _said(exc)))
+        rest = {"the parts": [p for p, planned in (("the layout part", layout_plan is not None),
+                                                    ("the assembly", assembly is not None)) if planned],
+                "the layout part": ["the assembly"] if assembly is not None else [],
+                }.get(stage[0], [])
+        if rest and not result.skipped:
+            result.skipped = f"{' and '.join(rest)}, because the job stopped during {stage[0]}"
+    return result
+
+
+def _build_gearbox_body(sw: SolidWorks, result: GearboxResult, parts: Sequence[BuildPlan],
+                        layout_plan: Optional[BuildPlan], layout_reuse: Optional[DocumentValues],
+                        assembly: Optional[BuildPlan], gear_of_handle: Mapping[str, str],
+                        exists: Callable[[str], bool], say: Callable[[Step], None], stage: List[str]) -> None:
+    """Steps 2–4 of :func:`build_gearbox`, filling ``result`` as each document finishes; ``stage[0]`` says which
+    step is under way, for the failure if something raises."""
     later = [phrase for phrase, planned in (("the layout part", layout_plan is not None),
                                             ("the assembly", assembly is not None)) if planned]
     if parts:
-        result.parts = build_many(sw, parts, exists, progress=say)
+        stage[0] = "the parts"
+        build_many(sw, parts, exists, progress=say, into=result.parts)
         if not (all(r.ok and r.saved for r in result.parts.built) and not result.parts.skipped):
             if later:
                 result.skipped = f"{' and '.join(later)}, because a part failed"
-            return result
+            return
 
     if layout_plan is not None:
+        stage[0] = "the layout part"
         say(Step(STAGE_LAYOUT, _stem(_saved_path(layout_plan))))
         result.layout = _build_in_job(sw, layout_plan, exists)
         if not (result.layout.ok and result.layout.saved):
             if assembly is not None:
                 result.skipped = "the assembly, because the layout part failed"
-            return result
+            return
     elif layout_reuse is not None:
         result.layout_reused = layout_reuse.path
 
     if assembly is None:
-        return result
+        return
+    stage[0] = "the assembly"
     stem = _stem(_saved_path(assembly))
     say(Step(STAGE_ASSEMBLY, stem))
     result.assembly = _build_in_job(sw, assembly, exists)
     result.components = dict(result.assembly.components)
     if result.assembly.ok and result.assembly.saved and getattr(findings, "INTERFERENCE_CHECKED", False):
+        stage[0] = "the interference check"
         say(Step(STAGE_INTERFERENCE, stem))
         gear_of = {name: gear_of_handle.get(handle, name) for handle, name in result.components.items()}
         try:
             result.clashes = _clashes(sw.interferences(), gear_of)
-        except SolidWorksError as exc:
-            result.interference_error = str(exc)
-    return result
+        except Exception as exc:  # noqa: BLE001 - a clash check that cannot run is a CHECK, never a failure
+            result.interference_error = _said(exc)
 
 
 REPLACE_ROUTES = ("Transform2 put", "UnfixComponent, Transform2 put, FixComponent")   # REPLACE_FIXED_ROUTE
@@ -1209,6 +1301,11 @@ class GearboxUpdate:
     re-placed because ``found`` differed from the wanted frame
     (:func:`same_frame`, modulo the gear's pitch). ``rebuilt`` is the
     assembly's one rebuild. ``failures`` are (what, why) in the order met.
+    ``mtimes`` is each document's file time as read before the job changed
+    anything (path -> ``os.path.getmtime``; a file whose time could not be
+    read is left out): the finish marks a changed document unsaved at that
+    time, so a save made in SolidWorks while the job was answering still
+    reads as newer (W4 review nit).
     """
 
     parts: List[UpdateResult] = field(default_factory=list)
@@ -1221,6 +1318,7 @@ class GearboxUpdate:
     failures: List[Tuple[str, str]] = field(default_factory=list)
     changed: List[str] = field(default_factory=list)
     skipped: str = ""
+    mtimes: Dict[str, float] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -1266,8 +1364,8 @@ def _update_document(sw: SolidWorks, doc: DocumentValues) -> Tuple[UpdateResult,
     try:
         sw.open_document(doc.path)
         result = update_variables(sw, doc.variables, doc.path)
-    except SolidWorksError as exc:
-        return UpdateResult(document=name), [(name, str(exc))]
+    except Exception as exc:  # noqa: BLE001 - a raise is this document's failure, never the job's (B1)
+        return UpdateResult(document=name), [(name, _said(exc))]
     failures = [(f"{name} {what}", why) for what, why in result.failures]
     if result.changed and not result.rebuilt:
         failures.append((name, f"SolidWorks reported an error rebuilding {_stem(doc.path)}."))
@@ -1277,7 +1375,8 @@ def _update_document(sw: SolidWorks, doc: DocumentValues) -> Tuple[UpdateResult,
 def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout: Optional[DocumentValues] = None,
                    assembly: str = "", placements: Sequence[Placement] = (), *,
                    exists: Callable[[str], bool] = os.path.exists,
-                   progress: Optional[Callable[[Step], None]] = None) -> GearboxUpdate:
+                   progress: Optional[Callable[[Step], None]] = None,
+                   mtime: Callable[[str], float] = os.path.getmtime) -> GearboxUpdate:
     """Update SolidWorks from the workbook: part values, the layout's globals, and the static assembly's
     components re-placed (PLAN-WORKBOOK §4.5), in one worker job and in two phases, so a missing piece changes
     nothing.
@@ -1286,23 +1385,35 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     missing, a same-named document is open from another folder, a document
     lacks a global it should hold (``planned_changes`` raises), or a
     component is not found by its recorded ``Name2``. Each document is opened
-    with ``open_document`` (decision: Update always opens and activates).
+    with ``open_document`` (decision: Update always opens and activates) and
+    read, writing nothing (:func:`_read_live`); each file's time is noted
+    first (``mtime``, into :attr:`GearboxUpdate.mtimes`).
 
-    *Change* — each part, then the layout: ``open_document`` then
-    :func:`update_variables`; the first failure stops. Then the assembly
-    (when ``assembly`` is given, even with nothing to move: a teeth change
-    alters the mesh): ``open_document``, ``find_component`` each, read
+    *Change* — each part, then the layout, that does not already hold what
+    it should: ``open_document`` then :func:`update_variables`; the first
+    failure stops. A document the check found holding every global already
+    (in either trig unit) is not touched at all: no trig units measured, no
+    equation added, nothing set (W4 review S2: on SolidWorks 2026 measuring
+    the units alone left every part marked modified, so every Update asked
+    for saves of parts it had not changed). Then the assembly, when
+    ``assembly`` is given: ``open_document``, ``find_component`` each, read
     ``component_frame``, re-place only those not :func:`same_frame` (with
-    Unfix/Fix around it if ``findings.REPLACE_FIXED_ROUTE`` asks), one
-    ``rebuild``, then ``interferences``.
+    Unfix/Fix around it if ``findings.REPLACE_FIXED_ROUTE`` asks); then, if
+    any document changed or any gear was re-placed (a teeth change alters
+    the mesh), one ``rebuild`` and ``interferences`` — with nothing changed,
+    the assembly is only read.
 
     Compares with SolidWorks live, never with the record, so an update the
     user never saved, or a component they dragged, is put right on the next
-    press. Saves nothing and closes nothing. Runs on the worker thread.
+    press. Saves nothing and closes nothing. After the check phase nothing
+    raises out: a raise becomes a failure on the result, so what was changed
+    is still reported and recorded unsaved (W4 review B1). Runs on the worker
+    thread.
 
     The check phase also refuses: placements with no assembly; one
     component recorded for two gears; a layout plane or axis no longer in
-    the layout; new values that do not evaluate; re-placing while
+    the layout; new values that do not evaluate (:func:`_evaluates`, in both
+    trig units, measuring only when they differ); re-placing while
     ``REPLACE_FIXED_ROUTE`` is not one of :data:`REPLACE_ROUTES` (probe
     layout_assembly_reopen, 2026: a Transform2 put moved a FIXED component
     and the frame survived a save and reopen, so "Transform2 put"). When
@@ -1342,12 +1453,19 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
         raise BuildError(f"Close {_file(assembly)} in SolidWorks, then press Update SolidWorks again: changing a "
                          "part while its assembly is open has not been settled on this SolidWorks "
                          "(findings.OPEN_PART_BESIDE_ASSEMBLY).")
+    for path in paths:
+        try:
+            result.mtimes[path] = float(mtime(path))
+        except (OSError, ValueError, TypeError):
+            pass
 
-    # -- check: opens and reads, changes nothing it keeps
+    # -- check: opens and reads, writes nothing
     total = len(paths)
+    holds: List[str] = []           # per document: the trig unit it already holds every global in, or ""
     for index, doc in enumerate(documents, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, total))
-        _check_live(sw, doc, "updated", evaluate=True)
+        _, by_unit = _read_live(sw, doc, "updated")
+        holds.append(_held_unit(by_unit))
     if assembly and (beside or not documents):
         say(Step(STAGE_CHECK, _stem(assembly), total, total))
         sw.begin_build()
@@ -1359,12 +1477,41 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
             raise BuildError(str(exc)) from None
         finally:
             sw.end_build()
+    for doc, unit in zip(documents, holds):
+        if not unit:
+            _evaluates(sw, doc, "updated")
 
-    # -- change: values first, then the assembly
+    # -- change: values first, then the assembly. Nothing raises out from here (B1).
+    stage = [_file(documents[0].path) if documents else _file(assembly)]
+    try:
+        _update_change(sw, result, parts, layout, documents, holds, assembly, placements, route, say, stage)
+    except Exception as exc:  # noqa: BLE001 - see above
+        result.failures.append((stage[0], _said(exc)))
+        if not result.skipped and assembly and stage[0] != _file(assembly):
+            result.skipped = f"the assembly, because the job stopped during {stage[0]}"
+    finally:
+        if result.placed and assembly not in result.changed:
+            result.changed.append(assembly)
+    return result
+
+
+def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[DocumentValues],
+                   layout: Optional[DocumentValues], documents: Sequence[DocumentValues], holds: Sequence[str],
+                   assembly: str, placements: Sequence[Placement], route: Optional[str],
+                   say: Callable[[Step], None], stage: List[str]) -> None:
+    """The change phase of :func:`update_gearbox`, filling ``result`` as it goes; ``stage[0]`` names the document
+    under way, for the failure if something raises."""
     for position, doc in enumerate(documents):
-        say(Step(STAGE_VALUES, _stem(doc.path)))
-        done, failures = _update_document(sw, doc)
+        stage[0] = _file(doc.path)
         in_parts = position < len(parts)
+        if holds[position]:
+            # It already holds every global as asked: left as it is, not even its trig units measured (S2).
+            done = UpdateResult(document=_file(doc.path), unchanged=[v.name for v in doc.variables],
+                                trig=holds[position])
+            failures: List[Tuple[str, str]] = []
+        else:
+            say(Step(STAGE_VALUES, _stem(doc.path)))
+            done, failures = _update_document(sw, doc)
         if in_parts:
             result.parts.append(done)
         else:
@@ -1382,10 +1529,11 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
             if left:
                 listed = left[0] if len(left) == 1 else ", ".join(left[:-1]) + f" and {left[-1]}"
                 result.skipped = f"{listed}, because {_file(doc.path)} failed"
-            return result
+            return
 
     if not assembly:
-        return result
+        return
+    stage[0] = _file(assembly)
     stem = _stem(assembly)
     say(Step(STAGE_PLACE, stem))
     sw.begin_build()
@@ -1414,9 +1562,9 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
                         sw.fix_component(handle)
             finally:
                 sw.set_rebuild_suppressed(False)
-        except SolidWorksError as exc:
-            result.failures.append((_file(assembly), str(exc)))
-        if opened:
+        except Exception as exc:  # noqa: BLE001 - the assembly's failure; what was placed stays listed (B1)
+            result.failures.append((_file(assembly), _said(exc)))
+        if opened and (result.changed or result.placed):
             result.rebuilt = bool(sw.rebuild())
             if not result.rebuilt:
                 result.failures.append((_file(assembly), f"SolidWorks reported an error rebuilding {stem}."))
@@ -1425,10 +1573,7 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
             gear_of = {p.component: p.gear for p in placements}
             try:
                 result.clashes = _clashes(sw.interferences(), gear_of)
-            except SolidWorksError as exc:
-                result.interference_error = str(exc)
+            except Exception as exc:  # noqa: BLE001 - a clash check that cannot run is a CHECK, never a failure
+                result.interference_error = _said(exc)
     finally:
-        if result.placed:
-            result.changed.append(assembly)
         sw.end_build()
-    return result
