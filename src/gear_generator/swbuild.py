@@ -104,7 +104,7 @@ class SolidWorks(Protocol):
     # W5 (the workbook gearbox that turns): new in swcom.Session, each docstring there says what it does. ``add_mate``
     # also takes kind "lock" (bare handles, anchor first: gears.base.Mate) and keeps AddMate5's status.
     def mate_status(self, name: str) -> Optional[int]: ...
-    def mate_states(self) -> List[MateState]: ...
+    def mate_states(self, *, others: Optional[List[str]] = None) -> List[MateState]: ...
     def constrained_status(self, handle: str) -> int: ...
     def find_mate(self, handle: str, name: str) -> str: ...
     def set_mate_suppressed(self, handle: str, suppressed: bool) -> None: ...
@@ -225,20 +225,43 @@ def _gate(sw: SolidWorks) -> None:
         raise BuildError(f"Building needs SolidWorks {release_year(MINIMUM_MAJOR)} or newer.")
 
 
+_SET = object()     # a finding that must merely be in findings.py (not None), whatever its value
+
 # What a train's mate check reads (findings.py, "the workbook gearbox that turns (tier 8)"): AddMate5's status, the
-# mates found by walking the MateGroup, and each gear's constrained status.
-TRAIN_CHECK_FINDINGS = ("ADD_MATE_NO_ERROR", "ADD_MATE_OVER_DEFINED", "COMPONENT_UNDER_DEFINED",
-                        "COMPONENT_FULLY_DEFINED", "COMPONENT_OVER_DEFINED", "MATE_FIND_ROUTE")
+# mates found by walking the MateGroup (their suppression read in this configuration), and each gear's constrained
+# status — as (finding, the value it must have).
+TRAIN_CHECK_FINDINGS = (("ADD_MATE_NO_ERROR", _SET), ("ADD_MATE_OVER_DEFINED", _SET), ("COMPONENT_UNDER_DEFINED", _SET),
+                        ("COMPONENT_FULLY_DEFINED", _SET), ("COMPONENT_OVER_DEFINED", _SET),
+                        ("MATE_FIND_ROUTE", "mate group"), ("THIS_CONFIGURATION", _SET))
+# What a train's plan makes, beyond the check: a lock (swcom.Session._lock_mate), a mate given a name.
+LOCK_FINDINGS = (("COMPOUND_LOCK_ROUTE", "lock alone"), ("LOCK_SELECT_ROUTE", "Select4 with a mark-1 select data"),
+                 ("MATE_LOCK", _SET), ("MATE_ALIGN_CLOSEST", _SET))
+RENAME_FINDINGS = (("MATE_RENAME_ROUTE", "IFeature.Name put"),)
 
 
-def _train_gate() -> None:
-    """Refuse, before anything is made or changed, a train whose mates could not be checked: every finding of
-    :data:`TRAIN_CHECK_FINDINGS` must be in findings.py (read with getattr), with the MateGroup walk as the route."""
-    for name in TRAIN_CHECK_FINDINGS:
+def _settled(needed: Sequence[Tuple[str, object]]) -> Optional[Tuple[str, object]]:
+    """The first (finding, its value) of ``needed`` that is missing, None, or not the value it must have."""
+    for name, wanted in needed:
         value = getattr(findings, name, None)
-        if value is None or (name == "MATE_FIND_ROUTE" and value != "mate group"):
-            raise BuildError(f"How SolidWorks says a mate is sound has not been settled yet (findings.{name} is "
-                             f"{value!r}), so no gearbox built to turn is made or changed; run probe tier 8 first.")
+        if value is None or (wanted is not _SET and value != wanted):
+            return name, value
+    return None
+
+
+def _train_gate(plan: Optional[BuildPlan] = None) -> None:
+    """Refuse, before anything is made or changed in SolidWorks, a train whose SolidWorks calls are not all settled:
+    every finding of :data:`TRAIN_CHECK_FINDINGS`, and for ``plan`` the lock findings when it locks a gear and the
+    rename finding when it names a mate (each read with getattr)."""
+    needed = list(TRAIN_CHECK_FINDINGS)
+    mates = [op for op in plan.ops if isinstance(op, base.Mate)] if plan is not None else []
+    if any(op.kind == "lock" for op in mates):
+        needed += LOCK_FINDINGS
+    if any(op.name for op in mates):
+        needed += RENAME_FINDINGS
+    missing = _settled(needed)
+    if missing is not None:
+        raise BuildError(f"A gearbox built to turn needs findings.{missing[0]} settled on SolidWorks (it is "
+                         f"{missing[1]!r}), so nothing is made or changed; run probe tier 8 first.")
 
 
 def _assembly_rebuild_gate(kind: str) -> None:
@@ -525,7 +548,7 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     if isinstance(first, base.NewAssembly):
         _assembly_rebuild_gate(kind)
         if kind == ASSEMBLY_TRAIN:
-            _train_gate()
+            _train_gate(plan)
     save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
     if save is not None and save.path and exists(save.path):
         raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
@@ -544,7 +567,9 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
             _run(sw, plan, result, kind, made)
             result.rebuilt = bool(sw.rebuild(kind=kind))
             _verify(sw, plan, result)
-            if kind == ASSEMBLY_TRAIN and not result.stopped_at:
+            # A failed rebuild is an ordinary failed build (a component may be at fault): nothing is read as a mate
+            # problem from it, so it never holds Build back.
+            if kind == ASSEMBLY_TRAIN and not result.stopped_at and result.rebuilt:
                 _check_mates(sw, plan, result, made, gears or {})
         except Exception as exc:  # noqa: BLE001 - the document is made: every problem is now a failure (B1)
             result.failures.append(("the build", _said(exc)))
@@ -1766,7 +1791,7 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     if assembly is not None:
         _assembly_rebuild_gate(workbook_assembly_kind(assembly))
         if workbook_assembly_kind(assembly) == ASSEMBLY_TRAIN:
-            _train_gate()
+            _train_gate(assembly)
     plans = list(parts) + [p for p in (layout_plan, assembly) if p is not None]
     for plan in plans:
         problems = plan.check()
@@ -2284,9 +2309,16 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
 MOTION_UPDATE_FINDINGS = (
     ("MESH_PHASE_ROUTE", "Transform2 put with the gear mate on", "putting a gear with its gear mate on", ""),
     ("SUPPRESSION_ROUTE", "SetSuppression2 this configuration, None", "suppressing a mate and turning it back on", ""),
+    ("FEATURE_SUPPRESS", _SET, "suppressing a mate and turning it back on", ""),
+    ("FEATURE_UNSUPPRESS", _SET, "suppressing a mate and turning it back on", ""),
+    ("THIS_CONFIGURATION", _SET, "suppressing a mate and turning it back on", ""),
     ("LAYOUT_MOVE_CARRIES_MATES", True, "a mated gear following its shaft when the layout moves", ""),
     ("LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE", True, "a lock keeping the angle a gear was put at", "locks"),
     ("AXIAL_GLOBAL_MOVES_GEAR", True, "a gear moved along its shaft by its Face Z global", "face_globals"),
+    ("GEAR_MATE_RATIO_REMAKE_WORKS", True, "making a gear mate again at a new ratio", "ratios"),
+    ("MATE_DELETE_ROUTE", "Select2 then EditDelete()", "making a gear mate again at a new ratio", "ratios"),
+    ("MATE_RENAME_ROUTE", "IFeature.Name put", "making a gear mate again at a new ratio", "ratios"),
+    ("GEAR_MATE_FLIP", _SET, "making a gear mate again at a new ratio", "ratios"),
 )
 
 
@@ -2296,7 +2328,7 @@ def _motion_gate(motion: MotionUpdate) -> None:
         if needed_for and not getattr(motion, needed_for):
             continue
         value = getattr(findings, name, None)
-        if value != wanted:
+        if value is None or (wanted is not _SET and value != wanted):
             raise BuildError(f"Update SolidWorks on a gearbox built to turn needs {what} settled on SolidWorks "
                              f"(findings.{name} is {value!r}), so nothing is changed; run probe tier 8 first.")
     route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
@@ -2448,7 +2480,16 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
             result.found[placement.gear] = (tuple(rotation), tuple(at))
         for index, mate in enumerate(motion.mates, 1):
             sw.find_mate(f"mate{index}", mate.name)
-        result.mates = list(sw.mate_states())
+        others: List[str] = []
+        result.mates = list(sw.mate_states(others=others))
+        if others:
+            listed = ", ".join(f'"{name}"' for name in others)
+            one = len(others) == 1
+            raise BuildError(f"{_file(assembly)} holds {listed} among its mates, which {'is' if one else 'are'} not "
+                             f"{'a mate' if one else 'mates'}, and how Update SolidWorks would read "
+                             f"{'it' if one else 'them'} (a folder of mates, say) has not been settled, so nothing is "
+                             f"changed; move the mates out of {listed} in SolidWorks (or delete "
+                             f"{'it' if one else 'them'} if empty) and press Update SolidWorks again.")
         for state in result.mates:
             if state.name in recorded_names:
                 if state.suppressed:
@@ -2492,6 +2533,7 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
 
     # -- change: nothing raises out from here (B1)
     stage = [_file(documents[0].path) if documents else _file(assembly)]
+    touched = [False]        # a change was asked of the assembly (it is then marked modified, even if the call failed)
     try:
         if not _update_values(sw, result, parts, layout, documents, holds, assembly, say, stage):
             stage[0] = _file(assembly)
@@ -2499,7 +2541,7 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
             sw.begin_build()
             try:
                 _motion_assembly(sw, result, assembly, placements, motion, mated, route, suppressed, axial,
-                                 turned_back, say)
+                                 turned_back, say, touched)
             finally:
                 sw.end_build()
     except _LocksLeftOff:
@@ -2509,7 +2551,8 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
         if not result.skipped and stage[0] != _file(assembly):
             result.skipped = f"the assembly, because the job stopped during {stage[0]}"
     finally:
-        if (result.unsuppressed or result.axial or result.placed or result.ratios) and assembly not in result.changed:
+        if (touched[0] or result.unsuppressed or result.axial or result.placed or result.ratios) \
+                and assembly not in result.changed:
             result.changed.append(assembly)
     return result
 
@@ -2521,7 +2564,7 @@ class _LocksLeftOff(Exception):
 def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, placements: Sequence[Placement],
                      motion: MotionUpdate, mated: Sequence[str], route: Optional[str], suppressed: Sequence[str],
                      axial: Sequence[Tuple[str, GlobalVariable]], turned_back: Mapping[str, bool],
-                     say: Callable[[Step], None]) -> None:
+                     say: Callable[[Step], None], touched: List[bool]) -> None:
     """Steps 2-7 of the motion path's change phase, in the build begun by :func:`_update_motion`."""
     file, stem = _file(assembly), _stem(assembly)
     sw.open_document(assembly)
@@ -2548,9 +2591,11 @@ def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, place
         rebuild()
     # 3-4. recorded mates found suppressed turned back on (D10); each differing Face Z set; one rebuild, before any put
     for name in suppressed:
+        touched[0] = True
         sw.set_mate_suppressed(mate_handle[name], False)
         result.unsuppressed.append(name)
     for gear, variable in axial:
+        touched[0] = True
         sw.set_global_variable(variable.name, variable.expression_for(DEGREES))
         result.axial.append(gear)
     if result.unsuppressed or result.axial:
@@ -2571,7 +2616,7 @@ def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, place
             needed = not here.in_step or bool(ratios)
         if not needed:
             continue
-        _put_train(sw, result, motion, train, locks, ratios, handle, mate_handle, wanted, rebuild, file)
+        _put_train(sw, result, motion, train, locks, ratios, handle, mate_handle, wanted, rebuild, file, touched)
         put_trains.append(train)
         dirty[0] = dirty[0] or not locks
         restored = tuple(g for g in train if turned_back.get(g))
@@ -2582,6 +2627,7 @@ def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, place
         if placement.gear in mated or same_frame(live[placement.gear][0], live[placement.gear][1], placement.rotation,
                                                  placement.at, placement.pitch):
             continue
+        touched[0] = True
         if unfix:
             sw.unfix_component(handle[placement.gear])
         sw.place_component(handle[placement.gear], placement.rotation, placement.at, kind=ASSEMBLY_TRAIN)
@@ -2628,32 +2674,47 @@ def _motion_assembly(sw: SolidWorks, result: GearboxUpdate, assembly: str, place
 def _put_train(sw: SolidWorks, result: GearboxUpdate, motion: MotionUpdate, train: Sequence[str],
                locks: Sequence[LockLink], ratios: Sequence[Tuple[str, int, int]], handle: Mapping[str, str],
                mate_handle: Mapping[str, str], wanted: Mapping[str, Frame9], rebuild: Callable[[], None],
-               file: str) -> None:
+               file: str, touched: List[bool]) -> None:
     """One train put back whole: every lock of it suppressed (a lock does not hold against a put: W5-DECISIONS),
     a rebuild, its ratios remade, EVERY mated gear of it put (review M1), then — whatever happened — every lock
     turned back on and a rebuild (review M8). A lock that will not come back on is a failure naming the compound
-    gears, and stops the job (:class:`_LocksLeftOff`); what raised inside is raised again once the locks are tried."""
+    gears, and stops the job (:class:`_LocksLeftOff`); what raised inside is raised again once the locks are tried.
+
+    A lock counts as tried the moment its suppression is asked for, so one whose suppression took before the call
+    raised (a read-back that failed) is still turned back on. Turning back on, each lock is read first and one that
+    reads not suppressed is skipped, never called: unsuppressing a lock that is on has not been probed."""
     off: List[LockLink] = []
     pending: Optional[BaseException] = None
     try:
         for lock in locks:
-            sw.set_mate_suppressed(mate_handle[_lock_mate_name(motion, lock)], True)
             off.append(lock)
+            touched[0] = True
+            sw.set_mate_suppressed(mate_handle[_lock_mate_name(motion, lock)], True)
         if off:
             rebuild()
         for name, numerator, denominator in ratios:
             a, b = next(m.gears for m in motion.mates if m.name == name)
+            touched[0] = True
             sw.set_gear_ratio(mate_handle[name], f"{handle[a]}:{AXIS_NAME}", f"{handle[b]}:{AXIS_NAME}",
                               (numerator, denominator))
             result.ratios.append(name)
         for gear in train:
+            touched[0] = True
             sw.place_component(handle[gear], wanted[gear][0], wanted[gear][1], kind=ASSEMBLY_TRAIN)
             result.placed.append(gear)
     except BaseException as exc:  # noqa: BLE001 - raised again below, once the locks are back on
         pending = exc
     left_off = False
+    states: Optional[Dict[str, MateState]] = None
+    if off:
+        try:
+            states = {state.name: state for state in sw.mate_states()}
+        except Exception:  # noqa: BLE001 - unread: each lock is turned back on, as if it read suppressed
+            states = None
     for lock in off:
         name = _lock_mate_name(motion, lock)
+        if states is not None and name in states and not states[name].suppressed:
+            continue
         try:
             sw.set_mate_suppressed(mate_handle[name], False)
         except Exception as exc:  # noqa: BLE001 - review M8: said, never lost
