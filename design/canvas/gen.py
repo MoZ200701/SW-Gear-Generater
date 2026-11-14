@@ -824,11 +824,13 @@ def question_dialog(title, text):
 
 
 def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, choose=None, desk=None, note=None,
-                   ask=False, copy=False):
+                   ask=False, copy=False, where="", dialog=None, building=None):
     """The window after reading ``spec`` (changes listed against ``before``); ``choose`` picks offered fixes
     (``(field, index)``) as if their buttons were pressed; ``desk`` is what has been built before (its record and
-    disk), and ``note`` the last job's sentence; ``ask`` draws the Build again? question the build button asks;
-    ``copy`` reads a copy of the workbook in a folder of its own, at ``C:\\Copy``."""
+    disk), and ``note`` the last job's sentence; ``ask`` draws the Build again? question the build button asks,
+    and ``dialog`` any other ``(title, question)``; ``copy`` reads a copy of the workbook in a folder of its own,
+    shown at ``C:\\<where>`` (``Copy`` unless given); ``building`` is a job's last ``swbuild.Step``, with the window
+    closed once (WorkbookWindow.close: it stays, and says it closes once the job is on record)."""
     path, read_spec, read_diagnostics, digest = read_workbook(spec, copy)
     folder = read_spec.box.output_folder
     desk = desk or Desk()
@@ -851,7 +853,9 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     covered = wb_link.covered_by_fix(did, report) if chosen else []
     build_plan, update, record = planned(state, desk.record, desk.disk)
     footer = ui_text.workbook_footer(state, record=record, plan=build_plan, update=update, folder=folder,
-                                     folder_exists=True, note=note)
+                                     folder_exists=True, note=note, building=building is not None, progress=building)
+    if building is not None:                                            # WorkbookWindow._refresh_state, closing
+        footer = dataclasses.replace(footer, text=f"{footer.text} {ui_text.closes_when_done()}")
     name = os.path.basename(path)
 
     header = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
@@ -862,7 +866,7 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
               f'{ui_text.workbook_built_tag(record, digest)}</span></div>'
               f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Open in Excel")}{button("Re-read")}</div></div>')
     mono = f'font-family: {MONO}; font-size: 11.5px; color: {INK};'
-    file_text = ui_text.short_path(f"C:\\{'Copy' if copy else 'Parts'}\\{name}", wb_gui.PATH_CHARS)
+    file_text = ui_text.short_path(f"C:\\{where or ('Copy' if copy else 'Parts')}\\{name}", wb_gui.PATH_CHARS)
     box = panel("Workbook", ui_text.workbook_counts(effective), [
         row(label("File"), f'<span style="{mono}">{file_text}</span>'),
         row(label("Name"), f'<span style="{mono}">{effective.box.name}</span>'),
@@ -871,7 +875,8 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
         row(label("Worked out as"), f'<span style="font-size: 12.5px; color: {INK};">{report.worked_out_as or "—"}</span>'),
     ], gap=2)
     gears = panel("Gears", ui_text.workbook_parts_readout(parts, record=record),
-                  [gears_table(ui_text.workbook_gear_rows(effective, parts, diagnostics, record=record, update=update))])
+                  [gears_table(ui_text.workbook_gear_rows(effective, parts, diagnostics, record=record, update=update,
+                                                          plan=build_plan))])
     checks = panel("Checks", ui_text.workbook_checks_readout(diagnostics),
                    check_lines(diagnostics, report.fixes, chosen), gap=4)
     since = panel("Since the last read", ui_text.workbook_changes_readout(changes, clock),
@@ -904,9 +909,10 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     body = (header + f'<div style="display: flex; gap: 8px; align-items: flex-start;">{left}{right}</div>' + foot)
     window = column(body, width=WINDOW_WIDTH, pad=wb_gui.BODY_PAD)
     if ask:
+        dialog = (ui_text.BUILD_AGAIN_TITLE, ui_text.build_again_question(update, build_plan))
+    if dialog is not None:
         window = (f'<div style="position: relative; width: {WINDOW_WIDTH}px;">{window}'
-                  + question_dialog(ui_text.BUILD_AGAIN_TITLE, ui_text.build_again_question(update, build_plan))
-                  + '</div>')
+                  + question_dialog(*dialog) + '</div>')
     return HEAD + window + "\n" + TAIL
 
 
@@ -1036,9 +1042,11 @@ arcs = wb_model.replace(reducer, gears=(wb_model.replace(reducer.gears[0], flank
 boards["WorkbookAgain"] = ("Workbook · a change that needs a new part, and Build again?",
                            workbook_board(arcs, before=reducer, desk=built_desk, ask=True), WINDOW_WIDTH)
 # The W4 review's rework of the footer, in the two states it found worst or new. After Update, not yet saved,
-# G1's bore cleared (the demonstration's structural step, its window log's state 06): the save asked once, both
-# buttons on, and G2's part made new by the new revision until Gear_m1.5_N68 is saved. And the reducer's folder
-# copied whole, workbook and record: the record is the original's, so Build makes the copy's own gearbox.
+# G1's bore cleared (the demonstration's structural step, its window log's state 06): the save asked once — as
+# what may no longer be possible, since the second review — both buttons on, and G2's part made new by the new
+# revision while Gear_m1.5_N68's changes are not saved. And the reducer's folder copied whole, workbook and
+# record: the record is the original's, so Build makes the copy's own gearbox, each part under the name it will
+# have (the Gears table shows plan.part_of since the second review).
 bored = wb_model.replace(edited, gears=(wb_model.replace(edited.gears[0], bore=""),) + edited.gears[1:])
 boards["WorkbookUnsaved"] = ("Workbook · after Update, not yet saved, a change that needs a new part",
                              workbook_board(bored, before=edited, desk=updated_desk), WINDOW_WIDTH)
@@ -1052,6 +1060,21 @@ for key, sidecar in list(copy_desk.disk.sidecars.items()):
 copy_desk.record = dataclasses.replace(copying.deepcopy(built_desk.record), workbook=original)
 boards["WorkbookCopy"] = ("Workbook · a copied workbook, the original still there",
                           workbook_board(reducer, desk=copy_desk, copy=True), WINDOW_WIDTH)
+# The second review's two questions over the window. The reducer's folder moved by hand, the original's path gone:
+# whose the record is is not taken for granted, and the window asks once (N1c), Build planning a gearbox of its
+# own until the answer. And the window closed a second time while SolidWorks does not answer its build (N4.3).
+moved_desk = Desk()
+moved_desk.disk = copying.deepcopy(copy_desk.disk)
+moved_desk.disk.files.discard(_key(original))                          # the original is not there any more
+moved_desk.record = copying.deepcopy(copy_desk.record)
+boards["WorkbookMoved"] = ("Workbook · its record's workbook gone: moved, or a copy?",
+                           workbook_board(reducer, desk=moved_desk, copy=True, where="Moved",
+                                          dialog=(ui_text.MOVED_TITLE, ui_text.moved_question("", original))),
+                           WINDOW_WIDTH)
+boards["WorkbookCloseAnyway"] = ("Workbook · closed twice while SolidWorks does not answer",
+                                 workbook_board(reducer, building=swbuild.Step(swbuild.STAGE_PART, "Gear_m1.5_N68", 2, 4),
+                                                dialog=(ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question())),
+                                 WINDOW_WIDTH)
 
 layout = []
 x = 0
