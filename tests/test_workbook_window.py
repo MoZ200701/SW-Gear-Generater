@@ -146,7 +146,8 @@ def unexpected_question(parent, title, text):
 # no route to change a gear mate's ratio: a tooth change of a turning gearbox needs Build again… unless a test sets
 # GEAR_MATE_RATIO_ROUTE to "remake" itself (both branches are tested below).
 W5_FINDINGS = {"GEAR_MATE_RATIO_ROUTE": None, "GEAR_MATE_RATIO_REMAKE_WORKS": True, "LOCK_RETAKES_AN_OFFSET": True,
-               "MATED_ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(True)"}
+               "MATED_ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(True)",
+               "MATED_BUILD_REBUILD_ROUTE": "ForceRebuild3(True)"}
 
 
 @pytest.fixture(autouse=True)

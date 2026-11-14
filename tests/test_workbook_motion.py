@@ -84,6 +84,7 @@ def settled_findings(monkeypatch):
     """The findings a probe round may still change, pinned (none of these tests leans on the committed value)."""
     for name, value in {"GEAR_MATE_RATIO_ROUTE": None, "LOCK_RETAKES_AN_OFFSET": True,
                         "MATED_ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(True)",
+                        "MATED_BUILD_REBUILD_ROUTE": "ForceRebuild3(True)",
                         "GEAR_MATE_RATIO_REMAKE_WORKS": True}.items():
         monkeypatch.setattr(findings, name, value, raising=False)
 
