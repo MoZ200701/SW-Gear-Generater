@@ -1,0 +1,1849 @@
+attach  SolidWorks 2024 (revision 32.5.0), PID 11592
+scratch C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042
+pass    attach  (0.0 s)
+  fact   revision = '32.5.0'
+  fact   version = 'SolidWorks 2024 (revision 32.5.0)'
+  ok     revision 32.5.0 is SolidWorks 2024 or newer
+  fact   open_at_start = []
+pass    templates  (0.0 s)
+  try    GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Part.prtdot'
+  try    GetUserPreferenceStringValue(8): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Part.prtdot'
+  ok     a part template exists on disk
+  fact   part_template_route = 'GetDocumentTemplate'
+  fact   part_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Part.prtdot'
+  ok     the part template is a .prtdot file
+  try    GetDocumentTemplate(2, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Assembly.asmdot'
+  try    GetUserPreferenceStringValue(9): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Assembly.asmdot'
+  ok     a assembly template exists on disk
+  fact   assembly_template_route = 'GetDocumentTemplate'
+  fact   assembly_template = 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Assembly.asmdot'
+  ok     the assembly template is a .asmdot file
+pass    new_document  (4.1 s)
+  fact   new_part_title = 'Part1'
+  ok     NewDocument from the part template makes a part
+  ok     the new part is the active document
+  fact   plane_names_in_tree_order = ['Front Plane', 'Top Plane', 'Right Plane']
+  ok     the part has exactly three reference planes
+  fact   new_part_features = [('Comments', 'CommentsFolder'), ('Favorites', 'FavoriteFolder'), ('History', 'HistoryFolder'), ('Selection Sets', 'SelectionSetFolder'), ('Sensors', 'SensorFolder'), ('Design Binder', 'DocsFolder'), ('Annotations', 'DetailCabinet'), ('Surface Bodies', 'SurfaceBodyFolder'), ('Solid Bodies', 'SolidBodyFolder'), ('Lights and Cameras', 'EnvFolder'), ('Markups', 'InkMarkupFolder'), ('Equations', 'EqnFolder'), ('Material <not specified>', 'MaterialFolder'), ('Front Plane', 'RefPlane'), ('Top Plane', 'RefPlane'), ('Right Plane', 'RefPlane'), ('Origin', 'OriginProfileFeature')]
+  fact   new_part_path = ''
+pass    equation_add  (1.1 s)
+  ok     GetEquationMgr returns an equation manager
+  try    AngularEquationUnits: returned 1
+  fact   angular_equation_units_property = 1
+  fact   equations_in_new_part = 0
+  try    Add2: returned 0
+  ok     some documented way of adding a global works
+  fact   add3_form = 'Add2'
+  ok     Add2 at index -1 appends, returning 0
+  ok     GetCount goes up by one
+  fact   equation_text_readback = '"Probe A"= 2.5'
+  ok     Equation(i) reads back '"Probe A"= 2.5'
+  ok     Value(i) reads back 2.5
+  ok     GlobalVariable(i) says it is a global
+  fact   delete_returns = 0
+  ok     Delete(i) removes it again
+  try    Add3 on a one-configuration part, all configurations, None: returned -1
+  fact   add3_single_configuration_returns = -1
+pass    equation_set  (1.4 s)
+  ok     two linked globals are added
+  try    indexed put Equation(i): returned None
+  ok     indexed put Equation(i): the dependent global follows to 10.0
+  try    SetEquationAndConfigurationOption: returned -1
+  note   SetEquationAndConfigurationOption: the dependent global reads 10.0 (does not follow)
+  fact   equation_set_routes = ['indexed put Equation(i)']
+  ok     at least one way of changing a global's value works
+pass    document_units  (1.0 s)
+  note   C:\ProgramData\SOLIDWORKS\SOLIDWORKS 2026\templates\Part.PRTDOT is from a newer release than this session; not tried
+  fact   units_default = {'path': 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Part.prtdot', 'linear': 0, 'system': 4}
+  fact   mm_templates = ['C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2024\\templates\\Part.prtdot']
+  fact   default_template_is_mm = True
+  fact   set_mmgs_works = False
+  ok     a new part can be had in millimetres
+pass    sketch_open_close  (4.1 s)
+  try    IFeature.Select2(False, 0) on the first RefPlane: returned True
+  fact   select2_plane = {'returned': True, 'selected': 1}
+  try    SelectByID2("Front Plane", "PLANE", ...) with the name read from the tree: returned True
+  fact   select_by_id2_plane_tree_name = {'returned': True, 'selected': 1}
+  ok     the first RefPlane in tree order can be selected by one of the two routes
+  fact   add_to_db_reads_back = True
+  ok     InsertSketch(True) opens a sketch
+  ok     CreateCircleByRadius returns the new segment
+  ok     a second InsertSketch(True) closes it
+  ok     the new sketch feature renames and reads back 'Probe Sketch'
+  fact   rename_onto_taken_name_reads_back = 'Sketch2'
+  ok     renaming onto a taken name does not take it, and read-back shows so
+  fact   select_routes_used = {'Select2': 2}
+pass    sketch_entities  (3.2 s)
+  ok     CreateCircleByRadius makes a circle
+  fact   circle_segment_type = 1
+  try    circle.GetCenterPoint2: returned 'CDispatch'
+  ok     a circle's centre reads back from the segment itself: (10.0, 20.0)
+  try    circle.GetRadius: returned 0.004999999999999999
+  ok     GetRadius reads the radius in metres
+  try    CreateCircle(centre, point).GetRadius: returned 0.005999999999999998
+  ok     CreateCircle takes a centre and a point on it
+  try    CreateArc direction +1.GetLength: returned 0.047123889803846894
+  fact   arc_direction_+1 = {'length_mm': 47.12388980384689, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction +1 runs counter-clockwise from its start
+  try    CreateArc direction -1.GetLength: returned 0.1413716694115407
+  fact   arc_direction_-1 = {'length_mm': 141.3716694115407, 'start': (30.0, 0.0), 'end': (0.0, 30.0)}
+  ok     CreateArc with direction -1 runs clockwise from its start
+  try    three-point arc.GetCenterPoint2: returned 'CDispatch'
+  ok     Create3PointArc passes through its three points: centre (90.0, -5.204170427930421e-15)
+  ok     a line's ends read back: (1.0, 2.0), (31.0, 42.0)
+  ok     GetLength is in metres
+  fact   line_segment_type = 0
+  fact   centreline_is_construction = True
+  ok     ConstructionGeometry sets and reads back on a line
+  ok     CreatePoint puts a point where asked
+  fact   segments_after_close = 7
+  ok     all seven segments are still in the sketch once it is closed
+pass    relations  (4.6 s)
+  fact   origin_point_mm = (0.0, 0.0)
+  ok     sgCOINCIDENT pulls a line's start onto the origin: (0.0, 0.0)
+  ok     sgHORIZONTAL2D levels the line: (0.0, 0.0) (26.925824035672523, 0.0)
+  ok     the origin and a line made coincident put the origin on the line's extension: (25.0, 25.0) (45.00000000000001, 45.0)
+  ok     sgCOINCIDENT puts a point on a circle: (89.66234939601246, 2.576626505603322)
+  ok     sgTANGENT makes the line touch the arc: 10.0 vs 10.0
+  ok     sgSYMMETRIC mirrors two points about a centreline: (140.0, 20.0) (159.99999999999997, 20.0)
+  try    sgEQUAL on two circles: returned None
+  fact   after sgEQUAL the radii are (0.0040000000000000036, 0.007000000000000006)
+  fact   equal_radius_constraint = 'sgSAMELENGTH'
+  ok     some constant makes two radii equal: ['sgSAMELENGTH'] (0.0040000000000000036, 0.003999999999999992)
+  ok     an arc's centre point goes onto a circle: (60.0, 60.0)
+  fact   select_routes_so_far = {'Select2': 4, 'Select4': 18}
+pass    dimensions  (3.6 s)
+  ok     AddDimension2 makes the OD dimension
+  ok     the OD dimension renames and reads back
+  fact   a circle's dimension reads 0.02 m: its diameter
+  fact   full_name_while_open = 'OD@Sketch1@Part8.Part'
+  ok     setting SystemValue in metres drives the circle
+  ok     AddDimension2 makes the R dimension
+  ok     the R dimension renames and reads back
+  fact   an arc's dimension reads 0.009999999999999995 m: its radius
+  ok     AddDimension2 makes the HalfSpace dimension
+  ok     the HalfSpace dimension renames and reads back
+  fact   angle_dimension_system_value = 0.34906585039886595
+  ok     an angle dimension's SystemValue is radians: 0.34906585039886595
+  fact   dimension_names_after_close = ['OD', 'R', 'HalfSpace']
+  ok     names set while the sketch was open survive closing it
+  fact   full_name_after_close = 'OD@Probe Dims@Part8.Part'
+pass    dimension_link  (3.8 s)
+  try    link before the dimension exists: "OD@Probe Link"= 30: returned -1
+  fact   link_before_dimension_returns = -1
+  ok     the global is added
+  ok     the link "OD@Probe Link"= "Probe D" is accepted once the dimension exists
+  fact   link_text_reads_back = '"OD@Probe Link"= "Probe D"'
+  fact   a global of 30 drives the dimension to 0.03 m
+  ok     equations are in millimetres in this document
+  ok     changing the global and rebuilding moves the dimension to 0.04 m
+pass    curve_literal  (11.9 s)
+  try    straight: CreateEquationSpline2("t", "2*t", "", "0", "10", False, 0, 0, 0, True, True): returned 'CDispatch'
+  ok     CreateEquationSpline2 makes a curve from literal expressions
+  fact   equation_curve_segment_type = 3
+  try    straight: GetPoints2 ends: returned 'tuple'
+  fact   straight_curve_ends_mm = ((0.0, 0.0), (10.0, 20.0))
+  fact   curve_expression_units = 'document units (mm)'
+  ok     expressions are in document units: t = 10 ends at (10.0, 20.0)
+  try    quarter: CreateEquationSpline2("10*cos(t)", "10*sin(t)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    quarter: GetPoints2 ends: returned 'tuple'
+  fact   quarter_circle_ends_mm = ((9.999999999999998, -1.0447908357606047e-10), (9.04655029100612e-11, 10.0))
+  fact   cos(t) from 0 to pi/2 ends at (9.04655029100612e-11, 10.0): trig is in radians
+  try    spaces: CreateEquationSpline2("10 * cos ( t )", "10 * sin ( t )", "", "0", "pi / 2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    spaces: GetPoints2 ends: returned 'tuple'
+  try    degree conversion, no spaces: CreateEquationSpline2("10*cos(t*180/pi)", "10*sin(t*180/pi)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned None
+  try    degree conversion, spaces: CreateEquationSpline2("10 * cos ( t * 180 / pi )", "10 * sin ( t * 180 / pi )", "", "0", "pi / 2", False, 0, 0, 0, True, True): returned None
+  try    bracketed t with conversion: CreateEquationSpline2("10*cos((t)*180/pi)", "10*sin((t)*180/pi)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned None
+  try    bracketed sum: CreateEquationSpline2("10*cos((t+0.1)-0.1)", "10*sin((t+0.1)-0.1)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    bracketed sum: GetPoints2 ends: returned 'tuple'
+  fact   curve_spellings = {'spaces': {'made': True, 'end': (9.04655029100612e-11, 10.0)}, 'degree conversion, no spaces': {'made': False, 'end': None}, 'degree conversion, spaces': {'made': False, 'end': None}, 'bracketed t with conversion': {'made': False, 'end': None}, 'bracketed sum': {'made': True, 'end': (9.046372457630488e-11, 10.0)}}
+  try    status: CreateEquationSpline2("10*cos(t)", "10*sin(t)", "", "0", "pi/2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  fact   status_one_locked_curve = 2
+  try    sgFIXED on the curve: returned None
+  fact   status_one_fixed_curve = 3
+  try    unlocked: CreateEquationSpline2("t", "t*t", "", "0", "5", False, 0, 0, 0, False, False): returned 'CDispatch'
+  fact   status_with_one_unlocked_curve = 2
+pass    curve_globals  (3.3 s)
+  ok     the globals are added
+  try    name in expression: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", "pi / 2", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    name in expression: GetPoints2 ends: returned 'tuple'
+  ok     name in expression: the curve is made and ends at (6.030940382740289e-11, 10.0)
+  try    name in range: CreateEquationSpline2("10 * cos ( t )", "10 * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    name in range: GetPoints2 ends: returned 'tuple'
+  ok     name in range: the curve is made and ends at (3.887515309664025e-12, 9.999999999996108)
+  try    names in both: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  try    names in both: GetPoints2 ends: returned 'tuple'
+  ok     names in both: the curve is made and ends at (3.403527459866496e-11, 10.000000000025963)
+  fact   curve_globals = {'name in expression': {'made': True, 'ends': ((9.999999999999996, -5.22395316238193e-11), (6.030940382740289e-11, 10.0))}, 'name in range': {'made': True, 'ends': ((10.000000000000005, 2.979929671076409e-13), (3.887515309664025e-12, 9.999999999996108))}, 'names in both': {'made': True, 'ends': ((10.0, 0.0), (3.403527459866496e-11, 10.000000000025963))}}
+pass    curve_rebuild  (3.3 s)
+  try    follows: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  ok     the curve over globals is made
+  ok     the rebuilt sketch still holds one curve (1)
+  try    after rebuild: GetPoints2 ends: returned 'tuple'
+  fact   ends_after_global_change_mm = ((19.99999999999999, -1.1060930801288713e-12), (-7.6571373978539e-15, 20.0))
+  ok     after R goes from 10 to 20 the curve ends at (-7.6571373978539e-15, 20.0)
+pass    curve_fixed_rebuild  (3.5 s)
+  try    fixed: CreateEquationSpline2(""Probe R" * cos ( t )", ""Probe R" * sin ( t )", "", "0", ""Probe End"", False, 0, 0, 0, True, True): returned 'CDispatch'
+  ok     the curve over globals is made
+  fact   status_fixed_curve_over_globals = 3
+  ok     the rebuilt sketch still holds the curve
+  try    fixed after rebuild: GetPoints2 ends: returned 'tuple'
+  fact   after R 10 to 20 the fixed curve ends at (-7.6571373978539e-15, 20.0)
+  fact   status_fixed_curve_after_rebuild = 3
+  ok     the fixed curve's behaviour on a rebuild is recorded
+pass    extrude  (5.1 s)
+  fact   extrude_type_name = 'Extrusion'
+  ok     the extrusion renames and reads back
+  fact   blank_volume_mm3 = 12566.370614359173
+  ok     the blank's volume is 12566.371 mm³ (expected 12566.371)
+  fact   extrude_dimensions = [('D1', 0.01), ('OD', 0.04)]
+  ok     the depth dimension is found by its value
+  fact   depth_dimension_default_name = 'D1'
+  ok     the depth dimension renames to Width
+  fact   depth_full_name = 'Width@Blank@Part14.Part'
+  ok     a width global is added
+  ok     the link "Width@Blank"= "Probe W" is accepted
+  ok     linked to 12 mm the blank is 15079.645 mm³
+pass    cut  (27.5 s)
+  ok     the hole sketch selects
+  try    FeatureCut4 through all, default direction: returned None
+  fact   cut through all, default direction = {'made': False, 'removed_mm3': 0.0, 'type': None}
+  ok     the hole sketch selects
+  try    FeatureCut4 through all, direction flipped: returned 'CDispatch'
+  fact   cut through all, direction flipped = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}
+  ok     the hole sketch selects
+  try    FeatureCut4 through all both: returned 'CDispatch'
+  fact   cut through all both = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}
+  ok     the hole sketch selects
+  try    FeatureCut4 through all, both ends: returned 'CDispatch'
+  fact   cut through all, both ends = {'made': True, 'removed_mm3': 282.743, 'type': 'ICE'}
+  fact   cut_routes_that_remove_the_hole = ['through all, direction flipped', 'through all both', 'through all, both ends']
+  ok     some FeatureCut4 form removes exactly the hole
+pass    axis  (2.5 s)
+  ok     planes 2 and 3 select together
+  fact   insert_axis2_returns = True
+  fact   axis_new_features = [('Axis1', 'RefAxis')]
+  ok     InsertAxis2 adds exactly one feature
+  ok     the axis renames and reads back
+  fact   axis_type_name = 'RefAxis'
+  ok     the axis can be selected again
+pass    pattern  (9.3 s)
+  ok     planes 2 and 3 select
+  ok     the hole sketch selects
+  ok     the seed cut is made
+  ok     the axis selects at mark 1
+  ok     the cut selects at mark 4
+  try    FeatureCircularPattern5 DName "NULL": returned 'CDispatch'
+  fact   pattern_call = 'FeatureCircularPattern5 DName "NULL"'
+  ok     a circular pattern is made
+  fact   pattern_type_name = 'CirPattern'
+  ok     the pattern renames and reads back
+  ok     six holes leave 10869.911 mm³ (expected 10869.911)
+  fact   pattern_dimensions = [('D3', 6.283185307179586), ('D1', 6.0)]
+  ok     exactly one pattern dimension has the count's value
+  fact   pattern_count_dim_index = 1
+  fact   pattern_count_dim_default_name = 'D1'
+  ok     the count dimension renames to Count
+pass    pattern_count_link  (8.9 s)
+  ok     the pattern is made
+  ok     the count dimension is found by value
+  ok     the count global is added
+  fact   count_link_index = 1
+  ok     the link "Count@Teeth"= "Probe N" is accepted
+  ok     linked to 8 the pattern leaves 10304.424 mm³
+pass    save_as  (2.7 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261114-014042'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\Probe Save.SLDPRT does not exist yet
+  try    SaveAs3(path, current version, silent, null, null, out long, out long): returned True
+  fact   save_as3_result = 'True'
+  fact   save_as3_result_is_tuple = False
+  ok     SaveAs3 says it saved
+  ok     the file is on disk
+  fact   title_after_save = 'Probe Save.SLDPRT'
+  fact   path_after_save = 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261114-014042\\Probe Save.SLDPRT'
+  ok     GetPathName now names the new file
+  try    SaveAs3 onto the same path: returned True
+  fact   save_as3_onto_existing_file = {'flag': True, 'size_before': 34777, 'size_after': 34199}
+  try    IModelDoc2.SaveAs3 on another new part: returned 'dict'
+  fact   imodeldoc2_save_as3 = {'returned': 0, 'on_disk': True}
+pass    assembly_components_and_mates  (18.9 s)
+  ok     there is a scratch folder to save parts in
+  fact   assembly_units_before_setting = 0
+  ok     NewDocument from the assembly template is an assembly
+  try    AddComponent5(part A at the origin): returned 'CDispatch'
+  try    AddComponent5(part B at 60 mm): returned 'CDispatch'
+  ok     both components are inserted
+  fact   component_names = ('Probe Add A-1', 'Probe Add B-1')
+  fact   component_b_translation_mm_as_inserted = (60.0, 0.0, -5.0)
+  try    IsFixed of the first component: returned True
+  fact   first_component_fixed_on_insert = True
+  ok     the first component selects
+  try    FixComponent() on the already fixed first component: returned None
+  ok     the first component is fixed
+  ok     the two front planes select
+  try    AddMate5 coincident fronts: returned 'CDispatch'
+  fact   mate coincident fronts = {'returned': 'CDispatch', 'status': None}
+  ok     coincident fronts: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 axis on top plane: returned 'CDispatch'
+  fact   mate axis on top plane = {'returned': 'CDispatch', 'status': None}
+  ok     axis on top plane: one mate appears under Mates
+  ok     B's axis and A's right plane select
+  try    AddMate5 distance axis to right plane: returned 'CDispatch'
+  fact   mate distance axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     distance axis to right plane: one mate appears under Mates
+  ok     the two top planes select
+  try    AddMate5 angle between top planes: returned 'CDispatch'
+  fact   mate angle between top planes = {'returned': 'CDispatch', 'status': None}
+  ok     angle between top planes: one mate appears under Mates
+  fact   component_b_translation_mm_mated = (60.0, 0.0, -5.0)
+  ok     B sits 60.0 mm from A's axis: (60.0, 0.0, -5.0)
+  ok     the distance mate is found in the tree
+  ok     the distance mate renames and reads back
+  fact   distance_mate_dimensions = [('D1', 0.06)]
+  fact   mates = [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Centre Distance', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim')]
+  fact   second_component_fixed_before_fix_component = False
+  ok     the second component selects
+  try    FixComponent() on the free second component: returned None
+  fact   second_component_fixed_after_fix_component = True
+  ok     FixComponent() fixes the selected component
+pass    nonparallel_mates  (33.6 s)
+  ok     there is a scratch folder to save parts in
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 2.22e-16, origin by 0.00e+00 mm
+  fact   place_route = 'Transform2 put'
+  fact   transform_array_order = 'columns'
+  fact   create_transform_argument = 'Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8'
+  ok     a component's frame is set by Transform2 put with ArrayData in columns
+  try    select origin of Probe Skew B-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  try    select origin of Probe Skew A-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  ok     both origins select by the same route
+  fact   origin_select_route = 'SelectByID2 EXTSKETCHPOINT Point1@Origin'
+  fact   origin_select_types = [25, 25]
+  try    AddMate5 bevel: origins coincident: returned 'CDispatch'
+  fact   mate bevel: origins coincident = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: origins coincident: one mate appears under Mates
+  ok     B's axis and A's top plane select
+  try    AddMate5 bevel: axis in top plane: returned 'CDispatch'
+  fact   mate bevel: axis in top plane = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: axis in top plane: one mate appears under Mates
+  ok     the two axes select
+  try    AddMate5 bevel: angle between axes: returned 'CDispatch'
+  fact   mate bevel: angle between axes = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: angle between axes: one mate appears under Mates
+  fact   axis_angle_mate_dimensions = [('D1', 1.2217304763960306)]
+  ok     the two top planes select
+  try    AddMate5 bevel: spin by the top planes: returned 'CDispatch'
+  fact   mate bevel: spin by the top planes = {'returned': 'CDispatch', 'status': None}
+  ok     bevel: spin by the top planes: one mate appears under Mates
+  fact   bevel_frame_error = {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0, 'mates': [('Coincident1', 'MateCoincident'), ('Coincident2', 'MateCoincident'), ('Angle1', 'MatePlanarAngleDim'), ('Angle2', 'MatePlanarAngleDim')]}
+  ok     the point and axis-angle mates are made
+  ok     mated, B holds the bevel frame (rotation off 2.22e-16, origin 0.00e+00 mm)
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 2.22e-16, origin by 0.00e+00 mm
+  ok     B's axis and A's right plane select
+  try    AddMate5 crossed: axis to right plane: returned 'CDispatch'
+  fact   mate crossed: axis to right plane = {'returned': 'CDispatch', 'status': None}
+  ok     crossed: axis to right plane: one mate appears under Mates
+  ok     the two axes select
+  try    AddMate5 crossed: angle between axes: returned 'CDispatch'
+  fact   mate crossed: angle between axes = {'returned': 'CDispatch', 'status': None}
+  ok     crossed: angle between axes: one mate appears under Mates
+  try    select origin of Probe Skew B-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  ok     A's Top Plane selects
+  try    AddMate5 crossed: origin to Top Plane (flip True): returned 'CDispatch'
+  ok     crossed: origin to Top Plane: one mate appears under Mates
+  try    select origin of Probe Skew B-1: SelectByID2 EXTSKETCHPOINT Point1@Origin: returned True
+  ok     A's Front Plane selects
+  try    AddMate5 crossed: origin to Front Plane (flip False): returned 'CDispatch'
+  ok     crossed: origin to Front Plane: one mate appears under Mates
+  fact   point_distance_mate_dimensions = {'Top Plane': [('D1', 0.008)], 'Front Plane': [('D1', 0.012)]}
+  fact   crossed_spin_mate_angle = 97.00000000000001
+  ok     B's top and A's right planes select
+  try    AddMate5 crossed: spin by B's top to A's right: returned 'CDispatch'
+  fact   mate crossed: spin by B's top to A's right = {'returned': 'CDispatch', 'status': None}
+  ok     crossed: spin by B's top to A's right: one mate appears under Mates
+  fact   crossed_first_frame_error = (0.0, 0.0)
+  fact   crossed_second_origin_mm = (60.0, -8.0, 12.0)
+  fact   point_distance_flip_below_plane = True
+  fact   crossed_frame_error = {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0, 'mates': [('Distance1', 'MateDistanceDim'), ('Angle1', 'MatePlanarAngleDim'), ('Distance2', 'MateDistanceDim'), ('Distance3', 'MateDistanceDim'), ('Angle2', 'MatePlanarAngleDim')]}
+  ok     the distance mates are made
+  ok     mated, B holds the crossed frame (rotation off 2.22e-16, origin 0.00e+00 mm)
+pass    end_to_end  (21.4 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261114-014042'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\Probe Gear m2 N12.SLDPRT does not exist yet
+  ok     the plan is sound
+  fact   recipe = 'A'
+  fact   build_log = ['build   Part28 · spur · recipe A · trig degrees', 'ok      new part Part28', 'ok      trig units measured: degrees', 'ok      global "No. of Teeth"', 'ok      global "Module"', 'ok      global "Bore Diameter"', 'ok      global "Pressure Angle"', 'ok      global "Outer Diameter"', 'ok      global "Pitch Diameter"', 'ok      global "Backlash"', 'ok      global "Arc Length"', 'ok      global "Fillet Radius"', 'ok      global "Tooth Depth"', 'ok      global "Face Width"', 'ok      global "Root Diameter"', 'ok      global "Base Diameter"', 'ok      global "Base Radius"', 'ok      global "Tooth Thickness"', 'ok      global "Half Space Angle"', 'ok      global "Involute Fn"', 'ok      global "Flank Offset"', 'ok      global "Tip Cap Diameter"', 'ok      global "Flank Start Diameter"', 'ok      global "Involute t1"', 'ok      global "Involute t2"', 'ok      global "Flank Arc Radius"', 'ok      global "Flank Centre Angle"', 'ok      axis Gear Axis', 'ok      sketch blank opened on plane 1', 'ok      circle od', 'ok      coincident od.centre origin', 'ok      dimension OD', 'ok      sketch Blank Sketch', 'ok      extrude Blank', 'ok      link "OD@Blank Sketch"', 'ok      link "Width@Blank"', 'ok      sketch space opened on plane 1', 'ok      curve I+', 'ok      curve I-', 'ok      line L+', 'ok      line L-', 'ok      arc F+', 'ok      arc F-', 'ok      arc R', 'ok      line T', 'ok      fixed I+', 'ok      fixed I-', 'ok      coincident R.centre origin', 'ok      coincident L+.start I+.start (already one point)', 'ok      coincident L-.start I-.start (already one point)', 'ok      coincident origin L+', 'ok      coincident origin L-', 'ok      coincident F+.start L+.end (already one point)', 'ok      coincident F-.end L-.end (already one point)', 'ok      coincident F+.end R.end (already one point)', 'ok      coincident F-.start R.start (already one point)', 'ok      tangent F+ L+', 'ok      tangent F- L-', 'ok      tangent F+ R', 'ok      tangent F- R', 'ok      equal F+ F-', 'ok      coincident T.start I+.end (already one point)', 'ok      coincident T.end I-.end (already one point)', 'ok      dimension Root', 'ok      dimension Fillet', 'ok      sketch Tooth Space Sketch', 'ok      link "Root@Tooth Space Sketch"', 'ok      link "Fillet@Tooth Space Sketch"', 'ok      cut Tooth Space', 'ok      pattern Teeth × 12', 'ok      link "Count@Teeth"', 'ok      sketch bore opened on plane 1', 'ok      circle bore_circle', 'ok      coincident bore_circle.centre origin', 'ok      dimension Bore', 'ok      sketch Bore Sketch', 'ok      cut Bore', 'ok      link "Bore@Bore Sketch"', "ok      property 'Description'", "ok      property 'Gear Kind'", "ok      property 'Flank'", "ok      property 'Generated By'", 'ok      24 globals read back and match the maths', 'ok      Blank Sketch is fully defined', 'ok      Tooth Space Sketch is fully defined', 'ok      Bore Sketch is fully defined', 'ok      rebuilt once', 'MANUAL  1 step(s) to do by hand', 'MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.', 'ok      saved C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261114-014042\\Probe Gear m2 N12.SLDPRT']
+  note   build   Part28 · spur · recipe A · trig degrees
+  note   ok      new part Part28
+  note   ok      trig units measured: degrees
+  note   ok      global "No. of Teeth"
+  note   ok      global "Module"
+  note   ok      global "Bore Diameter"
+  note   ok      global "Pressure Angle"
+  note   ok      global "Outer Diameter"
+  note   ok      global "Pitch Diameter"
+  note   ok      global "Backlash"
+  note   ok      global "Arc Length"
+  note   ok      global "Fillet Radius"
+  note   ok      global "Tooth Depth"
+  note   ok      global "Face Width"
+  note   ok      global "Root Diameter"
+  note   ok      global "Base Diameter"
+  note   ok      global "Base Radius"
+  note   ok      global "Tooth Thickness"
+  note   ok      global "Half Space Angle"
+  note   ok      global "Involute Fn"
+  note   ok      global "Flank Offset"
+  note   ok      global "Tip Cap Diameter"
+  note   ok      global "Flank Start Diameter"
+  note   ok      global "Involute t1"
+  note   ok      global "Involute t2"
+  note   ok      global "Flank Arc Radius"
+  note   ok      global "Flank Centre Angle"
+  note   ok      axis Gear Axis
+  note   ok      sketch blank opened on plane 1
+  note   ok      circle od
+  note   ok      coincident od.centre origin
+  note   ok      dimension OD
+  note   ok      sketch Blank Sketch
+  note   ok      extrude Blank
+  note   ok      link "OD@Blank Sketch"
+  note   ok      link "Width@Blank"
+  note   ok      sketch space opened on plane 1
+  note   ok      curve I+
+  note   ok      curve I-
+  note   ok      line L+
+  note   ok      line L-
+  note   ok      arc F+
+  note   ok      arc F-
+  note   ok      arc R
+  note   ok      line T
+  note   ok      fixed I+
+  note   ok      fixed I-
+  note   ok      coincident R.centre origin
+  note   ok      coincident L+.start I+.start (already one point)
+  note   ok      coincident L-.start I-.start (already one point)
+  note   ok      coincident origin L+
+  note   ok      coincident origin L-
+  note   ok      coincident F+.start L+.end (already one point)
+  note   ok      coincident F-.end L-.end (already one point)
+  note   ok      coincident F+.end R.end (already one point)
+  note   ok      coincident F-.start R.start (already one point)
+  note   ok      tangent F+ L+
+  note   ok      tangent F- L-
+  note   ok      tangent F+ R
+  note   ok      tangent F- R
+  note   ok      equal F+ F-
+  note   ok      coincident T.start I+.end (already one point)
+  note   ok      coincident T.end I-.end (already one point)
+  note   ok      dimension Root
+  note   ok      dimension Fillet
+  note   ok      sketch Tooth Space Sketch
+  note   ok      link "Root@Tooth Space Sketch"
+  note   ok      link "Fillet@Tooth Space Sketch"
+  note   ok      cut Tooth Space
+  note   ok      pattern Teeth × 12
+  note   ok      link "Count@Teeth"
+  note   ok      sketch bore opened on plane 1
+  note   ok      circle bore_circle
+  note   ok      coincident bore_circle.centre origin
+  note   ok      dimension Bore
+  note   ok      sketch Bore Sketch
+  note   ok      cut Bore
+  note   ok      link "Bore@Bore Sketch"
+  note   ok      property 'Description'
+  note   ok      property 'Gear Kind'
+  note   ok      property 'Flank'
+  note   ok      property 'Generated By'
+  note   ok      24 globals read back and match the maths
+  note   ok      Blank Sketch is fully defined
+  note   ok      Tooth Space Sketch is fully defined
+  note   ok      Bore Sketch is fully defined
+  note   ok      rebuilt once
+  note   MANUAL  1 step(s) to do by hand
+  note   MANUAL  Assign a material to Probe Gear m2 N12; the build leaves it unset.
+  note   ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\Probe Gear m2 N12.SLDPRT
+  ok     the build reports no failures
+  ok     ForceRebuild3 reported success
+  ok     the part is saved where asked
+  fact   sketch_checks = []
+  ok     every sketch is fully defined
+  fact   feature_names = ['Comments', 'Favorites', 'History', 'Selection Sets', 'Sensors', 'Design Binder', 'Annotations', 'Notes', 'Notes1___EndTag___', 'Surface Bodies', 'Solid Bodies', 'Lights and Cameras', 'Ambient', 'Directional1', 'Directional2', 'Directional3', 'Markups', 'Equations', 'Material <not specified>', 'Front Plane', 'Top Plane', 'Right Plane', 'Origin', 'Gear Axis', 'Blank Sketch', 'Blank', 'Blank Sketch', 'Tooth Space Sketch', 'Tooth Space', 'Tooth Space Sketch', 'Teeth', 'Bore Sketch', 'Bore', 'Bore Sketch']
+  ok     every feature the tool names is in the tree, by that name
+  fact   sketch_statuses = {'Blank Sketch': 3, 'Tooth Space Sketch': 3, 'Bore Sketch': 3}
+  fact   volume_mm3_z12 = {'volume': 3530.9570935587926, 'root_cylinder': 2332.6325452904216, 'od_cylinder': 5654.8667764616275}
+  ok     the volume lies between the root and OD cylinders
+  fact   teeth_dimensions = {'D3': 6.283185307179586, 'Count': 12.0}
+  ok     Count@Teeth is 12
+  fact   update_changed = ['No. of Teeth', 'Module']
+  ok     update_variables reports no failures
+  ok     exactly the two typed values changed
+  ok     the update rebuilt once
+  ok     "Outer Diameter" is 33.75
+  ok     Count@Teeth follows to 13
+  fact   blank_dimensions_after = {'Width': 0.01, 'OD': 0.03375}
+  ok     OD@Blank Sketch reads 33.75 mm
+  fact   volume_mm3_z13 = {'volume': 5544.352937297128, 'root_cylinder': 3880.971393350672, 'od_cylinder': 8443.521130374693}
+  ok     the volume changed
+  ok     the new volume lies between the new root and OD cylinders
+  fact   sketch_statuses_after = {'Blank Sketch': 3, 'Tooth Space Sketch': 3, 'Bore Sketch': 3}
+  ok     every sketch is still fully defined after the change
+pass    layout_assembly_five  (29.2 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261114-014042'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\Probe W7 Gearbox.SLDASM does not exist yet
+  ok     Assem4 is in millimetres
+  try    AddComponent5(Probe W7 Layout): returned 'CDispatch'
+  ok     Probe W7 Layout is inserted
+  try    AddComponent5(Probe W7 A): returned 'CDispatch'
+  ok     Probe W7 A is inserted
+  try    AddComponent5(Probe W7 B): returned 'CDispatch'
+  ok     Probe W7 B is inserted
+  try    AddComponent5(Probe W7 C): returned 'CDispatch'
+  ok     Probe W7 C is inserted
+  try    AddComponent5(Probe W7 C): returned 'CDispatch'
+  ok     Probe W7 C is inserted
+  fact   component_names = ['Probe W7 Layout-1', 'Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2']
+  fact   component_instances = {'Probe W7 Layout': ['Probe W7 Layout-1'], 'Probe W7 A': ['Probe W7 A-1'], 'Probe W7 B': ['Probe W7 B-1'], 'Probe W7 C': ['Probe W7 C-1', 'Probe W7 C-2']}
+  ok     every component has a name of its own: ['Probe W7 Layout-1', 'Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2']
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 0.00e+00, origin by 0.00e+00 mm
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put (columns): returned None
+  note   Transform2 put (columns): rotation off by 2.22e-16, origin by 0.00e+00 mm
+  fact   place_routes = ['Transform2 put (columns)']
+  fact   fixed_on_insert = {'Probe W7 Layout-1': True, 'Probe W7 A-1': False, 'Probe W7 B-1': False, 'Probe W7 C-1': False, 'Probe W7 C-2': False}
+  ok     Probe W7 A-1 selects
+  try    FixComponent() on Probe W7 A-1: returned None
+  ok     Probe W7 B-1 selects
+  try    FixComponent() on Probe W7 B-1: returned None
+  ok     Probe W7 C-1 selects
+  try    FixComponent() on Probe W7 C-1: returned None
+  ok     Probe W7 C-2 selects
+  try    FixComponent() on Probe W7 C-2: returned None
+  fact   fixed_after_fix_component = {'Probe W7 Layout-1': True, 'Probe W7 A-1': True, 'Probe W7 B-1': True, 'Probe W7 C-1': True, 'Probe W7 C-2': True}
+  ok     every component is fixed: {'Probe W7 Layout-1': True, 'Probe W7 A-1': True, 'Probe W7 B-1': True, 'Probe W7 C-1': True, 'Probe W7 C-2': True}
+  ok     Probe W7 Layout-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 A-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 B-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-1 keeps its frame once fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-2 keeps its frame once fixed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  fact   frames_after_fix = {'Probe W7 Layout-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 A-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 B-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 C-1': {'rotation': 0.0, 'origin_mm': 0.0}, 'Probe W7 C-2': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0}}
+  try    SaveAs3(the assembly, current version, silent): returned True
+  ok     the assembly is saved at C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\Probe W7 Gearbox.SLDASM: True
+  fact   assembly_title_after_save = 'Probe W7 Gearbox.SLDASM'
+  ok     the assembly and its parts are all closed
+pass    layout_assembly_reopen  (5.6 s)
+  ok     layout_assembly_five left an assembly to reopen
+  ok     none of its files is open
+  fact   swconst_path = 'C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS (2)\\swconst.tlb'
+  fact   open_doc_options = {'swOpenDocOptions_Silent': 1, 'swOpenDocOptions_ReadOnly': 2, 'swOpenDocOptions_ViewOnly': 4, 'swOpenDocOptions_RapidDraft': 8, 'swOpenDocOptions_LoadModel': 16, 'swOpenDocOptions_AutoMissingConfig': 32, 'swOpenDocOptions_OverrideDefaultLoadLightweight': 64, 'swOpenDocOptions_LoadLightweight': 128, 'swOpenDocOptions_DontLoadHiddenComponents': 256, 'swOpenDocOptions_LoadExternalReferencesInMemory': 512, 'swOpenDocOptions_OpenDetailingMode': 1024, 'swOpenDocOptions_LDR_EditAssembly': 2048, 'swOpenDocOptions_SpeedPak': 4096, 'swOpenDocOptions_AdvancedConfig': 8192}
+  try    OpenDoc6(Probe W7 Gearbox.SLDASM): returned 'CDispatch'
+  fact   open Probe W7 Gearbox.SLDASM = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  fact   open_assembly_route = 'OpenDoc6'
+  fact   opened_assembly_is_active = True
+  try    GetComponentCount(True): returned 5
+  fact   component_count_after_reopen = 5
+  try    GetComponentByName(Probe W7 Layout-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 A-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 B-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-2): returned 'CDispatch'
+  try    GetComponents(True): returned 'dict'
+  try    GetActiveConfiguration, GetRootComponent3(True), GetChildren: returned 'dict'
+  try    FeatureByName(Probe W7 Layout-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 A-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 B-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-2).GetSpecificFeature2: returned 'CDispatch'
+  fact   component_find_routes = {'GetComponentByName': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'GetComponents(True) by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'root component GetChildren by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'FeatureByName then GetSpecificFeature2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1']}
+  ok     some route finds all 5 components by name: {'GetComponentByName': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'GetComponents(True) by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'root component GetChildren by Name2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1'], 'FeatureByName then GetSpecificFeature2': ['Probe W7 A-1', 'Probe W7 B-1', 'Probe W7 C-1', 'Probe W7 C-2', 'Probe W7 Layout-1']}
+  fact   component_find_route = 'GetComponentByName'
+  try    GetSuppression2 of Probe W7 Layout-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 A-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 B-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 C-1: returned 'tuple'
+  try    GetSuppression2 of Probe W7 C-2: returned 'tuple'
+  fact   suppression_after_reopen = {'Probe W7 Layout-1': 2, 'Probe W7 A-1': 2, 'Probe W7 B-1': 2, 'Probe W7 C-1': 2, 'Probe W7 C-2': 2}
+  fact   swconst_path = 'C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS (2)\\swconst.tlb'
+  fact   suppression_states = {'swComponentSuppressed': 0, 'swComponentLightweight': 1, 'swComponentFullyResolved': 2, 'swComponentResolved': 3, 'swComponentFullyLightweight': 4, 'swComponentInternalIdMismatch': 5}
+  ok     Probe W7 Layout-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 A-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 B-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-1 is where it was left, and fixed (rotation off 0.0e+00, origin 0.0e+00 mm)
+  ok     Probe W7 C-2 is where it was left, and fixed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  fact   frames_after_reopen = {'Probe W7 Layout-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 A-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 B-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 C-1': {'rotation': 0.0, 'origin_mm': 0.0, 'fixed': True}, 'Probe W7 C-2': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0, 'fixed': True}}
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 A-1 (fixed): returned None
+  ok     Probe W7 A-1 is re-placed: Transform2 put
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 B-1 (fixed): returned None
+  ok     Probe W7 B-1 is re-placed: Transform2 put
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 C-1 (fixed): returned None
+  ok     Probe W7 C-1 is re-placed: Transform2 put
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    Transform2 put on Probe W7 C-2 (fixed): returned None
+  ok     Probe W7 C-2 is re-placed: Transform2 put
+  fact   replace_routes = {'Probe W7 A-1': 'Transform2 put', 'Probe W7 B-1': 'Transform2 put', 'Probe W7 C-1': 'Transform2 put', 'Probe W7 C-2': 'Transform2 put'}
+  ok     every gear re-places by one route: {'Probe W7 A-1': 'Transform2 put', 'Probe W7 B-1': 'Transform2 put', 'Probe W7 C-1': 'Transform2 put', 'Probe W7 C-2': 'Transform2 put'}
+  fact   replace_fixed_route = 'Transform2 put'
+  ok     Probe W7 Layout-1, not re-placed, did not move
+  fact   frames_not_replaced = {'Probe W7 Layout-1': {'rotation': 0.0, 'origin_mm': 0.0}}
+  try    SaveAs3 the re-placed assembly to Probe W7 Gearbox.SLDASM: returned True
+  ok     the re-placed assembly saves
+  try    OpenDoc6(Probe W7 Gearbox.SLDASM): returned 'CDispatch'
+  fact   open Probe W7 Gearbox.SLDASM = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 0}
+  try    GetComponentByName(Probe W7 A-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 B-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-1): returned 'CDispatch'
+  try    GetComponentByName(Probe W7 C-2): returned 'CDispatch'
+  try    GetComponents(True): returned 'dict'
+  try    GetActiveConfiguration, GetRootComponent3(True), GetChildren: returned 'dict'
+  try    FeatureByName(Probe W7 A-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 B-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-1).GetSpecificFeature2: returned 'CDispatch'
+  try    FeatureByName(Probe W7 C-2).GetSpecificFeature2: returned 'CDispatch'
+  ok     opened again, Probe W7 A-1 is found by the same route
+  ok     opened again, Probe W7 A-1 is where it was re-placed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  ok     opened again, Probe W7 B-1 is found by the same route
+  ok     opened again, Probe W7 B-1 is where it was re-placed (rotation off 2.2e-16, origin 3.7e-15 mm)
+  ok     opened again, Probe W7 C-1 is found by the same route
+  ok     opened again, Probe W7 C-1 is where it was re-placed (rotation off 1.1e-16, origin 0.0e+00 mm)
+  ok     opened again, Probe W7 C-2 is found by the same route
+  ok     opened again, Probe W7 C-2 is where it was re-placed (rotation off 2.2e-16, origin 0.0e+00 mm)
+  fact   replaced_frames_after_second_open = {'Probe W7 A-1': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0}, 'Probe W7 B-1': {'rotation': 2.220446049250313e-16, 'origin_mm': 3.66205343881779e-15}, 'Probe W7 C-1': {'rotation': 1.1102230246251565e-16, 'origin_mm': 0.0}, 'Probe W7 C-2': {'rotation': 2.220446049250313e-16, 'origin_mm': 0.0}}
+  ok     the assembly and its parts are all closed
+pass    assembly_rebuild_scope  (237.6 s)
+  ok     the scratch folder is on a drive: 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\20261114-014042'
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\top does not exist yet
+  ok     ForceRebuild3(True): the gearbox lays out: ''
+  ok     ForceRebuild3(True): plan_gearbox plans it: ''
+  note   ForceRebuild3(True): build   Part33 · spur · recipe A · trig degrees
+  note   ForceRebuild3(True): ok      new part Part33
+  note   ForceRebuild3(True): ok      trig units measured: degrees
+  note   ForceRebuild3(True): ok      global "No. of Teeth"
+  note   ForceRebuild3(True): ok      global "Module"
+  note   ForceRebuild3(True): ok      global "Bore Diameter"
+  note   ForceRebuild3(True): ok      global "Pressure Angle"
+  note   ForceRebuild3(True): ok      global "Outer Diameter"
+  note   ForceRebuild3(True): ok      global "Pitch Diameter"
+  note   ForceRebuild3(True): ok      global "Backlash"
+  note   ForceRebuild3(True): ok      global "Arc Length"
+  note   ForceRebuild3(True): ok      global "Fillet Radius"
+  note   ForceRebuild3(True): ok      global "Tooth Depth"
+  note   ForceRebuild3(True): ok      global "Face Width"
+  note   ForceRebuild3(True): ok      global "Root Diameter"
+  note   ForceRebuild3(True): ok      global "Base Diameter"
+  note   ForceRebuild3(True): ok      global "Base Radius"
+  note   ForceRebuild3(True): ok      global "Tooth Thickness"
+  note   ForceRebuild3(True): ok      global "Half Space Angle"
+  note   ForceRebuild3(True): ok      global "Involute Fn"
+  note   ForceRebuild3(True): ok      global "Flank Offset"
+  note   ForceRebuild3(True): ok      global "Tip Cap Diameter"
+  note   ForceRebuild3(True): ok      global "Flank Start Diameter"
+  note   ForceRebuild3(True): ok      global "Involute t1"
+  note   ForceRebuild3(True): ok      global "Involute t2"
+  note   ForceRebuild3(True): ok      global "Flank Arc Radius"
+  note   ForceRebuild3(True): ok      global "Flank Centre Angle"
+  note   ForceRebuild3(True): ok      axis Gear Axis
+  note   ForceRebuild3(True): ok      sketch blank opened on plane 1
+  note   ForceRebuild3(True): ok      circle od
+  note   ForceRebuild3(True): ok      coincident od.centre origin
+  note   ForceRebuild3(True): ok      dimension OD
+  note   ForceRebuild3(True): ok      sketch Blank Sketch
+  note   ForceRebuild3(True): ok      extrude Blank
+  note   ForceRebuild3(True): ok      link "OD@Blank Sketch"
+  note   ForceRebuild3(True): ok      link "Width@Blank"
+  note   ForceRebuild3(True): ok      sketch space opened on plane 1
+  note   ForceRebuild3(True): ok      curve I+
+  note   ForceRebuild3(True): ok      curve I-
+  note   ForceRebuild3(True): ok      line L+
+  note   ForceRebuild3(True): ok      line L-
+  note   ForceRebuild3(True): ok      arc F+
+  note   ForceRebuild3(True): ok      arc F-
+  note   ForceRebuild3(True): ok      arc R
+  note   ForceRebuild3(True): ok      line T
+  note   ForceRebuild3(True): ok      fixed I+
+  note   ForceRebuild3(True): ok      fixed I-
+  note   ForceRebuild3(True): ok      coincident R.centre origin
+  note   ForceRebuild3(True): ok      coincident L+.start I+.start (already one point)
+  note   ForceRebuild3(True): ok      coincident L-.start I-.start (already one point)
+  note   ForceRebuild3(True): ok      coincident origin L+
+  note   ForceRebuild3(True): ok      coincident origin L-
+  note   ForceRebuild3(True): ok      coincident F+.start L+.end (already one point)
+  note   ForceRebuild3(True): ok      coincident F-.end L-.end (already one point)
+  note   ForceRebuild3(True): ok      coincident F+.end R.end (already one point)
+  note   ForceRebuild3(True): ok      coincident F-.start R.start (already one point)
+  note   ForceRebuild3(True): ok      tangent F+ L+
+  note   ForceRebuild3(True): ok      tangent F- L-
+  note   ForceRebuild3(True): ok      tangent F+ R
+  note   ForceRebuild3(True): ok      tangent F- R
+  note   ForceRebuild3(True): ok      equal F+ F-
+  note   ForceRebuild3(True): ok      coincident T.start I+.end (already one point)
+  note   ForceRebuild3(True): ok      coincident T.end I-.end (already one point)
+  note   ForceRebuild3(True): ok      dimension Root
+  note   ForceRebuild3(True): ok      dimension Fillet
+  note   ForceRebuild3(True): ok      sketch Tooth Space Sketch
+  note   ForceRebuild3(True): ok      link "Root@Tooth Space Sketch"
+  note   ForceRebuild3(True): ok      link "Fillet@Tooth Space Sketch"
+  note   ForceRebuild3(True): ok      cut Tooth Space
+  note   ForceRebuild3(True): ok      pattern Teeth × 17
+  note   ForceRebuild3(True): ok      link "Count@Teeth"
+  note   ForceRebuild3(True): ok      sketch bore opened on plane 1
+  note   ForceRebuild3(True): ok      circle bore_circle
+  note   ForceRebuild3(True): ok      coincident bore_circle.centre origin
+  note   ForceRebuild3(True): ok      dimension Bore
+  note   ForceRebuild3(True): ok      sketch Bore Sketch
+  note   ForceRebuild3(True): ok      cut Bore
+  note   ForceRebuild3(True): ok      link "Bore@Bore Sketch"
+  note   ForceRebuild3(True): ok      property 'Description'
+  note   ForceRebuild3(True): ok      property 'Gear Kind'
+  note   ForceRebuild3(True): ok      property 'Flank'
+  note   ForceRebuild3(True): ok      property 'Generated By'
+  note   ForceRebuild3(True): ok      24 globals read back and match the maths
+  note   ForceRebuild3(True): ok      Blank Sketch is fully defined
+  note   ForceRebuild3(True): ok      Tooth Space Sketch is fully defined
+  note   ForceRebuild3(True): ok      Bore Sketch is fully defined
+  note   ForceRebuild3(True): ok      rebuilt once
+  note   ForceRebuild3(True): MANUAL  1 step(s) to do by hand
+  note   ForceRebuild3(True): MANUAL  Assign a material to Probe W7 Rebuild 1 G1; the build leaves it unset.
+  note   ForceRebuild3(True): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\top\Probe W7 Rebuild 1 G1.SLDPRT
+  note   ForceRebuild3(True): build   Part34 · spur · recipe A · trig degrees
+  note   ForceRebuild3(True): ok      new part Part34
+  note   ForceRebuild3(True): ok      trig units measured: degrees
+  note   ForceRebuild3(True): ok      global "No. of Teeth"
+  note   ForceRebuild3(True): ok      global "Module"
+  note   ForceRebuild3(True): ok      global "Bore Diameter"
+  note   ForceRebuild3(True): ok      global "Pressure Angle"
+  note   ForceRebuild3(True): ok      global "Outer Diameter"
+  note   ForceRebuild3(True): ok      global "Pitch Diameter"
+  note   ForceRebuild3(True): ok      global "Backlash"
+  note   ForceRebuild3(True): ok      global "Arc Length"
+  note   ForceRebuild3(True): ok      global "Fillet Radius"
+  note   ForceRebuild3(True): ok      global "Tooth Depth"
+  note   ForceRebuild3(True): ok      global "Face Width"
+  note   ForceRebuild3(True): ok      global "Root Diameter"
+  note   ForceRebuild3(True): ok      global "Base Diameter"
+  note   ForceRebuild3(True): ok      global "Base Radius"
+  note   ForceRebuild3(True): ok      global "Tooth Thickness"
+  note   ForceRebuild3(True): ok      global "Half Space Angle"
+  note   ForceRebuild3(True): ok      global "Involute Fn"
+  note   ForceRebuild3(True): ok      global "Flank Offset"
+  note   ForceRebuild3(True): ok      global "Tip Cap Diameter"
+  note   ForceRebuild3(True): ok      global "Flank Start Diameter"
+  note   ForceRebuild3(True): ok      global "Involute t1"
+  note   ForceRebuild3(True): ok      global "Involute t2"
+  note   ForceRebuild3(True): ok      global "Flank Arc Radius"
+  note   ForceRebuild3(True): ok      global "Flank Centre Angle"
+  note   ForceRebuild3(True): ok      axis Gear Axis
+  note   ForceRebuild3(True): ok      sketch blank opened on plane 1
+  note   ForceRebuild3(True): ok      circle od
+  note   ForceRebuild3(True): ok      coincident od.centre origin
+  note   ForceRebuild3(True): ok      dimension OD
+  note   ForceRebuild3(True): ok      sketch Blank Sketch
+  note   ForceRebuild3(True): ok      extrude Blank
+  note   ForceRebuild3(True): ok      link "OD@Blank Sketch"
+  note   ForceRebuild3(True): ok      link "Width@Blank"
+  note   ForceRebuild3(True): ok      sketch space opened on plane 1
+  note   ForceRebuild3(True): ok      curve I+
+  note   ForceRebuild3(True): ok      curve I-
+  note   ForceRebuild3(True): ok      line L+
+  note   ForceRebuild3(True): ok      line L-
+  note   ForceRebuild3(True): ok      arc F+
+  note   ForceRebuild3(True): ok      arc F-
+  note   ForceRebuild3(True): ok      arc R
+  note   ForceRebuild3(True): ok      line T
+  note   ForceRebuild3(True): ok      fixed I+
+  note   ForceRebuild3(True): ok      fixed I-
+  note   ForceRebuild3(True): ok      coincident R.centre origin
+  note   ForceRebuild3(True): ok      coincident L+.start I+.start (already one point)
+  note   ForceRebuild3(True): ok      coincident L-.start I-.start (already one point)
+  note   ForceRebuild3(True): ok      coincident origin L+
+  note   ForceRebuild3(True): ok      coincident origin L-
+  note   ForceRebuild3(True): ok      coincident F+.start L+.end (already one point)
+  note   ForceRebuild3(True): ok      coincident F-.end L-.end (already one point)
+  note   ForceRebuild3(True): ok      coincident F+.end R.end (already one point)
+  note   ForceRebuild3(True): ok      coincident F-.start R.start (already one point)
+  note   ForceRebuild3(True): ok      tangent F+ L+
+  note   ForceRebuild3(True): ok      tangent F- L-
+  note   ForceRebuild3(True): ok      tangent F+ R
+  note   ForceRebuild3(True): ok      tangent F- R
+  note   ForceRebuild3(True): ok      equal F+ F-
+  note   ForceRebuild3(True): ok      coincident T.start I+.end (already one point)
+  note   ForceRebuild3(True): ok      coincident T.end I-.end (already one point)
+  note   ForceRebuild3(True): ok      dimension Root
+  note   ForceRebuild3(True): ok      dimension Fillet
+  note   ForceRebuild3(True): ok      sketch Tooth Space Sketch
+  note   ForceRebuild3(True): ok      link "Root@Tooth Space Sketch"
+  note   ForceRebuild3(True): ok      link "Fillet@Tooth Space Sketch"
+  note   ForceRebuild3(True): ok      cut Tooth Space
+  note   ForceRebuild3(True): ok      pattern Teeth × 68
+  note   ForceRebuild3(True): ok      link "Count@Teeth"
+  note   ForceRebuild3(True): ok      sketch bore opened on plane 1
+  note   ForceRebuild3(True): ok      circle bore_circle
+  note   ForceRebuild3(True): ok      coincident bore_circle.centre origin
+  note   ForceRebuild3(True): ok      dimension Bore
+  note   ForceRebuild3(True): ok      sketch Bore Sketch
+  note   ForceRebuild3(True): ok      cut Bore
+  note   ForceRebuild3(True): ok      link "Bore@Bore Sketch"
+  note   ForceRebuild3(True): ok      property 'Description'
+  note   ForceRebuild3(True): ok      property 'Gear Kind'
+  note   ForceRebuild3(True): ok      property 'Flank'
+  note   ForceRebuild3(True): ok      property 'Generated By'
+  note   ForceRebuild3(True): ok      24 globals read back and match the maths
+  note   ForceRebuild3(True): ok      Blank Sketch is fully defined
+  note   ForceRebuild3(True): ok      Tooth Space Sketch is fully defined
+  note   ForceRebuild3(True): ok      Bore Sketch is fully defined
+  note   ForceRebuild3(True): ok      rebuilt once
+  note   ForceRebuild3(True): MANUAL  1 step(s) to do by hand
+  note   ForceRebuild3(True): MANUAL  Assign a material to Probe W7 Rebuild 1 G2; the build leaves it unset.
+  note   ForceRebuild3(True): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\top\Probe W7 Rebuild 1 G2.SLDPRT
+  note   ForceRebuild3(True): build   Part35 · layout · recipe  · trig degrees
+  note   ForceRebuild3(True): ok      new part Part35
+  note   ForceRebuild3(True): ok      trig units measured: degrees
+  note   ForceRebuild3(True): ok      global "S2 X"
+  note   ForceRebuild3(True): ok      axis S1 Axis
+  note   ForceRebuild3(True): ok      plane S2 X Plane
+  note   ForceRebuild3(True): ok      link "Offset@S2 X Plane"
+  note   ForceRebuild3(True): ok      axis S2 Axis
+  note   ForceRebuild3(True): ok      1 globals read back and match the maths
+  note   ForceRebuild3(True): ok      rebuilt once
+  note   ForceRebuild3(True): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\top\Probe W7 Rebuild 1_Layout.SLDPRT
+  note   ForceRebuild3(True): build   Assem5 · assembly · recipe  · trig degrees
+  note   ForceRebuild3(True): ok      new assembly Assem5
+  note   ForceRebuild3(True): ok      trig units measured: degrees
+  note   ForceRebuild3(True): ok      component Probe W7 Rebuild 1_Layout-1
+  note   ForceRebuild3(True): ok      placed layout
+  note   ForceRebuild3(True): ok      fixed layout
+  note   ForceRebuild3(True): ok      component Probe W7 Rebuild 1 G1-1
+  note   ForceRebuild3(True): ok      placed gear1
+  note   ForceRebuild3(True): ok      fixed gear1
+  note   ForceRebuild3(True): ok      component Probe W7 Rebuild 1 G2-1
+  note   ForceRebuild3(True): ok      placed gear2
+  note   ForceRebuild3(True): ok      fixed gear2
+  note   ForceRebuild3(True): ok      rebuilt once
+  note   ForceRebuild3(True): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\top\Probe W7 Rebuild 1.SLDASM
+  note   ForceRebuild3(True): ok      no interference between the gears
+  ok     ForceRebuild3(True): build_gearbox built the parts, the layout and the assembly with no clash
+  ok     ForceRebuild3(True): every component is named: {'G1': 'Probe W7 Rebuild 1 G1-1', 'G2': 'Probe W7 Rebuild 1 G2-1', 'layout': 'Probe W7 Rebuild 1_Layout-1'}
+  try    SaveAs3 ForceRebuild3(True)'s assembly before closing to Probe W7 Rebuild 1.SLDASM: returned True
+  ok     ForceRebuild3(True): everything the build opened is closed: left []
+  ok     ForceRebuild3(True): the assembly is open again
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    ForceRebuild3(True): Transform2 put on G2 (put): returned None
+  try    ForceRebuild3(True) on the assembly, put: returned True
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    ForceRebuild3(True): Transform2 put on G2 (put_back): returned None
+  try    ForceRebuild3(True) on the assembly, put_back: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 1.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(True): the assembly is active
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06375
+  try    IMeasure.NormalDistance: returned 0.06375
+  try    OpenDoc6(Probe W7 Rebuild 1_Layout.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 1_Layout.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 1_Layout.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(True): the layout part is active
+  try    ForceRebuild3(True): ForceRebuild3(False) on the layout part: returned True
+  ok     ForceRebuild3(True): S2 Axis in the layout part lies along Z through (68.75, 0): it crosses at (68.750000000, 0.000000000) along (0.0, 0.0, 1.0)
+  try    ActivateDoc3(Probe W7 Rebuild 1.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(True): the assembly is active again
+  try    ForceRebuild3(True) on the assembly, layout move: returned True
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06875
+  try    IMeasure.NormalDistance: returned 0.06875
+  try    OpenDoc6(Probe W7 Rebuild 1 G2.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 1 G2.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 1 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(True): G2's part is active
+  try    swbuild.update_variables(Probe W7 Rebuild 1 G2.SLDPRT): returned 'UpdateResult'
+  ok     ForceRebuild3(True): update_variables gave G2 69 teeth: {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}
+  try    ActivateDoc3(Probe W7 Rebuild 1.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(True): the assembly is active again
+  try    ForceRebuild3(True) on the assembly, part change: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 1 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(True): G2's part is active
+  ok     ForceRebuild3(True): G2 has a global "Face Width"
+  try    ForceRebuild3(True): ForceRebuild3(False) on G2 with Face Width = 0: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 1 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(True): G2's part is active
+  ok     ForceRebuild3(True): G2 has a global "Bore Diameter"
+  try    ForceRebuild3(True): ForceRebuild3(False) on G2 with Bore Diameter = 500: returned False
+  try    ActivateDoc3(Probe W7 Rebuild 1.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(True): the assembly is active again
+  try    ForceRebuild3(True) on the assembly, a failed part: returned False
+  try    GetWhatsWrongCount: returned 1
+  try    GetWhatsWrong with three by-reference variants: returned 'tuple'
+  try    ActivateDoc3(Probe W7 Rebuild 1 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(True): G2's part is active to put it right
+  try    ForceRebuild3(True): ForceRebuild3(False) on G2 put right: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 1.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(True): the assembly is active again
+  try    ForceRebuild3(True) on the assembly, the part put right: returned True
+  try    SaveAs3 ForceRebuild3(True)'s assembly before closing to Probe W7 Rebuild 1.SLDASM: returned True
+  ok     ForceRebuild3(True): its assembly, layout and parts are all closed
+  note   ForceRebuild3(True): {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}; marked after the put ['assembly'], after the part change ['assembly', 'layout', 'G2']
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\edit does not exist yet
+  ok     EditRebuild3: the gearbox lays out: ''
+  ok     EditRebuild3: plan_gearbox plans it: ''
+  note   EditRebuild3: build   Part36 · spur · recipe A · trig degrees
+  note   EditRebuild3: ok      new part Part36
+  note   EditRebuild3: ok      trig units measured: degrees
+  note   EditRebuild3: ok      global "No. of Teeth"
+  note   EditRebuild3: ok      global "Module"
+  note   EditRebuild3: ok      global "Bore Diameter"
+  note   EditRebuild3: ok      global "Pressure Angle"
+  note   EditRebuild3: ok      global "Outer Diameter"
+  note   EditRebuild3: ok      global "Pitch Diameter"
+  note   EditRebuild3: ok      global "Backlash"
+  note   EditRebuild3: ok      global "Arc Length"
+  note   EditRebuild3: ok      global "Fillet Radius"
+  note   EditRebuild3: ok      global "Tooth Depth"
+  note   EditRebuild3: ok      global "Face Width"
+  note   EditRebuild3: ok      global "Root Diameter"
+  note   EditRebuild3: ok      global "Base Diameter"
+  note   EditRebuild3: ok      global "Base Radius"
+  note   EditRebuild3: ok      global "Tooth Thickness"
+  note   EditRebuild3: ok      global "Half Space Angle"
+  note   EditRebuild3: ok      global "Involute Fn"
+  note   EditRebuild3: ok      global "Flank Offset"
+  note   EditRebuild3: ok      global "Tip Cap Diameter"
+  note   EditRebuild3: ok      global "Flank Start Diameter"
+  note   EditRebuild3: ok      global "Involute t1"
+  note   EditRebuild3: ok      global "Involute t2"
+  note   EditRebuild3: ok      global "Flank Arc Radius"
+  note   EditRebuild3: ok      global "Flank Centre Angle"
+  note   EditRebuild3: ok      axis Gear Axis
+  note   EditRebuild3: ok      sketch blank opened on plane 1
+  note   EditRebuild3: ok      circle od
+  note   EditRebuild3: ok      coincident od.centre origin
+  note   EditRebuild3: ok      dimension OD
+  note   EditRebuild3: ok      sketch Blank Sketch
+  note   EditRebuild3: ok      extrude Blank
+  note   EditRebuild3: ok      link "OD@Blank Sketch"
+  note   EditRebuild3: ok      link "Width@Blank"
+  note   EditRebuild3: ok      sketch space opened on plane 1
+  note   EditRebuild3: ok      curve I+
+  note   EditRebuild3: ok      curve I-
+  note   EditRebuild3: ok      line L+
+  note   EditRebuild3: ok      line L-
+  note   EditRebuild3: ok      arc F+
+  note   EditRebuild3: ok      arc F-
+  note   EditRebuild3: ok      arc R
+  note   EditRebuild3: ok      line T
+  note   EditRebuild3: ok      fixed I+
+  note   EditRebuild3: ok      fixed I-
+  note   EditRebuild3: ok      coincident R.centre origin
+  note   EditRebuild3: ok      coincident L+.start I+.start (already one point)
+  note   EditRebuild3: ok      coincident L-.start I-.start (already one point)
+  note   EditRebuild3: ok      coincident origin L+
+  note   EditRebuild3: ok      coincident origin L-
+  note   EditRebuild3: ok      coincident F+.start L+.end (already one point)
+  note   EditRebuild3: ok      coincident F-.end L-.end (already one point)
+  note   EditRebuild3: ok      coincident F+.end R.end (already one point)
+  note   EditRebuild3: ok      coincident F-.start R.start (already one point)
+  note   EditRebuild3: ok      tangent F+ L+
+  note   EditRebuild3: ok      tangent F- L-
+  note   EditRebuild3: ok      tangent F+ R
+  note   EditRebuild3: ok      tangent F- R
+  note   EditRebuild3: ok      equal F+ F-
+  note   EditRebuild3: ok      coincident T.start I+.end (already one point)
+  note   EditRebuild3: ok      coincident T.end I-.end (already one point)
+  note   EditRebuild3: ok      dimension Root
+  note   EditRebuild3: ok      dimension Fillet
+  note   EditRebuild3: ok      sketch Tooth Space Sketch
+  note   EditRebuild3: ok      link "Root@Tooth Space Sketch"
+  note   EditRebuild3: ok      link "Fillet@Tooth Space Sketch"
+  note   EditRebuild3: ok      cut Tooth Space
+  note   EditRebuild3: ok      pattern Teeth × 17
+  note   EditRebuild3: ok      link "Count@Teeth"
+  note   EditRebuild3: ok      sketch bore opened on plane 1
+  note   EditRebuild3: ok      circle bore_circle
+  note   EditRebuild3: ok      coincident bore_circle.centre origin
+  note   EditRebuild3: ok      dimension Bore
+  note   EditRebuild3: ok      sketch Bore Sketch
+  note   EditRebuild3: ok      cut Bore
+  note   EditRebuild3: ok      link "Bore@Bore Sketch"
+  note   EditRebuild3: ok      property 'Description'
+  note   EditRebuild3: ok      property 'Gear Kind'
+  note   EditRebuild3: ok      property 'Flank'
+  note   EditRebuild3: ok      property 'Generated By'
+  note   EditRebuild3: ok      24 globals read back and match the maths
+  note   EditRebuild3: ok      Blank Sketch is fully defined
+  note   EditRebuild3: ok      Tooth Space Sketch is fully defined
+  note   EditRebuild3: ok      Bore Sketch is fully defined
+  note   EditRebuild3: ok      rebuilt once
+  note   EditRebuild3: MANUAL  1 step(s) to do by hand
+  note   EditRebuild3: MANUAL  Assign a material to Probe W7 Rebuild 2 G1; the build leaves it unset.
+  note   EditRebuild3: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\edit\Probe W7 Rebuild 2 G1.SLDPRT
+  note   EditRebuild3: build   Part37 · spur · recipe A · trig degrees
+  note   EditRebuild3: ok      new part Part37
+  note   EditRebuild3: ok      trig units measured: degrees
+  note   EditRebuild3: ok      global "No. of Teeth"
+  note   EditRebuild3: ok      global "Module"
+  note   EditRebuild3: ok      global "Bore Diameter"
+  note   EditRebuild3: ok      global "Pressure Angle"
+  note   EditRebuild3: ok      global "Outer Diameter"
+  note   EditRebuild3: ok      global "Pitch Diameter"
+  note   EditRebuild3: ok      global "Backlash"
+  note   EditRebuild3: ok      global "Arc Length"
+  note   EditRebuild3: ok      global "Fillet Radius"
+  note   EditRebuild3: ok      global "Tooth Depth"
+  note   EditRebuild3: ok      global "Face Width"
+  note   EditRebuild3: ok      global "Root Diameter"
+  note   EditRebuild3: ok      global "Base Diameter"
+  note   EditRebuild3: ok      global "Base Radius"
+  note   EditRebuild3: ok      global "Tooth Thickness"
+  note   EditRebuild3: ok      global "Half Space Angle"
+  note   EditRebuild3: ok      global "Involute Fn"
+  note   EditRebuild3: ok      global "Flank Offset"
+  note   EditRebuild3: ok      global "Tip Cap Diameter"
+  note   EditRebuild3: ok      global "Flank Start Diameter"
+  note   EditRebuild3: ok      global "Involute t1"
+  note   EditRebuild3: ok      global "Involute t2"
+  note   EditRebuild3: ok      global "Flank Arc Radius"
+  note   EditRebuild3: ok      global "Flank Centre Angle"
+  note   EditRebuild3: ok      axis Gear Axis
+  note   EditRebuild3: ok      sketch blank opened on plane 1
+  note   EditRebuild3: ok      circle od
+  note   EditRebuild3: ok      coincident od.centre origin
+  note   EditRebuild3: ok      dimension OD
+  note   EditRebuild3: ok      sketch Blank Sketch
+  note   EditRebuild3: ok      extrude Blank
+  note   EditRebuild3: ok      link "OD@Blank Sketch"
+  note   EditRebuild3: ok      link "Width@Blank"
+  note   EditRebuild3: ok      sketch space opened on plane 1
+  note   EditRebuild3: ok      curve I+
+  note   EditRebuild3: ok      curve I-
+  note   EditRebuild3: ok      line L+
+  note   EditRebuild3: ok      line L-
+  note   EditRebuild3: ok      arc F+
+  note   EditRebuild3: ok      arc F-
+  note   EditRebuild3: ok      arc R
+  note   EditRebuild3: ok      line T
+  note   EditRebuild3: ok      fixed I+
+  note   EditRebuild3: ok      fixed I-
+  note   EditRebuild3: ok      coincident R.centre origin
+  note   EditRebuild3: ok      coincident L+.start I+.start (already one point)
+  note   EditRebuild3: ok      coincident L-.start I-.start (already one point)
+  note   EditRebuild3: ok      coincident origin L+
+  note   EditRebuild3: ok      coincident origin L-
+  note   EditRebuild3: ok      coincident F+.start L+.end (already one point)
+  note   EditRebuild3: ok      coincident F-.end L-.end (already one point)
+  note   EditRebuild3: ok      coincident F+.end R.end (already one point)
+  note   EditRebuild3: ok      coincident F-.start R.start (already one point)
+  note   EditRebuild3: ok      tangent F+ L+
+  note   EditRebuild3: ok      tangent F- L-
+  note   EditRebuild3: ok      tangent F+ R
+  note   EditRebuild3: ok      tangent F- R
+  note   EditRebuild3: ok      equal F+ F-
+  note   EditRebuild3: ok      coincident T.start I+.end (already one point)
+  note   EditRebuild3: ok      coincident T.end I-.end (already one point)
+  note   EditRebuild3: ok      dimension Root
+  note   EditRebuild3: ok      dimension Fillet
+  note   EditRebuild3: ok      sketch Tooth Space Sketch
+  note   EditRebuild3: ok      link "Root@Tooth Space Sketch"
+  note   EditRebuild3: ok      link "Fillet@Tooth Space Sketch"
+  note   EditRebuild3: ok      cut Tooth Space
+  note   EditRebuild3: ok      pattern Teeth × 68
+  note   EditRebuild3: ok      link "Count@Teeth"
+  note   EditRebuild3: ok      sketch bore opened on plane 1
+  note   EditRebuild3: ok      circle bore_circle
+  note   EditRebuild3: ok      coincident bore_circle.centre origin
+  note   EditRebuild3: ok      dimension Bore
+  note   EditRebuild3: ok      sketch Bore Sketch
+  note   EditRebuild3: ok      cut Bore
+  note   EditRebuild3: ok      link "Bore@Bore Sketch"
+  note   EditRebuild3: ok      property 'Description'
+  note   EditRebuild3: ok      property 'Gear Kind'
+  note   EditRebuild3: ok      property 'Flank'
+  note   EditRebuild3: ok      property 'Generated By'
+  note   EditRebuild3: ok      24 globals read back and match the maths
+  note   EditRebuild3: ok      Blank Sketch is fully defined
+  note   EditRebuild3: ok      Tooth Space Sketch is fully defined
+  note   EditRebuild3: ok      Bore Sketch is fully defined
+  note   EditRebuild3: ok      rebuilt once
+  note   EditRebuild3: MANUAL  1 step(s) to do by hand
+  note   EditRebuild3: MANUAL  Assign a material to Probe W7 Rebuild 2 G2; the build leaves it unset.
+  note   EditRebuild3: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\edit\Probe W7 Rebuild 2 G2.SLDPRT
+  note   EditRebuild3: build   Part38 · layout · recipe  · trig degrees
+  note   EditRebuild3: ok      new part Part38
+  note   EditRebuild3: ok      trig units measured: degrees
+  note   EditRebuild3: ok      global "S2 X"
+  note   EditRebuild3: ok      axis S1 Axis
+  note   EditRebuild3: ok      plane S2 X Plane
+  note   EditRebuild3: ok      link "Offset@S2 X Plane"
+  note   EditRebuild3: ok      axis S2 Axis
+  note   EditRebuild3: ok      1 globals read back and match the maths
+  note   EditRebuild3: ok      rebuilt once
+  note   EditRebuild3: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\edit\Probe W7 Rebuild 2_Layout.SLDPRT
+  note   EditRebuild3: build   Assem6 · assembly · recipe  · trig degrees
+  note   EditRebuild3: ok      new assembly Assem6
+  note   EditRebuild3: ok      trig units measured: degrees
+  note   EditRebuild3: ok      component Probe W7 Rebuild 2_Layout-1
+  note   EditRebuild3: ok      placed layout
+  note   EditRebuild3: ok      fixed layout
+  note   EditRebuild3: ok      component Probe W7 Rebuild 2 G1-1
+  note   EditRebuild3: ok      placed gear1
+  note   EditRebuild3: ok      fixed gear1
+  note   EditRebuild3: ok      component Probe W7 Rebuild 2 G2-1
+  note   EditRebuild3: ok      placed gear2
+  note   EditRebuild3: ok      fixed gear2
+  note   EditRebuild3: ok      rebuilt once
+  note   EditRebuild3: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\edit\Probe W7 Rebuild 2.SLDASM
+  note   EditRebuild3: ok      no interference between the gears
+  ok     EditRebuild3: build_gearbox built the parts, the layout and the assembly with no clash
+  ok     EditRebuild3: every component is named: {'G1': 'Probe W7 Rebuild 2 G1-1', 'G2': 'Probe W7 Rebuild 2 G2-1', 'layout': 'Probe W7 Rebuild 2_Layout-1'}
+  try    SaveAs3 EditRebuild3's assembly before closing to Probe W7 Rebuild 2.SLDASM: returned True
+  ok     EditRebuild3: everything the build opened is closed: left []
+  ok     EditRebuild3: the assembly is open again
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    EditRebuild3: Transform2 put on G2 (put): returned None
+  try    EditRebuild3 on the assembly, put: returned True
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    EditRebuild3: Transform2 put on G2 (put_back): returned None
+  try    EditRebuild3 on the assembly, put_back: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 2.SLDASM): returned 'CDispatch'
+  ok     EditRebuild3: the assembly is active
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06375
+  try    IMeasure.NormalDistance: returned 0.06375
+  try    OpenDoc6(Probe W7 Rebuild 2_Layout.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 2_Layout.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 2_Layout.SLDPRT): returned 'CDispatch'
+  ok     EditRebuild3: the layout part is active
+  try    EditRebuild3: ForceRebuild3(False) on the layout part: returned True
+  ok     EditRebuild3: S2 Axis in the layout part lies along Z through (68.75, 0): it crosses at (68.750000000, 0.000000000) along (0.0, 0.0, 1.0)
+  try    ActivateDoc3(Probe W7 Rebuild 2.SLDASM): returned 'CDispatch'
+  ok     EditRebuild3: the assembly is active again
+  try    EditRebuild3 on the assembly, layout move: returned True
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06875
+  try    IMeasure.NormalDistance: returned 0.06875
+  try    OpenDoc6(Probe W7 Rebuild 2 G2.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 2 G2.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 2 G2.SLDPRT): returned 'CDispatch'
+  ok     EditRebuild3: G2's part is active
+  try    swbuild.update_variables(Probe W7 Rebuild 2 G2.SLDPRT): returned 'UpdateResult'
+  ok     EditRebuild3: update_variables gave G2 69 teeth: {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}
+  try    ActivateDoc3(Probe W7 Rebuild 2.SLDASM): returned 'CDispatch'
+  ok     EditRebuild3: the assembly is active again
+  try    EditRebuild3 on the assembly, part change: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 2 G2.SLDPRT): returned 'CDispatch'
+  ok     EditRebuild3: G2's part is active
+  ok     EditRebuild3: G2 has a global "Face Width"
+  try    EditRebuild3: ForceRebuild3(False) on G2 with Face Width = 0: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 2 G2.SLDPRT): returned 'CDispatch'
+  ok     EditRebuild3: G2's part is active
+  ok     EditRebuild3: G2 has a global "Bore Diameter"
+  try    EditRebuild3: ForceRebuild3(False) on G2 with Bore Diameter = 500: returned False
+  try    ActivateDoc3(Probe W7 Rebuild 2.SLDASM): returned 'CDispatch'
+  ok     EditRebuild3: the assembly is active again
+  try    EditRebuild3 on the assembly, a failed part: returned False
+  try    GetWhatsWrongCount: returned 1
+  try    GetWhatsWrong with three by-reference variants: returned 'tuple'
+  try    ActivateDoc3(Probe W7 Rebuild 2 G2.SLDPRT): returned 'CDispatch'
+  ok     EditRebuild3: G2's part is active to put it right
+  try    EditRebuild3: ForceRebuild3(False) on G2 put right: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 2.SLDASM): returned 'CDispatch'
+  ok     EditRebuild3: the assembly is active again
+  try    EditRebuild3 on the assembly, the part put right: returned True
+  try    SaveAs3 EditRebuild3's assembly before closing to Probe W7 Rebuild 2.SLDASM: returned True
+  ok     EditRebuild3: its assembly, layout and parts are all closed
+  note   EditRebuild3: {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}; marked after the put ['assembly'], after the part change ['assembly', 'layout', 'G2']
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\full does not exist yet
+  ok     ForceRebuild3(False): the gearbox lays out: ''
+  ok     ForceRebuild3(False): plan_gearbox plans it: ''
+  note   ForceRebuild3(False): build   Part39 · spur · recipe A · trig degrees
+  note   ForceRebuild3(False): ok      new part Part39
+  note   ForceRebuild3(False): ok      trig units measured: degrees
+  note   ForceRebuild3(False): ok      global "No. of Teeth"
+  note   ForceRebuild3(False): ok      global "Module"
+  note   ForceRebuild3(False): ok      global "Bore Diameter"
+  note   ForceRebuild3(False): ok      global "Pressure Angle"
+  note   ForceRebuild3(False): ok      global "Outer Diameter"
+  note   ForceRebuild3(False): ok      global "Pitch Diameter"
+  note   ForceRebuild3(False): ok      global "Backlash"
+  note   ForceRebuild3(False): ok      global "Arc Length"
+  note   ForceRebuild3(False): ok      global "Fillet Radius"
+  note   ForceRebuild3(False): ok      global "Tooth Depth"
+  note   ForceRebuild3(False): ok      global "Face Width"
+  note   ForceRebuild3(False): ok      global "Root Diameter"
+  note   ForceRebuild3(False): ok      global "Base Diameter"
+  note   ForceRebuild3(False): ok      global "Base Radius"
+  note   ForceRebuild3(False): ok      global "Tooth Thickness"
+  note   ForceRebuild3(False): ok      global "Half Space Angle"
+  note   ForceRebuild3(False): ok      global "Involute Fn"
+  note   ForceRebuild3(False): ok      global "Flank Offset"
+  note   ForceRebuild3(False): ok      global "Tip Cap Diameter"
+  note   ForceRebuild3(False): ok      global "Flank Start Diameter"
+  note   ForceRebuild3(False): ok      global "Involute t1"
+  note   ForceRebuild3(False): ok      global "Involute t2"
+  note   ForceRebuild3(False): ok      global "Flank Arc Radius"
+  note   ForceRebuild3(False): ok      global "Flank Centre Angle"
+  note   ForceRebuild3(False): ok      axis Gear Axis
+  note   ForceRebuild3(False): ok      sketch blank opened on plane 1
+  note   ForceRebuild3(False): ok      circle od
+  note   ForceRebuild3(False): ok      coincident od.centre origin
+  note   ForceRebuild3(False): ok      dimension OD
+  note   ForceRebuild3(False): ok      sketch Blank Sketch
+  note   ForceRebuild3(False): ok      extrude Blank
+  note   ForceRebuild3(False): ok      link "OD@Blank Sketch"
+  note   ForceRebuild3(False): ok      link "Width@Blank"
+  note   ForceRebuild3(False): ok      sketch space opened on plane 1
+  note   ForceRebuild3(False): ok      curve I+
+  note   ForceRebuild3(False): ok      curve I-
+  note   ForceRebuild3(False): ok      line L+
+  note   ForceRebuild3(False): ok      line L-
+  note   ForceRebuild3(False): ok      arc F+
+  note   ForceRebuild3(False): ok      arc F-
+  note   ForceRebuild3(False): ok      arc R
+  note   ForceRebuild3(False): ok      line T
+  note   ForceRebuild3(False): ok      fixed I+
+  note   ForceRebuild3(False): ok      fixed I-
+  note   ForceRebuild3(False): ok      coincident R.centre origin
+  note   ForceRebuild3(False): ok      coincident L+.start I+.start (already one point)
+  note   ForceRebuild3(False): ok      coincident L-.start I-.start (already one point)
+  note   ForceRebuild3(False): ok      coincident origin L+
+  note   ForceRebuild3(False): ok      coincident origin L-
+  note   ForceRebuild3(False): ok      coincident F+.start L+.end (already one point)
+  note   ForceRebuild3(False): ok      coincident F-.end L-.end (already one point)
+  note   ForceRebuild3(False): ok      coincident F+.end R.end (already one point)
+  note   ForceRebuild3(False): ok      coincident F-.start R.start (already one point)
+  note   ForceRebuild3(False): ok      tangent F+ L+
+  note   ForceRebuild3(False): ok      tangent F- L-
+  note   ForceRebuild3(False): ok      tangent F+ R
+  note   ForceRebuild3(False): ok      tangent F- R
+  note   ForceRebuild3(False): ok      equal F+ F-
+  note   ForceRebuild3(False): ok      coincident T.start I+.end (already one point)
+  note   ForceRebuild3(False): ok      coincident T.end I-.end (already one point)
+  note   ForceRebuild3(False): ok      dimension Root
+  note   ForceRebuild3(False): ok      dimension Fillet
+  note   ForceRebuild3(False): ok      sketch Tooth Space Sketch
+  note   ForceRebuild3(False): ok      link "Root@Tooth Space Sketch"
+  note   ForceRebuild3(False): ok      link "Fillet@Tooth Space Sketch"
+  note   ForceRebuild3(False): ok      cut Tooth Space
+  note   ForceRebuild3(False): ok      pattern Teeth × 17
+  note   ForceRebuild3(False): ok      link "Count@Teeth"
+  note   ForceRebuild3(False): ok      sketch bore opened on plane 1
+  note   ForceRebuild3(False): ok      circle bore_circle
+  note   ForceRebuild3(False): ok      coincident bore_circle.centre origin
+  note   ForceRebuild3(False): ok      dimension Bore
+  note   ForceRebuild3(False): ok      sketch Bore Sketch
+  note   ForceRebuild3(False): ok      cut Bore
+  note   ForceRebuild3(False): ok      link "Bore@Bore Sketch"
+  note   ForceRebuild3(False): ok      property 'Description'
+  note   ForceRebuild3(False): ok      property 'Gear Kind'
+  note   ForceRebuild3(False): ok      property 'Flank'
+  note   ForceRebuild3(False): ok      property 'Generated By'
+  note   ForceRebuild3(False): ok      24 globals read back and match the maths
+  note   ForceRebuild3(False): ok      Blank Sketch is fully defined
+  note   ForceRebuild3(False): ok      Tooth Space Sketch is fully defined
+  note   ForceRebuild3(False): ok      Bore Sketch is fully defined
+  note   ForceRebuild3(False): ok      rebuilt once
+  note   ForceRebuild3(False): MANUAL  1 step(s) to do by hand
+  note   ForceRebuild3(False): MANUAL  Assign a material to Probe W7 Rebuild 3 G1; the build leaves it unset.
+  note   ForceRebuild3(False): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\full\Probe W7 Rebuild 3 G1.SLDPRT
+  note   ForceRebuild3(False): build   Part40 · spur · recipe A · trig degrees
+  note   ForceRebuild3(False): ok      new part Part40
+  note   ForceRebuild3(False): ok      trig units measured: degrees
+  note   ForceRebuild3(False): ok      global "No. of Teeth"
+  note   ForceRebuild3(False): ok      global "Module"
+  note   ForceRebuild3(False): ok      global "Bore Diameter"
+  note   ForceRebuild3(False): ok      global "Pressure Angle"
+  note   ForceRebuild3(False): ok      global "Outer Diameter"
+  note   ForceRebuild3(False): ok      global "Pitch Diameter"
+  note   ForceRebuild3(False): ok      global "Backlash"
+  note   ForceRebuild3(False): ok      global "Arc Length"
+  note   ForceRebuild3(False): ok      global "Fillet Radius"
+  note   ForceRebuild3(False): ok      global "Tooth Depth"
+  note   ForceRebuild3(False): ok      global "Face Width"
+  note   ForceRebuild3(False): ok      global "Root Diameter"
+  note   ForceRebuild3(False): ok      global "Base Diameter"
+  note   ForceRebuild3(False): ok      global "Base Radius"
+  note   ForceRebuild3(False): ok      global "Tooth Thickness"
+  note   ForceRebuild3(False): ok      global "Half Space Angle"
+  note   ForceRebuild3(False): ok      global "Involute Fn"
+  note   ForceRebuild3(False): ok      global "Flank Offset"
+  note   ForceRebuild3(False): ok      global "Tip Cap Diameter"
+  note   ForceRebuild3(False): ok      global "Flank Start Diameter"
+  note   ForceRebuild3(False): ok      global "Involute t1"
+  note   ForceRebuild3(False): ok      global "Involute t2"
+  note   ForceRebuild3(False): ok      global "Flank Arc Radius"
+  note   ForceRebuild3(False): ok      global "Flank Centre Angle"
+  note   ForceRebuild3(False): ok      axis Gear Axis
+  note   ForceRebuild3(False): ok      sketch blank opened on plane 1
+  note   ForceRebuild3(False): ok      circle od
+  note   ForceRebuild3(False): ok      coincident od.centre origin
+  note   ForceRebuild3(False): ok      dimension OD
+  note   ForceRebuild3(False): ok      sketch Blank Sketch
+  note   ForceRebuild3(False): ok      extrude Blank
+  note   ForceRebuild3(False): ok      link "OD@Blank Sketch"
+  note   ForceRebuild3(False): ok      link "Width@Blank"
+  note   ForceRebuild3(False): ok      sketch space opened on plane 1
+  note   ForceRebuild3(False): ok      curve I+
+  note   ForceRebuild3(False): ok      curve I-
+  note   ForceRebuild3(False): ok      line L+
+  note   ForceRebuild3(False): ok      line L-
+  note   ForceRebuild3(False): ok      arc F+
+  note   ForceRebuild3(False): ok      arc F-
+  note   ForceRebuild3(False): ok      arc R
+  note   ForceRebuild3(False): ok      line T
+  note   ForceRebuild3(False): ok      fixed I+
+  note   ForceRebuild3(False): ok      fixed I-
+  note   ForceRebuild3(False): ok      coincident R.centre origin
+  note   ForceRebuild3(False): ok      coincident L+.start I+.start (already one point)
+  note   ForceRebuild3(False): ok      coincident L-.start I-.start (already one point)
+  note   ForceRebuild3(False): ok      coincident origin L+
+  note   ForceRebuild3(False): ok      coincident origin L-
+  note   ForceRebuild3(False): ok      coincident F+.start L+.end (already one point)
+  note   ForceRebuild3(False): ok      coincident F-.end L-.end (already one point)
+  note   ForceRebuild3(False): ok      coincident F+.end R.end (already one point)
+  note   ForceRebuild3(False): ok      coincident F-.start R.start (already one point)
+  note   ForceRebuild3(False): ok      tangent F+ L+
+  note   ForceRebuild3(False): ok      tangent F- L-
+  note   ForceRebuild3(False): ok      tangent F+ R
+  note   ForceRebuild3(False): ok      tangent F- R
+  note   ForceRebuild3(False): ok      equal F+ F-
+  note   ForceRebuild3(False): ok      coincident T.start I+.end (already one point)
+  note   ForceRebuild3(False): ok      coincident T.end I-.end (already one point)
+  note   ForceRebuild3(False): ok      dimension Root
+  note   ForceRebuild3(False): ok      dimension Fillet
+  note   ForceRebuild3(False): ok      sketch Tooth Space Sketch
+  note   ForceRebuild3(False): ok      link "Root@Tooth Space Sketch"
+  note   ForceRebuild3(False): ok      link "Fillet@Tooth Space Sketch"
+  note   ForceRebuild3(False): ok      cut Tooth Space
+  note   ForceRebuild3(False): ok      pattern Teeth × 68
+  note   ForceRebuild3(False): ok      link "Count@Teeth"
+  note   ForceRebuild3(False): ok      sketch bore opened on plane 1
+  note   ForceRebuild3(False): ok      circle bore_circle
+  note   ForceRebuild3(False): ok      coincident bore_circle.centre origin
+  note   ForceRebuild3(False): ok      dimension Bore
+  note   ForceRebuild3(False): ok      sketch Bore Sketch
+  note   ForceRebuild3(False): ok      cut Bore
+  note   ForceRebuild3(False): ok      link "Bore@Bore Sketch"
+  note   ForceRebuild3(False): ok      property 'Description'
+  note   ForceRebuild3(False): ok      property 'Gear Kind'
+  note   ForceRebuild3(False): ok      property 'Flank'
+  note   ForceRebuild3(False): ok      property 'Generated By'
+  note   ForceRebuild3(False): ok      24 globals read back and match the maths
+  note   ForceRebuild3(False): ok      Blank Sketch is fully defined
+  note   ForceRebuild3(False): ok      Tooth Space Sketch is fully defined
+  note   ForceRebuild3(False): ok      Bore Sketch is fully defined
+  note   ForceRebuild3(False): ok      rebuilt once
+  note   ForceRebuild3(False): MANUAL  1 step(s) to do by hand
+  note   ForceRebuild3(False): MANUAL  Assign a material to Probe W7 Rebuild 3 G2; the build leaves it unset.
+  note   ForceRebuild3(False): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\full\Probe W7 Rebuild 3 G2.SLDPRT
+  note   ForceRebuild3(False): build   Part41 · layout · recipe  · trig degrees
+  note   ForceRebuild3(False): ok      new part Part41
+  note   ForceRebuild3(False): ok      trig units measured: degrees
+  note   ForceRebuild3(False): ok      global "S2 X"
+  note   ForceRebuild3(False): ok      axis S1 Axis
+  note   ForceRebuild3(False): ok      plane S2 X Plane
+  note   ForceRebuild3(False): ok      link "Offset@S2 X Plane"
+  note   ForceRebuild3(False): ok      axis S2 Axis
+  note   ForceRebuild3(False): ok      1 globals read back and match the maths
+  note   ForceRebuild3(False): ok      rebuilt once
+  note   ForceRebuild3(False): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\full\Probe W7 Rebuild 3_Layout.SLDPRT
+  note   ForceRebuild3(False): build   Assem7 · assembly · recipe  · trig degrees
+  note   ForceRebuild3(False): ok      new assembly Assem7
+  note   ForceRebuild3(False): ok      trig units measured: degrees
+  note   ForceRebuild3(False): ok      component Probe W7 Rebuild 3_Layout-1
+  note   ForceRebuild3(False): ok      placed layout
+  note   ForceRebuild3(False): ok      fixed layout
+  note   ForceRebuild3(False): ok      component Probe W7 Rebuild 3 G1-1
+  note   ForceRebuild3(False): ok      placed gear1
+  note   ForceRebuild3(False): ok      fixed gear1
+  note   ForceRebuild3(False): ok      component Probe W7 Rebuild 3 G2-1
+  note   ForceRebuild3(False): ok      placed gear2
+  note   ForceRebuild3(False): ok      fixed gear2
+  note   ForceRebuild3(False): ok      rebuilt once
+  note   ForceRebuild3(False): ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\full\Probe W7 Rebuild 3.SLDASM
+  note   ForceRebuild3(False): ok      no interference between the gears
+  ok     ForceRebuild3(False): build_gearbox built the parts, the layout and the assembly with no clash
+  ok     ForceRebuild3(False): every component is named: {'G1': 'Probe W7 Rebuild 3 G1-1', 'G2': 'Probe W7 Rebuild 3 G2-1', 'layout': 'Probe W7 Rebuild 3_Layout-1'}
+  try    SaveAs3 ForceRebuild3(False)'s assembly before closing to Probe W7 Rebuild 3.SLDASM: returned True
+  ok     ForceRebuild3(False): everything the build opened is closed: left []
+  ok     ForceRebuild3(False): the assembly is open again
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    ForceRebuild3(False): Transform2 put on G2 (put): returned None
+  try    ForceRebuild3(False) on the assembly, put: returned True
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    ForceRebuild3(False): Transform2 put on G2 (put_back): returned None
+  try    ForceRebuild3(False) on the assembly, put_back: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 3.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(False): the assembly is active
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06375
+  try    IMeasure.NormalDistance: returned 0.06375
+  try    OpenDoc6(Probe W7 Rebuild 3_Layout.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 3_Layout.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 3_Layout.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(False): the layout part is active
+  try    ForceRebuild3(False): ForceRebuild3(False) on the layout part: returned True
+  ok     ForceRebuild3(False): S2 Axis in the layout part lies along Z through (68.75, 0): it crosses at (68.750000000, 0.000000000) along (0.0, 0.0, 1.0)
+  try    ActivateDoc3(Probe W7 Rebuild 3.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(False): the assembly is active again
+  try    ForceRebuild3(False) on the assembly, layout move: returned True
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06875
+  try    IMeasure.NormalDistance: returned 0.06875
+  try    OpenDoc6(Probe W7 Rebuild 3 G2.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 3 G2.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 3 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(False): G2's part is active
+  try    swbuild.update_variables(Probe W7 Rebuild 3 G2.SLDPRT): returned 'UpdateResult'
+  ok     ForceRebuild3(False): update_variables gave G2 69 teeth: {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}
+  try    ActivateDoc3(Probe W7 Rebuild 3.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(False): the assembly is active again
+  try    ForceRebuild3(False) on the assembly, part change: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 3 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(False): G2's part is active
+  ok     ForceRebuild3(False): G2 has a global "Face Width"
+  try    ForceRebuild3(False): ForceRebuild3(False) on G2 with Face Width = 0: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 3 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(False): G2's part is active
+  ok     ForceRebuild3(False): G2 has a global "Bore Diameter"
+  try    ForceRebuild3(False): ForceRebuild3(False) on G2 with Bore Diameter = 500: returned False
+  try    ActivateDoc3(Probe W7 Rebuild 3.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(False): the assembly is active again
+  try    ForceRebuild3(False) on the assembly, a failed part: returned False
+  try    GetWhatsWrongCount: returned 1
+  try    GetWhatsWrong with three by-reference variants: returned 'tuple'
+  try    ActivateDoc3(Probe W7 Rebuild 3 G2.SLDPRT): returned 'CDispatch'
+  ok     ForceRebuild3(False): G2's part is active to put it right
+  try    ForceRebuild3(False): ForceRebuild3(False) on G2 put right: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 3.SLDASM): returned 'CDispatch'
+  ok     ForceRebuild3(False): the assembly is active again
+  try    ForceRebuild3(False) on the assembly, the part put right: returned True
+  try    SaveAs3 ForceRebuild3(False)'s assembly before closing to Probe W7 Rebuild 3.SLDASM: returned True
+  ok     ForceRebuild3(False): its assembly, layout and parts are all closed
+  note   ForceRebuild3(False): {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': False}; marked after the put ['assembly', 'layout', 'G1', 'G2'], after the part change ['assembly', 'layout', 'G1', 'G2']
+  ok     C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\none does not exist yet
+  ok     none: the gearbox lays out: ''
+  ok     none: plan_gearbox plans it: ''
+  note   none: build   Part42 · spur · recipe A · trig degrees
+  note   none: ok      new part Part42
+  note   none: ok      trig units measured: degrees
+  note   none: ok      global "No. of Teeth"
+  note   none: ok      global "Module"
+  note   none: ok      global "Bore Diameter"
+  note   none: ok      global "Pressure Angle"
+  note   none: ok      global "Outer Diameter"
+  note   none: ok      global "Pitch Diameter"
+  note   none: ok      global "Backlash"
+  note   none: ok      global "Arc Length"
+  note   none: ok      global "Fillet Radius"
+  note   none: ok      global "Tooth Depth"
+  note   none: ok      global "Face Width"
+  note   none: ok      global "Root Diameter"
+  note   none: ok      global "Base Diameter"
+  note   none: ok      global "Base Radius"
+  note   none: ok      global "Tooth Thickness"
+  note   none: ok      global "Half Space Angle"
+  note   none: ok      global "Involute Fn"
+  note   none: ok      global "Flank Offset"
+  note   none: ok      global "Tip Cap Diameter"
+  note   none: ok      global "Flank Start Diameter"
+  note   none: ok      global "Involute t1"
+  note   none: ok      global "Involute t2"
+  note   none: ok      global "Flank Arc Radius"
+  note   none: ok      global "Flank Centre Angle"
+  note   none: ok      axis Gear Axis
+  note   none: ok      sketch blank opened on plane 1
+  note   none: ok      circle od
+  note   none: ok      coincident od.centre origin
+  note   none: ok      dimension OD
+  note   none: ok      sketch Blank Sketch
+  note   none: ok      extrude Blank
+  note   none: ok      link "OD@Blank Sketch"
+  note   none: ok      link "Width@Blank"
+  note   none: ok      sketch space opened on plane 1
+  note   none: ok      curve I+
+  note   none: ok      curve I-
+  note   none: ok      line L+
+  note   none: ok      line L-
+  note   none: ok      arc F+
+  note   none: ok      arc F-
+  note   none: ok      arc R
+  note   none: ok      line T
+  note   none: ok      fixed I+
+  note   none: ok      fixed I-
+  note   none: ok      coincident R.centre origin
+  note   none: ok      coincident L+.start I+.start (already one point)
+  note   none: ok      coincident L-.start I-.start (already one point)
+  note   none: ok      coincident origin L+
+  note   none: ok      coincident origin L-
+  note   none: ok      coincident F+.start L+.end (already one point)
+  note   none: ok      coincident F-.end L-.end (already one point)
+  note   none: ok      coincident F+.end R.end (already one point)
+  note   none: ok      coincident F-.start R.start (already one point)
+  note   none: ok      tangent F+ L+
+  note   none: ok      tangent F- L-
+  note   none: ok      tangent F+ R
+  note   none: ok      tangent F- R
+  note   none: ok      equal F+ F-
+  note   none: ok      coincident T.start I+.end (already one point)
+  note   none: ok      coincident T.end I-.end (already one point)
+  note   none: ok      dimension Root
+  note   none: ok      dimension Fillet
+  note   none: ok      sketch Tooth Space Sketch
+  note   none: ok      link "Root@Tooth Space Sketch"
+  note   none: ok      link "Fillet@Tooth Space Sketch"
+  note   none: ok      cut Tooth Space
+  note   none: ok      pattern Teeth × 17
+  note   none: ok      link "Count@Teeth"
+  note   none: ok      sketch bore opened on plane 1
+  note   none: ok      circle bore_circle
+  note   none: ok      coincident bore_circle.centre origin
+  note   none: ok      dimension Bore
+  note   none: ok      sketch Bore Sketch
+  note   none: ok      cut Bore
+  note   none: ok      link "Bore@Bore Sketch"
+  note   none: ok      property 'Description'
+  note   none: ok      property 'Gear Kind'
+  note   none: ok      property 'Flank'
+  note   none: ok      property 'Generated By'
+  note   none: ok      24 globals read back and match the maths
+  note   none: ok      Blank Sketch is fully defined
+  note   none: ok      Tooth Space Sketch is fully defined
+  note   none: ok      Bore Sketch is fully defined
+  note   none: ok      rebuilt once
+  note   none: MANUAL  1 step(s) to do by hand
+  note   none: MANUAL  Assign a material to Probe W7 Rebuild 4 G1; the build leaves it unset.
+  note   none: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\none\Probe W7 Rebuild 4 G1.SLDPRT
+  note   none: build   Part43 · spur · recipe A · trig degrees
+  note   none: ok      new part Part43
+  note   none: ok      trig units measured: degrees
+  note   none: ok      global "No. of Teeth"
+  note   none: ok      global "Module"
+  note   none: ok      global "Bore Diameter"
+  note   none: ok      global "Pressure Angle"
+  note   none: ok      global "Outer Diameter"
+  note   none: ok      global "Pitch Diameter"
+  note   none: ok      global "Backlash"
+  note   none: ok      global "Arc Length"
+  note   none: ok      global "Fillet Radius"
+  note   none: ok      global "Tooth Depth"
+  note   none: ok      global "Face Width"
+  note   none: ok      global "Root Diameter"
+  note   none: ok      global "Base Diameter"
+  note   none: ok      global "Base Radius"
+  note   none: ok      global "Tooth Thickness"
+  note   none: ok      global "Half Space Angle"
+  note   none: ok      global "Involute Fn"
+  note   none: ok      global "Flank Offset"
+  note   none: ok      global "Tip Cap Diameter"
+  note   none: ok      global "Flank Start Diameter"
+  note   none: ok      global "Involute t1"
+  note   none: ok      global "Involute t2"
+  note   none: ok      global "Flank Arc Radius"
+  note   none: ok      global "Flank Centre Angle"
+  note   none: ok      axis Gear Axis
+  note   none: ok      sketch blank opened on plane 1
+  note   none: ok      circle od
+  note   none: ok      coincident od.centre origin
+  note   none: ok      dimension OD
+  note   none: ok      sketch Blank Sketch
+  note   none: ok      extrude Blank
+  note   none: ok      link "OD@Blank Sketch"
+  note   none: ok      link "Width@Blank"
+  note   none: ok      sketch space opened on plane 1
+  note   none: ok      curve I+
+  note   none: ok      curve I-
+  note   none: ok      line L+
+  note   none: ok      line L-
+  note   none: ok      arc F+
+  note   none: ok      arc F-
+  note   none: ok      arc R
+  note   none: ok      line T
+  note   none: ok      fixed I+
+  note   none: ok      fixed I-
+  note   none: ok      coincident R.centre origin
+  note   none: ok      coincident L+.start I+.start (already one point)
+  note   none: ok      coincident L-.start I-.start (already one point)
+  note   none: ok      coincident origin L+
+  note   none: ok      coincident origin L-
+  note   none: ok      coincident F+.start L+.end (already one point)
+  note   none: ok      coincident F-.end L-.end (already one point)
+  note   none: ok      coincident F+.end R.end (already one point)
+  note   none: ok      coincident F-.start R.start (already one point)
+  note   none: ok      tangent F+ L+
+  note   none: ok      tangent F- L-
+  note   none: ok      tangent F+ R
+  note   none: ok      tangent F- R
+  note   none: ok      equal F+ F-
+  note   none: ok      coincident T.start I+.end (already one point)
+  note   none: ok      coincident T.end I-.end (already one point)
+  note   none: ok      dimension Root
+  note   none: ok      dimension Fillet
+  note   none: ok      sketch Tooth Space Sketch
+  note   none: ok      link "Root@Tooth Space Sketch"
+  note   none: ok      link "Fillet@Tooth Space Sketch"
+  note   none: ok      cut Tooth Space
+  note   none: ok      pattern Teeth × 68
+  note   none: ok      link "Count@Teeth"
+  note   none: ok      sketch bore opened on plane 1
+  note   none: ok      circle bore_circle
+  note   none: ok      coincident bore_circle.centre origin
+  note   none: ok      dimension Bore
+  note   none: ok      sketch Bore Sketch
+  note   none: ok      cut Bore
+  note   none: ok      link "Bore@Bore Sketch"
+  note   none: ok      property 'Description'
+  note   none: ok      property 'Gear Kind'
+  note   none: ok      property 'Flank'
+  note   none: ok      property 'Generated By'
+  note   none: ok      24 globals read back and match the maths
+  note   none: ok      Blank Sketch is fully defined
+  note   none: ok      Tooth Space Sketch is fully defined
+  note   none: ok      Bore Sketch is fully defined
+  note   none: ok      rebuilt once
+  note   none: MANUAL  1 step(s) to do by hand
+  note   none: MANUAL  Assign a material to Probe W7 Rebuild 4 G2; the build leaves it unset.
+  note   none: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\none\Probe W7 Rebuild 4 G2.SLDPRT
+  note   none: build   Part44 · layout · recipe  · trig degrees
+  note   none: ok      new part Part44
+  note   none: ok      trig units measured: degrees
+  note   none: ok      global "S2 X"
+  note   none: ok      axis S1 Axis
+  note   none: ok      plane S2 X Plane
+  note   none: ok      link "Offset@S2 X Plane"
+  note   none: ok      axis S2 Axis
+  note   none: ok      1 globals read back and match the maths
+  note   none: ok      rebuilt once
+  note   none: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\none\Probe W7 Rebuild 4_Layout.SLDPRT
+  note   none: build   Assem8 · assembly · recipe  · trig degrees
+  note   none: ok      new assembly Assem8
+  note   none: ok      trig units measured: degrees
+  note   none: ok      component Probe W7 Rebuild 4_Layout-1
+  note   none: ok      placed layout
+  note   none: ok      fixed layout
+  note   none: ok      component Probe W7 Rebuild 4 G1-1
+  note   none: ok      placed gear1
+  note   none: ok      fixed gear1
+  note   none: ok      component Probe W7 Rebuild 4 G2-1
+  note   none: ok      placed gear2
+  note   none: ok      fixed gear2
+  note   none: ok      rebuilt once
+  note   none: ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\20261114-014042\rebuild\none\Probe W7 Rebuild 4.SLDASM
+  note   none: ok      no interference between the gears
+  ok     none: build_gearbox built the parts, the layout and the assembly with no clash
+  ok     none: every component is named: {'G1': 'Probe W7 Rebuild 4 G1-1', 'G2': 'Probe W7 Rebuild 4 G2-1', 'layout': 'Probe W7 Rebuild 4_Layout-1'}
+  try    SaveAs3 none's assembly before closing to Probe W7 Rebuild 4.SLDASM: returned True
+  ok     none: everything the build opened is closed: left []
+  ok     none: the assembly is open again
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    none: Transform2 put on G2 (put): returned None
+  try    IMathUtility.CreateTransform(list): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(VT_ARRAY|VT_R8): raised 0x80010105 — The server threw an exception.
+  try    IMathUtility.CreateTransform(Invoke DISPATCH_METHOD, VT_ARRAY|VT_R8): returned 'CDispatch'
+  try    none: Transform2 put on G2 (put_back): returned None
+  try    ActivateDoc3(Probe W7 Rebuild 4.SLDASM): returned 'CDispatch'
+  ok     none: the assembly is active
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06375
+  try    IMeasure.NormalDistance: returned 0.06375
+  try    OpenDoc6(Probe W7 Rebuild 4_Layout.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 4_Layout.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 4_Layout.SLDPRT): returned 'CDispatch'
+  ok     none: the layout part is active
+  try    none: ForceRebuild3(False) on the layout part: returned True
+  ok     none: S2 Axis in the layout part lies along Z through (68.75, 0): it crosses at (68.750000000, 0.000000000) along (0.0, 0.0, 1.0)
+  try    ActivateDoc3(Probe W7 Rebuild 4.SLDASM): returned 'CDispatch'
+  ok     none: the assembly is active again
+  try    CreateMeasure: returned 'CDispatch'
+  try    IMeasure.Calculate(null dispatch), invoked as a method: returned True
+  try    IMeasure.Distance: returned 0.06875
+  try    IMeasure.NormalDistance: returned 0.06875
+  try    OpenDoc6(Probe W7 Rebuild 4 G2.SLDPRT): returned 'CDispatch'
+  fact   open Probe W7 Rebuild 4 G2.SLDPRT = {'route': 'OpenDoc6', 'shape': 'CDispatch', 'errors': 0, 'warnings': 128}
+  try    ActivateDoc3(Probe W7 Rebuild 4 G2.SLDPRT): returned 'CDispatch'
+  ok     none: G2's part is active
+  try    swbuild.update_variables(Probe W7 Rebuild 4 G2.SLDPRT): returned 'UpdateResult'
+  ok     none: update_variables gave G2 69 teeth: {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}
+  try    ActivateDoc3(Probe W7 Rebuild 4.SLDASM): returned 'CDispatch'
+  ok     none: the assembly is active again
+  try    ActivateDoc3(Probe W7 Rebuild 4 G2.SLDPRT): returned 'CDispatch'
+  ok     none: G2's part is active
+  ok     none: G2 has a global "Face Width"
+  try    none: ForceRebuild3(False) on G2 with Face Width = 0: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 4 G2.SLDPRT): returned 'CDispatch'
+  ok     none: G2's part is active
+  ok     none: G2 has a global "Bore Diameter"
+  try    none: ForceRebuild3(False) on G2 with Bore Diameter = 500: returned False
+  try    ActivateDoc3(Probe W7 Rebuild 4.SLDASM): returned 'CDispatch'
+  ok     none: the assembly is active again
+  try    GetWhatsWrongCount: returned 1
+  try    GetWhatsWrong with three by-reference variants: returned 'tuple'
+  try    ActivateDoc3(Probe W7 Rebuild 4 G2.SLDPRT): returned 'CDispatch'
+  ok     none: G2's part is active to put it right
+  try    none: ForceRebuild3(False) on G2 put right: returned True
+  try    ActivateDoc3(Probe W7 Rebuild 4.SLDASM): returned 'CDispatch'
+  ok     none: the assembly is active again
+  try    SaveAs3 none's assembly before closing to Probe W7 Rebuild 4.SLDASM: returned True
+  ok     none: its assembly, layout and parts are all closed
+  note   none: {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': False, 'only_changed_marked': False}; marked after the put [], after the part change ['assembly', 'layout', 'G2']
+  fact   rebuild_cases = {'ForceRebuild3(True)': {'paths': {'assembly': 'Probe W7 Rebuild 1.SLDASM', 'layout': 'Probe W7 Rebuild 1_Layout.SLDPRT', 'G1': 'Probe W7 Rebuild 1 G1.SLDPRT', 'G2': 'Probe W7 Rebuild 1 G2.SLDPRT'}, 'components': {'G1': 'Probe W7 Rebuild 1 G1-1', 'G2': 'Probe W7 Rebuild 1 G2-1', 'layout': 'Probe W7 Rebuild 1_Layout-1'}, 'after_build': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'flags_on_open': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'put': {'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}, 'frame_off': {'rotation': 1.1102230246251565e-16, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9957341762950346, -0.09226835946330186, 0.0, 0.09226835946330186, 0.9957341762950346, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [[['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 51.278], [['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 51.278], [['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 4.707], [['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 4.707]], 'clash_shown': True, 'flags_after_reads': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}}, 'put_back': {'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9989329748023724, -0.04618345864573946, 0.0, 0.04618345864573946, 0.9989329748023724, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [], 'clean': True, 'flags_after_reads': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}}, 'layout': {'measure_before': {'axis': 'S2 Axis@Probe W7 Rebuild 1_Layout-1@Probe W7 Rebuild 1', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 63.75, 'NormalDistance_mm': 63.75}, 'set': '"S2 X"= 68.75', 'layout_rebuild': True, 'axis_in_layout': {'at_mm': [68.75, 0.0], 'direction': [0.0, 0.0, 1.0]}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'measure': {'axis': 'S2 Axis@Probe W7 Rebuild 1_Layout-1@Probe W7 Rebuild 1', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 68.75, 'NormalDistance_mm': 68.75}, 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}}, 'part': {'volume_before_mm3': 125037.78430445753, 'flags_after_volume_before': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'update': {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'interferences': [[['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 73.13], [['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 72.691], [['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 17.689], [['Probe W7 Rebuild 1 G1-1', 'Probe W7 Rebuild 1 G2-1'], 17.069]], 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'volume_after_mm3': 128638.0414201781, 'flags_after_volume': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}}, 'failure': {'how': 'Bore Diameter = 500', 'part_failed': True, 'tried': [{'global': 'Face Width', 'value': 0.0, 'kept': 15.0, 'part_rebuild': True, 'part_errors': {}}, {'global': 'Bore Diameter', 'value': 500.0, 'kept': 12.0, 'part_rebuild': False, 'part_errors': {'Bore': {'code': 51, 'warning': False}}}], 'rebuild': {'returned': False}, 'whats_wrong': {'count': 1, 'list': {'returned': True, 'features': ['Probe W7 Rebuild 1 G2-1'], 'codes': [51], 'warnings': [False]}}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'restored': {'part_rebuild': True, 'part_errors': {}, 'rebuild': {'returned': True}}, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}}, 'seconds': 57.3, 'verdict': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}}, 'EditRebuild3': {'paths': {'assembly': 'Probe W7 Rebuild 2.SLDASM', 'layout': 'Probe W7 Rebuild 2_Layout.SLDPRT', 'G1': 'Probe W7 Rebuild 2 G1.SLDPRT', 'G2': 'Probe W7 Rebuild 2 G2.SLDPRT'}, 'components': {'G1': 'Probe W7 Rebuild 2 G1-1', 'G2': 'Probe W7 Rebuild 2 G2-1', 'layout': 'Probe W7 Rebuild 2_Layout-1'}, 'after_build': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'flags_on_open': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'put': {'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}, 'frame_off': {'rotation': 1.1102230246251565e-16, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9957341762950346, -0.09226835946330186, 0.0, 0.09226835946330186, 0.9957341762950346, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [[['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 51.278], [['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 51.278], [['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 4.707], [['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 4.707]], 'clash_shown': True, 'flags_after_reads': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}}, 'put_back': {'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9989329748023724, -0.04618345864573946, 0.0, 0.04618345864573946, 0.9989329748023724, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [], 'clean': True, 'flags_after_reads': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}}, 'layout': {'measure_before': {'axis': 'S2 Axis@Probe W7 Rebuild 2_Layout-1@Probe W7 Rebuild 2', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 63.75, 'NormalDistance_mm': 63.75}, 'set': '"S2 X"= 68.75', 'layout_rebuild': True, 'axis_in_layout': {'at_mm': [68.75, 0.0], 'direction': [0.0, 0.0, 1.0]}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'measure': {'axis': 'S2 Axis@Probe W7 Rebuild 2_Layout-1@Probe W7 Rebuild 2', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 68.75, 'NormalDistance_mm': 68.75}, 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}}, 'part': {'volume_before_mm3': 125037.78430445753, 'flags_after_volume_before': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'update': {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'interferences': [[['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 73.13], [['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 72.691], [['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 17.689], [['Probe W7 Rebuild 2 G1-1', 'Probe W7 Rebuild 2 G2-1'], 17.069]], 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'volume_after_mm3': 128638.0414201781, 'flags_after_volume': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}}, 'failure': {'how': 'Bore Diameter = 500', 'part_failed': True, 'tried': [{'global': 'Face Width', 'value': 0.0, 'kept': 15.0, 'part_rebuild': True, 'part_errors': {}}, {'global': 'Bore Diameter', 'value': 500.0, 'kept': 12.0, 'part_rebuild': False, 'part_errors': {'Bore': {'code': 51, 'warning': False}}}], 'rebuild': {'returned': False}, 'whats_wrong': {'count': 1, 'list': {'returned': True, 'features': ['Probe W7 Rebuild 2 G2-1'], 'codes': [51], 'warnings': [False]}}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'restored': {'part_rebuild': True, 'part_errors': {}, 'rebuild': {'returned': True}}, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}}, 'seconds': 57.0, 'verdict': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}}, 'ForceRebuild3(False)': {'paths': {'assembly': 'Probe W7 Rebuild 3.SLDASM', 'layout': 'Probe W7 Rebuild 3_Layout.SLDPRT', 'G1': 'Probe W7 Rebuild 3 G1.SLDPRT', 'G2': 'Probe W7 Rebuild 3 G2.SLDPRT'}, 'components': {'G1': 'Probe W7 Rebuild 3 G1-1', 'G2': 'Probe W7 Rebuild 3 G2-1', 'layout': 'Probe W7 Rebuild 3_Layout-1'}, 'after_build': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'flags_on_open': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'put': {'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'frame_off': {'rotation': 1.1102230246251565e-16, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9957341762950346, -0.09226835946330186, 0.0, 0.09226835946330186, 0.9957341762950346, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [[['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 51.278], [['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 51.278], [['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 4.707], [['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 4.707]], 'clash_shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}}, 'put_back': {'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9989329748023724, -0.04618345864573946, 0.0, 0.04618345864573946, 0.9989329748023724, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [], 'clean': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}}, 'layout': {'measure_before': {'axis': 'S2 Axis@Probe W7 Rebuild 3_Layout-1@Probe W7 Rebuild 3', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 63.75, 'NormalDistance_mm': 63.75}, 'set': '"S2 X"= 68.75', 'layout_rebuild': True, 'axis_in_layout': {'at_mm': [68.75, 0.0], 'direction': [0.0, 0.0, 1.0]}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'measure': {'axis': 'S2 Axis@Probe W7 Rebuild 3_Layout-1@Probe W7 Rebuild 3', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 68.75, 'NormalDistance_mm': 68.75}, 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}}, 'part': {'volume_before_mm3': 125037.7843044575, 'flags_after_volume_before': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'update': {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'rebuild': {'returned': True}, 'flags': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'interferences': [[['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 73.13], [['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 72.691], [['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 17.689], [['Probe W7 Rebuild 3 G1-1', 'Probe W7 Rebuild 3 G2-1'], 17.069]], 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'volume_after_mm3': 128638.04142017801, 'flags_after_volume': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}}, 'failure': {'how': 'Bore Diameter = 500', 'part_failed': True, 'tried': [{'global': 'Face Width', 'value': 0.0, 'kept': 15.0, 'part_rebuild': True, 'part_errors': {}}, {'global': 'Bore Diameter', 'value': 500.0, 'kept': 12.0, 'part_rebuild': False, 'part_errors': {'Bore': {'code': 51, 'warning': False}}}], 'rebuild': {'returned': False}, 'whats_wrong': {'count': 1, 'list': {'returned': True, 'features': ['Probe W7 Rebuild 3 G2-1'], 'codes': [51], 'warnings': [False]}}, 'flags': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'restored': {'part_rebuild': True, 'part_errors': {}, 'rebuild': {'returned': True}}, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}}, 'seconds': 65.6, 'verdict': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': False}}, 'none': {'paths': {'assembly': 'Probe W7 Rebuild 4.SLDASM', 'layout': 'Probe W7 Rebuild 4_Layout.SLDPRT', 'G1': 'Probe W7 Rebuild 4 G1.SLDPRT', 'G2': 'Probe W7 Rebuild 4 G2.SLDPRT'}, 'components': {'G1': 'Probe W7 Rebuild 4 G1-1', 'G2': 'Probe W7 Rebuild 4 G2-1', 'layout': 'Probe W7 Rebuild 4_Layout-1'}, 'after_build': {'assembly': True, 'layout': True, 'G1': True, 'G2': True}, 'flags_on_open': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'put': {'rebuild': {'returned': None}, 'flags': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'frame_off': {'rotation': 1.1102230246251565e-16, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9957341762950346, -0.09226835946330186, 0.0, 0.09226835946330186, 0.9957341762950346, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [[['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 51.278], [['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 51.278], [['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 4.707], [['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 4.707]], 'clash_shown': True, 'flags_after_reads': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}}, 'put_back': {'rebuild': {'returned': None}, 'flags': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'frame_shown': True, 'frame_read_by_the_app': [[0.9989329748023724, -0.04618345864573946, 0.0, 0.04618345864573946, 0.9989329748023724, 0.0, 0.0, 0.0, 1.0], [63.75, 0.0, 0.0]], 'interferences': [], 'clean': True, 'flags_after_reads': {'assembly': True, 'layout': False, 'G1': False, 'G2': False}}, 'layout': {'measure_before': {'axis': 'S2 Axis@Probe W7 Rebuild 4_Layout-1@Probe W7 Rebuild 4', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 63.75, 'NormalDistance_mm': 63.75}, 'set': '"S2 X"= 68.75', 'layout_rebuild': True, 'axis_in_layout': {'at_mm': [68.75, 0.0], 'direction': [0.0, 0.0, 1.0]}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'rebuild': {'returned': None}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'measure': {'axis': 'S2 Axis@Probe W7 Rebuild 4_Layout-1@Probe W7 Rebuild 4', 'axis_selected': True, 'plane_selected': True, 'calculate': 'Calculate(null dispatch), invoked as a method', 'Distance_mm': 68.75, 'NormalDistance_mm': 68.75}, 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}}, 'part': {'volume_before_mm3': 125037.78430445747, 'flags_after_volume_before': {'assembly': True, 'layout': True, 'G1': False, 'G2': False}, 'update': {'ok': True, 'changed': ['No. of Teeth'], 'failures': [], 'rebuilt': True}, 'flags_before_route': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'rebuild': {'returned': None}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'frame_off': {'rotation': 0.0, 'origin_mm': 0.0}, 'interferences': [[['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 73.13], [['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 72.691], [['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 17.689], [['Probe W7 Rebuild 4 G1-1', 'Probe W7 Rebuild 4 G2-1'], 17.069]], 'shown': True, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'volume_after_mm3': 128638.0414201781, 'flags_after_volume': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}}, 'failure': {'how': 'Bore Diameter = 500', 'part_failed': True, 'tried': [{'global': 'Face Width', 'value': 0.0, 'kept': 15.0, 'part_rebuild': True, 'part_errors': {}}, {'global': 'Bore Diameter', 'value': 500.0, 'kept': 12.0, 'part_rebuild': False, 'part_errors': {'Bore': {'code': 51, 'warning': False}}}], 'rebuild': {'returned': None}, 'whats_wrong': {'count': 1, 'list': {'returned': True, 'features': ['Probe W7 Rebuild 4 G2-1'], 'codes': [51], 'warnings': [False]}}, 'flags': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}, 'restored': {'part_rebuild': True, 'part_errors': {}, 'rebuild': {'returned': None}}, 'flags_after_reads': {'assembly': True, 'layout': True, 'G1': False, 'G2': True}}, 'seconds': 57.3, 'verdict': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': False, 'only_changed_marked': False}}}
+  fact   rebuild_verdicts = {'ForceRebuild3(True)': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}, 'EditRebuild3': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}, 'ForceRebuild3(False)': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': False}, 'none': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': False, 'only_changed_marked': False}}
+  fact   rebuild_marked = {'ForceRebuild3(True)': {'put': ['assembly'], 'put_back': ['assembly'], 'layout': ['assembly', 'layout'], 'part': ['assembly', 'layout', 'G2'], 'failure': ['assembly', 'layout', 'G2']}, 'EditRebuild3': {'put': ['assembly'], 'put_back': ['assembly'], 'layout': ['assembly', 'layout'], 'part': ['assembly', 'layout', 'G2'], 'failure': ['assembly', 'layout', 'G2']}, 'ForceRebuild3(False)': {'put': ['assembly', 'layout', 'G1', 'G2'], 'put_back': ['assembly', 'layout', 'G1', 'G2'], 'layout': ['assembly', 'layout', 'G1', 'G2'], 'part': ['assembly', 'layout', 'G1', 'G2'], 'failure': ['assembly', 'layout', 'G1', 'G2']}, 'none': {'put': [], 'put_back': ['assembly'], 'layout': ['assembly', 'layout'], 'part': ['assembly', 'layout', 'G2'], 'failure': ['assembly', 'layout', 'G2']}}
+  fact   flags_on_open = {'ForceRebuild3(True)': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'EditRebuild3': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'ForceRebuild3(False)': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}, 'none': {'assembly': False, 'layout': False, 'G1': False, 'G2': False}}
+  fact   put_needs_rebuild = False
+  fact   full_rebuild_marks_components_modified = True
+  fact   opened_reads_unmodified = True
+  fact   assembly_rebuild_route = 'ForceRebuild3(True)'
+  ok     some route showed every change, reported the failure and marked only what changed: {'ForceRebuild3(True)': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}, 'EditRebuild3': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': True}, 'ForceRebuild3(False)': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': True, 'only_changed_marked': False}, 'none': {'frame_after_put': True, 'interference_after_put': True, 'layout_move_shown': True, 'part_change_shown': True, 'failure_reported': False, 'only_changed_marked': False}}
+decide  flank_recipe = STOP
+decide  trig_default = None
+decide  equation_add_call = Add2
+decide  equation_set_route = indexed put Equation(i)
+decide  set_units_mmgs_after_new = False
+decide  plane_select_route = Select2 checked by count, then SelectByID2 by tree name
+decide  equal_constraint = sgSAMELENGTH
+decide  circle_dimension = diameter
+decide  arc_dimension = radius
+decide  curve_trig = radians
+decide  curves_are_fixed = True
+decide  shared_ends_are_one_point = None
+decide  cut_end_condition = 9
+decide  pattern_count_dim_index = 1
+decide  save_as_overwrites = True
+decide  first_component_fixed = True
+decide  end_to_end = True
+decide  helix_route = STOP
+decide  herringbone_route = STOP
+decide  inverse_tangent = None
+decide  extrude_z_sign = None
+decide  top_sketch_y_is_minus_z = None
+decide  ref_plane_unflipped_is_plus_z = None
+decide  twist_turn = None
+decide  twist_reverse_flips = None
+decide  mirror_body_route = None
+decide  helical_end_to_end = False
+decide  annulus_extrudes = None
+decide  interference_route = None
+decide  internal_end_to_end = False
+decide  revolve_axis_mark = None
+decide  bevel_section_x_sign = None
+decide  bevel_crown_section_x_sign = None
+decide  bevel_internal_section_x_sign = None
+decide  loft_cut_route = None
+decide  loft_cut_type = None
+decide  place_route = Transform2 put
+decide  transform_array_order = columns
+decide  origin_select_route = SelectByID2 EXTSKETCHPOINT Point1@Origin
+decide  bevel_mate_route = mates
+decide  crossed_route = mates
+decide  custom_property_route = None
+decide  custom_info_text = None
+decide  custom_property_replace = None
+decide  property_read_route = None
+decide  property_links_globals = None
+decide  gear_mate_route = None
+decide  mate_gear_type = None
+decide  gear_mate_numerator_first = None
+decide  gear_mate_external_flip = None
+decide  bevel_end_to_end = False
+decide  crossed_end_to_end = False
+decide  workbook_layout_route = STOP
+decide  layout_plus_flip = None
+decide  layout_negated_link = None
+decide  axis_plane_select_route = None
+decide  axis_through_base_plane = None
+decide  component_find_route = GetComponentByName
+decide  replace_fixed_route = Transform2 put
+decide  open_assembly_route = OpenDoc6
+decide  update_open_route = ask
+decide  open_doc_route = None
+decide  open_doc_makes_active = None
+decide  open_part_beside_assembly = None
+decide  offset_global_crosses_zero = None
+decide  components_resolved_after_reopen = True
+decide  reuse_add_route = None
+decide  interference_names_route = None
+decide  same_name_elsewhere_inserted = None
+decide  assembly_rebuild_route = ForceRebuild3(True)
+decide  assembly_rebuild_keeps_components_unmodified = True
+decide  put_needs_rebuild = False
+decide  full_rebuild_marks_components_modified = True
+decide  opened_reads_unmodified = True
+decide  motion_route = STOP
+decide  axis_mate_route = None
+decide  axis_concentric_refused = None
+decide  axial_mate_route = None
+decide  gear_mate_flip_rule = None
+decide  gear_mate_sense_depends_on_entities = None
+decide  compound_lock_route = None
+decide  layout_move_carries_mates = None
+decide  mesh_phase_route = None
+decide  axial_global_moves_gear = None
+decide  lock_unsuppress_keeps_the_new_angle = None
+decide  manual_steps = ['material', 'link the centre distance mate in Equations']
+done    27 pass
