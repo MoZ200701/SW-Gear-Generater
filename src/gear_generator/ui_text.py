@@ -1490,7 +1490,8 @@ def _to_replace(update) -> List[str]:
     (``update.motion``), a mated gear the plan must put — its frame changes, or a gear mate of its train takes a new
     ratio — takes every mated gear of its train with it (review M1), the train read from the recorded meshes and
     locks (``MotionUpdate.meshes``, ``locks``; a mated gear with neither is a train of its own); a gear on no mate
-    (left fixed, re-placed W4's way) is named as it is. In ``placements`` order, then in the gears' own order (G2 before G10)."""
+    (left fixed, re-placed W4's way) is named as it is. In ``placements`` order, then in the gears' own order (G2
+    before G10)."""
     replaced = [g for g in update.replaced if g]
     motion = getattr(update, "motion", None)
     if motion is None:
