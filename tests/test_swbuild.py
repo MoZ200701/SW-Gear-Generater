@@ -2688,3 +2688,367 @@ def test_the_refused_document_left_open_does_not_trip_the_next_builds_checks():
                              assembly=_train_plan(path=again))
     assert result.ok, result.log_lines()
     assert result.assembly.saved == again and result.kind == "motion"
+
+
+# -- a train's Update (W5-PLAN §1.6 as W5-INTERFACES.md §3 orders it, with review M1, M7, M8 and W5-DECISIONS)
+
+from gear_generator.swbuild import LockLink, MateRef, MeshLink  # noqa: E402
+
+TRAIN_ORDER = ("G1", "G2", "G3", "G4")
+MESHES = (MeshLink("G1", "G2", -17.0 / 68, 360.0 / 68), MeshLink("G3", "G4", -17.0 / 51, 360.0 / 51))
+LOCKS = (LockLink("G2", "G3", 360.0 / 17),)
+MATE_REFS = (MateRef("G1 on S1 Axis", "axis", ("G1",), "S1"), MateRef("G1 along S1", "along", ("G1",), "S1"),
+             MateRef("G2 on S2 Axis", "axis", ("G2",), "S2"), MateRef("G2 along S2", "along", ("G2",), "S2"),
+             MateRef("G3 locked to G2", "lock", ("G2", "G3")), MateRef("G4 on S3 Axis", "axis", ("G4",), "S3"),
+             MateRef("G4 along S3", "along", ("G4",), "S3"), MateRef("G1 meshes G2", "mesh", ("G1", "G2")),
+             MateRef("G3 meshes G4", "mesh", ("G3", "G4")))
+W5_CALLS = ("find_mate", "mate_states", "constrained_status", "set_mate_suppressed", "set_gear_ratio")
+CHANGING = ("set_global_variable", "place_component", "rebuild", "set_mate_suppressed", "set_gear_ratio", "save_as")
+
+
+def _built_train(**fake_kwargs):
+    """A fake SolidWorks after a clean turning build: every file saved, the gears where the build put them."""
+    fake, result = _build_train(FakeSolidWorks(**fake_kwargs))
+    assert result.ok, result.log_lines()
+    fake.calls.clear()
+    return fake
+
+
+def _train_placements(frames=None):
+    frames = frames or _train_frames()
+    return [swbuild.Placement(g, f"gear{g[1]}-1", frames[g][0], frames[g][1], 360.0 / TEETH[g]) for g in TRAIN_ORDER]
+
+
+def _motion(**kwargs):
+    kwargs.setdefault("mates", MATE_REFS)
+    kwargs.setdefault("meshes", MESHES)
+    kwargs.setdefault("locks", LOCKS)
+    kwargs.setdefault("recorded", tuple(_train_placements()))
+    kwargs.setdefault("recorded_meshes", MESHES)
+    kwargs.setdefault("face_globals", (("G4", GlobalVariable("G4 Face Z", "20")),))
+    return swbuild.MotionUpdate(**kwargs)
+
+
+def _update_train(fake, **kwargs):
+    kwargs.setdefault("parts", [])
+    kwargs.setdefault("layout", None)
+    kwargs.setdefault("assembly", T_ASM)
+    kwargs.setdefault("placements", _train_placements())
+    kwargs.setdefault("motion", _motion())
+    kwargs.setdefault("exists", fake.exists)
+    return swbuild.update_gearbox(fake, **kwargs)
+
+
+def _drag(fake, degrees):
+    """The input turned ``degrees`` by a person in SolidWorks, the solver turning the rest of the train with it:
+    each gear about its own +Z by its speed (k = -za/zb across an outside mesh, the same across a lock)."""
+    turns = {"G1": degrees, "G2": -17.0 / 68 * degrees}
+    turns["G3"] = turns["G2"]
+    turns["G4"] = -17.0 / 51 * turns["G3"]
+    for gear, turn in turns.items():
+        fake.turn(f"gear{gear[1]}-1", turn)
+    return turns
+
+
+def _at_built(fake, frames=None):
+    frames = frames or _train_frames()
+    return all(_close(fake.frames[f"gear{g[1]}-1"], frames[g], 1e-9) for g in TRAIN_ORDER)
+
+
+def test_a_train_turned_in_step_with_nothing_to_change_is_left_turned_and_nothing_is_touched():
+    fake = _built_train()
+    _drag(fake, 10.0)
+    fake.touched.clear()
+    result = _update_train(fake)
+    assert result.ok, result.log_lines()
+    assert result.turned and result.out_of_step == [] and result.off_axis == [] and result.restored == []
+    assert result.placed == [] and result.changed == [] and not result.rebuilt and fake.touched == set()
+    assert not any(n in CHANGING or n == "interferences" for n in names(fake))
+    assert len(result.residuals) == 3 and all(r < 1e-9 for _, _, r in result.residuals)
+    assert "ok      nothing needed putting: the gears stay turned where they stand, in step" in result.log_lines()
+    assert "ok      found turned in SolidWorks, in step" in result.log_lines()
+
+
+def test_a_gear_turned_out_of_step_puts_its_whole_train_back_with_its_locks_off_around_the_puts():
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)                          # G4 alone: out of step with G3
+    result = _update_train(fake)
+    assert result.ok, result.log_lines()
+    assert result.out_of_step == [("G3", "G4")] and not result.turned
+    assert result.placed == list(TRAIN_ORDER) and result.restored == [("G4",)]
+    assert _at_built(fake) and fake.locked_puts == []
+    calls = [(n, a) for n, a in fake.calls if n in ("set_mate_suppressed", "rebuild", "place_component")]
+    lock = next(a[0] for n, a in fake.calls if n == "find_mate" and a[1] == "G3 locked to G2")
+    assert calls[0] == ("set_mate_suppressed", (lock, True)) and calls[1][0] == "rebuild"
+    assert [a[0] for n, a in calls[2:6]] == ["placed1", "placed2", "placed3", "placed4"]
+    assert calls[6] == ("set_mate_suppressed", (lock, False)) and calls[7][0] == "rebuild"
+    assert result.changed == [T_ASM] and not fake.mate("G3 locked to G2").suppressed
+    assert "interferences" in names(fake) and set(fake.assembly_kinds) == {swcom.ASSEMBLY_TRAIN}
+    assert "ok      turned back to where they were built: G4" in result.log_lines()
+
+
+def test_the_one_tooth_turn_review_m1_describes_is_put_back_exactly_and_the_next_update_finds_nothing():
+    """Review M1: G1 turned one tooth turns G2 exactly one of its own; G3 turns with G2, which is not a G3 pitch,
+    and G4 too. When a put is needed (here S3 moves), every mated gear of the train is put — G1 and G2 too, though
+    each stands a whole tooth off — so the lock holds G3 exactly where it was built against G2, and the next Update
+    finds nothing out of step."""
+    fake = _built_train()
+    turns = _drag(fake, 360.0 / 17)
+    assert turns["G2"] == pytest.approx(-360.0 / 68)
+    moved = _train_frames(s3=(64.5, 51.0))
+    result = _update_train(fake, layout=_train_layout_values("64.5"), placements=_train_placements(moved))
+    assert result.ok, result.log_lines()
+    assert result.turned and result.placed == list(TRAIN_ORDER) and result.restored == [("G3", "G4")]
+    assert _at_built(fake, moved) and fake.locked_puts == []
+    relative = _compose(_inverse(fake.frames["gear2-1"]), fake.frames["gear3-1"])
+    assert _close(relative, _compose(_inverse(moved["G2"]), moved["G3"]))
+    fake.calls.clear()
+    again = _update_train(fake, layout=_train_layout_values("64.5"), placements=_train_placements(moved),
+                          motion=_motion(recorded=tuple(_train_placements(moved))))
+    assert again.ok and not again.turned and again.out_of_step == [] and again.placed == []
+    assert "place_component" not in names(fake) and again.changed == []
+
+
+def test_a_layout_move_rebuilds_then_puts_the_wrong_swing_right_and_the_post_check_is_clean():
+    fake = _built_train()
+    moved = _train_frames(s3=(64.5, 51.0))
+    result = _update_train(fake, layout=_train_layout_values("64.5"), placements=_train_placements(moved))
+    assert result.ok, result.log_lines()
+    assert result.layout.changed == ["S3 X"] and result.changed == [T_LAYOUT, T_ASM]
+    assert result.off_axis == [] and result.out_of_step == [] and not result.turned    # as found, before the move
+    assert result.placed == list(TRAIN_ORDER) and result.restored == []
+    assert _at_built(fake, moved) and fake.locked_puts == []
+    called = names(fake)
+    start = called.index("set_global_variable")
+    assert called.index("rebuild", called.index("find_mate", start)) < called.index("place_component")
+    assert [m.code for m in result.mates] == [0] * 9 and not any(m.suppressed for m in result.mates)
+    assert "ok      no interference between the gears" in result.log_lines()
+
+
+def test_a_face_z_change_is_set_and_rebuilt_before_any_put():
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)                          # so a put is needed too
+    wanted = _train_frames(z4=25.0)
+    result = _update_train(fake, placements=_train_placements(wanted),
+                           motion=_motion(face_globals=(("G4", GlobalVariable("G4 Face Z", "25")),)))
+    assert result.ok, result.log_lines()
+    assert result.axial == ["G4"] and _at_built(fake, wanted)
+    called = [(n, a) for n, a in fake.calls]
+    set_at = called.index(("set_global_variable", ("G4 Face Z", "25")))
+    first_put = next(i for i, (n, _) in enumerate(called) if n == "place_component")
+    assert set_at < next(i for i, (n, _) in enumerate(called) if n == "rebuild") < first_put
+
+
+def test_a_face_z_change_alone_moves_the_anchor_and_puts_nothing():
+    fake = _built_train()
+    wanted = _train_frames(z4=25.0)
+    result = _update_train(fake, placements=_train_placements(wanted),
+                           motion=_motion(face_globals=(("G4", GlobalVariable("G4 Face Z", "25")),)))
+    assert result.ok and result.axial == ["G4"] and result.placed == [] and result.changed == [T_ASM]
+    assert _at_built(fake, wanted) and result.rebuilt
+    assert "ok      moved along their shafts: G4" in result.log_lines()
+
+
+def test_a_mate_renamed_or_deleted_in_solidworks_is_not_as_built_and_nothing_changes():
+    fake = _built_train()
+    fake.drop_mate(T_ASM, "G3 meshes G4")
+    with pytest.raises(swbuild.NotAsBuilt) as raised:
+        _update_train(fake, layout=_train_layout_values("64.5"),
+                      placements=_train_placements(_train_frames(s3=(64.5, 51.0))))
+    assert str(raised.value) == ('The mate "G3 meshes G4" is not in T.SLDASM any more: it was renamed or deleted in '
+                                 "SolidWorks.") and raised.value.path == T_ASM
+    assert not any(n in CHANGING for n in names(fake))
+
+
+def test_a_face_z_global_deleted_in_solidworks_is_not_as_built():
+    fake = _built_train()
+    fake.memory[_key(T_ASM)][0].clear()
+    with pytest.raises(swbuild.NotAsBuilt, match='^T.SLDASM cannot be updated: "G4 Face Z" is no longer in it'):
+        _update_train(fake)
+    assert not any(n in CHANGING for n in names(fake))
+
+
+def test_a_recorded_mate_found_suppressed_is_turned_back_on_and_listed():
+    fake = _built_train()
+    fake.mate("G3 locked to G2", T_ASM).suppressed = True
+    result = _update_train(fake)
+    assert result.ok, result.log_lines()
+    assert result.unsuppressed == ["G3 locked to G2"] and not fake.mate("G3 locked to G2", T_ASM).suppressed
+    assert result.changed == [T_ASM] and result.rebuilt and result.placed == []
+    assert "ok      turned back on: G3 locked to G2" in result.log_lines()
+
+
+def test_a_suppressed_mate_the_record_does_not_know_is_listed_and_left_alone():
+    fake = _built_train()
+    fake.user_mate(T_ASM, "Angle1", suppressed=True)
+    result = _update_train(fake)
+    assert result.ok and result.extra_mates == ["Angle1"] and fake.mate("Angle1", T_ASM).suppressed
+    assert not any(n in CHANGING for n in names(fake))
+    assert "CHECK   suppressed mates Gear Generator did not make, left as they are: Angle1" in result.log_lines()
+
+
+def test_an_unsuppressed_mate_the_record_does_not_know_refuses_the_update_naming_it():
+    """Review M7: a mate added by hand (an angle mate driving the train, say) would make every turning gear read
+    fully defined and a put on it is unprobed, so the Update refuses before anything changes, naming the mate."""
+    fake = _built_train()
+    fake.user_mate(T_ASM, "Angle1")
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake, layout=_train_layout_values("64.5"),
+                      placements=_train_placements(_train_frames(s3=(64.5, 51.0))))
+    assert not isinstance(raised.value, swbuild.NotAsBuilt)
+    assert str(raised.value) == ("Angle1 is a mate in T.SLDASM that Gear Generator did not make, and it may hold the "
+                                 "gears where Update SolidWorks would put them, so nothing is changed; suppress Angle1 "
+                                 "in SolidWorks and press Update SolidWorks again.")
+    assert not any(n in CHANGING for n in names(fake))
+
+
+def test_a_put_that_does_not_hold_is_a_post_check_failure_sentence():
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    fake.slips = {"gear4-1"}
+    result = _update_train(fake)
+    assert not result.ok
+    assert ("T.SLDASM", "G4 is not where Update SolidWorks put it once the assembly rebuilt: a mate holds it "
+                        "elsewhere.") in result.failures
+    assert ("T.SLDASM", "G3 and G4 are out of step once the assembly rebuilt.") in result.failures
+    assert "interferences" not in names(fake) and result.changed == [T_ASM]
+
+
+def test_a_mate_in_error_or_a_gear_not_free_after_the_update_is_a_failure_sentence():
+    fake = _built_train()
+    fake.mate_codes, fake.constrained = {"G1 meshes G2": (47, False)}, {"gear2-1": 3}
+    fake.turn("gear4-1", 3.0)
+    result = _update_train(fake)
+    assert ("T.SLDASM", "The mate G1 meshes G2 is in error in SolidWorks.") in result.failures
+    assert ("T.SLDASM", "G2 cannot turn: SolidWorks reads it fully defined.") in result.failures
+
+
+def test_a_lone_mated_gear_is_put_only_when_off_its_axis():
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    unlinked = _motion(meshes=(), locks=(), recorded_meshes=())
+    result = _update_train(fake, motion=unlinked)
+    assert result.ok and result.placed == [] and "place_component" not in names(fake)
+
+
+def test_a_fixed_gear_is_re_placed_as_w4_re_places_it_modulo_its_pitch():
+    fake = _built_train()
+    fake.turn("gear4-1", 360.0 / 51)                   # a whole tooth: the same placement
+    motion = _motion(fixed=("G4",), meshes=MESHES[:1], recorded_meshes=MESHES[:1])
+    result = _update_train(fake, motion=motion)
+    assert result.ok and result.placed == []
+    fake.turn("gear4-1", 2.0)
+    result = _update_train(fake, motion=motion)
+    assert result.ok and result.placed == ["G4"]
+    assert [a[0] for n, a in fake.calls if n == "place_component"] == ["placed4"]
+
+
+def test_a_static_gearbox_update_never_reaches_a_w5_member():
+    fake = _built_gearbox()
+    result = _update(fake)
+    assert result.ok and not any(n in W5_CALLS for n in names(fake))
+    assert result.turned is False and result.restored == [] and result.mates == []
+
+
+@pytest.mark.parametrize("name, value, sentence", [
+    ("MESH_PHASE_ROUTE", None, "Update SolidWorks on a gearbox built to turn needs putting a gear with its gear mate "
+                               "on settled on SolidWorks (findings.MESH_PHASE_ROUTE is None), so nothing is changed; "
+                               "run probe tier 8 first."),
+    ("LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE", False, "Update SolidWorks on a gearbox built to turn needs a lock keeping "
+                                                   "the angle a gear was put at settled on SolidWorks (findings."
+                                                   "LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE is False), so nothing is "
+                                                   "changed; run probe tier 8 first."),
+])
+def test_a_motion_update_without_its_findings_is_refused_before_anything_is_read(monkeypatch, name, value, sentence):
+    monkeypatch.setattr(findings, name, value)
+    fake = _built_train()
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake)
+    assert str(raised.value) == sentence and fake.calls == []
+
+
+def test_a_new_ratio_is_refused_before_anything_changes_while_the_route_is_not_the_remake():
+    fake = _built_train()
+    with pytest.raises(swbuild.BuildError, match=r"findings.GEAR_MATE_RATIO_ROUTE is None\), so nothing is changed"):
+        _update_train(fake, motion=_motion(ratios=(("G3 meshes G4", 18, 50),)))
+    assert fake.calls == []
+
+
+def test_with_the_remake_a_new_ratio_is_set_with_the_locks_off_before_the_train_is_put(monkeypatch):
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    fake = _built_train()
+    result = _update_train(fake, motion=_motion(ratios=(("G3 meshes G4", 18, 50),)))
+    assert result.ok, result.log_lines()
+    assert result.ratios == ["G3 meshes G4"] and result.placed == list(TRAIN_ORDER)
+    called = [(n, a) for n, a in fake.calls]
+    ratio_at = next(i for i, (n, _) in enumerate(called) if n == "set_gear_ratio")
+    assert called[ratio_at][1][1:] == ("placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    suppress_at = next(i for i, (n, a) in enumerate(called) if n == "set_mate_suppressed" and a[1] is True)
+    assert suppress_at < ratio_at < next(i for i, (n, _) in enumerate(called) if n == "place_component")
+    assert fake.mate("G3 meshes G4", T_ASM).ratio == (18.0, 50.0) and fake.locked_puts == []
+
+
+def test_a_lock_that_will_not_come_back_on_names_the_compound_gears_and_stops():
+    """Review M8: the locks are turned back on whatever happened; one that will not is a failure saying which
+    compound gears are not locked, and the next Update turns it back on (D10)."""
+    fake = _built_train(fail_on={"set_mate_suppressed": (False, "SolidWorks would not turn the mate G3 locked to G2 "
+                                                                "back on in T.SLDASM: it still reads it suppressed.")})
+    fake.turn("gear4-1", 3.0)
+    result = _update_train(fake)
+    assert not result.ok
+    assert result.failures == [("T.SLDASM", "The compound gears G2 and G3 are not locked: SolidWorks would not turn "
+                                            "G3 locked to G2 back on (SolidWorks would not turn the mate G3 locked to "
+                                            "G2 back on in T.SLDASM: it still reads it suppressed); press Update "
+                                            "SolidWorks again, which turns it back on.")]
+    assert result.placed == list(TRAIN_ORDER) and result.changed == [T_ASM]
+    assert "interferences" not in names(fake) and fake.mate("G3 locked to G2", T_ASM).suppressed
+    fake.fail_on = {}
+    fake.calls.clear()
+    healed = _update_train(fake)
+    assert healed.ok and healed.unsuppressed == ["G3 locked to G2"]
+
+
+def test_a_put_that_raises_still_turns_the_locks_back_on_and_is_a_failure():
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    fake.raises = {"place_component": (fake.counts["place_component"] + 2, RPC)}
+    result = _update_train(fake)
+    assert not result.ok and result.failures[0][0] == "T.SLDASM"
+    assert result.failures[0][1].startswith("it stopped on an unexpected ComErrorLookAlike")
+    assert result.placed == ["G1"] and not fake.mate("G3 locked to G2", T_ASM).suppressed
+    called = [(n, a) for n, a in fake.calls]
+    assert called.index(("set_mate_suppressed", ("mate5", False))) > next(
+        i for i, (n, _) in enumerate(called) if n == "place_component")
+    assert result.changed == [T_ASM]
+
+
+@pytest.mark.parametrize("call", ["set_mate_suppressed", "set_global_variable", "rebuild", "component_frame"])
+def test_every_raise_after_the_check_phase_is_a_failure_on_the_result(call):
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    fake.mate("G4 along S3", T_ASM).suppressed = True
+    before = fake.counts.get(call, 0)
+    fake.raises = {call: (before + (1 if call != "component_frame" else 5), RPC)}
+    result = _update_train(fake, motion=_motion(face_globals=(("G4", GlobalVariable("G4 Face Z", "20.5")),)),
+                           placements=_train_placements(_train_frames(z4=20.5)))
+    assert not result.ok and any("ComErrorLookAlike" in why for _, why in result.failures)
+    assert not any(m.suppressed and m.kind == "lock" for m in fake.memory_mates[_key(T_ASM)])
+
+
+def test_app_code_never_puts_a_gear_while_its_lock_is_on():
+    """W5-DECISIONS: a lock does not hold against a put, and SolidWorks says nothing, so the fake records every put
+    made with a lock on (it would catch one: the first half) and no Update makes one (the second)."""
+    fake = _built_train()
+    _reopened_train(fake)
+    fake.place_component("placed3", *_train_frames()["G3"], kind=swcom.ASSEMBLY_TRAIN)
+    assert fake.locked_puts == ["gear3-1"]
+    for doctor, kwargs in ((lambda f: f.turn("gear4-1", 3.0), {}),
+                           (lambda f: _drag(f, 360.0 / 17), {"layout": _train_layout_values("64.5"),
+                                                             "placements": _train_placements(
+                                                                 _train_frames(s3=(64.5, 51.0)))}),
+                           (lambda f: f.turn("gear3-1", 4.0), {})):
+        fake = _built_train()
+        doctor(fake)
+        result = _update_train(fake, **kwargs)
+        assert result.ok and result.placed == list(TRAIN_ORDER), result.log_lines()
+        assert fake.locked_puts == []
