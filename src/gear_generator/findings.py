@@ -881,9 +881,11 @@ MATE_FOLDER_SUPPRESSION_SUPPRESSES_ITS_MATES = True
 # which blocks OpenDoc6 until it is closed: the probe's watch closed it with WM_CLOSE.
 # P0d read every gear's IComponent2.GetSuppression2 at each step. After the open, and after
 # FeatureByName("Gear Axis") found the axis on two of them, every gear read 1
-# (swComponentLightweight). The first drive, 30° on the input, turned TG4 -24.17° where 2.5° is
-# right (TG1-TG3 and the other train right). After that drive every gear read 2
-# (swComponentFullyResolved). So the remake ran on resolved components: it made the gear mate
+# (swComponentLightweight). The first drive, 30° on the input, read TG4 as turned -24.17° where
+# 2.5° is right (TG1-TG3 and the other train right). After that drive every gear read 2
+# (swComponentFullyResolved). The drive is one step to the probe: every frame read, the global
+# set, a top-only rebuild, every frame read again. Which of these resolves was not separated, and
+# the wrong turn may be a stale frame read while lightweight rather than a wrong solve. So the remake ran on resolved components: it made the gear mate
 # (status 1, no error) and the train turned at the new ratio (TG4 2.125° for 30°), still 2 after.
 # "Holds" therefore means: once resolved, not while lightweight. A lightweight train must not be
 # driven or judged before its components read fully resolved. W5 does not open lightweight; if it
@@ -891,7 +893,9 @@ MATE_FOLDER_SUPPRESSION_SUPPRESSES_ITS_MATES = True
 LIGHTWEIGHT_FORCED_BY = "swOpenDocOptions_LoadLightweight | swOpenDocOptions_OverrideDefaultLoadLightweight"
 LIGHTWEIGHT_REMAKE_HOLDS = True                 # on components already resolved by the first drive
 LIGHTWEIGHT_FIRST_DRIVE_RIGHT = False           # TG4 -24.17° where 2.5° is right, on both versions
-LIGHTWEIGHT_RESOLVED_BY = "the first drive"     # a top-only rebuild after a global changed
+# The first drive (frame reads, a global set, a top-only rebuild); which of these resolves was not
+# separated, and the wrong turn may be a stale frame read rather than a wrong solve.
+LIGHTWEIGHT_RESOLVED_BY = "the first drive"
 
 # The read an Update gates on (P0d, package A): IComponent2.GetSuppression2 of each gear
 # component. After a plain OpenDoc6 (silent, no lightweight option: this machine's default) every
