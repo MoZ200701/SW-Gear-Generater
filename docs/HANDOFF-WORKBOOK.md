@@ -11,7 +11,8 @@ this note only says where things stand within it.
 | W0–W1 xlsx read/write, model, schema | done, reviewed by a Fable subagent, review fixes in |
 | W2 Workbook window, live link, Build parts | done, reviewed, fixes in. The batch build (`swbuild.build_many`) ran on SolidWorks 2024 and 2026 (`208712c`): the 12 : 1 reducer's four parts built, matching strip-built twins; logs `probe/results/w2-build-20261113-164647.log` and `probe/results/sw2024/w2-build-20261113-165706.log`. |
 | W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed twice, every review item fixed. The Excel checks passed on Windows: the Windows-saved fixture (`aa86cc7`) reads, and exported files open in Excel with no repair prompt. |
-| W4 layout part + static assembly | **in progress on Windows**: probe tier 7 (`p7_workbook.py`, `8ef3943`) is written and being run; no results are committed yet. Its gate is built: `workbook.assess.Assessment.lay_out_refusal()`. |
+| W4 layout part + static assembly, Update SolidWorks, build-again `_r2` | **built and wired; demonstration in progress, review pending.** Probe tier 7 passed on SolidWorks 2026 (a full run of every probe, 69 of 69, `probe/results/latest.json`) and 2024 (32 of 32, `probe/results/sw2024/`), every decision the same; findings set in `bfc9ef5`. Then the interfaces (`a93d6d9`), the record's schema 2 (`1f0548b`), the planning (`cb7e042` layout, `17f4bce` gearbox, `a623610` update), the worker (`afb0c00`, `7ce7a26`, `d0203cd`), the footer and every sentence (`4b128a6`, `8fa0216`), and the window (`ccef692`); the helical phase across Z+/Z− fixed first (`119da25`). A smoke test of the gearbox build, its reuse and Update passed on 2026 (`66fed74`, `probe/results/gearbox-smoke-20261113-191036.log`). The full demonstration (PLAN-WORKBOOK §6's W4 row, on both versions) is running now. Boards and docs brought up to W4: `b215dee`, `649d8db`, `47e4648`. |
+| W5 motion | **next.** Its precondition `gear_mate` has passed on both versions, and pairs built by the app were driven through it (`probe/gear_pairs_check.py`): the ring pair's Flip was measured, found wrong, and corrected in `4c8a73a`. PLAN-WORKBOOK §4.4 also needs PLAN-GEARBOX's probe tier 6 items 3–5 (axis-to-axis mates, five or more components, a lock between free components); no tier 6 is written yet (tier 7 inserted five components, but placed and fixed, not mated). |
 
 Suite, measured on a clean `git archive` of `bdc7647` (WSL, 2026-11-13): `PYTHONPATH=src
 .venv/bin/python -m pytest -q` → 942 passed, 9 skipped. The `PYTHONPATH` matters in a copy: the venv's
@@ -38,12 +39,28 @@ editable install otherwise imports the working tree's `src`, uncommitted edits a
 - ~~In the end view, a shaft label can sit on top of the origin arrows (the S1 label in the renders). This is cosmetic, and the app draws it the same way.~~ Done in `6716126`: `preview.layout_gearbox` places each name clear of the arrows, for the window and the boards.
 - ~~README.md and `docs/PLAN-GEARBOX.md` §1 do not mention the workbook (PLAN-WORKBOOK, Critical files).~~ Done in `af59668` and `d2b82a9`.
 
-## Next: W4 (on Windows)
+## Next
 
-Read PLAN-WORKBOOK §4.2–§4.3 and the W4 row in §6:
+W1–W3 are closed and reviewed. For W4, in order:
 
-1. **Finish probe tier 7** (`p7_workbook.py`, being run now), on scratch documents like every tier, and commit its results and findings. **If any of items 1–4 fails, STOP and ask the user.**
-2. Then build the layout part, the `Axis`-by-name op, the static assembly, Update SolidWorks, and build-again `_r2`. Gate the W4 button on `Assessment.lay_out_refusal()`, never on the parts alone, with the window's own state first: a file gone or half-saved, a build running, the output folder missing on disk; and pass `provisional=self.recalc` to `assess` (the window's `_plan` does) so a read Excel has yet to recalculate is refused. Warning-only states pass the gate on purpose: two gears at mesh distance but not listed in Meshes, a gear passing over another shaft's axis, a loop of meshes whose phases disagree. The assembly's own interference check catches what matters there.
+1. **Finish the demonstration** (W4-DECISIONS item 10, PLAN-WORKBOOK §6's W4 row) on SolidWorks 2026 and 2024,
+   logs committed under `probe/results/`: (a) the 12 : 1 fixture built, the Excel edit S2 X 63.75 → 64.5 with
+   G2's teeth 68 → 69 (S3 X following by its formula), Update SolidWorks, measured, then a structural step and
+   `_r2` with every earlier file's sha256 and mtime unchanged, and a control that the assembly shows G2's 69
+   teeth; (b) a pure move, S2 off the X axis so a move alone keeps every mesh; (c) the risky placements —
+   helical across Z+/Z−, herringbones of unequal faces, a ring on a Z− shaft — each mesh with the half-pitch
+   negative control. Then update README's "under way and not yet reported" sentence and its versions line.
+2. **Review W4** (plan and result) by a Fable subagent, as every phase has been, and fix what it finds.
+3. **W5 motion** (PLAN-WORKBOOK §4.4): write and run the tier 6 items it needs first; **if they fail, STOP
+   and ask** — the static assembly stays.
+
+Known, not yet acted on (from the W4 boards, 2026-11-13):
+
+- With four footer buttons (Export, Export as…, Build again…, Update SolidWorks) and a sentence long enough to
+  wrap, the footer asks Tk for 1095 px, so the window grows to 1119 px instead of 1080: the sentence wraps at a
+  fixed 660 px whatever the buttons take. The boards do not show it (HTML lets the sentence narrow).
+- After Update, while its changes are unsaved, Build again… is greyed with no word why: the plan's refusal (save
+  the part first) is not in the footer when nothing Update cannot carry is pending.
 
 ## Rules carried over
 
