@@ -254,6 +254,48 @@ def axis_concentric_refused(records: Records) -> Optional[bool]:
     return any(key in refused for key in ("g3", "g4"))
 
 
+# Package P0 (W5-PLAN §0.3): what Update, the build and the demonstration call, read off tier 8's records.
+def motion_enum(records: Records, key: str) -> Optional[int]:
+    """One value motion_enums read from swconst.tlb (``suppress``, ``unsuppress``, ``this_configuration``, ...)."""
+    return (_fact(records, "motion_enums", "motion_enum_values") or {}).get(key)
+
+
+def suppression_route(records: Records) -> Optional[str]:
+    """The route motion_update suppressed and unsuppressed both its gear mate and its lock by, when it was one."""
+    facts = _fact(records, "motion_update", "motion_update") or {}
+    lock = facts.get("lock_moved") or {}
+    routes = {facts.get("suppressed_by"), facts.get("unsuppressed_by"), lock.get("suppressed_by"),
+              lock.get("unsuppressed_by")}
+    return routes.pop() if len(routes) == 1 and None not in routes else None
+
+
+def lock_select_route(records: Records) -> Optional[str]:
+    """How compound_lock selected the two components of every lock mate it made, when it was one route."""
+    results = _fact(records, "compound_lock", "lock_results") or {}
+    selects = {r.get("select") for r in results.values() if str(r.get("how", "")).startswith("lock")}
+    return selects.pop() if len(selects) == 1 and None not in selects else None
+
+
+def mate_delete_route(records: Records) -> Optional[str]:
+    """How compound_lock deleted the mate it over-defined the assembly with."""
+    return (_fact(records, "compound_lock", "over_defined") or {}).get("deleted_by")
+
+
+def mate_find_route(records: Records) -> Optional[str]:
+    """How lock_mate_rename found every renamed mate after the reopen, once renaming worked: the MateGroup's
+    sub-features by name first (the walk the probes and the app's find_mate make), else FeatureByName."""
+    if _fact(records, "lock_mate_rename", "mate_rename_route") is None:
+        return None
+    found = _fact(records, "lock_mate_rename", "mate_find_routes") or {}
+    return next((route for route in ("mate group", "FeatureByName") if found.get(route)), None)
+
+
+def mated_assembly_rebuild_route(records: Records) -> Optional[str]:
+    """The rebuild a mated assembly needs, off probe mated_rebuild_scope's verdicts; None when no route met them all
+    (a decision, not a STOP: W5 then accepts the full rebuild's marks, which is the user's call)."""
+    return _fact(records, "mated_rebuild_scope", "mated_assembly_rebuild_route")
+
+
 def decide(records: Records) -> Dict[str, Any]:
     recipe = flank_recipe(records)
     units = _fact(records, "document_units", "default_template_is_mm")
@@ -347,5 +389,24 @@ def decide(records: Records) -> Dict[str, Any]:
         "mesh_phase_route": _fact(records, "motion_update", "mesh_phase_route"),
         "axial_global_moves_gear": _fact(records, "motion_update", "axial_global_moves_gear"),
         "lock_unsuppress_keeps_the_new_angle": _fact(records, "motion_update", "lock_unsuppress_keeps_the_new_angle"),
+        "feature_suppress": motion_enum(records, "suppress"),
+        "feature_unsuppress": motion_enum(records, "unsuppress"),
+        "this_configuration": motion_enum(records, "this_configuration"),
+        "suppression_route": suppression_route(records),
+        "lock_select_route": lock_select_route(records),
+        "mate_delete_route": mate_delete_route(records),
+        "gear_mate_ratio_route": _fact(records, "gear_mate_ratio", "gear_mate_ratio_route"),
+        "gear_mate_definition_numerator_is_second": _fact(records, "gear_mate_ratio",
+                                                          "definition_numerator_is_second_teeth"),
+        "lock_retakes_an_offset": _fact(records, "lock_retake_offset", "lock_retakes_an_offset"),
+        "mate_rename_route": _fact(records, "lock_mate_rename", "mate_rename_route"),
+        "mate_find_route": mate_find_route(records),
+        "demonstration_drive_holds": _fact(records, "demonstration_drive", "demonstration_drive_holds"),
+        "put_on_twice_meshed_gear_holds": _fact(records, "put_on_twice_meshed_gear", "put_on_twice_meshed_gear_holds"),
+        "axial_datum_route": _fact(records, "axial_datum_plane", "axial_datum_route"),
+        "axial_datum_flip": _fact(records, "axial_datum_plane", "axial_datum_flip"),
+        "mated_assembly_rebuild_route": mated_assembly_rebuild_route(records),
+        "mated_rebuild_keeps_components_unmodified": _fact(records, "mated_rebuild_scope",
+                                                           "mated_rebuild_keeps_components_unmodified"),
         "manual_steps": manual_steps(records, recipe),
     }

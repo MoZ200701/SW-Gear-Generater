@@ -61,6 +61,36 @@ after it in the registry and in ``--tier``.
    compound lock the same way; an axial distance linked to an assembly global
    and changed.
 
+Items 7-13 are what W5's plan (docs/notes-workbook/W5-PLAN.md §0.3) and its
+review (W5-PLAN-REVIEW.md M4, M5) asked before any code, and what the review of
+tier 7's assembly_rebuild_scope found missing for a mated assembly. Items 7-11
+and 13 each work on their own copy of the train mated_train saved; each rebuild
+is the one Update gives an assembly (ForceRebuild3(True)), except where item 13
+compares the routes.
+
+7. ``gear_mate_ratio`` (P1) — a saved gear mate's ratio changed in the
+   reopened train: through its definition (GetDefinition, the ratio fields,
+   ModifyDefinition), or, only if that fails, deleted and made again; driven,
+   saved, reopened, driven again.
+8. ``lock_retake_offset`` (P2) — each compound lock suppressed, its second
+   gear put 3 mm along its axis and 11° round, the lock back on: is the axial
+   offset kept as well as the angle, through a drive?
+9. ``lock_mate_rename`` (M4a) — a lock, a gear mate, an axis mate, an axial
+   mate and a suppressed lock renamed as W5 names them, saved, reopened: found
+   by the new names, old names gone, the same kinds, suppression kept, holding.
+10. ``demonstration_drive`` (M4b) — the drive W5's demonstration plans: the
+    input at its built phase, an angle mate from its Top plane to the layout's
+    Right at 90°, 90 -> 120 -> 90, then deleted; every frame back as built.
+11. ``put_on_twice_meshed_gear`` (M4c) — in the undriven train, locks
+    suppressed around the puts: the compound anchor put round, every gear put
+    back, and a gear carrying two gear mates put round.
+12. ``axial_datum_plane`` (M5) — anchors on Z+ and Z- held along their shafts
+    from a layout plane 1000 mm behind Front, the distance on an assembly
+    global, moved through where the Front plane is, driven, saved, reopened.
+13. ``mated_rebuild_scope`` — per assembly rebuild route, on the mated train:
+    an axial global, a drive, a put under a suppressed lock, a layout move, a
+    part change and an over-defining mate; what shows and what is marked.
+
 Lengths cross COM in metres; everything recorded is in millimetres and
 degrees. Written without SolidWorks, then iterated on SolidWorks 2026 (34.0.0)
 on 2026-11-13: the first runs found the probe's own faults (a plane-to-plane
@@ -75,6 +105,7 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
 import time
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -426,10 +457,16 @@ def whats_wrong(px: Px, asm: Any) -> Dict[str, Any]:
     return out
 
 
-def rebuild(px: Px, asm: Any, label: str) -> Dict[str, Any]:
+def rebuild(px: Px, asm: Any, label: str, top_only: bool = False) -> Dict[str, Any]:
+    """``ForceRebuild3``: of everything (False, items 1-6 as they ran), or of the top level only (True, the route
+    Update gives an assembly, findings.ASSEMBLY_REBUILD_ROUTE, which items 7-12 use)."""
     started = time.monotonic()
-    got, result = px.attempt(f"ForceRebuild3 ({label})", lambda: call(asm, "ForceRebuild3", False))
-    return {"returned": plain(result) if got else "raised", "seconds": round(time.monotonic() - started, 3)}
+    got, result = px.attempt(f"ForceRebuild3{'(True)' if top_only else ''} ({label})",
+                             lambda: call(asm, "ForceRebuild3", top_only))
+    out = {"returned": plain(result) if got else "raised", "seconds": round(time.monotonic() - started, 3)}
+    if top_only:
+        out["top_only"] = True
+    return out
 
 
 def constrained(px: Px, component: Any) -> Any:
@@ -500,13 +537,14 @@ def fix(px: Px, asm: Any, component: Any) -> bool:
     return bool(call(component, "IsFixed"))
 
 
-def put(px: Px, asm: Any, component: Any, matrix: Matrix, at: Sequence[float], route: str = "Transform2 put") -> bool:
+def put(px: Px, asm: Any, component: Any, matrix: Matrix, at: Sequence[float], route: str = "Transform2 put",
+        top_only: bool = False) -> bool:
     """Set a frame by ``Transform2`` (then a rebuild) or ``SetTransformAndSolve2``, without checking where it ended."""
     transform = make_transform(px, array_data(matrix, at, findings.TRANSFORM_ARRAY_ORDER or "columns"))
     if route == "Transform2 put":
         got, _ = px.attempt(f"Transform2 put on {call(component, 'Name2')}",
                             lambda: setattr(component, "Transform2", transform))
-        call(asm, "ForceRebuild3", False)
+        call(asm, "ForceRebuild3", top_only)
         return got
     got, value = px.attempt(f"SetTransformAndSolve2 on {call(component, 'Name2')}",
                             lambda: call(component, "SetTransformAndSolve2", transform))
@@ -522,6 +560,19 @@ def frame_report(component: Any, matrix: Matrix, at: Sequence[float]) -> Dict[st
     return {"rotation": rotation_error(got, matrix), "origin_mm": math.dist(origin, at)}
 
 
+def is_suppressed(px: Px, feature: Any) -> Optional[bool]:
+    """``IsSuppressed2`` in this configuration, else ``IsSuppressed``; None when neither answers."""
+    try:
+        value = call(feature, "IsSuppressed2", _enums(px)["this_configuration"], sc.null())
+        value = value[0] if isinstance(value, tuple) else value
+        return bool(value[0] if isinstance(value, (list, tuple)) else value)
+    except Exception:  # noqa: BLE001
+        try:
+            return bool(call(feature, "IsSuppressed"))
+        except Exception:  # noqa: BLE001
+            return None
+
+
 def suppress(px: Px, asm: Any, name: str, on: bool) -> Optional[str]:
     """Suppress or unsuppress one mate; the route that did it, judged by ``IsSuppressed2``, or None."""
     enums = _enums(px)
@@ -529,15 +580,7 @@ def suppress(px: Px, asm: Any, name: str, on: bool) -> Optional[str]:
     feature = mate_feature(asm, name)
 
     def state() -> Optional[bool]:
-        try:
-            value = call(feature, "IsSuppressed2", enums["this_configuration"], sc.null())
-            value = value[0] if isinstance(value, tuple) else value
-            return bool(value[0] if isinstance(value, (list, tuple)) else value)
-        except Exception:  # noqa: BLE001
-            try:
-                return bool(call(feature, "IsSuppressed"))
-            except Exception:  # noqa: BLE001
-                return None
+        return is_suppressed(px, feature)
 
     routes: List[Tuple[str, Callable[[], Any]]] = [
         ("SetSuppression2 this configuration, None",
@@ -556,9 +599,11 @@ def suppress(px: Px, asm: Any, name: str, on: bool) -> Optional[str]:
 
 
 def drive_mate(px: Px, asm: Any, gear: Any, gear_top: str, layout: Any, layout_top: str, label: str,
-               add: Callable[[str], int], align: int, angle: float = DRIVE_FROM) -> Optional[str]:
-    """An angle mate between a gear's Top plane and the layout's, named ``Drive <label>``, its dimension linked to
-    the global ``"Drive"`` (which must exist). Returns the mate's name, or None."""
+               add: Callable[[str], int], align: int, angle: float = DRIVE_FROM,
+               global_name: str = DRIVE) -> Optional[str]:
+    """An angle mate between a gear's plane ``gear_top`` and the layout's ``layout_top`` (their Top planes, unless
+    told otherwise), named ``<global> <label>``, its dimension linked to the global ``global_name`` ("Drive" by
+    default; it must exist). Returns the mate's name, or None."""
     if not (select_in(px, asm, gear, gear_top, "PLANE", False) and select_in(px, asm, layout, layout_top, "PLANE", True)):
         px.fail(f"{label}: the gear's Top plane and the layout's could not both be selected")
         return None
@@ -567,9 +612,9 @@ def drive_mate(px: Px, asm: Any, gear: Any, gear_top: str, layout: Any, layout_t
         px.fail(f"{label}: the drive angle mate was not made: {made}")
         return None
     feature = mate_feature(asm, made["name"])
-    name = _rename(px, feature, f"{DRIVE} {label}")
+    name = _rename(px, feature, f"{global_name} {label}")
     match = [d for d in sc.dimensions_of(feature) if abs(float(call(d, "SystemValue")) - math.radians(angle)) < 1e-9]
-    if len(match) != 1 or add(f'"{call(match[0], "Name")}@{name}"= "{DRIVE}"') < 0:
+    if len(match) != 1 or add(f'"{call(match[0], "Name")}@{name}"= "{global_name}"') < 0:
         px.fail(f"{label}: the drive's dimension could not be linked to the global")
         return None
     return name
@@ -577,12 +622,16 @@ def drive_mate(px: Px, asm: Any, gear: Any, gear_top: str, layout: Any, layout_t
 
 # -- the layout part and the parts --------------------------------------------
 
+DATUM_PLANE = "Datum Plane"   # a layout plane far behind Front (W5-PLAN-REVIEW M5), when one is asked for
+
 
 def layout_part(px: Px, folder: str, stem: str, shafts: Sequence[Tuple[str, float, float]],
-                link: bool = False) -> str:
+                link: bool = False, datum: Optional[float] = None) -> str:
     """A body-less part of planes offset from Right and Top and an axis ``"<shaft> Axis"`` through each pair, the
     Top-parallel plane selected first so it reads +Z as W4 makes it; saved and closed. With ``link``, each offset
-    driven by a global ``"<shaft> X"`` / ``"<shaft> Y"``. Every coordinate must be positive."""
+    driven by a global ``"<shaft> X"`` / ``"<shaft> Y"``. Every coordinate must be positive. With ``datum``, also
+    a plane ``DATUM_PLANE`` offset from Front to z = ``datum`` mm, on the side ref_plane_offset's flip rule gives
+    (findings.REF_PLANE_UNFLIPPED_IS_PLUS_Z), measured where it landed."""
     path = os.path.join(folder, f"{stem}.SLDPRT")
     if os.path.exists(path):
         raise Require(f"{path} already exists.")
@@ -623,6 +672,18 @@ def layout_part(px: Px, folder: str, stem: str, shafts: Sequence[Tuple[str, floa
                 for plane, letter, value in ((xp, "X", x), (yp, "Y", y)):
                     _name_offset(px, plane, value)
                     _link(px, add, str(call(plane, "Name")), f"{shaft} {letter}", value)
+        if datum is not None:
+            unflipped_plus = findings.REF_PLANE_UNFLIPPED_IS_PLUS_Z
+            if unflipped_plus is None:
+                raise Require("ref_plane_offset has not said which flip puts a plane from Front on +Z.")
+            flip = bool(unflipped_plus) == (datum < 0)
+            plane = _plane_from(px, doc, sc.planes(doc)[0], abs(datum), flip, DATUM_PLANE, routes)
+            call(doc, "ForceRebuild3", False)
+            from .p7_workbook import _measure  # noqa: PLC0415
+            where = _measure(px, doc, plane)
+            directions[DATUM_PLANE] = {"flip": flip, **where}
+            if abs(where["origin_mm"][2] - datum) > TOLERANCE_MM:
+                raise Require(f"{DATUM_PLANE} landed at {where}, not at z = {datum:g} mm.")
     px.fact(f"layout {stem} routes", routes)
     call(doc, "ForceRebuild3", False)
     px.fact(f"layout {stem}", directions)
@@ -1811,6 +1872,7 @@ def mated_train(px: Px) -> None:
         facts["rebuild_redriven"] = rebuild(px, doc, "drive back on")
         facts["errors_before_save"] = errors_only(mate_errors(px, doc))
         names = asm.names()
+        layout_name = str(call(asm.layout, "Name2"))
         mate_list = sorted(n for n, _ in _mate_features(doc))
         frames_saved = {k: frame_of(c) for k, c in asm.gears.items()}
         px.require(_save_in_place(px, doc, asm_path, "the train") and os.path.isfile(asm_path), "the train saves")
@@ -1892,7 +1954,7 @@ def mated_train(px: Px) -> None:
              "reopened, every gear is where it was saved")
     px.check(reopened["mates_same"], "reopened, the same mates")
     px.shared["w8_train"] = {"path": asm_path, "layout": layout_path, "part": part_path, "names": names,
-                             "mates": mates, "trains": trains}
+                             "mates": mates, "trains": trains, "layout_name": layout_name}
 
 
 # -- 6: after the train turns: a shaft moved by its globals, and the mesh phase -----
@@ -2115,3 +2177,1316 @@ def motion_update(px: Px) -> None:
         all(v < TOLERANCE_MM for v in at.get("others_moved_mm", {"x": 1.0}).values()) and not at.get("errors")
     px.check(moved_at, f"an assembly global on the axial mate moves the gear along its shaft: {at}")
     px.fact("axial_global_moves_gear", moved_at)
+
+
+# -- 7-12: what W5's plan and its review ask before any code (W5-PLAN §0.3, package P0) --------
+#
+# Items 7-11 work on copies of the train mated_train saved (copied on disk while it is closed, so each starts from
+# the same file and none sees another's changes); item 12 builds its own. Each rebuilds as Update will
+# (ForceRebuild3(True), findings.ASSEMBLY_REBUILD_ROUTE). Note that motion_update saved the layout part with the
+# output shaft swung 20°, so a copy's output gear goes there on its first rebuild; every measurement starts after it.
+
+TOP_ONLY = bool(findings.ASSEMBLY_REBUILD_TOP_ONLY)
+
+
+def relative_pose(anchor: Tuple[Matrix, Sequence[float]], follower: Tuple[Matrix, Sequence[float]]) -> Dict[str, float]:
+    """Where a follower sits against its anchor on one shaft: its turn about the anchor's axis (degrees), its
+    origin's distance along that axis from the anchor's (mm), how far its origin is off that axis (mm), and how far
+    its own axis is from the anchor's (matrix entries)."""
+    (ma, oa), (mf, of) = anchor, follower
+    axis = column(ma, 2)
+    d = tuple(float(of[i]) - float(oa[i]) for i in range(3))
+    along = _dot(d, axis)
+    return {"angle": own_turn(ma, mf), "along": along,
+            "off_axis": math.sqrt(max(0.0, _dot(d, d) - along * along)),
+            "axis_off": max(abs(a - b) for a, b in zip(column(mf, 2), axis))}
+
+
+def pose_change(before: Mapping[str, float], after: Mapping[str, float]) -> Dict[str, float]:
+    """How a relative pose changed: the turn (unwrapped) and the move along the axis; off-axis as it is after."""
+    return {"angle": round(unwrap(after["angle"] - before["angle"]), 9), "along": round(after["along"] - before["along"], 9),
+            "off_axis": round(after["off_axis"], 9), "axis_off": round(after["axis_off"], 12)}
+
+
+def joined_turns(teeth: Sequence[int] = TRAIN_TEETH, bridge: Tuple[int, int] = (51, 17)) -> List[float]:
+    """Each gear's turn about +Z per degree of the first, for the two 12 : 1 trains joined by one more external gear
+    mate from the first train's output (``bridge[0]`` teeth) to the second's input (``bridge[1]``): eight values,
+    the first train's four then the second's."""
+    first = train_turns(teeth, (1,) * len(teeth))
+    start = -first[-1] * bridge[0] / bridge[1]
+    return first + [start * v for v in train_turns(teeth, (1,) * len(teeth))]
+
+
+def _frames(components: Mapping[str, Any]) -> Dict[str, Tuple[Matrix, Vec]]:
+    return {k: frame_of(c) for k, c in components.items()}
+
+
+def _world_turns(components: Mapping[str, Any], before: Mapping[str, Tuple[Matrix, Vec]]) -> Dict[str, float]:
+    return {k: round(world_turn(before[k][0], frame_of(components[k])[0]), 9) for k in before}
+
+
+def _off(components: Mapping[str, Any], wanted: Mapping[str, Tuple[Matrix, Sequence[float]]]) -> Dict[str, Dict[str, float]]:
+    """Each component's frame against a wanted one: the largest matrix entry off, and the origin's distance in mm."""
+    out = {}
+    for key, (matrix, at) in wanted.items():
+        got, origin = frame_of(components[key])
+        out[key] = {"rotation": rotation_error(got, matrix), "origin_mm": math.dist(origin, at)}
+    return out
+
+
+def worst(off: Mapping[str, Mapping[str, float]]) -> float:
+    """The largest rotation or origin error in a table from ``_off`` (0 for an empty one)."""
+    return max((max(v["rotation"], v["origin_mm"]) for v in off.values()), default=0.0)
+
+
+def _train_ok(turns: Mapping[str, float], keys: Sequence[str], expected: Sequence[float], step: float) -> bool:
+    """The first key turned ``step`` degrees (either way) and every other its share of it, signs included."""
+    values = [turns[k] for k in keys]
+    return _ratio_ok(values, expected) and abs(abs(values[0]) - abs(step)) < 1e-6
+
+
+def _train_copy(px: Px, stem: str) -> Tuple[Dict[str, Any], str]:
+    """A copy, on disk and under its own name, of the train mated_train saved; mated_train's record of it."""
+    info = px.shared.get("w8_train")
+    px.require(bool(info), "mated_train left a train")
+    path = os.path.join(os.path.dirname(info["path"]), f"{stem}.SLDASM")
+    _fresh(px, path)
+    got, _ = px.attempt(f"copy {os.path.basename(info['path'])} to {os.path.basename(path)} on disk (no SolidWorks call)",
+                        lambda: shutil.copyfile(info["path"], path))
+    px.require(got and os.path.isfile(path), f"the saved train is copied to {os.path.basename(path)}")
+    return info, path
+
+
+def _open_train(px: Px, path: str, names: Mapping[str, str]) -> Tuple[Any, Dict[str, Any]]:
+    """Open a train by its path (OpenDoc6) and find every gear by name; the document and the components by key."""
+    doc, _route = open_by_path(px, path, sc.SW_DOC_ASSEMBLY, prefer="OpenDoc6")
+    px.require(doc is not None, f"{os.path.basename(path)} opens")
+    title = str(call(doc, "GetTitle"))
+    if title not in px.shared.setdefault("created", []):
+        px.shared["created"].append(title)
+    components = {k: call(doc, "GetComponentByName", n) for k, n in names.items()}
+    px.require(all(c is not None for c in components.values()), "every gear is found by name")
+    return doc, components
+
+
+def _drive_by(px: Px, doc: Any, components: Mapping[str, Any], step: float, label: str,
+              global_name: str = DRIVE) -> Dict[str, float]:
+    """Change a drive global by ``step`` degrees and rebuild; every gear's turn about +Z."""
+    from .p7_workbook import _global_value  # noqa: PLC0415
+    eqm = call(doc, "GetEquationMgr")
+    now = _global_value(eqm, global_name)
+    if now is None:
+        raise Require(f'There is no global "{global_name}" to drive by.')
+    before = _frames(components)
+    _set_global(eqm, global_name, now + step)
+    rebuild(px, doc, label, top_only=TOP_ONLY)
+    return _world_turns(components, before)
+
+
+def mate_names(asm: Any) -> List[str]:
+    return [n for n, _ in _mate_features(asm)]
+
+
+def mate_states(px: Px, asm: Any) -> Dict[str, Dict[str, Any]]:
+    """Every mate by name: its feature type, whether it is suppressed, and its error code."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for feature in sc.top_features(asm):
+        if sc.type_name(feature) == "MateGroup":
+            child = call(feature, "GetFirstSubFeature")
+            while child is not None:
+                out[str(call(child, "Name"))] = {"type": sc.type_name(child), "suppressed": is_suppressed(px, child),
+                                                 **error_code(px, child)}
+                child = call(child, "GetNextSubFeature")
+    return out
+
+
+def _turned_put(px: Px, doc: Any, component: Any, degrees: float, along: float = 0.0) -> Tuple[Matrix, Vec]:
+    """Put a component turned ``degrees`` about its own axis and moved ``along`` mm along it (Transform2, then a
+    top-level rebuild); the frame it was put to."""
+    m, o = frame_of(component)
+    axis = column(m, 2)
+    target = (crossed.multiply(m, crossed.rot_z(degrees)), tuple(o[i] + along * axis[i] for i in range(3)))
+    put(px, doc, component, target[0], target[1], top_only=TOP_ONLY)
+    return target  # type: ignore[return-value]
+
+
+# -- 7: a saved gear mate's ratio changed ------------------------------------------
+
+RATIO_ASSEMBLY = "Probe W8 Ratio"
+RATIO_NEW = 60          # the output gear's teeth after the change (made 51): a ratio no other state gives
+RATIO_STEP = 30.0       # degrees each drive turns the input
+
+
+def set_gear_ratio_by_definition(px: Px, doc: Any, name: str, old: float, new: float,
+                                 access: bool = True) -> Dict[str, Any]:
+    """``GetDefinition`` of a gear mate, the field holding ``old`` set to ``new``, ``ModifyDefinition(data, doc, None)``
+    (the pattern of TWIST_REVERSE_ROUTE, ``AccessSelections`` first when ``access``); what each step answered."""
+    feature = mate_feature(doc, name)
+    out: Dict[str, Any] = {"before": gear_mate_definition(px, doc, name), "access_selections": access}
+    got, data = px.attempt(f"GetDefinition of {name} to change it", lambda: call(feature, "GetDefinition"))
+    if not got or data is None:
+        out["definition"] = None
+        return out
+    if access:
+        got, value = px.attempt(f"AccessSelections(doc, None) on {name}'s definition",
+                                lambda: call(data, "AccessSelections", doc, sc.null()))
+        out["accessed"] = plain(value) if got else "raised"
+    fields = {}
+    for key in ("GearRatioNumerator", "GearRatioDenominator"):
+        ok, value = px.attempt(f"IGearMateFeatureData.{key} read", lambda k=key: member(data, k)[0])
+        fields[key] = float(value) if ok and isinstance(value, (int, float)) else None
+    holding = [k for k, v in fields.items() if v is not None and abs(v - old) < 1e-9]
+    out["field_holding_old"] = holding
+    if len(holding) != 1:
+        return out
+    got, _ = px.attempt(f"IGearMateFeatureData.{holding[0]} = {new:g}", lambda: setattr(data, holding[0], float(new)))
+    out["put"] = got
+    got, modified = px.attempt(f"ModifyDefinition(data, doc, None) of {name}",
+                               lambda: call(feature, "ModifyDefinition", data, doc, sc.null()))
+    out["modified"] = plain(modified) if got else "raised"
+    if access and not (got and modified):
+        ok, value = px.attempt(f"ReleaseSelectionAccess on {name}'s definition",
+                               lambda: member(data, "ReleaseSelectionAccess")[0])
+        out["released"] = plain(value) if ok else "raised"
+    out["after"] = gear_mate_definition(px, doc, name)
+    return out
+
+
+def remake_gear_mate(px: Px, doc: Any, names: Mapping[str, str], name: str, first: str, second: str,
+                     ratio: Tuple[float, float], new_name: str) -> Dict[str, Any]:
+    """Delete a gear mate (MATE_DELETE_ROUTE) and make it again between the two components found by
+    ``GetComponentByName``, at ``ratio`` with GEAR_MATE_FLIP, named ``new_name``; what happened."""
+    enums = _enums(px)
+    out: Dict[str, Any] = {"deleted_by": delete_mate(px, doc, name)}
+    if not out["deleted_by"]:
+        return out
+    a, b = call(doc, "GetComponentByName", names[first]), call(doc, "GetComponentByName", names[second])
+    picked = a is not None and b is not None and bool(select_in(px, doc, a, "Gear Axis", "AXIS", False)) and \
+        bool(select_in(px, doc, b, "Gear Axis", "AXIS", True))
+    out["selected"] = picked
+    if not picked:
+        return out
+    out["made"] = add_mate(px, doc, f"{first}-{second} gear {ratio[0]:g}:{ratio[1]:g} made again", enums["gear"],
+                           enums["closest"], flip=bool(findings.GEAR_MATE_FLIP), ratio=ratio)
+    if out["made"]["name"]:
+        out["name"] = _rename(px, mate_feature(doc, out["made"]["name"]), new_name)
+        out["definition"] = gear_mate_definition(px, doc, out["name"])
+    return out
+
+
+@probe("gear_mate_ratio", needs=("motion_update",), tier=8,
+       members=("IFeature.GetDefinition", "IGearMateFeatureData.GearRatioNumerator",
+                "IGearMateFeatureData.GearRatioDenominator", "IMateFeatureData.AccessSelections",
+                "IFeature.ModifyDefinition", "IAssemblyDoc.AddMate5 gear in a reopened assembly"))
+def gear_mate_ratio(px: Px) -> None:
+    """A saved gear mate's ratio changed in the reopened train: by its definition, else deleted and made again."""
+    info, path = _train_copy(px, RATIO_ASSEMBLY)
+    t = info["trains"]["all Z+"]
+    g1, g2, g3, g4 = t["gears"]
+    keys = [g["key"] for g in t["gears"]]
+    others = [g["key"] for g in info["trains"]["middle Z-"]["gears"]]
+    name = info["mates"][f"{g3['key']}-{g4['key']}"]["name"]
+    paths = [path, info["layout"], info["part"]]
+    old_expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    new_teeth = (g1["teeth"], g2["teeth"], g3["teeth"], RATIO_NEW)
+    new_expected = train_turns(new_teeth, (1, 1, 1, 1))
+    facts: Dict[str, Any] = {"mate": name, "teeth_before": list(TRAIN_TEETH), "teeth_after": list(new_teeth),
+                             "expected_before": old_expected, "expected_after": new_expected}
+    route = None
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        facts["rebuild_on_open"] = rebuild(px, doc, "opened", top_only=TOP_ONLY)
+        facts["turns_before"] = _drive_by(px, doc, components, RATIO_STEP, "driven before the change")
+        frames = _frames(components)
+        facts["by_definition"] = set_gear_ratio_by_definition(px, doc, name, g4["teeth"], RATIO_NEW)
+        facts["frames_after_modify"] = worst(_off(components, frames))
+        facts["rebuild_after_modify"] = rebuild(px, doc, "ratio modified", top_only=TOP_ONLY)
+        facts["moved_by_the_rebuild"] = worst(_off(components, frames))
+        facts["errors_after_modify"] = errors_only(mate_errors(px, doc))
+        facts["turns_by_definition"] = _drive_by(px, doc, components, RATIO_STEP, "driven after ModifyDefinition")
+        by_definition = _train_ok(facts["turns_by_definition"], keys, new_expected, RATIO_STEP) and \
+            _train_ok(facts["turns_by_definition"], others, old_expected, RATIO_STEP) and not facts["errors_after_modify"]
+        facts["definition_changes_the_ratio"] = by_definition
+        current = name
+        if by_definition:
+            route = "modify definition"
+        else:
+            # (b) only because (a) did not: the gear mate deleted and made again in the reopened assembly.
+            facts["remake"] = remake_gear_mate(px, doc, info["names"], name, g3["key"], g4["key"],
+                                               (float(g3["teeth"]), float(RATIO_NEW)),
+                                               f"{g3['key']} meshes {g4['key']}")
+            current = facts["remake"].get("name") or name
+            facts["rebuild_after_remake"] = rebuild(px, doc, "gear mate made again", top_only=TOP_ONLY)
+            facts["errors_after_remake"] = errors_only(mate_errors(px, doc))
+            facts["turns_remade"] = _drive_by(px, doc, components, RATIO_STEP, "driven after the remake")
+            if facts["remake"].get("name") and not facts["errors_after_remake"] and \
+                    _train_ok(facts["turns_remade"], keys, new_expected, RATIO_STEP) and \
+                    _train_ok(facts["turns_remade"], others, old_expected, RATIO_STEP):
+                route = "remake"
+        facts["mate_after"] = current
+        px.require(_save_in_place(px, doc, path, "the train with its new ratio") and os.path.isfile(path),
+                   "the train with its new ratio saves")
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+
+    reopened: Dict[str, Any] = {}
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        reopened["rebuild"] = rebuild(px, doc, "reopened", top_only=TOP_ONLY)
+        reopened["definition"] = gear_mate_definition(px, doc, facts["mate_after"])
+        reopened["errors"] = errors_only(mate_errors(px, doc))
+        reopened["turns"] = _drive_by(px, doc, components, RATIO_STEP, "driven after the reopen")
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    facts["reopened"] = reopened
+    px.fact("gear_mate_ratio", facts)
+
+    # -- what it says
+    before = facts["turns_before"]
+    px.check(_train_ok(before, keys, old_expected, RATIO_STEP),
+             f"before the change the train turns 1/12: {[before[k] for k in keys]}")
+    definition = facts["by_definition"].get("before") or {}
+    # Which field holds which gear's teeth, as GetDefinition reads them (AddMate5 took the first selection's first).
+    px.fact("definition_numerator_is_second_teeth",
+            definition.get("GearRatioNumerator") == g4["teeth"] and definition.get("GearRatioDenominator") == g3["teeth"]
+            if definition else None)
+    kept = _train_ok(reopened["turns"], keys, new_expected, RATIO_STEP) and \
+        _train_ok(reopened["turns"], others, old_expected, RATIO_STEP) and not reopened["errors"]
+    px.check(route is None or kept, f"reopened, the new ratio holds: {[reopened['turns'][k] for k in keys]}")
+    px.fact("gear_mate_ratio_route", route if kept else None)
+    px.check(True, f"a saved gear mate's ratio is changed by: {route if kept else 'neither route'}")
+
+
+# -- 8: a lock re-taken after its gear moves along the shaft as well as round it ---
+
+OFFSET_ASSEMBLY = "Probe W8 Offset"
+OFFSET_ALONG = 3.0      # mm along its own axis the locked gear is put while its lock is suppressed
+OFFSET_STEP = 30.0
+
+
+@probe("lock_retake_offset", needs=("motion_update",), tier=8,
+       members=("IFeature.SetSuppression2", "IComponent2.Transform2", "IAssemblyDoc.AddMate5 lock"))
+def lock_retake_offset(px: Px) -> None:
+    """Each compound lock suppressed, its second gear put 3 mm along its axis and 11° round, unsuppressed: kept through a drive?"""
+    info, path = _train_copy(px, OFFSET_ASSEMBLY)
+    paths = [path, info["layout"], info["part"]]
+    facts: Dict[str, Any] = {"along_mm": OFFSET_ALONG, "turn": LOCK_TURN}
+    cases: Dict[str, Dict[str, Any]] = {}
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        facts["rebuild_on_open"] = rebuild(px, doc, "opened", top_only=TOP_ONLY)
+        pairs = {}
+        for name, t in info["trains"].items():
+            g2, g3 = t["gears"][1]["key"], t["gears"][2]["key"]
+            pairs[name] = (g2, g3, info["mates"][f"{name} lock"])
+            cases[name] = {"anchor": g2, "follower": g3, "lock": pairs[name][2], "sigma": t["gears"][1]["sigma"],
+                           "before": relative_pose(frame_of(components[g2]), frame_of(components[g3]))}
+        for name, (g2, g3, lock) in pairs.items():
+            cases[name]["suppressed_by"] = suppress(px, doc, lock, True)
+        facts["rebuild_suppressed"] = rebuild(px, doc, "locks suppressed", top_only=TOP_ONLY)
+        for name, (g2, g3, lock) in pairs.items():
+            target = _turned_put(px, doc, components[g3], LOCK_TURN, OFFSET_ALONG)
+            cases[name]["put_read_back"] = worst(_off(components, {g3: target}))
+            cases[name]["while_suppressed"] = pose_change(cases[name]["before"], relative_pose(
+                frame_of(components[g2]), frame_of(components[g3])))
+        for name, (g2, g3, lock) in pairs.items():
+            cases[name]["unsuppressed_by"] = suppress(px, doc, lock, False)
+        facts["rebuild_unsuppressed"] = rebuild(px, doc, "locks back on", top_only=TOP_ONLY)
+        for name, (g2, g3, lock) in pairs.items():
+            cases[name]["after_unsuppress"] = pose_change(cases[name]["before"], relative_pose(
+                frame_of(components[g2]), frame_of(components[g3])))
+        facts["errors_after_unsuppress"] = errors_only(mate_errors(px, doc))
+        facts["turns"] = _drive_by(px, doc, components, OFFSET_STEP, "driven with the locks re-taken")
+        for name, (g2, g3, lock) in pairs.items():
+            cases[name]["after_drive"] = pose_change(cases[name]["before"], relative_pose(
+                frame_of(components[g2]), frame_of(components[g3])))
+            cases[name]["anchor_turned"] = facts["turns"][g2]
+        facts["errors_after_drive"] = errors_only(mate_errors(px, doc))
+        facts["constrained"] = {k: constrained(px, c) for k, c in components.items()}
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    facts["cases"] = cases
+    px.fact("lock_retake_offset", facts)
+
+    # -- what it says
+    expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    held = {}
+    for name, c in cases.items():
+        put_held = c["put_read_back"] < TOLERANCE_MM and abs(c["while_suppressed"]["angle"] - LOCK_TURN) < 1e-6 and \
+            abs(c["while_suppressed"]["along"] - OFFSET_ALONG) < TOLERANCE_MM
+        px.check(put_held, f"{name}: the put moved {c['follower']} {OFFSET_ALONG:g} mm along and {LOCK_TURN:g}° round "
+                           f"under the suppressed lock: {c['while_suppressed']}")
+        moved = abs(c["anchor_turned"]) > 1.0     # the anchor turned, so the lock was tested under motion
+        held[name] = bool(put_held and moved) and all(
+            abs(c[k]["angle"] - LOCK_TURN) < 1e-6 and abs(c[k]["along"] - OFFSET_ALONG) < TOLERANCE_MM
+            and c[k]["off_axis"] < TOLERANCE_MM and c[k]["axis_off"] < 1e-9 for k in ("after_unsuppress", "after_drive"))
+        px.check(True, f"{name}: {c['follower']} against {c['anchor']} after the lock came back {c['after_unsuppress']}, "
+                       f"after the anchor turned {c['anchor_turned']:g}°: {c['after_drive']}")
+    px.fact("lock_offset_kept", held)
+    turned = all(_train_ok(facts["turns"], [g["key"] for g in t["gears"]], expected, OFFSET_STEP)
+                 for t in info["trains"].values())
+    clean = not facts["errors_after_unsuppress"] and not facts["errors_after_drive"]
+    px.check(turned, f"both trains still turn 1/12: {facts['turns']}")
+    px.check(clean, f"no mate error: {facts['errors_after_unsuppress']} {facts['errors_after_drive']}")
+    px.fact("lock_retakes_an_offset", all(held.values()) if turned and clean else None)
+
+
+# -- 9: mates renamed by the names W5 gives them, found again after a reopen -------
+
+RENAME_ASSEMBLY = "Probe W8 Rename"
+RENAME_STEP = 20.0
+
+
+def rename_plan(info: Mapping[str, Any]) -> List[Tuple[str, str, str]]:
+    """``(kind, old name, new name)`` for the four kinds of mate Update finds by name (W5-PLAN D12) in the all-Z+
+    train, then the other train's lock, which is suppressed before it is renamed."""
+    t, u = info["trains"]["all Z+"], info["trains"]["middle Z-"]
+    g2, g3, g4 = (g["key"] for g in t["gears"][1:])
+    g4_shaft = t["gears"][3]["shaft"]
+    axis, along = info["mates"][g4][:2]
+    return [("lock", info["mates"]["all Z+ lock"], f"{g3} locked to {g2}"),
+            ("gear", info["mates"][f"{g3}-{g4}"]["name"], f"{g3} meshes {g4}"),
+            ("axis", axis, f"{g4} on {g4_shaft} Axis"),
+            ("along", along, f"{g4} along {g4_shaft}"),
+            ("suppressed lock", info["mates"]["middle Z- lock"],
+             f"{u['gears'][2]['key']} locked to {u['gears'][1]['key']}")]
+
+
+def rename_mate(px: Px, doc: Any, old: str, new: str) -> Dict[str, Any]:
+    """``IFeature.Name`` put on a mate found by its old name; what reads back."""
+    feature = mate_feature(doc, old)
+    got, _ = px.attempt(f"IFeature.Name = {new!r} on {old}", lambda: setattr(feature, "Name", new))
+    return {"put": got, "reads": str(call(feature, "Name"))}
+
+
+def find_mate_by(px: Px, doc: Any, name: str) -> Dict[str, Any]:
+    """A mate looked for by name: through the MateGroup's sub-features, and by ``IModelDoc2.FeatureByName``."""
+    out: Dict[str, Any] = {}
+    try:
+        out["mate group"] = str(call(mate_feature(doc, name), "Name")) == name
+    except Require:
+        out["mate group"] = False
+    got, feature = px.attempt(f"FeatureByName({name!r})", lambda: call(doc, "FeatureByName", name))
+    out["FeatureByName"] = bool(got and feature is not None and str(call(feature, "Name")) == name)
+    return out
+
+
+@probe("lock_mate_rename", needs=("motion_update",), tier=8,
+       members=("IFeature.Name", "IModelDoc2.FeatureByName", "IFeature.IsSuppressed2", "IMate2.Type"))
+def lock_mate_rename(px: Px) -> None:
+    """A lock, a gear mate, an axis mate and an axial mate renamed as W5 names them, saved, reopened, found by name."""
+    info, path = _train_copy(px, RENAME_ASSEMBLY)
+    paths = [path, info["layout"], info["part"]]
+    plan = rename_plan(info)
+    t, u = info["trains"]["all Z+"], info["trains"]["middle Z-"]
+    keys = [g["key"] for g in t["gears"]]
+    facts: Dict[str, Any] = {"plan": [list(p) for p in plan]}
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        facts["rebuild_on_open"] = rebuild(px, doc, "opened", top_only=TOP_ONLY)
+        suppressed_old = plan[-1][1]
+        facts["suppressed_by"] = suppress(px, doc, suppressed_old, True)
+        facts["rebuild_suppressed"] = rebuild(px, doc, "the other lock suppressed", top_only=TOP_ONLY)
+        frames = _frames(components)
+        states = mate_states(px, doc)
+        facts["states_before"] = states
+        facts["renamed"] = {old: rename_mate(px, doc, old, new) for _kind, old, new in plan}
+        renamed_states = mate_states(px, doc)
+        facts["states_after_rename"] = renamed_states
+        facts["moved_by_the_rename"] = worst(_off(components, frames))
+        facts["rebuild_after_rename"] = rebuild(px, doc, "renamed", top_only=TOP_ONLY)
+        facts["moved_by_the_rebuild"] = worst(_off(components, frames))
+        old_to_new = {old: new for _kind, old, new in plan}
+        facts["states_kept"] = all(
+            renamed_states.get(old_to_new.get(n, n), {}).get(k) == s.get(k) for n, s in states.items()
+            for k in ("type", "suppressed", "code"))
+        px.require(_save_in_place(px, doc, path, "the renamed train") and os.path.isfile(path), "the renamed train saves")
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+
+    reopened: Dict[str, Any] = {}
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        reopened["rebuild"] = rebuild(px, doc, "reopened", top_only=TOP_ONLY)
+        names_now = mate_names(doc)
+        reopened["mates"] = names_now
+        reopened["found"] = {new: find_mate_by(px, doc, new) for _kind, _old, new in plan}
+        reopened["old_gone"] = {old: old not in names_now for _kind, old, _new in plan}
+        reopened["kinds"] = {new: mate_entities(px, doc, new) for _kind, _old, new in plan}
+        reopened["states"] = {new: mate_states(px, doc).get(new) for _kind, _old, new in plan}
+        reopened["errors"] = errors_only(mate_errors(px, doc))
+        frames = _frames(components)
+        g2, g3, g4 = keys[1], keys[2], keys[3]
+        pose = relative_pose(frames[g2], frames[g3])
+        reopened["turns"] = _drive_by(px, doc, components, RENAME_STEP, "driven after the reopen")
+        reopened["lock_change"] = pose_change(pose, relative_pose(frame_of(components[g2]), frame_of(components[g3])))
+        m4, o4 = frame_of(components[g4])
+        reopened["output_moved_along_mm"] = round(o4[2] - frames[g4][1][2], 9)
+        reopened["output_off_axis_mm"] = round(math.hypot(o4[0] - frames[g4][1][0], o4[1] - frames[g4][1][1]), 9)
+        reopened["errors_after_drive"] = errors_only(mate_errors(px, doc))
+        # The renamed suppressed lock turned back on by its new name, and it holds.
+        new_lock = plan[-1][2]
+        reopened["unsuppressed_by"] = suppress(px, doc, new_lock, False)
+        rebuild(px, doc, "the other lock back on", top_only=TOP_ONLY)
+        u2, u3 = u["gears"][1]["key"], u["gears"][2]["key"]
+        pose = relative_pose(frame_of(components[u2]), frame_of(components[u3]))
+        reopened["turns_again"] = _drive_by(px, doc, components, RENAME_STEP, "driven with the other lock on")
+        reopened["other_lock_change"] = pose_change(pose, relative_pose(frame_of(components[u2]),
+                                                                        frame_of(components[u3])))
+        reopened["errors_at_end"] = errors_only(mate_errors(px, doc))
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    facts["reopened"] = reopened
+    px.fact("lock_mate_rename", facts)
+
+    # -- what it says
+    expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    named = all(r["put"] and r["reads"] == new for (_k, old, new), r in zip(plan, facts["renamed"].values()))
+    px.check(named, f"every mate takes its new name: {facts['renamed']}")
+    quiet = facts["states_kept"] and facts["moved_by_the_rename"] < 1e-9 and facts["moved_by_the_rebuild"] < TOLERANCE_MM
+    px.check(quiet, f"renaming moved nothing ({facts['moved_by_the_rename']:.1e}, after a rebuild "
+                    f"{facts['moved_by_the_rebuild']:.1e}) and suppressed or unsuppressed nothing: {facts['states_kept']}")
+    found = {route: all(f[route] for f in reopened["found"].values()) for route in ("mate group", "FeatureByName")}
+    px.fact("mate_find_routes", found)
+    gone = all(reopened["old_gone"].values())
+    px.check(any(found.values()) and gone, f"reopened, every mate is found by its new name ({found}) and no old "
+                                           f"name is left: {reopened['old_gone']}")
+    types = {new: (reopened["kinds"][new] or {}).get("type") for _k, _o, new in plan}
+    wanted_types = {"lock": findings.MATE_LOCK, "gear": findings.MATE_GEAR, "axis": findings.MATE_COINCIDENT,
+                    "along": findings.MATE_DISTANCE, "suppressed lock": findings.MATE_LOCK}
+    kinds_kept = all(types[new] == wanted_types[kind] for kind, _o, new in plan)
+    px.check(kinds_kept, f"each is still the kind of mate it was: {types}")
+    still_suppressed = (reopened["states"].get(plan[-1][2]) or {}).get("suppressed") is True and \
+        all((reopened["states"].get(new) or {}).get("suppressed") is False for _k, _o, new in plan[:-1])
+    px.check(still_suppressed, f"the renamed suppressed lock is still suppressed, the others are not: {reopened['states']}")
+    turns = reopened["turns"]
+    lock = reopened["lock_change"]
+    holds = _train_ok(turns, keys, expected, RENAME_STEP) and abs(lock["angle"]) < 1e-6 and \
+        abs(lock["along"]) < TOLERANCE_MM and abs(turns[keys[1]]) > 1.0 and \
+        abs(reopened["output_moved_along_mm"]) < TOLERANCE_MM and reopened["output_off_axis_mm"] < TOLERANCE_MM
+    px.check(holds, f"driven, the renamed lock holds {keys[2]} to {keys[1]} ({lock}), the renamed gear mate turns "
+                    f"the output 1/12 ({[turns[k] for k in keys]}), and the renamed axis and axial mates hold it")
+    other = reopened["other_lock_change"]
+    other_holds = abs(other["angle"]) < 1e-6 and abs(other["along"]) < TOLERANCE_MM and \
+        abs(reopened["turns_again"][u["gears"][1]["key"]]) > 1.0
+    px.check(other_holds, f"the other lock, turned back on by its new name, holds: {other}")
+    clean = not reopened["errors"] and not reopened["errors_after_drive"] and not reopened["errors_at_end"]
+    px.check(clean, f"no mate error after the reopen: {reopened['errors']} {reopened['errors_after_drive']} "
+                    f"{reopened['errors_at_end']}")
+    works = named and quiet and any(found.values()) and gone and kinds_kept and still_suppressed and holds and \
+        other_holds and clean
+    px.fact("mate_rename_route", "IFeature.Name put" if works else None)
+
+
+# -- 10: the drive W5's demonstration plans: Top plane to the layout's Right, 90° -> 120° --
+
+DEMO_ASSEMBLY = "Probe W8 Demo"
+DEMO_GLOBAL = "Demo Drive"
+DEMO_FROM, DEMO_TO = 90.0, 120.0
+
+
+@probe("demonstration_drive", needs=("motion_update",), tier=8,
+       members=("IAssemblyDoc.AddMate5 angle", "IEquationMgr.Add2", "IEquationMgr.Delete", "IModelDoc2.EditDelete",
+                "IComponent2.Transform2"))
+def demonstration_drive(px: Px) -> None:
+    """Each input put at its built phase (θ = 0), driven by an angle mate from its Top plane to the layout's Right at
+    90°, 90 -> 120 -> 90; the drive deleted; every frame back where it was built."""
+    enums = _enums(px)
+    info, path = _train_copy(px, DEMO_ASSEMBLY)
+    paths = [path, info["layout"], info["part"]]
+    facts: Dict[str, Any] = {"from": DEMO_FROM, "to": DEMO_TO}
+    drives: Dict[str, Optional[str]] = {}
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        facts["rebuild_on_open"] = rebuild(px, doc, "opened", top_only=TOP_ONLY)
+        facts["old_drives_suppressed_by"] = {name: suppress(px, doc, f"{DRIVE} {name}", True) for name in info["trains"]}
+        facts["rebuild_undriven"] = rebuild(px, doc, "tier 8's drives suppressed", top_only=TOP_ONLY)
+        built: Dict[str, Tuple[Matrix, Vec]] = {}
+        for name, t in info["trains"].items():
+            g1 = t["gears"][0]
+            _m, o = frame_of(components[g1["key"]])
+            put(px, doc, components[g1["key"]], w4_rotation(g1["sigma"], 0.0), o, top_only=TOP_ONLY)
+            built[g1["key"]] = (w4_rotation(g1["sigma"], 0.0), o)
+        facts["input_at_phase_zero"] = worst(_off(components, built))
+        built = _frames(components)
+        facts["constrained_undriven"] = {k: constrained(px, c) for k, c in components.items()}
+        eqm = call(doc, "GetEquationMgr")
+        add = adder(px, eqm)
+        px.require(add(f'"{DEMO_GLOBAL}"= {DEMO_FROM:g}') >= 0, f'the global "{DEMO_GLOBAL}" is added')
+        layout = call(doc, "GetComponentByName", info["layout_name"])
+        px.require(layout is not None, "the layout component is found by name")
+        layout_right = _plane_names(layout)[2]
+        for name, t in info["trains"].items():
+            g1 = components[t["gears"][0]["key"]]
+            drives[name] = drive_mate(px, doc, g1, _plane_names(g1)[1], layout, layout_right, name, add,
+                                      enums["closest"], angle=DEMO_FROM, global_name=DEMO_GLOBAL)
+        facts["drives"] = drives
+        px.require(all(drives.values()), f"each input's Top plane is held at {DEMO_FROM:g}° to the layout's Right")
+        facts["rebuild_driven"] = rebuild(px, doc, "demonstration drive added", top_only=TOP_ONLY)
+        facts["moved_by_the_drive"] = _off(components, built)
+        facts["errors_driven"] = errors_only(mate_errors(px, doc))
+        facts["constrained_driven"] = {k: constrained(px, c) for k, c in components.items()}
+        facts["entities"] = {name: mate_entities(px, doc, d) for name, d in drives.items() if d}
+        facts["turns"] = _drive_by(px, doc, components, DEMO_TO - DEMO_FROM, f"demonstration drive {DEMO_TO:g}",
+                                   global_name=DEMO_GLOBAL)
+        facts["errors_turned"] = errors_only(mate_errors(px, doc))
+        _set_global(eqm, DEMO_GLOBAL, DEMO_FROM)
+        facts["rebuild_back"] = rebuild(px, doc, f"demonstration drive back to {DEMO_FROM:g}", top_only=TOP_ONLY)
+        facts["back_at_start"] = _off(components, built)
+        # Taken away as the demonstration will: the link and the global (IEquationMgr.Delete), then the angle mates.
+        deleted = []
+        for index in range(int(call(eqm, "GetCount")) - 1, -1, -1):
+            text = str(call(eqm, "Equation", index))
+            if DEMO_GLOBAL in text:
+                got, _ = px.attempt(f"IEquationMgr.Delete({index}) of {text}", lambda i=index: call(eqm, "Delete", i))
+                deleted.append({"equation": text, "deleted": got})
+        facts["equations_deleted"] = deleted
+        facts["equations_left"] = [str(call(eqm, "Equation", i)) for i in range(int(call(eqm, "GetCount")))]
+        facts["drive_deleted_by"] = {name: delete_mate(px, doc, d) for name, d in drives.items() if d}
+        facts["rebuild_deleted"] = rebuild(px, doc, "demonstration drive deleted", top_only=TOP_ONLY)
+        facts["after_delete"] = _off(components, built)
+        facts["mates_left"] = mate_names(doc)
+        facts["errors_after_delete"] = errors_only(mate_errors(px, doc))
+        facts["constrained_after_delete"] = {k: constrained(px, c) for k, c in components.items()}
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    px.fact("demonstration_drive", facts)
+
+    # -- what it says
+    expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    step = DEMO_TO - DEMO_FROM
+    px.check(facts["input_at_phase_zero"] < TOLERANCE_ROTATION, f"each input put at θ = 0: {facts['input_at_phase_zero']}")
+    jump = worst(facts["moved_by_the_drive"])
+    px.check(jump < TOLERANCE_MM, f"no gear moved when the 90° drive was added (largest {jump:.1e})")
+    full = all(v == findings.COMPONENT_FULLY_DEFINED for v in facts["constrained_driven"].values())
+    px.check(full, f"the drive makes every gear fully defined: {facts['constrained_driven']}")
+    right = {}
+    for name, t in info["trains"].items():
+        keys = [g["key"] for g in t["gears"]]
+        right[name] = _train_ok(facts["turns"], keys, expected, step)
+        px.check(right[name], f"{name}: {DEMO_FROM:g} -> {DEMO_TO:g} turned the input {facts['turns'][keys[0]]:.6f}° "
+                              f"and the output {facts['turns'][keys[3]]:.6f}° (1/12 the same way wanted)")
+    sense = {name: (1 if facts["turns"][t["gears"][0]["key"]] > 0 else -1) for name, t in info["trains"].items()}
+    px.fact("demonstration_drive_sense", sense, "the input's turn about +Z when the drive's angle grows")
+    back = worst(facts["back_at_start"])
+    after = worst(facts["after_delete"])
+    px.check(back < TOLERANCE_MM, f"set back to {DEMO_FROM:g}, every gear is where it was built (largest {back:.1e})")
+    px.check(after < TOLERANCE_MM, f"the drive deleted, every gear is still there (largest {after:.1e})")
+    gone = not any(DEMO_GLOBAL in e for e in facts["equations_left"]) and \
+        not any(d and d in facts["mates_left"] for d in drives.values())
+    px.check(gone, f"no demonstration equation or mate is left: {facts['equations_left']}")
+    clean = not facts["errors_driven"] and not facts["errors_turned"] and not facts["errors_after_delete"]
+    px.check(clean, f"no mate error: {facts['errors_driven']} {facts['errors_turned']} {facts['errors_after_delete']}")
+    free = all(v == findings.COMPONENT_UNDER_DEFINED for v in facts["constrained_after_delete"].values())
+    px.check(free, f"the drive deleted, every gear is under-defined again: {facts['constrained_after_delete']}")
+    px.fact("demonstration_drive_holds", bool(jump < TOLERANCE_MM and full and all(right.values()) and back < TOLERANCE_MM
+                                              and after < TOLERANCE_MM and gone and clean and free))
+
+
+
+# -- 11: a put, in an undriven train, on a gear in two gear mates' paths ------------
+
+TWICE_ASSEMBLY = "Probe W8 Twice"
+TWICE_TURN = 7.0         # degrees the compound shaft's anchor is put round
+TWICE_BRIDGE_TURN = 9.0  # degrees the gear carrying two gear mates is put round
+TWICE_STEP = 10.0
+
+
+def _locks(info: Mapping[str, Any]) -> List[str]:
+    return [info["mates"][f"{name} lock"] for name in info["trains"]]
+
+
+def _put_under_suppressed_locks(px: Px, doc: Any, components: Mapping[str, Any], locks: Sequence[str],
+                                puts: Mapping[str, Tuple[Matrix, Sequence[float]]]) -> Dict[str, Any]:
+    """W5-PLAN §1.6 step 6: every lock suppressed, a rebuild, each put, every lock unsuppressed, a rebuild. What
+    each frame read straight after the puts (not a verdict: the put's own call) and after the last rebuild."""
+    out: Dict[str, Any] = {"suppressed_by": {lock: suppress(px, doc, lock, True) for lock in locks}}
+    out["rebuild_suppressed"] = rebuild(px, doc, "locks suppressed", top_only=TOP_ONLY)
+    for key, (matrix, at) in puts.items():
+        put(px, doc, components[key], matrix, at, top_only=TOP_ONLY)
+    out["read_after_the_puts"] = worst(_off(components, puts))
+    out["unsuppressed_by"] = {lock: suppress(px, doc, lock, False) for lock in locks}
+    out["rebuild_unsuppressed"] = rebuild(px, doc, "locks back on", top_only=TOP_ONLY)
+    out["off_after_the_locks"] = _off(components, puts)
+    out["errors"] = errors_only(mate_errors(px, doc))
+    out["constrained"] = {k: constrained(px, c) for k, c in components.items()}
+    return out
+
+
+@probe("put_on_twice_meshed_gear", needs=("motion_update",), tier=8,
+       members=("IComponent2.Transform2", "IFeature.SetSuppression2", "IAssemblyDoc.AddMate5 gear",
+                "IComponent2.GetConstrainedStatus"))
+def put_on_twice_meshed_gear(px: Px) -> None:
+    """In the undriven train, locks suppressed around each put: the compound anchor put round, every gear put back,
+    and a gear that carries two gear mates put round; does each put hold, and what do its neighbours do?"""
+    enums = _enums(px)
+    info, path = _train_copy(px, TWICE_ASSEMBLY)
+    paths = [path, info["layout"], info["part"]]
+    t, u = info["trains"]["all Z+"], info["trains"]["middle Z-"]
+    tk, uk = [g["key"] for g in t["gears"]], [g["key"] for g in u["gears"]]
+    locks = _locks(info)
+    facts: Dict[str, Any] = {}
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        facts["rebuild_on_open"] = rebuild(px, doc, "opened", top_only=TOP_ONLY)
+        facts["drives_suppressed_by"] = {name: suppress(px, doc, f"{DRIVE} {name}", True) for name in info["trains"]}
+        facts["rebuild_undriven"] = rebuild(px, doc, "undriven", top_only=TOP_ONLY)
+        facts["constrained_undriven"] = {k: constrained(px, c) for k, c in components.items()}
+        start = _frames(components)
+
+        # (a) the compound shaft's anchor, in a gear mate itself and locked to a gear in another: put round.
+        anchor = tk[1]
+        m, o = start[anchor]
+        target = (crossed.multiply(m, crossed.rot_z(TWICE_TURN)), o)
+        a = _put_under_suppressed_locks(px, doc, components, locks, {anchor: target})
+        a["turns"] = _world_turns(components, start)
+        a["lock_change"] = pose_change(relative_pose(start[anchor], start[tk[2]]),
+                                       relative_pose(frame_of(components[anchor]), frame_of(components[tk[2]])))
+        facts["anchor_put"] = a
+
+        # (b) every gear put back where it started (the restore Update makes), the locks suppressed around it.
+        facts["restore"] = _put_under_suppressed_locks(px, doc, components, locks, start)
+
+        # (c) the anchor put round again with its lock ON, recorded beside (a): what a lock does to a put.
+        put(px, doc, components[anchor], target[0], target[1], top_only=TOP_ONLY)
+        rebuild(px, doc, "put with the lock on", top_only=TOP_ONLY)
+        facts["lock_on_put"] = {"turns": _world_turns(components, start),
+                                "anchor_off": _off(components, {anchor: target})[anchor],
+                                "errors": errors_only(mate_errors(px, doc))}
+        facts["restore_again"] = _put_under_suppressed_locks(px, doc, components, locks, start)
+
+        # (d) a gear carrying two gear mates: the first train's output joined to the second's input by one more.
+        picked = select_in(px, doc, components[tk[3]], "Gear Axis", "AXIS", False) and \
+            select_in(px, doc, components[uk[0]], "Gear Axis", "AXIS", True)
+        px.require(bool(picked), f"{tk[3]} and {uk[0]}'s axes select")
+        bridge = add_mate(px, doc, f"{tk[3]}-{uk[0]} gear {t['gears'][3]['teeth']}:{u['gears'][0]['teeth']}",
+                          enums["gear"], enums["closest"], flip=bool(findings.GEAR_MATE_FLIP),
+                          ratio=(float(t["gears"][3]["teeth"]), float(u["gears"][0]["teeth"])))
+        px.require(bridge["name"] is not None, f"the joining gear mate is made: {bridge}")
+        facts["bridge"] = bridge
+        facts["rebuild_joined"] = rebuild(px, doc, "joined", top_only=TOP_ONLY)
+        facts["moved_by_joining"] = worst(_off(components, start))
+        facts["errors_joined"] = errors_only(mate_errors(px, doc))
+        facts["constrained_joined"] = {k: constrained(px, c) for k, c in components.items()}
+        twice = tk[3]
+        m, o = start[twice]
+        target = (crossed.multiply(m, crossed.rot_z(TWICE_BRIDGE_TURN)), o)
+        d = _put_under_suppressed_locks(px, doc, components, locks, {twice: target})
+        d["turns"] = _world_turns(components, start)
+        facts["two_gear_mates_put"] = d
+        # Driven through the one input left: the joined train turns as one, from the new phase.
+        facts["drive_unsuppressed_by"] = suppress(px, doc, f"{DRIVE} all Z+", False)
+        facts["rebuild_driven"] = rebuild(px, doc, "driven", top_only=TOP_ONLY)
+        facts["constrained_driven"] = {k: constrained(px, c) for k, c in components.items()}
+        facts["joined_turns"] = _drive_by(px, doc, components, TWICE_STEP, "the joined train driven")
+        facts["errors_driven"] = errors_only(mate_errors(px, doc))
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    px.fact("put_on_twice_meshed_gear", facts)
+
+    # -- what it says
+    def held(case: Mapping[str, Any], key: str, others: Sequence[str]) -> bool:
+        """Its put held after the locks came back and the rebuild, its neighbours did not turn, no mate error, and
+        every gear is still under-defined."""
+        off = case["off_after_the_locks"][key]
+        still = all(abs(case["turns"][k]) < 1e-6 for k in others)
+        free = all(v == findings.COMPONENT_UNDER_DEFINED for v in case["constrained"].values())
+        return off["rotation"] < TOLERANCE_ROTATION and off["origin_mm"] < TOLERANCE_MM and still and \
+            not case["errors"] and free
+
+    a = facts["anchor_put"]
+    a_held = held(a, anchor, [k for k in tk + uk if k not in (anchor, tk[2])]) and \
+        abs(a["turns"][anchor] - TWICE_TURN) < 1e-6 and abs(a["turns"][tk[2]]) < 1e-6 and \
+        abs(a["lock_change"]["angle"] + TWICE_TURN) < 1e-6
+    px.check(a_held, f"{anchor} put {TWICE_TURN:g}° round held, nothing else turned, its lock took the new angle "
+                     f"({a['lock_change']}): {a['turns']}")
+    restored = {k: worst(c["off_after_the_locks"]) for k, c in (("restore", facts["restore"]),
+                                                                 ("restore_again", facts["restore_again"]))}
+    clean = not facts["restore"]["errors"] and not facts["restore_again"]["errors"]
+    px.check(all(v < TOLERANCE_MM for v in restored.values()) and clean,
+             f"every gear put back where it started, and there after the locks came back (largest {restored})")
+    px.fact("lock_on_put_turns", facts["lock_on_put"]["turns"], "a put on the anchor with its lock on")
+    d = facts["two_gear_mates_put"]
+    joined_ok = facts["moved_by_joining"] < TOLERANCE_MM and not facts["errors_joined"] and \
+        all(v == findings.COMPONENT_UNDER_DEFINED for v in facts["constrained_joined"].values())
+    px.check(joined_ok, f"the joining gear mate moved nothing ({facts['moved_by_joining']:.1e}) and left every gear "
+                        f"under-defined: {facts['constrained_joined']}")
+    d_held = held(d, twice, [k for k in tk + uk if k != twice]) and abs(d["turns"][twice] - TWICE_BRIDGE_TURN) < 1e-6
+    px.check(d_held, f"{twice}, in two gear mates, put {TWICE_BRIDGE_TURN:g}° round held and nothing else turned: "
+                     f"{d['turns']}")
+    full = all(v == findings.COMPONENT_FULLY_DEFINED for v in facts["constrained_driven"].values())
+    joined = _train_ok(facts["joined_turns"], tk + uk, joined_turns(), TWICE_STEP) and not facts["errors_driven"]
+    px.check(full and joined, f"one drive fully defines the joined train ({full}) and it turns as one: "
+                              f"{facts['joined_turns']}")
+    px.fact("put_on_twice_meshed_gear_holds", bool(a_held and all(v < TOLERANCE_MM for v in restored.values()) and clean
+                                                   and joined_ok and d_held and full and joined))
+
+
+# -- 12: an anchor held along its shaft from a datum plane far behind Front (W5-PLAN-REVIEW M5) --
+
+DATUM_LAYOUT = "Probe W8 Datum Layout"
+DATUM_ASSEMBLY = "Probe W8 Datum"
+DATUM_PART = "Probe W8 Datum Gear"
+DATUM_Z = -1000.0                      # mm: the datum plane, on the -Z side of Front
+DATUM_START = 17.0                     # mm: each anchor's origin (its front face) as placed
+DATUM_STEPS = (0.0, -5.0, DATUM_START)  # through where the Front plane is, and back
+DATUM_AGAIN = 8.0                      # mm, after the reopen
+DATUM_RATIO = (20, 40)
+#: key, shaft, x, y, sigma, theta as placed
+DATUM_GEARS = (("GA", "D1", 40.0, 40.0, 1, DRIVE_FROM), ("GB", "D2", 40.0 + EXTERNAL_CENTRE, 40.0, -1, 0.0))
+
+
+def datum_distance(z: float, datum: float = DATUM_Z) -> float:
+    """The distance from the datum plane to a gear origin at z: never 0 and never changing sign while z > datum."""
+    return z - datum
+
+
+def _mount_on_datum(px: Px, asm: Assembly, key: str, shaft: str, z: float) -> Dict[str, Any]:
+    """Unfix a gear, hold it on its shaft's axis (AXIS_MATE_ROUTE) and its origin a distance from the layout's datum
+    plane, Flip False first, then True if the gear did not stay at z; each try recorded."""
+    enums = _enums(px)
+    gear, layout, doc = asm.gears[key], asm.layout, asm.doc
+    out: Dict[str, Any] = {"unfixed": unfix(px, doc, gear)}
+    picked = select_in(px, doc, gear, "Gear Axis", "AXIS", False) and select_in(px, doc, layout, f"{shaft} Axis", "AXIS", True)
+    out["axis"] = add_mate(px, doc, f"{key} on {shaft} Axis", enums["coincident"], enums["closest"]) if picked else None
+    tries = []
+    for flip in (False, True):
+        picked = bool(_select_origin(px, doc, gear, append=False)) and \
+            bool(select_in(px, doc, layout, DATUM_PLANE, "PLANE", True))
+        if not picked:
+            tries.append({"flip": flip, "selected": False})
+            break
+        made = add_mate(px, doc, f"{key} origin {datum_distance(z):g} mm from the datum, flip {flip}", enums["distance"],
+                        enums["closest"], flip=flip, distance=datum_distance(z))
+        attempt = {"flip": flip, "mate": made}
+        if made["name"]:
+            rebuild(px, doc, f"{key} on the datum, flip {flip}", top_only=TOP_ONLY)
+            _m, origin = frame_of(gear)
+            attempt["z"] = round(origin[2], 9)
+            attempt["held"] = abs(origin[2] - z) < TOLERANCE_MM
+        tries.append(attempt)
+        if attempt.get("held"):
+            out["along"] = made["name"]
+            out["flip"] = flip
+            break
+        if made["name"]:
+            attempt["deleted_by"] = delete_mate(px, doc, made["name"])
+            place(px, doc, gear, asm.placed[key][0], asm.placed[key][1])
+    out["tries"] = tries
+    return out
+
+
+def _datum_positions(components: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    out = {}
+    for key, shaft, x, y, sigma, _theta in DATUM_GEARS:
+        m, o = frame_of(components[key])
+        out[key] = {"z": round(o[2], 9), "off_axis_mm": round(math.hypot(o[0] - x, o[1] - y), 9),
+                    "axis_z": round(axis_z(m), 12)}
+    return out
+
+
+@probe("axial_datum_plane", needs=("shaft_axis_mates",), tier=8,
+       members=("IFeatureManager.InsertRefPlane", "IAssemblyDoc.AddMate5 distance", "IEquationMgr.Add2",
+                "IEquationMgr.Equation"))
+def axial_datum_plane(px: Px) -> None:
+    """Two anchors, on Z+ and Z-, held along their shafts from a layout plane 1000 mm behind Front, the distance on
+    an assembly global: moved to z = 0 and -5 and back, driven through their gear mate, saved, reopened, moved again."""
+    enums = _enums(px)
+    folder = _folder(px)
+    asm_path = os.path.join(folder, f"{DATUM_ASSEMBLY}.SLDASM")
+    _fresh(px, asm_path)
+    layout_path = layout_part(px, folder, DATUM_LAYOUT, [(g[1], g[2], g[3]) for g in DATUM_GEARS], datum=DATUM_Z)
+    _part, part_path = _part_with_axis(px, folder, DATUM_PART)
+    paths = [asm_path, layout_path, part_path]
+    asm = Assembly(px, layout_path, {"cyl": part_path})
+    facts: Dict[str, Any] = {"datum_z": DATUM_Z}
+    globals_ = {key: f"{key} Datum Z" for key, *_ in DATUM_GEARS}
+    try:
+        asm.open()
+        doc = asm.doc
+        for key, shaft, x, y, sigma, theta in DATUM_GEARS:
+            asm.add(key, "cyl", sigma, theta, (x, y, DATUM_START))
+        placed = {k: frame_of(c) for k, c in asm.gears.items()}
+        eqm = call(doc, "GetEquationMgr")
+        add = adder(px, eqm)
+        mounts = {}
+        for key, shaft, x, y, sigma, theta in DATUM_GEARS:
+            mounts[key] = _mount_on_datum(px, asm, key, shaft, DATUM_START)
+            along = mounts[key].get("along")
+            px.require(bool(along), f"{key} is held from the datum plane: {mounts[key]['tries']}")
+            axis_name = (mounts[key]["axis"] or {}).get("name")
+            px.require(bool(axis_name), f"{key} is on its axis: {mounts[key]['axis']}")
+            mounts[key]["axis"] = _rename(px, mate_feature(doc, axis_name), f"{key} on {shaft} Axis")
+            mounts[key]["along"] = along = _rename(px, mate_feature(doc, along), f"{key} along {shaft}")
+            feature = mate_feature(doc, along)
+            match = [d for d in sc.dimensions_of(feature)
+                     if abs(float(call(d, "SystemValue")) - sc.m(datum_distance(DATUM_START))) < 1e-9]
+            px.require(len(match) == 1 and add(f'"{globals_[key]}"= {datum_distance(DATUM_START):g}') >= 0 and
+                       add(f'"{call(match[0], "Name")}@{along}"= "{globals_[key]}"') >= 0,
+                       f"{key}'s datum distance is linked to the global \"{globals_[key]}\"")
+        facts["mounts"] = mounts
+        picked = select_in(px, doc, asm.gears["GA"], "Gear Axis", "AXIS", False) and \
+            select_in(px, doc, asm.gears["GB"], "Gear Axis", "AXIS", True)
+        px.require(bool(picked), "GA's and GB's axes select")
+        gear = add_mate(px, doc, f"GA-GB gear {DATUM_RATIO[0]}:{DATUM_RATIO[1]}", enums["gear"], enums["closest"],
+                        flip=bool(findings.GEAR_MATE_FLIP), ratio=(float(DATUM_RATIO[0]), float(DATUM_RATIO[1])))
+        px.require(gear["name"] is not None, f"the gear mate is made: {gear}")
+        facts["gear_mate"] = _rename(px, mate_feature(doc, gear["name"]), "GA meshes GB")
+        facts["rebuild_mated"] = rebuild(px, doc, "mated", top_only=TOP_ONLY)
+        facts["moved_by_mating"] = worst(_off(asm.gears, placed))
+        facts["errors_mated"] = errors_only(mate_errors(px, doc))
+        facts["constrained_mated"] = {k: constrained(px, c) for k, c in asm.gears.items()}
+        steps = [{"z": DATUM_START, "global": datum_distance(DATUM_START), "read": _datum_positions(asm.gears)}]
+        for z in DATUM_STEPS:
+            for key in globals_.values():
+                _set_exact(eqm, key, datum_distance(z))
+            step = {"z": z, "global": datum_distance(z), "read_before_the_rebuild": _datum_positions(asm.gears)}
+            step["rebuild"] = rebuild(px, doc, f"the datum distance {datum_distance(z):g}", top_only=TOP_ONLY)
+            step["read"] = _datum_positions(asm.gears)
+            step["errors"] = errors_only(mate_errors(px, doc))
+            steps.append(step)
+        facts["steps"] = steps
+        px.require(add(f'"{DRIVE}"= {DRIVE_FROM:g}') >= 0, "the drive global is added")
+        facts["drive"] = drive_mate(px, doc, asm.gears["GA"], _plane_names(asm.gears["GA"])[1], asm.layout,
+                                    _plane_names(asm.layout)[1], "GA", add, enums["closest"])
+        px.require(facts["drive"] is not None, "GA is driven")
+        rebuild(px, doc, "drive added", top_only=TOP_ONLY)
+        facts["constrained_driven"] = {k: constrained(px, c) for k, c in asm.gears.items()}
+        facts["turns"] = _drive_by(px, doc, asm.gears, DRIVE_TO - DRIVE_FROM, "driven")
+        facts["errors_driven"] = errors_only(mate_errors(px, doc))
+        names = asm.names()
+        px.require(_save_in_place(px, doc, asm_path, "the datum assembly") and os.path.isfile(asm_path),
+                   "the datum assembly saves")
+        px.shared.setdefault("created", []).append(str(call(doc, "GetTitle")))
+    finally:
+        if asm.doc is not None and not str(call(asm.doc, "GetPathName") or ""):
+            sc.close(px, asm.doc)
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+
+    reopened: Dict[str, Any] = {}
+    try:
+        doc, _route = open_by_path(px, asm_path, sc.SW_DOC_ASSEMBLY, prefer="OpenDoc6")
+        components = {k: call(doc, "GetComponentByName", n) for k, n in names.items()}
+        px.require(all(c is not None for c in components.values()), "reopened, both gears are found by name")
+        reopened["errors"] = errors_only(mate_errors(px, doc))
+        reopened["read_on_open"] = _datum_positions(components)
+        eqm = call(doc, "GetEquationMgr")
+        for key in globals_.values():
+            _set_exact(eqm, key, datum_distance(DATUM_AGAIN))
+        reopened["rebuild"] = rebuild(px, doc, f"reopened, the datum distance {datum_distance(DATUM_AGAIN):g}",
+                                      top_only=TOP_ONLY)
+        reopened["read"] = _datum_positions(components)
+        reopened["turns"] = _drive_by(px, doc, components, DRIVE_TO - DRIVE_FROM, "reopened and driven")
+        reopened["errors_after"] = errors_only(mate_errors(px, doc))
+    finally:
+        left = close_paths(px, paths)
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    facts["reopened"] = reopened
+    px.fact("axial_datum_plane", facts)
+
+    # -- what it says
+    def at(read: Mapping[str, Mapping[str, Any]], z: float) -> bool:
+        return all(abs(r["z"] - z) < TOLERANCE_MM and r["off_axis_mm"] < TOLERANCE_MM and
+                   abs(r["axis_z"] - sigma) < 1e-9 for (key, _s, _x, _y, sigma, _t), r in
+                   zip(DATUM_GEARS, (read[g[0]] for g in DATUM_GEARS)))
+
+    px.check(facts["moved_by_mating"] < TOLERANCE_MM, f"no gear moved when mated ({facts['moved_by_mating']:.1e})")
+    moved = []
+    previous = DATUM_START
+    for step in facts["steps"][1:]:
+        ok = at(step["read"], step["z"]) and abs(step["z"] - previous) > 1.0 and not step["errors"]
+        moved.append(ok)
+        px.check(ok, f"the global at {step['global']:g}: both anchors at z = {step['z']:g} "
+                     f"({step['read']}; before the rebuild {step['read_before_the_rebuild']})")
+        previous = step["z"]
+    free = all(v == findings.COMPONENT_UNDER_DEFINED for v in facts["constrained_mated"].values())
+    px.check(free and not facts["errors_mated"], f"both anchors under-defined, no mate error: "
+                                                 f"{facts['constrained_mated']} {facts['errors_mated']}")
+    expected = [1.0, -DATUM_RATIO[0] / DATUM_RATIO[1]]
+    step = DRIVE_TO - DRIVE_FROM
+    turned = _train_ok(facts["turns"], ["GA", "GB"], expected, step) and not facts["errors_driven"]
+    px.check(turned, f"driven, GB turned at the ratio, the way they mesh: {facts['turns']}")
+    again = at(reopened["read_on_open"], DATUM_START) and at(reopened["read"], DATUM_AGAIN) and \
+        _train_ok(reopened["turns"], ["GA", "GB"], expected, step) and not reopened["errors"] and \
+        not reopened["errors_after"]
+    px.check(again, f"reopened: where it was saved, moved to z = {DATUM_AGAIN:g} by the global, and turning: "
+                    f"{reopened}")
+    flips = {key: m.get("flip") for key, m in facts["mounts"].items()}
+    px.fact("axial_datum_flips", flips)
+    works = all(moved) and free and turned and again and not facts["errors_mated"] and \
+        facts["moved_by_mating"] < TOLERANCE_MM and len(set(flips.values())) == 1
+    px.fact("axial_datum_route", "origin distance from a datum plane" if works else None)
+    px.fact("axial_datum_flip", flips["GA"] if works else None)
+
+
+# -- 13: which assembly rebuild a MATED train needs, and what it marks modified ----
+#
+# assembly_rebuild_scope (tier 7) settled ForceRebuild3(True) on a static assembly: fixed components, no mates, no
+# assembly equations. A turning gearbox has all three, so each route is tried again here, each on its own copy of
+# the saved train (saved once settled and with its output's axial distance on a global, closed, reopened), and every
+# document's GetSaveFlag read after reopening and after every step. The layout part and the gears' one part are
+# shared by the three copies, and each copy's changes to them are saved when it closes (scaffold.save_created_parts),
+# so each step changes them by a further amount from where they are; every reading is against the copy's own start.
+
+MATED_ROUTES = ("ForceRebuild3(True)", "EditRebuild3", "ForceRebuild3(False)")   # in order of preference
+MATED_STEMS = ("Probe W8 Rebuild Top", "Probe W8 Rebuild Edit", "Probe W8 Rebuild Full")
+MATED_DOCS = ("assembly", "layout", "part")
+MATED_AXIAL_MOVE = 4.0      # mm the output gear's axial global moves it
+MATED_DRIVE_STEP = 30.0
+MATED_PUT_TURN = 7.0        # degrees the compound anchor is put round under its suppressed lock
+MATED_LAYOUT_MOVE = 5.0     # mm added to the output shaft's X in the layout part's own document
+MATED_OD_STEP = 4.0         # mm added to the gears' part's OD in its own document
+MATED_CONFLICT = 10.0       # degrees: an angle mate fighting the compound lock
+#: the documents each step should leave modified: what it changed on purpose, and what earlier steps did
+MATED_WANTED = {"axial": ("assembly",), "drive": ("assembly",), "put": ("assembly",), "layout": ("assembly", "layout"),
+                "part": ("assembly", "layout", "part"), "failure": ("assembly", "layout", "part")}
+MATED_CRITERIA = ("axial_shown", "drive_shown", "put_held", "layout_shown", "part_shown", "failure_shown",
+                  "failure_cleared", "only_changed_marked")
+REBUILD_STATUS_WORDS = ("NeedsRebuild", "RebuildStatus")   # type-library members read (never ones that rebuild)
+
+
+def typelib_members(px: Px, interface: str, library: str = "sldworks.tlb") -> Dict[str, List[Dict[str, int]]]:
+    """Every member of one interface in the type library SolidWorks installs: its kinds and parameter counts."""
+    import pythoncom  # noqa: PLC0415 - Windows only, and only ever on the worker
+
+    where = str(call(sc.app(px), "GetExecutablePath") or "")
+    folder = os.path.dirname(where) if where.lower().endswith(".exe") else where
+    path = os.path.join(folder, library)
+    if not os.path.isfile(path):
+        raise Require(f"There is no {library} at {path}.")
+    lib = pythoncom.LoadTypeLib(path)
+    for index in range(lib.GetTypeInfoCount()):
+        if lib.GetDocumentation(index)[0] != interface:
+            continue
+        info = lib.GetTypeInfo(index)
+        out: Dict[str, List[Dict[str, int]]] = {}
+        for i in range(info.GetTypeAttr().cFuncs):
+            desc = info.GetFuncDesc(i)
+            out.setdefault(str(info.GetNames(desc.memid)[0]), []).append(
+                {"invkind": int(desc.invkind), "params": len(desc.args or ())})
+        return out
+    raise Require(f"{library} has no {interface}.")
+
+
+def rebuild_status_members(px: Px) -> Dict[str, List[str]]:
+    """The members of IModelDoc2 and IModelDocExtension the type library lists whose names say they report whether
+    a rebuild is needed, and take no argument; every member with Rebuild in its name, as evidence."""
+    out: Dict[str, List[str]] = {}
+    for interface in ("IModelDoc2", "IModelDocExtension"):
+        try:
+            members = typelib_members(px, interface)
+        except Exception as exc:  # noqa: BLE001 - evidence only
+            px.note(f"{interface} could not be read from sldworks.tlb: {exc}")
+            continue
+        px.fact(f"rebuild members of {interface}", sorted(n for n in members if "Rebuild" in n))
+        out[interface] = sorted(n for n, forms in members.items()
+                                if any(w in n for w in REBUILD_STATUS_WORDS) and any(f["params"] == 0 for f in forms))
+    return out
+
+
+def _rebuild_status(px: Px, doc: Any, members: Mapping[str, Sequence[str]], label: str) -> Dict[str, Any]:
+    """One read of each listed rebuild-status member; what each answered."""
+    out: Dict[str, Any] = {}
+    for interface, names in members.items():
+        owner = doc if interface == "IModelDoc2" else sc.extension(doc)
+        for name in names:
+            got, value = px.attempt(f"{interface}.{name} ({label})", lambda n=name, o=owner: member(o, n)[0])
+            out[f"{interface}.{name}"] = plain(value) if got else "raised"
+    return out
+
+
+def mated_marked(flags: Optional[Mapping[str, Any]], wanted: Sequence[str]) -> Optional[bool]:
+    """Whether exactly the ``wanted`` documents read GetSaveFlag True; None when a flag could not be read."""
+    if not flags or any(flags.get(name) is None for name in MATED_DOCS):
+        return None
+    return all(bool(flags[name]) is (name in wanted) for name in MATED_DOCS)
+
+
+def mated_verdict(case: Mapping[str, Any]) -> Dict[str, Optional[bool]]:
+    """What one route did, criterion by criterion (``MATED_CRITERIA``); None where the step was not reached.
+    Every "shown" needs the reading after the route to differ from the one before the step."""
+    steps = {step: case.get(step) or {} for step in MATED_WANTED}
+    marks = [mated_marked(steps[step].get(key), MATED_WANTED[step]) for step in MATED_WANTED
+             for key in ("flags", "flags_after_reads")]
+    failure = steps["failure"]
+    return {
+        "axial_shown": steps["axial"].get("shown"),
+        "drive_shown": steps["drive"].get("shown"),
+        "put_held": steps["put"].get("shown"),
+        "layout_shown": steps["layout"].get("shown"),
+        "part_shown": steps["part"].get("shown"),
+        "failure_shown": failure.get("shown"),
+        "failure_cleared": failure.get("cleared"),
+        "only_changed_marked": None if any(m is None for m in marks) else all(marks),
+    }
+
+
+def first_mated_route(verdicts: Mapping[str, Mapping[str, Any]]) -> Optional[str]:
+    """The first route of ``MATED_ROUTES`` meeting every criterion; None when none does."""
+    for route in MATED_ROUTES:
+        verdict = verdicts.get(route)
+        if verdict and all(verdict.get(c) is True for c in MATED_CRITERIA):
+            return route
+    return None
+
+
+def _mated_case(px: Px, info: Mapping[str, Any], index: int, route: str,
+                status_members: Mapping[str, Sequence[str]]) -> Dict[str, Any]:
+    """One route on its own copy of the train, through steps a-f."""
+    from .p7_workbook import _apply_route, _global_value, _save_flags, activate  # noqa: PLC0415
+
+    enums = _enums(px)
+    started = time.monotonic()
+    _info, path = _train_copy(px, MATED_STEMS[index])
+    paths = {"assembly": path, "layout": info["layout"], "part": info["part"]}
+    t = info["trains"]["all Z+"]
+    tk = [g["key"] for g in t["gears"]]
+    keys = [g["key"] for tr in info["trains"].values() for g in tr["gears"]]
+    g4 = t["gears"][3]
+    s3 = g4["shaft"]
+    axial = info["mates"][g4["key"]][1]
+    face = f"{g4['key']} Face Z"
+    lock = info["mates"]["all Z+ lock"]
+    expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    case: Dict[str, Any] = {"copy": os.path.basename(path)}
+
+    # Settled, its output's axial distance put on a global (as W5 builds it), saved and closed: the baseline file.
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        case["rebuild_settle"] = rebuild(px, doc, "settled", top_only=True)
+        feature = mate_feature(doc, axial)
+        wanted = sc.m(abs(g4["at"][2]))
+        match = [d for d in sc.dimensions_of(feature) if abs(float(call(d, "SystemValue")) - wanted) < 1e-9]
+        add = adder(px, call(doc, "GetEquationMgr"))
+        px.require(len(match) == 1 and add(f'"{face}"= {abs(g4["at"][2]):g}') >= 0 and
+                   add(f'"{call(match[0], "Name")}@{axial}"= "{face}"') >= 0,
+                   f"{route}: the output's axial distance is linked to \"{face}\"")
+        rebuild(px, doc, "linked", top_only=True)
+        px.require(_save_in_place(px, doc, path, f"{route}'s train") and os.path.isfile(path), f"{route}: the copy saves")
+    finally:
+        left = close_paths(px, list(paths.values()))
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+
+    def flags() -> Dict[str, Optional[bool]]:
+        return _save_flags(px, paths)
+
+    try:
+        doc, components = _open_train(px, path, info["names"])
+        asm_title = str(call(doc, "GetTitle"))
+        case["flags_on_open"] = flags()
+        case["status_on_open"] = _rebuild_status(px, doc, status_members, "on open")
+        eqm = call(doc, "GetEquationMgr")
+
+        # (a) the output's axial global moved.
+        e: Dict[str, Any] = {}
+        start = _frames(components)
+        now = _global_value(eqm, face)
+        _set_global(eqm, face, now + MATED_AXIAL_MOVE)
+        e["before_route_mm"] = round(frame_of(components[g4["key"]])[1][2] - start[g4["key"]][1][2], 9)
+        e["flags_before_route"] = flags()
+        e["rebuild"] = _apply_route(px, doc, route, "axial global")
+        e["flags"] = flags()
+        e["status"] = _rebuild_status(px, doc, status_members, "after the axial global")
+        e["moved_mm"] = round(frame_of(components[g4["key"]])[1][2] - start[g4["key"]][1][2], 9)
+        e["others_moved"] = worst(_off(components, {k: v for k, v in start.items() if k != g4["key"]}))
+        e["errors"] = errors_only(mate_errors(px, doc))
+        e["shown"] = abs(e["moved_mm"] - MATED_AXIAL_MOVE) < TOLERANCE_MM and e["others_moved"] < TOLERANCE_MM and \
+            not e["errors"]
+        e["flags_after_reads"] = flags()
+        case["axial"] = e
+
+        # (b) the drive's global turned.
+        e = {}
+        start = _frames(components)
+        now = _global_value(eqm, DRIVE)
+        _set_global(eqm, DRIVE, now + MATED_DRIVE_STEP)
+        e["before_route"] = _world_turns(components, start)
+        e["flags_before_route"] = flags()
+        e["rebuild"] = _apply_route(px, doc, route, "drive")
+        e["flags"] = flags()
+        e["turns"] = _world_turns(components, start)
+        e["errors"] = errors_only(mate_errors(px, doc))
+        e["shown"] = all(_train_ok(e["turns"], [g["key"] for g in tr["gears"]], expected, MATED_DRIVE_STEP)
+                         for tr in info["trains"].values()) and not e["errors"]
+        e["flags_after_reads"] = flags()
+        case["drive"] = e
+
+        # (c) the compound lock suppressed, the route; its anchor put round (raw Transform2), the route; the lock back
+        # on, the route. Judged after the last route, never from the put's own read.
+        e = {}
+        anchor, follower = tk[1], tk[2]
+        start = _frames(components)
+        pose = relative_pose(start[anchor], start[follower])
+        e["suppressed_by"] = suppress(px, doc, lock, True)
+        e["rebuild_suppressed"] = _apply_route(px, doc, route, "lock suppressed")
+        m, o = start[anchor]
+        target = (crossed.multiply(m, crossed.rot_z(MATED_PUT_TURN)), o)
+        transform = make_transform(px, array_data(target[0], o, findings.TRANSFORM_ARRAY_ORDER or "columns"))
+        px.attempt(f"{route}: Transform2 put on {anchor}", lambda: setattr(components[anchor], "Transform2", transform))
+        e["rebuild_put"] = _apply_route(px, doc, route, "put")
+        e["unsuppressed_by"] = suppress(px, doc, lock, False)
+        e["flags_before_route"] = flags()
+        e["rebuild"] = _apply_route(px, doc, route, "lock back on")
+        e["flags"] = flags()
+        e["anchor_off"] = _off(components, {anchor: target})[anchor]
+        e["turns"] = _world_turns(components, start)
+        e["lock_change"] = pose_change(pose, relative_pose(frame_of(components[anchor]), frame_of(components[follower])))
+        e["errors"] = errors_only(mate_errors(px, doc))
+        e["shown"] = e["anchor_off"]["rotation"] < TOLERANCE_ROTATION and e["anchor_off"]["origin_mm"] < TOLERANCE_MM \
+            and abs(e["turns"][anchor] - MATED_PUT_TURN) < 1e-6 and abs(e["turns"][follower]) < 1e-6 and \
+            abs(e["lock_change"]["angle"] + MATED_PUT_TURN) < 1e-6 and not e["errors"] and \
+            all(abs(e["turns"][k]) < 1e-6 for k in keys if k not in (anchor, follower))
+        e["flags_after_reads"] = flags()
+        case["put"] = e
+
+        # (d) the output shaft moved in the layout part's own document (opened by path, activated, rebuilt there).
+        e = {}
+        start = _frames(components)
+        layout_doc, _ = open_by_path(px, info["layout"], prefer="OpenDoc6")
+        px.require(activate(px, str(call(layout_doc, "GetTitle"))), f"{route}: the layout part is active")
+        leqm = call(layout_doc, "GetEquationMgr")
+        x_old, y_old = _global_value(leqm, f"{s3} X"), _global_value(leqm, f"{s3} Y")
+        x_new = x_old + MATED_LAYOUT_MOVE
+        e["set"] = _set_exact(leqm, f"{s3} X", x_new)
+        e["layout_rebuild"] = plain(call(layout_doc, "ForceRebuild3", False))
+        e["before_activate_mm"] = round(frame_of(components[g4["key"]])[1][0] - start[g4["key"]][1][0], 9)
+        px.require(activate(px, asm_title), f"{route}: the assembly is active again")
+        # ActivateDoc3 sits between the change and the route: read once more after it, before the route.
+        e["before_route_mm"] = round(frame_of(components[g4["key"]])[1][0] - start[g4["key"]][1][0], 9)
+        e["flags_before_route"] = flags()
+        e["rebuild"] = _apply_route(px, doc, route, "layout move")
+        e["flags"] = flags()
+        e["status"] = _rebuild_status(px, doc, status_members, "after the layout move")
+        m4, o4 = frame_of(components[g4["key"]])
+        e["output_at_mm"] = _mm(o4)
+        e["wanted_mm"] = [round(x_new, 9), round(y_old, 9)]
+        e["others_moved"] = worst(_off(components, {k: v for k, v in start.items() if k != g4["key"]}))
+        e["errors"] = errors_only(mate_errors(px, doc))
+        e["shown"] = math.hypot(o4[0] - x_new, o4[1] - y_old) < TOLERANCE_MM and abs(axis_z(m4) - 1.0) < 1e-9 and \
+            abs(o4[0] - start[g4["key"]][1][0] - MATED_LAYOUT_MOVE) < TOLERANCE_MM and \
+            e["others_moved"] < TOLERANCE_MM and not e["errors"]
+        e["flags_after_reads"] = flags()
+        case["layout"] = e
+
+        # (e) the gears' part changed in its own document: its OD through a global there.
+        e = {}
+        e["volume_before_mm3"] = sc.volume_mm3(doc)
+        e["flags_after_volume_before"] = flags()
+        part_doc, _ = open_by_path(px, info["part"], prefer="OpenDoc6")
+        px.require(activate(px, str(call(part_doc, "GetTitle"))), f"{route}: the gears' part is active")
+        peqm = call(part_doc, "GetEquationMgr")
+        od_now = _global_value(peqm, "Probe OD")
+        if od_now is None:
+            od_now = float(call(sc.dimension_named(sc.feature_by_name(part_doc, "Blank Sketch"), "OD"),
+                                "SystemValue")) * sc.MM
+            od_new = od_now + MATED_OD_STEP
+            padd = adder(px, peqm)
+            px.require(padd(f'"Probe OD"= {od_new:g}') >= 0 and padd('"OD@Blank Sketch"= "Probe OD"') >= 0,
+                       f"{route}: the part's OD is put on a global")
+        else:
+            od_new = od_now + MATED_OD_STEP
+            _set_global(peqm, "Probe OD", od_new)
+        e["od_mm"] = [od_now, od_new]
+        e["part_rebuild"] = plain(call(part_doc, "ForceRebuild3", False))
+        px.require(activate(px, asm_title), f"{route}: the assembly is active again")
+        start = _frames(components)
+        e["flags_before_route"] = flags()
+        e["rebuild"] = _apply_route(px, doc, route, "part change")
+        e["flags"] = flags()
+        e["moved"] = worst(_off(components, start))
+        e["errors"] = errors_only(mate_errors(px, doc))
+        e["flags_after_reads"] = flags()
+        # Evidence read last: a mass property might rebuild what it measures (as assembly_rebuild_scope notes).
+        e["volume_after_mm3"] = sc.volume_mm3(doc)
+        e["volume_wanted_mm3"] = round(len(keys) * math.pi * (od_new / 2.0) ** 2 * BLANK_W, 3)
+        e["flags_after_volume"] = flags()
+        before_volume = len(keys) * math.pi * (od_now / 2.0) ** 2 * BLANK_W
+        e["shown"] = e["volume_after_mm3"] is not None and e["volume_before_mm3"] is not None and \
+            abs(e["volume_before_mm3"] - before_volume) < 1e-3 * before_volume and \
+            abs(e["volume_after_mm3"] - e["volume_wanted_mm3"]) < 1e-3 * e["volume_wanted_mm3"] and \
+            e["moved"] < TOLERANCE_MM and not e["errors"]
+        case["part"] = e
+
+        # (f) a failure that starts in the assembly: an angle mate fighting the compound lock; then deleted.
+        e = {}
+        p2, p3 = components[tk[1]], components[tk[2]]
+        rel = abs(unwrap(relative_angle(p2, p3)))
+        picked = select_in(px, doc, p3, _plane_names(p3)[1], "PLANE", False) and \
+            select_in(px, doc, p2, _plane_names(p2)[1], "PLANE", True)
+        e["selected"] = bool(picked)
+        conflict = min(rel + MATED_CONFLICT, 179.0) if rel < 170.0 else rel - MATED_CONFLICT
+        e["mate"] = add_mate(px, doc, f"{route}: an angle {conflict:g}° fighting the lock", enums["angle"],
+                             enums["closest"], angle=conflict)
+        made = e["mate"]["name"] or (e["mate"]["made"] or [None])[0]
+        e["errors_before_route"] = errors_only(mate_errors(px, doc))
+        e["flags_before_route"] = flags()
+        e["rebuild"] = _apply_route(px, doc, route, "over-defined")
+        e["flags"] = flags()
+        e["status"] = _rebuild_status(px, doc, status_members, "over-defined")
+        e["errors"] = errors_only(mate_errors(px, doc))
+        e["whats_wrong"] = whats_wrong(px, doc)
+        e["constrained"] = {k: constrained(px, components[k]) for k in tk}
+        e["shown"] = bool(made) and made in e["errors"]
+        e["flags_after_reads"] = flags()
+        if made:
+            e["deleted_by"] = delete_mate(px, doc, made)
+            e["rebuild_after_delete"] = _apply_route(px, doc, route, "conflict deleted")
+            e["errors_after_delete"] = errors_only(mate_errors(px, doc))
+            e["constrained_after_delete"] = {k: constrained(px, components[k]) for k in tk}
+            e["cleared"] = bool(e["deleted_by"]) and not e["errors_after_delete"]
+        case["failure"] = e
+    finally:
+        left = close_paths(px, list(paths.values()))
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    case["seconds"] = round(time.monotonic() - started, 1)
+    return case
+
+
+@probe("mated_rebuild_scope", needs=("motion_update",), tier=8,
+       members=("IModelDoc2.ForceRebuild3", "IModelDoc2.EditRebuild3", "IModelDoc2.GetSaveFlag", "IEquationMgr.Equation",
+                "IComponent2.Transform2", "IFeature.SetSuppression2", "IModelDocExtension.CreateMassProperty"))
+def mated_rebuild_scope(px: Px) -> None:
+    """Which assembly rebuild a mated train needs: an axial global, a drive, a put under a suppressed lock, a layout
+    move, a part change and an over-defining mate, by each route, and which documents each marks modified."""
+    info = px.shared.get("w8_train")
+    px.require(bool(info), "mated_train left a train")
+    status_members = rebuild_status_members(px)
+    px.fact("rebuild_status_members", status_members)
+    cases: Dict[str, Dict[str, Any]] = {}
+    for index, route in enumerate(MATED_ROUTES):
+        cases[route] = _mated_case(px, info, index, route, status_members)
+        cases[route]["verdict"] = mated_verdict(cases[route])
+        px.note(f"{route}: {cases[route]['verdict']}")
+    px.fact("mated_rebuild_cases", cases)
+    verdicts = {route: case["verdict"] for route, case in cases.items()}
+    px.fact("mated_rebuild_verdicts", verdicts)
+    marked = {route: {step: [d for d in MATED_DOCS if ((case.get(step) or {}).get("flags") or {}).get(d)]
+                      for step in MATED_WANTED} for route, case in cases.items()}
+    px.fact("mated_rebuild_marked", marked)
+    px.fact("mated_rebuild_returned", {route: {step: ((case.get(step) or {}).get("rebuild") or {}).get("returned")
+                                               for step in MATED_WANTED} for route, case in cases.items()})
+    px.fact("mated_flags_on_open", {route: case["flags_on_open"] for route, case in cases.items()})
+    for route, verdict in verdicts.items():
+        px.check(True, f"{route}: {verdict}; marked {marked[route]}")
+    route = first_mated_route(verdicts)
+    px.fact("mated_assembly_rebuild_route", route)
+    px.fact("mated_rebuild_keeps_components_unmodified", None if route is None else verdicts[route]["only_changed_marked"])
