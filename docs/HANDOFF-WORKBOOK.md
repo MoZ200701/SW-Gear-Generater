@@ -6,6 +6,10 @@ stand within it. The working papers of the session (plans, reviews, reports) are
 and are named below where they matter. Where one of them names a script such as `w4x_….py` or `w5r_….py`,
 that was a throwaway repro in a temp folder and was not kept; the fixes' regression tests replace them.
 
+**Updated 2026-11-14**, on the Windows host again (a WSL clone, with SolidWorks 2026 and 2024 both started and
+exited by the agents): W4 was closed and W5 begun. The dated paragraphs below say what changed; the user's
+answers of that day and the rulings that follow from them are in `notes-workbook/W5-DECISIONS.md`.
+
 ## Where it stands
 
 | Phase | State |
@@ -13,12 +17,13 @@ that was a throwaway repro in a temp folder and was not kept; the fixes' regress
 | W0–W1 xlsx read/write, model, schema | done, reviewed, review fixes in |
 | W2 Workbook window, live link, Build parts | done, reviewed, fixes in. The batch build (`swbuild.build_many`) ran on SolidWorks 2024 and 2026 (`208712c`); logs `probe/results/w2-build-20261113-164647.log` and `probe/results/sw2024/w2-build-20261113-165706.log`. |
 | W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed twice, every item fixed. The Excel checks passed on Windows: the Windows-saved fixture (`aa86cc7`) reads, and exported files open in Excel with no repair prompt. |
-| W4 layout part + static assembly, Update SolidWorks, build-again `_r<n>` | **built and reviewed three times; one fault found on SolidWorks is open, and the last fix pass is unverified.** Details below. |
-| W5 motion | **probes passed on both versions; plan written and reviewed ("go with these changes"); no code yet.** Details below. |
+| W4 layout part + static assembly, Update SolidWorks, build-again `_r<n>` | **closed 2026-11-14**: the rebuild fault probed and fixed, pass 4 verified, both demonstrations rerun on SolidWorks 2026 and 2024 with every check passing, each step reviewed. Details and what is left open below. |
+| W5 motion | **in progress**: the user's answers recorded, probe package P0 run and reviewed (one more round, P0b, running), the interface commit in and reviewed (`2f82a0e`, `07fd66a`), packages A, B and C being written. Details below. |
 | W6 right-angle, W7 planetary, W8 sleeves and modes | not started; each needs its own sub-plan. |
 
 Suite, measured on a clean `git archive` of `2250ceb` (WSL, 2026-11-13): `PYTHONPATH=src .venv/bin/python -m
-pytest -q` → **1559 passed, 10 skipped**. The window's Tk tests run under Windows Python: `python.exe -m
+pytest -q` → **1559 passed, 10 skipped**. On the 2026-11-14 clone (another Python, fewer skips): 1699 passed, 1
+skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`. The window's Tk tests run under Windows Python: `python.exe -m
 pytest tests/test_workbook_build.py tests/test_workbook_window.py -q` → 102 passed, 1 skipped (a "no display
 for Tk" skip is a known flake that moves between tests; rerun). The `PYTHONPATH` matters in a copy: the
 venv's editable install otherwise imports the working tree's `src`, uncommitted edits and all.
@@ -84,7 +89,8 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    sentence when it does not. A part rebuilds as always. STATIC (fixed components: today's workbook gearbox)
    takes `ASSEMBLY_REBUILD_ROUTE`, top-only, which it requires: unsettled, a build or Update refuses before
    changing anything. TRAIN (W5's mated workbook gearbox, any plan with a `Mate` op built outside `build_pair`;
-   nothing builds one yet) takes `MATED_ASSEMBLY_REBUILD_ROUTE`, full while None. PAIR (everything `build_pair`
+   nothing builds one yet) takes `MATED_ASSEMBLY_REBUILD_ROUTE`, full while None (set to the top-only route by W5's probes in
+   `8504856`; `notes-workbook/W5-DECISIONS.md` says what that does and does not yet cover). PAIR (everything `build_pair`
    makes, and the p5 half-pitch controls) keeps the full `ForceRebuild3(False)` probe tiers 4 and 5 ran, whatever
    the train's finding says, since that is measured on other mates; an absent `PAIR_ASSEMBLY_REBUILD_ROUTE` is
    where a later pair probe could change it. The probe tried no mate and no assembly equation. The fake
@@ -103,6 +109,10 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    assembly BUILT with the top-only route; whether the assembly still reports needing a rebuild after the
    route; and a part opened alone by path reading `GetSaveFlag` False.
 2. **A brief independent verification of pass 4** (`git diff 8b1ef15..f335379`).
+
+   *2026-11-14: verified* (`notes-workbook/W4-REVIEW-PASS4.md`). It found one fault outside the diff, of the
+   same kind as review 3's item 2: Export as… could write over another file on a volume whose file ids are all
+   0. Fixed in `8bd2530`.
 3. **Rerun both demonstration scripts** (`probe/workbook_assembly_check.py`,
    `probe/workbook_window_check.py`) on SolidWorks 2026, and on 2024 in a fresh session — there, for the
    first time, the structural step and `_r2`, a2, a3, b, c and the window run. Commit the logs. The 2026
@@ -113,7 +123,8 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    `GetSaveFlag` False.
 
    *2026-11-14: rerun done, every check passed on both versions*, from a `git archive` snapshot of `9ac36c5`
-   (the app as of `388c8d3`; `cross_version_open_check.py` as committed with these logs), one SolidWorks at a time, each started for the run and exited
+   (the app as of `388c8d3`, with `findings.py` as of `8504856`, whose new values only the train kind reads and
+   W4 never builds; `cross_version_open_check.py` as committed with these logs), one SolidWorks at a time, each started for the run and exited
    after it (no launcher needed). `workbook_assembly_check.py`: 322 of 322 on 2026 (34.1.1,
    `probe/results/w4-workbook-assembly-20261114-053855.log`) and 322 of 322 on 2024 (32.5.0, all five sections
    for the first time, `sw2024/w4-workbook-assembly-20261114-055924.log`), exit 0 both. `workbook_window_check.py`:
@@ -126,10 +137,29 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    marks the assembly (six reopens on each version). A gearbox saved by 2024 and opened in 2026
    (`probe/cross_version_open_check.py`, `w4-cross-version-2024-in-2026-*.log`): every document reads False
    straight after the open and no file changes; but `QuitDoc` on each such assembly raised a modal "SOLIDWORKS
-   CAM Warning: Save changes to <assembly>?" (the CAM add-in, not the save flag), answered No by hand; a
-   2026-made assembly closed by `QuitDoc` in a3 raised none. The first 2026 attempt stopped at a script fault
+   CAM Warning: Save changes to <assembly>?" from the CAM add-in. The flag was read only straight after the
+   open, not again before the close, so what it read when the prompt came up is not known. The agent running
+   the script dismissed each prompt from outside it: a separate Python helper found the dialog's "&No" button
+   and posted it `BM_CLICK`; nothing was saved and the files compared equal afterwards. The logs have no trace
+   of the dialog (that script has no dialog watcher), and the commit message of `64f4620` calls this "answered
+   No by hand". A 2026-made assembly closed by `QuitDoc` in a3 raised none. The app never closes a document,
+   so it cannot meet this prompt; a person closing a 2024-saved gearbox in 2026 will. The first 2026 attempt stopped at a script fault
    (a local shadowing the new `marked()`), kept as `w4-workbook-assembly-20261114-053142-stopped-by-a-script-fault.log`.
 4. Redraw the four board PNGs. Then W4 can be called closed.
+
+   *2026-11-14: redrawn* (`41b92eb`, `3dd5ec8`).
+
+**W4 was closed on 2026-11-14**, after an independent review of the rerun (its points on the notes and the
+scripts are in `eb5dff5`). The reviews of that day found these and left them open; none blocks W4:
+
+- **Whether the assembly still reports needing a rebuild after the top-only route** was never read, and a put
+  with its top-only rebuild under `set_rebuild_suppressed(True)` was shown only by the reruns, not by a probe.
+  `PUT_NEEDS_REBUILD` is False in `findings.py` but **not established**: nothing may skip a rebuild on it.
+  Extra steps for probe `assembly_rebuild_scope` are planned.
+- **A journaled file on a drive that is disconnected is treated as gone** (`W4-REVIEW-PASS4.md`). A design call
+  for the user.
+- Probe `assembly_rebuild_scope`'s own limits, from its review: its "shown" readings could not tell the routes
+  apart (every route showed every change), and the failed-rebuild case was tried only on a failing part.
 
 **Known and left:** a journaled assembly (an interrupted build that had got as far as saving the assembly)
 forces a whole `_r<n>`, and its layout part and assembly stay in the journal; with two SolidWorks sessions
@@ -167,6 +197,12 @@ the probes found otherwise. W5-PLAN §0.4 has the text for a dated note; it is n
 
 ## Questions waiting for the user
 
+*2026-11-14: questions 1 to 5 are answered* — a refused mate stops the build and says why; yes; no datum plane
+(the first gear is measured from the Front plane, so those edits need Build again…); problems only; scrub going
+forward (`ee46d20`). The answers and what follows from them are in `notes-workbook/W5-DECISIONS.md`. Question 6
+stands, and one is new: **a journaled file on a disconnected drive is treated as gone** — keep that, or hold
+such entries until the drive is back?
+
 1. **W5, when SolidWorks refuses a mate:** fall back to the static assembly automatically (the plan), or
    stop and say why (the review: a refusal repeats every time, so the fallback would be permanent)?
 2. **W5, Update returns a train the user turned to its built position** whenever it has to move any gear.
@@ -185,7 +221,8 @@ the probes found otherwise. W5-PLAN §0.4 has the text for a dated note; it is n
 
 - Commits and PRs carry **no Claude co-author or attribution line**. Commit by explicit path only
   (`git add <paths>`; `git commit -m "…" -- <paths>`), prose messages with the why; never `add -A`,
-  `commit -a`, stash or reset. Push only when the user says so.
+  `commit -a`, stash or reset. ~~Push only when the user says so.~~ Since 2026-11-14 the user wants each
+  reviewed step pushed to `origin` as the work goes; the orchestrating session pushes, subagents commit only.
 - **The repo is public**: no user document titles in committed logs (`<user document N>`), no other
   personal data.
 - Each phase's plan and result is reviewed by a separate subagent before moving on. In the 2026-11-13
@@ -196,7 +233,9 @@ the probes found otherwise. W5-PLAN §0.4 has the text for a dated note; it is n
   the open titles before a run, close only documents the run created, never save, close or modify theirs,
   never exit it, stop under 2 GB of free RAM, and prefer a freshly restarted session for long runs (one
   long probe run grew it by about 5 GB). An agent may start and exit its own SolidWorks 2026. One driver at
-  a time.
+  a time. *On the user's own device (2026-11-14):* the user allows both SolidWorks 2026 and 2024 to be started,
+  exited, and killed when one will not exit or memory is short; still one SolidWorks running at a time (the
+  app asks every running SolidWorks for its version), and nothing the user has open is touched.
 - Excel on the Windows host may be opened: use only an Excel the run starts, close only the workbook you
   opened, never quit the user's Excel.
 - Screenshots on the Mac: capture by window id (`screencapture -l`), not by region, because a region
