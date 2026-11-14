@@ -679,6 +679,12 @@ def planned(a, record, disk):                                           # Workbo
     store.clear_saved: on the board's disk nothing is saved after Update, as in the window until the user saves
     in SolidWorks."""
     here = str(a.read.source_path or a.spec.source_path or "")
+    if (record is not None and store.record_owner(record, here, disk.exists)[0] == store.UNSURE
+            and any(store.same_path(record.workbook, read[0]) for read in _reads.values())):
+        # Each spec the boards read is written to a file of its own, but in the window they are one workbook saved
+        # again: its record is its own (a record whose workbook is gone is otherwise asked about: WorkbookMoved).
+        record = copying.deepcopy(record)
+        store.adopt(record, here)
     ours = None if store.foreign_workbook(record, here, disk.exists) else record
     gearbox = ours.gearbox if ours is not None else None
     has_assembly = gearbox is not None and bool(gearbox.assembly)
@@ -890,7 +896,8 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
                    [f'<div style="{mono} white-space: pre; line-height: 1.5;">{line}</div>' for line in lines], gap=0)
 
     colour = OK if footer.ok else ERR
-    buttons = [foot_button("Export"), foot_button("Export as…"),
+    exporting = building is None                                        # Export waits while a job runs
+    buttons = [foot_button("Export", enabled=exporting), foot_button("Export as…", enabled=exporting),
                foot_button(footer.build_label, footer.build_primary, footer.build_enabled)]
     if footer.update_shown:
         buttons.append(foot_button("Update SolidWorks", footer.update_primary, footer.update_enabled))

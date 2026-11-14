@@ -132,6 +132,20 @@
       "x": 15516,
       "y": 0,
       "w": 1080
+    },
+    {
+      "file": "WorkbookMoved.dc.html",
+      "title": "Workbook · its record's workbook gone: moved, or a copy?",
+      "x": 16676,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookCloseAnyway.dc.html",
+      "title": "Workbook · closed twice while SolidWorks does not answer",
+      "x": 17836,
+      "y": 0,
+      "w": 1080
     }
   ],
   "annotations": [
