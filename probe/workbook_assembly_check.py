@@ -68,7 +68,9 @@ The sections, each in its own folder under the output folder (default order m1 m
   train with the control on the ring's mesh G5 meshes G6; the user's turn (20°) and Update with nothing changed.
 - ``m4``: the refused mate, forced (W5-DECISIONS answer 1). The 12 : 1 plan with mates injected by the script
   (G3, the follower locked to G2, also on S2 Axis and along S2 — ``--m4-offset`` mm off where it stands, 0 by
-  default) -> the build stops: AddMate5's statuses, the error codes and warnings, the constrained statuses and the
+  default). Ruled on 2026-11-14: the consistent mates first; if SolidWorks accepts them, that is logged as a finding
+  and the build is forced again, in folder m4-offset1, 1 mm off; the log says which case made the refusal. Then:
+  the build stops: AddMate5's statuses, the error codes and warnings, the constrained statuses and the
   app's sentences logged; the parts and the layout part saved and on record, no assembly file, the document left
   open and named, the record's mate problems and their digest; the footer never offers the same build of the
   unchanged workbook. Then a note cell changed in Excel (the plan unchanged, without the injection) -> Build makes
@@ -86,7 +88,8 @@ The sections, each in its own folder under the output folder (default order m1 m
 - ``a2``: a build stopped at the assembly (a template that is not there), carried on; Build pressed again.
 - ``a3`` (the second W4 review, N4 and N2): the journal of a build interrupted after two parts; then the
   demonstration edit and Update, closed unsaved; the edit typed back: Update loads every document from its file,
-  and remakes the gear mate at the ratio the files hold (17 : 68), so the assembly is changed and marked again.
+  finds the gear mate already at 17 : 68 (its live ratio, read in the check phase) and remakes nothing, so nothing
+  is changed; the drive at 17 : 68; the sentence logged, not pinned (package C's wording, ruled on 2026-11-14).
 - ``b``: a workbook written by ``write_new``, S2 placed by formulas: build; §4.1; the angle changed; a part-only
   Update (G2's bore 8 -> 10).
 - ``c``: the risky placements written by ``write_new``: build; §4.1.
@@ -446,11 +449,39 @@ def save_assembly(worker, desk, why):
     say(f"person  saved in SolidWorks ({why}): {saved}")
 
 
-def check_earlier_unchanged(folder, earlier, label):
+def sidecar_texts(folder):
+    """Every .gear.json in a folder, parsed, by name: taken before a build so a rewritten one can be said field by
+    field."""
+    import json
+    out = {}
+    for name in sorted(os.listdir(folder)):
+        if name.endswith(".gear.json"):
+            with open(os.path.join(folder, name), encoding="utf-8") as handle:
+                out[name] = json.load(handle)
+    return out
+
+
+def _flat(value, prefix=""):
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            out.update(_flat(item, f"{prefix}.{key}" if prefix else str(key)))
+        return out
+    return {prefix: value}
+
+
+def check_earlier_unchanged(folder, earlier, label, earlier_sidecars=None):
     """A build beside earlier files: every earlier SolidWorks file's sha256 and mtime unchanged. A .gear.json may be
     rewritten only to take off the unsaved mark an Update left on it (``finish_build`` unmarks a reused part whose
-    changes were saved since); any other change to an earlier file is a FAIL."""
+    changes were saved since; ruled on 2026-11-14); each one that changed is logged with what changed in it, and any
+    other change to an earlier file is a FAIL."""
     later = stamps(folder)
+    now = sidecar_texts(folder)
+    for name in sorted(earlier_sidecars or {}):
+        if name in now and now[name] != earlier_sidecars[name]:
+            a, b = _flat(earlier_sidecars[name]), _flat(now[name])
+            diff = {k: (a.get(k), b.get(k)) for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)}
+            say(f"fact    {label}: {name} rewritten: {diff}")
     touched = [n for n in earlier if later.get(n) != earlier[n]]
     solid = [n for n in touched if n.upper().endswith((".SLDPRT", ".SLDASM"))]
     check(solid == [], f"{label}: every earlier SolidWorks file's sha256 and mtime unchanged: changed {solid}")
@@ -1219,21 +1250,34 @@ def drive_inputs(desk):
     return box, components, gears, box.drag[0] if box.drag else ""
 
 
+def drive_assumptions(desk, input_gear, label):
+    """What the drive rests on (W5-PLAN §4.2, ruled on 2026-11-14), asserted before anything is added: a gear to
+    drag; the input built at θ = 0 on a Z+ shaft (its Top plane then at 90° to the layout's Right, the angle the
+    drive is made at); findings.DEMONSTRATION_DRIVE_SENSE 1 (the sense probe demonstration_drive measured for such an
+    input). A gearbox that breaks one stops the run with the sentence, rather than drive from an angle no probe
+    measured."""
+    if not input_gear:
+        raise Halt(f"{label}: the record names no gear to drag, so the drive has no input")
+    rotation = wanted(desk)[input_gear][0]
+    theta = math.degrees(math.atan2(float(rotation[3]), float(rotation[0])))
+    shaft = next(g.shaft for g in desk.a.spec.gears if g.id == input_gear)
+    axis = next(sh.axis for sh in desk.a.spec.shafts if sh.id == shaft)
+    if abs(theta) > 1e-9 or float(rotation[8]) < 1 - 1e-12 or axis != "Z+":
+        raise Halt(f"{label}: the drive is made at 90° from an input built at θ = 0 on a Z+ shaft; {input_gear} is on "
+                   f"{shaft} ({axis}) at {theta:.6f}°, R33 {rotation[8]}, so it is not driven")
+    if findings.DEMONSTRATION_DRIVE_SENSE != 1:
+        raise Halt(f"{label}: findings.DEMONSTRATION_DRIVE_SENSE is {findings.DEMONSTRATION_DRIVE_SENSE!r}, not the 1 "
+                   "this drive's expectations were ruled on")
+    check(True, f"{label}: the drive's assumptions hold: {input_gear} on {shaft} (Z+) at θ = 0, "
+                f"DEMONSTRATION_DRIVE_SENSE 1, tolerance {DRIVE_TOLERANCE:g} relative")
+
+
 def drive_proof(worker, desk, label, control=None):
     """§4.2 on the current assembly, which must stand at its built turn with the input at θ = 0. ``control``: the
     (a, b) of the recorded gear mate to flip for the wrong-sense control, or None."""
     box, components, gears, input_gear = drive_inputs(desk)
     say(f"drive   {label}: input {input_gear}; control {control}; {memory()}")
-    if not input_gear:
-        check(False, f"{label}: the record names no gear to drag, so nothing is driven")
-        return None
-    want = wanted(desk)
-    rotation = want[input_gear][0]
-    theta = math.degrees(math.atan2(float(rotation[3]), float(rotation[0])))
-    if abs(theta) > 1e-9 or float(rotation[8]) < 1 - 1e-12:
-        check(False, f"{label}: the drive needs the input at θ = 0 on a Z+ shaft; {input_gear} is built at "
-                     f"{theta:.6f}°, R33 {rotation[8]}: not driven")
-        return None
+    drive_assumptions(desk, input_gear, label)
     mesh_entry = None
     if control is not None:
         mesh_entry = next(m for m in box.mates if m.kind == "mesh" and tuple(m.gears) == tuple(control))
@@ -1331,6 +1375,7 @@ def user_turn(worker, desk, label, degrees):
     the train — every gear turned consistently. Returns the frames it left."""
     box, components, gears, input_gear = drive_inputs(desk)
     say(f"turn    {label}: {input_gear} by {degrees:g}° and the drive deleted")
+    drive_assumptions(desk, input_gear, label)
     out = run(worker, drive_job(box.assembly, components, box.layout_component, input_gear, turn_by=degrees,
                                 fixed=box.fixed))
     say(f"        rebuilds {out['rebuilds']}")
@@ -1765,10 +1810,10 @@ def section_m1(worker, excel):
     say(f"question {ui_text.build_again_question(desk.update, p, record=desk.record)}")
     check(p is not None and not p.refusal and p.revision == 2 and p.motion is not None,
           f"the plan: Reducer_12to1_r2, turning: revision {p and p.revision}")
-    earlier = stamps(folder)
+    earlier, earlier_sidecars = stamps(folder), sidecar_texts(folder)
     guard()
     _, result = desk.build()
-    later = check_earlier_unchanged(folder, earlier, "m1 build again")
+    later = check_earlier_unchanged(folder, earlier, "m1 build again", earlier_sidecars)
     say(f"        new files {sorted(n for n in later if n not in earlier)}")
     if result is not None:
         check(result.ok and result.kind == store.GEARBOX_MOTION and desk.record.gearbox.revision == 2,
@@ -1908,33 +1953,68 @@ def refused_state(session, title):
             "others": others}
 
 
-def section_m4(worker, excel):
-    say(f"== m4  a refused mate, forced: G3 also on S2 Axis and along S2 ({M4_OFFSET:g} mm off) -> the build stops")
-    say(f"findings P0c {p0c_findings()}")
-    folder, path, book, desk = fixture_desk(worker, excel, "m4", FIXTURE_12)
+def m4_attempt(worker, excel, section, offset):
+    """One forced build: the 12 : 1 in its own folder, G3 given the extra mates ``offset`` mm off where it stands.
+    Logs everything SolidWorks reported; returns (folder, book, desk, result, refused)."""
+    folder, path, book, desk = fixture_desk(worker, excel, section, FIXTURE_12)
     desk.say_plan(full=False)
-    plan = injected(desk.plan, M4_OFFSET)
-    say(f"        injected: {[base.describe(op) for op in plan.assembly.ops if getattr(op, 'id', '').startswith('inject')]}")
+    plan = injected(desk.plan, offset)
+    say(f"        injected ({offset:g} mm off): "
+        f"{[base.describe(op) for op in plan.assembly.ops if getattr(op, 'id', '').startswith('inject')]}")
     guard()
     _, result = desk.build(plan)
     if result is None:
-        raise AssertionError(f"m4: the build raised: {desk.note[0]}")
+        raise AssertionError(f"{section}: the build raised: {desk.note[0]}")
     asm = result.assembly
     names = [op.name for op in plan.assembly.ops if isinstance(op, base.Mate)]
     statuses = run(worker, lambda s: {n: s.mate_status(n) for n in names})
     say(f"        AddMate5 statuses {statuses}")
     say(f"        mate states {[(s.name, s.code, s.warning, s.suppressed) for s in (asm.mates if asm else [])]}")
     say(f"        mate problems {asm.mate_problems if asm else None}; failures {asm.failures if asm else None}")
-    say(f"        left open as {asm.document if asm else None!r}")
-    check(asm is not None and asm.mate_problems and not asm.saved and asm.document,
-          f"m4: the build stopped at the mate check, the assembly not saved, left open as {asm and asm.document!r}")
-    check(not os.path.exists(os.path.join(folder, "Reducer_12to1.SLDASM")), "m4: no assembly file")
-    check(result.kind == "", f"m4: nothing saved in its place: kind {result.kind!r}")
-    if asm is not None and asm.document:
+    say(f"        left open as {asm.document if asm else None!r}; saved {asm.saved if asm else None!r}")
+    refused = bool(asm is not None and asm.mate_problems and not asm.saved)
+    if refused and asm.document:
         REFUSED.append(asm.document)
         state = run(worker, lambda s: refused_state(s, asm.document))
-        say(f"        the refused document as it stands: {state}")
-        check(state is not None and not state["path"], f"m4: {asm.document} is open, never saved")
+        say(f"        the refused document as it stands (constrained statuses, mates): {state}")
+        check(state is not None and not state["path"], f"{section}: {asm.document} is open, never saved")
+    elif not refused and desk.record is not None and desk.record.gearbox is not None and desk.record.gearbox.assembly:
+        box = desk.record.gearbox
+        states, others, status = run(worker, lambda s: live_mates(s, box.assembly,
+                                                                  [(c.gear, c.name) for c in box.components]))
+        say(f"        the assembly SolidWorks saved: mates {[(x.name, x.code, x.warning, x.suppressed) for x in states]}; "
+            f"others {others}; constrained {status}")
+    return folder, book, desk, result, refused
+
+
+def section_m4(worker, excel):
+    say("== m4  a refused mate, forced: G3 also on S2 Axis and along S2 -> the build stops")
+    say(f"findings P0c {p0c_findings()}")
+    # Ruled on 2026-11-14: the consistent extra mates first; if SolidWorks accepts them (nothing the app's mate check
+    # flags), that is a finding, and the build is forced again with the along mate 1 mm off.
+    offsets = [M4_OFFSET] + ([1.0] if M4_OFFSET == 0.0 else [])
+    for index, offset in enumerate(offsets):
+        section = "m4" if index == 0 else f"m4-offset{offset:g}"
+        say(f"-- {section}  the extra mates {offset:g} mm off where G3 stands")
+        folder, book, desk, result, refused = m4_attempt(worker, excel, section, offset)
+        if refused:
+            say(f"fact    m4: the refusal was made by the extra mates {offset:g} mm off "
+                f"({'consistent with where G3 stands' if offset == 0.0 else 'conflicting with the lock'})")
+            break
+        say(f"fact    m4: FINDING: SolidWorks accepted the extra mates {offset:g} mm off — no AddMate5 status, error "
+            "code, warning or constrained status the app's mate check flags — and the assembly was saved: kind "
+            f"{result.kind!r}")
+        left = run(worker, close_ours)
+        say(f"        {section} closed: left {left}")
+        book.close()
+    else:
+        check(False, f"m4: no case made the refusal (offsets {offsets})")
+        return
+    asm = result.assembly
+    check(asm.mate_problems and not asm.saved and asm.document,
+          f"{section}: the build stopped at the mate check, the assembly not saved, left open as {asm.document!r}")
+    check(not os.path.exists(os.path.join(folder, "Reducer_12to1.SLDASM")), f"{section}: no assembly file")
+    check(result.kind == "", f"{section}: nothing saved in its place: kind {result.kind!r}")
     rec = desk.record
     check(rec is not None and len(rec.parts) == 4 and rec.gearbox.layout and not rec.gearbox.assembly
           and all(os.path.isfile(e.path) for e in rec.parts) and os.path.isfile(rec.gearbox.layout),
@@ -2092,9 +2172,9 @@ def section_a(worker, excel):
           f"\"No. of Teeth\" = {values.get('No. of Teeth')}")
     measure_clear(worker, desk, "a updated")
     measure_mates(worker, desk, "a updated")
-    # W4's control put G2 back at its old frame to see the 69-tooth gear clash with G1. With G2 mated to S2 Axis that
-    # put is pulled back by the axis mate on the next rebuild, so it shows nothing; the drive at 17 : 69 shows the
-    # assembly turning the 69-tooth G2 instead.
+    say("        W4's control (G2 put back at its old frame, where the 69-tooth gear clashed with G1) does not hold for "
+        "a gear mated to S2 Axis: the axis mate pulls the put back on the next rebuild. The drive at 17 : 69 stands in "
+        "for it, showing the assembly turning the 69-tooth G2 (ruled on 2026-11-14)")
     drive_proof(worker, desk, "a updated, at 17 : 69")
     negative_controls(worker, desk, "a updated")
 
@@ -2124,10 +2204,10 @@ def section_a(worker, excel):
     check(f.build_enabled and f.update_enabled, "neither Build again… nor Update SolidWorks is held by the unsaved "
           "documents")
     guard()
-    earlier = stamps(folder)
+    earlier, earlier_sidecars = stamps(folder), sidecar_texts(folder)
     say(f"stamps  {len(earlier)} earlier files: " + ", ".join(sorted(earlier)))
     _, result = desk.build()
-    later = check_earlier_unchanged(folder, earlier, "a build again")
+    later = check_earlier_unchanged(folder, earlier, "a build again", earlier_sidecars)
     new = sorted(n for n in later if n not in earlier)
     check(new == ["Gear_m1.5_N17_r2.SLDPRT", "Gear_m1.5_N17_r2.gear.json", "Gear_m1.5_N69.SLDPRT",
                   "Gear_m1.5_N69.gear.json", "Reducer_12to1_r2.SLDASM", "Reducer_12to1_r2_Layout.SLDPRT"],
@@ -2287,26 +2367,25 @@ def section_a3(worker, excel):
     _, result, _ = desk.update_solidworks()
     current = [e.path for e in desk.record.current_parts()] + [desk.record.gearbox.layout,
                                                                desk.record.gearbox.assembly]
-    # W5: the record says 17 : 69 and the workbook 68, so the gear mate is remade at 17 : 68 — what the file holds
-    # already — and every gear put: the assembly is changed (and marked) though it ends as its file is. The parts and
-    # the layout hold the workbook's values, so they are not changed.
+    # Ruled on 2026-11-14 (with package A's fix: the check phase reads each recorded gear mate's live ratio): the
+    # reopened gear mate already reads 17 : 68, what the workbook now wants, so it is not remade; the parts, the layout
+    # and the frames all hold what the file holds, so nothing is changed. The sentence for "the earlier Update was
+    # lost and nothing needed making again" is package C's to write after A's fix: logged, not pinned.
     changed = sorted(os.path.basename(x) for x in result.changed)
-    check(changed == ["Reducer_12to1.SLDASM"] and result.ratios == ["G1 meshes G2"],
-          f"Update found every part and the layout holding the workbook's values, and remade the gear mate at "
-          f"17 : 68: changed {changed}, ratios {result.ratios}")
+    check(result.ratios == [] and changed == [],
+          f"Update found the gear mate already at 17 : 68 and every document holding the workbook's values: no remake, "
+          f"nothing changed: ratios {result.ratios}, changed {changed}")
     check(sorted(os.path.basename(x) for x in result.opened) == sorted(os.path.basename(x) for x in current),
           f"it loaded every document from its file: {[os.path.basename(x) for x in result.opened]}")
-    check(LOST_SENTENCE in desk.note[0], f"the sentence says the last Update was not saved before the assembly was "
-          f"closed: {desk.note[0]!r}")
-    check(sorted(os.path.basename(p) for p in desk.record.unsaved) == ["Reducer_12to1.SLDASM"]
-          and desk.record.mismatched == {},
-          f"the marks: the assembly alone unsaved, nothing mismatched: unsaved "
-          f"{[os.path.basename(p) for p in desk.record.unsaved]}, mismatched {list(desk.record.mismatched)}")
+    say(f"fact    the sentence after the lost Update typed back (not pinned until package C's wording): "
+        f"{desk.note[0]!r}")
+    say(f"fact    the marks: unsaved {[os.path.basename(p) for p in desk.record.unsaved]}, mismatched "
+        f"{[os.path.basename(p) for p in desk.record.mismatched]}")
     sidecar = store.read_sidecar(n68)
     check(sidecar.record.unsaved_since == 0 and sidecar.record.spec.get("teeth") == "68",
           f"Gear_m1.5_N68.gear.json says 68 teeth, unmarked ({sidecar.record.unsaved_since})")
     say(f"tag     {ui_text.workbook_built_tag(desk.record, desk.reading.digest)!r}")
-    drive_proof(worker, desk, "a3 typed back, at 17 : 68")
+    drive_proof(worker, desk, "a3 typed back, the gear mate's live ratio 17 : 68")
     book.set("Gears", "J2", None)
     book.save()
     desk.poll()
