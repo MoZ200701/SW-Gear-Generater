@@ -916,6 +916,51 @@ def test_an_assembly_that_fails_keeps_the_parts_and_the_layout_and_checks_no_int
     assert not any("interference" in line for line in result.log_lines())
 
 
+def test_an_assembly_that_cannot_even_be_made_keeps_the_parts_and_the_layout_on_the_result():
+    """SolidWorks 2026, probe/workbook_assembly_check.py 2026-11-13: an assembly template that was not there
+    raised out of build_gearbox after the parts and the layout had saved, so nothing reached the record."""
+    fake = FakeSolidWorks(fail_on={"new_assembly": "There is no assembly template at 'C:\\T\\No.asmdot'."})
+    _, result = _build(fake)
+    assert not result.ok and [r.saved for r in result.parts.built] == [P17, P68] and result.layout.saved == LAYOUT
+    assembly = result.assembly
+    assert assembly is not None and not assembly.saved and assembly.document == ""
+    assert assembly.failures == [("new assembly", "There is no assembly template at 'C:\\T\\No.asmdot'.")]
+    assert "FAIL    new assembly: There is no assembly template at 'C:\\T\\No.asmdot'." in result.log_lines()
+    assert "interferences" not in names(fake)
+
+
+def test_a_later_part_that_cannot_be_made_keeps_the_parts_before_it():
+    fake = FakeSolidWorks()
+    calls = {"n": 0}
+    real = fake.new_part
+
+    def second_fails(template=""):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise swbuild.SolidWorksError("SolidWorks would not make a new part from C:\\T\\Part.prtdot.")
+        return real(template)
+    fake.new_part = second_fails
+    _, result = _build(fake)
+    assert [r.saved for r in result.parts.built] == [P17, ""] and result.parts.built[1].failures[0][0] == "new part"
+    assert result.skipped == "the layout part and the assembly, because a part failed"
+
+
+def test_a_layout_that_cannot_be_made_is_a_failed_layout():
+    fake = FakeSolidWorks()
+    calls = {"n": 0}
+    real = fake.new_part
+
+    def third_fails(template=""):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise swbuild.SolidWorksError("There is no part template at 'C:\\T\\No.prtdot'.")
+        return real(template)
+    fake.new_part = third_fails
+    _, result = _build(fake)
+    assert result.layout is not None and result.layout.failures[0][0] == "new part" and not result.layout.saved
+    assert result.skipped == "the assembly, because the layout part failed"
+
+
 def test_a_clash_names_the_gears_and_leaves_the_build_ok():
     fake = FakeSolidWorks(clashes=[(("gear1-1", "gear2-1"), 12.3454), ((), 1.5), (("layout-1", "gear2-1"), 0.25)])
     _, result = _build(fake)

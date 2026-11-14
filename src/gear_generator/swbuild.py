@@ -433,6 +433,28 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     return result
 
 
+def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]) -> BuildResult:
+    """:func:`build`, for one document of a job that has already saved others: what :func:`build` raises (its
+    template is not there, SolidWorks would not make the document, the path was taken since the job's own check)
+    comes back as a failed :class:`BuildResult` instead, so the job still reports, and the record still keeps,
+    the documents saved before it.
+
+    On SolidWorks 2026 (34.0.0, probe/workbook_assembly_check.py 2026-11-13) a workbook build whose assembly
+    template was not there raised "There is no assembly template at …" out of ``build_gearbox`` after its four
+    parts and its layout part had saved, so the window's finish never ran and none of the five was on record.
+    """
+    try:
+        return build(sw, plan, exists)
+    except SolidWorksError as exc:
+        first = plan.ops[0] if plan.ops else None
+        what = ("new part" if isinstance(first, base.NewPart) else "new assembly"
+                if isinstance(first, base.NewAssembly) else "the build")
+        save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
+        return BuildResult(kind=plan.kind, recipe=plan.recipe, path=save.path if save else "",
+                           failures=[(what, str(exc))], stopped_at=what,
+                           manual=[op.text for op in plan.manual_steps()])
+
+
 def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult) -> None:
     sw.set_rebuild_suppressed(True)
     try:
@@ -560,7 +582,7 @@ def build_many(sw: SolidWorks, plans: Sequence[BuildPlan],
     for index, plan in enumerate(plans):
         if progress is not None:
             progress(Step(STAGE_PART, _stem(paths[index] or plan.path), index + 1, len(plans)))
-        result = build(sw, plan, exists)
+        result = _build_in_job(sw, plan, exists) if many.built else build(sw, plan, exists)
         many.built.append(result)
         if not (result.ok and result.saved):
             many.skipped = [p for p in paths[index + 1:]]
@@ -1146,7 +1168,7 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
 
     if layout_plan is not None:
         say(Step(STAGE_LAYOUT, _stem(_saved_path(layout_plan))))
-        result.layout = build(sw, layout_plan, exists)
+        result.layout = _build_in_job(sw, layout_plan, exists)
         if not (result.layout.ok and result.layout.saved):
             if assembly is not None:
                 result.skipped = "the assembly, because the layout part failed"
@@ -1158,7 +1180,7 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
         return result
     stem = _stem(_saved_path(assembly))
     say(Step(STAGE_ASSEMBLY, stem))
-    result.assembly = build(sw, assembly, exists)
+    result.assembly = _build_in_job(sw, assembly, exists)
     result.components = dict(result.assembly.components)
     if result.assembly.ok and result.assembly.saved and getattr(findings, "INTERFERENCE_CHECKED", False):
         say(Step(STAGE_INTERFERENCE, stem))
