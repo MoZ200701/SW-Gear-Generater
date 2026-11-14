@@ -108,6 +108,11 @@ class NotRunning(SolidWorksError):
     """No SolidWorks session is reachable."""
 
 
+class ComponentGone(SolidWorksError):
+    """A component recorded by its ``Name2`` is not in the assembly any more (renamed or deleted in SolidWorks):
+    nothing the app does puts it back, so the way on is a new revision (``swbuild.NotAsBuilt``)."""
+
+
 class WrongVersion(SolidWorksError):
     """Every reachable session is older than this app supports."""
 
@@ -1932,7 +1937,7 @@ class Session:
         title = str(call(doc, "GetTitle"))
         component = self._component_by(route, doc, name)
         if component is None:
-            raise SolidWorksError(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
+            raise ComponentGone(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
         kept = str(call(component, "Name2"))
         if kept != name:
             raise SolidWorksError(f"Asked for {name} in {title}, SolidWorks gave {kept}, so which component is meant "

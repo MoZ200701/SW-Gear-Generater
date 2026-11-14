@@ -44,7 +44,10 @@ A part Update SolidWorks changed and that is not saved (in
 newer since) is not reused, since the file on disk is not yet what the
 record says; nor does it hold the build back (review B2, overruling W4
 interface agreement 7): the part is made new at this build, and
-:attr:`GearboxPlan.made_new` says so. A new part whose own file name is
+:attr:`GearboxPlan.made_new` says so. Likewise a part the last build's
+live check found not holding what the record says (``record.mismatched``,
+its file no newer since): the worker would refuse it again on every press,
+so it is made new instead (review B2's last corner). A new part whose own file name is
 taken — by anything — gets the smallest free ``<stem>_r<k>`` (k ≥ 2), its
 own suffix, whatever the gearbox's revision (review S5), and ``made_new``
 says what was in the way. Only the layout part and the assembly move the
@@ -100,15 +103,17 @@ UNSAVED = "unsaved"            # the matching part was changed by Update SolidWo
 STALE = "stale"                # its file name holds a part built from this workbook for other values
 OTHER_WORKBOOK = "other"       # its file name holds a part another workbook built
 NO_RECORD = "no record"        # its file name holds a file with no record that this workbook built it
+MISMATCHED = "mismatched"      # the matching part failed a build's live check, and its file is no newer since
 
 
 @dataclass(frozen=True)
 class MadeNew:
     """A part this build makes new although a file stands in its way: ``old`` is that file — the matching part
-    that is not saved (UNSAVED: it would have been reused), or what holds the part's own file name (STALE,
-    OTHER_WORKBOOK, NO_RECORD) — and ``new`` the path this build makes. ``workbook`` is the workbook the old
-    file's ``.gear.json`` names (OTHER_WORKBOOK). :attr:`sentence` says it, for the footer until it words its
-    own."""
+    that is not saved (UNSAVED) or that the last build's live check found not holding what the record says
+    (MISMATCHED), either of which would otherwise have been reused, or what holds the part's own file name
+    (STALE, OTHER_WORKBOOK, NO_RECORD) — and ``new`` the path this build makes. ``workbook`` is the workbook the
+    old file's ``.gear.json`` names (OTHER_WORKBOOK). :attr:`sentence` says it alone, for a log; the window
+    words them together (``ui_text``)."""
 
     gear_ids: Tuple[str, ...]
     old: str
@@ -124,6 +129,9 @@ class MadeNew:
         if self.why == UNSAVED:
             return (f"{_stem_of(self.old)} has changes from Update SolidWorks that are not saved, so its file is not "
                     f"yet the part {gears} needs: this build makes {gears}'s part new, as {new}.")
+        if self.why == MISMATCHED:
+            return (f"{_stem_of(self.old)} did not hold what the record says when the last build checked it, so this "
+                    f"build makes {gears}'s part new, as {new}.")
         if self.why == STALE:
             return (f"{old} in {where} was built from this workbook for values {gears} no longer has, so {gears}'s "
                     f"part is made as {new}; nothing is overwritten.")
@@ -160,8 +168,8 @@ class GearboxPlan:
     were planned from; ``handles`` maps each assembly handle to its gear
     (``"layout"`` is not in it); ``part_of`` maps each gear to its part's
     path. ``refusal`` is ``""`` to go, else the sentence (an existing new
-    path, two new paths the same, a reused file gone, a reused part unsaved),
-    in which case the plans may be partial and must not be run.
+    path, two new paths the same, a Part name that is one of the gearbox's own
+    file names), in which case the plans may be partial and must not be run.
     ``revision_reason`` is ``""`` for revision 0 or a continued revision, else
     why this revision (``Reducer_12to1.SLDASM is already there, …``): only
     the layout part and the assembly move a build to another revision.
@@ -396,6 +404,17 @@ class _Parts:
         mark = sidecar.record.unsaved_since if sidecar is not None else 0.0
         return bool(mark) and not store.saved_since(path, mark, self.mtime)
 
+    def mismatched(self, path: str) -> bool:
+        """Whether the last build's live check found the file not holding what the record says
+        (``record.mismatched``), and the file is no newer since."""
+        then = next((t for p, t in (self.record.mismatched if self.record is not None else {}).items()
+                     if store.same_path(p, path)), None)
+        return then is not None and not store.saved_since(path, then, self.mtime)
+
+    def blocked(self, path: str) -> str:
+        """Why a part that matches is still not reused: UNSAVED, MISMATCHED, or ``""``."""
+        return UNSAVED if self.not_saved(path) else MISMATCHED if self.mismatched(path) else ""
+
     def features(self, path: str) -> Tuple[str, ...]:
         """The features the part's ``.gear.json`` lists, for the live check (review S6); ``()`` without one."""
         sidecar = self.sidecar(path)
@@ -420,29 +439,32 @@ class _Parts:
             out.append(path)
         return out
 
-    def find(self, job: PartJob, revision: int) -> Tuple[Optional[_Found], str]:
-        """A part this job may reuse, and the path of a match that is not saved (``""`` if none)."""
-        unsaved = ""
+    def find(self, job: PartJob, revision: int) -> Tuple[Optional[_Found], Tuple[str, str]]:
+        """A part this job may reuse, and — when none — the first match that may not be reused and why
+        (:meth:`blocked`), else ``("", "")``."""
+        held = ("", "")
         for entry in self.entries(revision):
             if not _matches(entry.spec, entry.variables, entry.trig, job) or not self.exists(entry.path):
                 continue
-            if self.not_saved(entry.path):
-                unsaved = unsaved or entry.path
+            why = self.blocked(entry.path)
+            if why:
+                held = held if held[0] else (entry.path, why)
                 continue
-            return _Found(entry.path, entry.revision, self.features(entry.path)), ""
+            return _Found(entry.path, entry.revision, self.features(entry.path)), ("", "")
         for path in self.names(job):
             if not self.exists(path) or not self.ours(path):
                 continue
             record = self.sidecar(path).record
             if not _matches(record.spec, record.variables, record.trig, job):
                 continue
-            if self.not_saved(path):
-                unsaved = unsaved or path
+            why = self.blocked(path)
+            if why:
+                held = held if held[0] else (path, why)
                 continue
             on_record = next((p for p in (self.record.parts if self.record else []) if store.same_path(p.path, path)),
                              None)
-            return _Found(path, on_record.revision if on_record else revision, self.features(path)), ""
-        return None, unsaved
+            return _Found(path, on_record.revision if on_record else revision, self.features(path)), ("", "")
+        return None, held
 
     def free_name(self, job: PartJob, claimed: Sequence[str]) -> str:
         """The job's own path if nothing is there and no other file of this build takes it, else the smallest free
@@ -542,6 +564,10 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
         if exists(attempt.layout_path):
             continued = continuing is not None and continuing.revision == n and store.same_path(
                 continuing.layout, attempt.layout_path)
+            if continued and parts.mismatched(attempt.layout_path):
+                attempt.obstacle = (f"{layout_name} was saved by a build whose assembly was not made, but the last "
+                                    "build found it no longer holds what was recorded, so it is not reused.")
+                return attempt
             if continued and _same_layout(_recorded_shafts(continuing), shafts):
                 attempt.layout_reuse = LayoutReuse(attempt.layout_path, layout.layout_globals(shafts),
                                                    layout.layout_features(shafts))
@@ -561,7 +587,7 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
         new_paths.append(attempt.assembly_path)
     full = []
     for job in jobs:
-        found, unsaved = parts.find(job, n)
+        found, (held, why) = parts.find(job, n)
         if found is not None:
             attempt.parts.append((job, found, found.path))
             continue
@@ -569,8 +595,8 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
         if not path:
             full.append(job)
             continue
-        if unsaved:
-            attempt.made_new.append(MadeNew(tuple(job.gear_ids), unsaved, path, UNSAVED))
+        if held:
+            attempt.made_new.append(MadeNew(tuple(job.gear_ids), held, path, why))
         elif not store.same_path(path, job.path):
             why, workbook = parts.occupant(job.path) if exists(job.path) else (NO_RECORD, "")
             attempt.made_new.append(MadeNew(tuple(job.gear_ids), job.path, path, why, workbook))
@@ -776,7 +802,8 @@ def _merge(record: LinkRecord, entry: PartEntry) -> None:
 def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[LinkRecord], *, workbook: str,
                  digest: str, written_by: str,
                  read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar,
-                 stamp: Optional[str] = None) -> Finished:
+                 stamp: Optional[str] = None,
+                 mtime: Callable[[str], float] = os.path.getmtime) -> Finished:
     """The sidecars and record a build leaves, from what actually saved (Tk thread, after the worker).
 
     ``record`` is the record as read just before writing
@@ -796,7 +823,6 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     record keeps the digest it had (``""`` for a first build) and the header
     says the workbook changed since it was built rather than "built from this
     version". A clash leaves ``ok`` True: what was built is this read's.
-    Pure but for ``read_sidecar``.
 
     A plan made for a copied workbook (``plan.foreign_record``) finishes into
     a fresh record, keeping only the copy's own Export state: the record that
@@ -804,6 +830,14 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     when this workbook has built something of its own (review S1). A record
     whose ``workbook`` is an older path of this workbook is adopted: the
     field is set and the old path kept in ``moved_from``.
+
+    A build that stopped at the live check (``result.mismatched``: nothing
+    made) still leaves a record: each such document goes into
+    ``record.mismatched`` with its file's time as the worker read it
+    (``result.mtimes``; else ``mtime(path)`` now), so the next plan makes
+    that part new rather than fail the same check on every press (review
+    B2's last corner). A document a build checked and reused drops out of it.
+    Pure but for ``read_sidecar`` and ``mtime``.
     """
     stamp = stamp or store.now()
     out = Finished()
@@ -812,6 +846,25 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     rec = copy.deepcopy(record) if record is not None else LinkRecord(workbook=workbook)
     store.adopt(rec, workbook)
     saved_any = False
+
+    marked_any = False
+    for path in result.checked:            # found, live, to hold what it should: reusable again
+        for marked in [p for p in rec.mismatched if store.same_path(p, path)]:
+            del rec.mismatched[marked]
+            marked_any = True
+    for path, _why in result.mismatched:
+        then = next((t for p, t in result.mtimes.items() if store.same_path(p, path)), None)
+        if then is None:
+            try:
+                then = float(mtime(path))
+            except (OSError, ValueError, TypeError):
+                out.notes.append(f"{os.path.basename(path)} could not be found on disk to note that it does not "
+                                 "hold what was recorded.")
+                continue
+        for marked in [p for p in rec.mismatched if store.same_path(p, path)]:
+            del rec.mismatched[marked]
+        rec.mismatched[path] = then
+        marked_any = True
 
     for job, built in zip(plan.build, result.parts.built):
         path = _saved(built)
@@ -879,6 +932,8 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
         rec.gearbox = gearbox
 
     if not saved_any:
+        if marked_any:
+            out.record = rec               # nothing made, but what the checks found is on record for the next plan
         return out
     if result.ok:
         rec.digest = digest

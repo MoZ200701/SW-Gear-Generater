@@ -713,10 +713,9 @@ def test_a_reused_part_is_checked_for_its_features_too():
     equations, made = sw.saved[norm(g2.path)]
     sw.saved[norm(g2.path)] = (equations, [f for f in made if f != "Teeth"])           # deleted in SolidWorks
     tried = sw.counts.get("new_assembly", 0)
-    with pytest.raises(swbuild.BuildError) as raised:
-        swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists)
-    assert str(raised.value) == ('Gear_m1.5_N68.SLDPRT cannot be reused: "Teeth" is no longer in it; it was renamed '
-                                 "or deleted in SolidWorks.")
+    result = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists)
+    assert result.mismatched == [(g2.path, 'Gear_m1.5_N68.SLDPRT cannot be reused: "Teeth" is no longer in it; it '
+                                           "was renamed or deleted in SolidWorks.")]
     assert sw.counts.get("new_assembly", 0) == tried                                   # nothing was made
 
 
@@ -798,3 +797,82 @@ def test_every_pair_of_one_file_name_is_named():
     assert sentence == (r"This build would use both C:\A\G1.SLDPRT and C:\B\G1.SLDPRT; both C:\A\G2.SLDPRT and "
                         r"C:\C\g2.sldprt, and SolidWorks cannot have two documents of one file name open at once: "
                         "give the gear a Part name, or change the output folder.")
+
+
+def test_a_part_that_fails_the_live_check_is_recorded_and_made_new_by_the_next_press():
+    """Review B2's last corner (the orchestrator's ruling): Update set N68 to 69 teeth and was never saved;
+    SolidWorks was closed without saving and the unchanged 68-tooth file saved later, so its time moved past the
+    unsaved mark while the record still expects 69. The reuse check then refused on every press ("68 there and 69
+    here"). Now the build answers with the part it found, its finish records it, and the next plan makes that
+    part new."""
+    from test_swbuild import FakeSolidWorks
+    from gear_generator.workbook import update
+    disk = Disk()
+    sw = FakeSolidWorks()
+    a = assessed()
+    plan = plan_for(a, None, disk)
+    first = swbuild.build_gearbox(sw, **plan.build_kwargs(), exists=sw.exists)
+    disk.add(*sw.saved)
+    done = gearbox.finish_build(plan, first, None, workbook=WORKBOOK, digest="d1", written_by="test",
+                                read_sidecar=disk.read_sidecar)
+    disk.write(done)
+    n68 = plan.part_of["G2"]
+    as_built = tuple(list(held) for held in sw.saved[norm(n68)])     # the fake changes its saved lists in place
+
+    demo = replace(reducer(), shafts=(reducer().shafts[0], replace(reducer().shafts[1], x="64.5"),
+                                      replace(reducer().shafts[2], x="132.5")),
+                   gears=(reducer().gears[0], replace(reducer().gears[1], teeth="69")) + reducer().gears[2:])
+    up = update.classify(done.record, assessed(demo), exists=disk.exists)
+    changed = swbuild.update_gearbox(sw, **up.update_kwargs(), exists=sw.exists, mtime=lambda p: 100.0)
+    fin = update.finish_update(up, changed, done.record, digest="d2", read_sidecar=disk.read_sidecar,
+                               mtime=lambda p: 100.0)
+    disk.write(fin)
+    record = fin.record
+    assert norm(n68) in {norm(p) for p in record.unsaved}
+
+    sw.saved[norm(n68)] = as_built          # closed without saving: the file still holds 68 teeth ...
+    store.clear_saved(record, mtime=lambda p: 200.0)                   # ... and was saved later, unchanged
+    assert record.unsaved == {}
+    structural = replace(demo, gears=(replace(demo.gears[0], bore=""),) + demo.gears[1:])
+    again = plan_for(assessed(structural), record, disk, mtime=lambda p: 200.0)
+    assert n68 in [r.path for r in again.reuse]                       # the record says it holds 69: reused
+
+    stopped = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists, mtime=lambda p: 200.0)
+    ((path, why),) = stopped.mismatched
+    assert path == n68 and '"No. of Teeth" is 68 there and 69 here' in why and not stopped.ok
+    assert stopped.parts.built == [] and stopped.assembly is None     # nothing made
+    marked = gearbox.finish_build(again, stopped, record, workbook=WORKBOOK, digest="d3", written_by="test",
+                                  read_sidecar=disk.read_sidecar)
+    assert marked.record is not None and marked.record.mismatched == {n68: 200.0}
+    assert marked.record.digest == record.digest and marked.sidecars == []
+    round_trip = store.link_record_from_json(store.link_record_to_json(marked.record))
+    assert round_trip.mismatched == {n68: 200.0}
+
+    after = plan_for(assessed(structural), round_trip, disk, mtime=lambda p: 200.0)
+    assert after.refusal == "" and n68 not in [r.path for r in after.reuse]
+    (made,) = [m for m in after.made_new if m.why == gearbox.MISMATCHED]
+    assert made.gear_ids == ("G2",) and made.old == n68 and stem(made.new) == "Gear_m1.5_N69"
+    built = swbuild.build_gearbox(sw, **after.build_kwargs(), exists=sw.exists)
+    assert built.ok and built.mismatched == []
+    final = gearbox.finish_build(after, built, round_trip, workbook=WORKBOOK, digest="d3", written_by="test",
+                                 read_sidecar=disk.read_sidecar)
+    assert final.record.digest == "d3"
+    # A file saved since the check is tried again (checked live, as ever), and a check that passes clears the mark.
+    later = plan_for(assessed(structural), round_trip, disk, mtime=lambda p: 300.0)
+    assert n68 in [r.path for r in later.reuse]
+    cleared = gearbox.finish_build(later, swbuild.GearboxResult(checked=[n68]), round_trip, workbook=WORKBOOK,
+                                   digest="d4", written_by="test", read_sidecar=disk.read_sidecar)
+    assert cleared.record.mismatched == {}
+
+
+def test_a_continued_layout_that_failed_the_live_check_is_left_and_the_next_revision_built():
+    disk = Disk()
+    a = assessed()
+    plan, result, record = build(a, None, disk, fail_assembly=True)
+    record.mismatched = {plan.layout_path: 5.0}
+    again = plan_for(a, record, disk, mtime=lambda p: 5.0)
+    assert again.revision == 2 and not isinstance(again.layout, LayoutReuse)
+    assert again.revision_reason.startswith("Reducer_12to1_Layout.SLDPRT was saved by a build whose assembly was not "
+                                            "made, but the last build found it no longer holds what was recorded")
+    saved_since = plan_for(a, record, disk, mtime=lambda p: 6.0)
+    assert saved_since.revision == 0 and isinstance(saved_since.layout, LayoutReuse)

@@ -32,7 +32,7 @@ from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
 from .gears.equations import DEGREES, RADIANS, EquationError, evaluate_all, split_equation
 from .store import same_path
-from .swcom import MINIMUM_MAJOR, DocInfo, SolidWorksError, meets_minimum, release_year
+from .swcom import MINIMUM_MAJOR, ComponentGone, DocInfo, SolidWorksError, meets_minimum, release_year
 
 VALUE_TOLERANCE = 1e-6
 FULLY_DEFINED = 3
@@ -101,6 +101,18 @@ class SolidWorks(Protocol):
 
 class BuildError(SolidWorksError):
     """The build could not start at all; nothing was made."""
+
+
+class NotAsBuilt(BuildError):
+    """A document built earlier, opened and read, does not hold what it should: a global's text differs or is
+    gone, or a feature or component named on record was renamed or deleted in SolidWorks. ``path`` is that
+    document. :func:`build_gearbox` turns it into :attr:`GearboxResult.mismatched` (the finish records it, so the
+    next plan makes the part new rather than reuse it: W4 review B2's last corner); :func:`update_gearbox` raises
+    it from its check phase, before anything changes."""
+
+    def __init__(self, message: str, path: str = "") -> None:
+        super().__init__(message)
+        self.path = path
 
 
 @dataclass
@@ -975,11 +987,14 @@ def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tup
         try:
             sw.open_document(doc.path)
             current = sw.equations()
-            by_unit = {t: planned_changes(current, doc.variables, t) for t in (DEGREES, RADIANS)}
         except BuildError as exc:
             raise BuildError(f"{name} cannot be {verb}: {exc}") from None
         except SolidWorksError as exc:
             raise BuildError(str(exc)) from None
+        try:
+            by_unit = {t: planned_changes(current, doc.variables, t) for t in (DEGREES, RADIANS)}
+        except BuildError as exc:            # a global it should hold is not in it: not the document on record
+            raise NotAsBuilt(f"{name} cannot be {verb}: {exc}", doc.path) from None
         if doc.features:
             try:
                 present = set(sw.feature_names())
@@ -988,8 +1003,8 @@ def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tup
             lost = [f for f in doc.features if f not in present]
             if lost:
                 listed = ", ".join(f'"{f}"' for f in lost)
-                raise BuildError(f"{name} cannot be {verb}: {listed} {'is' if len(lost) == 1 else 'are'} no longer "
-                                 "in it; it was renamed or deleted in SolidWorks.")
+                raise NotAsBuilt(f"{name} cannot be {verb}: {listed} {'is' if len(lost) == 1 else 'are'} no "
+                                 "longer in it; it was renamed or deleted in SolidWorks.", doc.path)
         return current, by_unit
     finally:
         sw.end_build()
@@ -1002,8 +1017,8 @@ def _held_unit(by_unit: Mapping[str, Sequence[Tuple[str, str]]]) -> str:
 
 def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
     """A document to be reused, opened and checked, writing nothing (:func:`_read_live`): it must hold every
-    global exactly, in either trig unit, and every feature named; otherwise a :class:`BuildError` saying what
-    differs, in the unit that differs less."""
+    global exactly, in either trig unit, and every feature named; otherwise a :class:`NotAsBuilt` saying what
+    differs, in the unit that differs less (a :class:`BuildError` when it cannot be opened or read at all)."""
     current, by_unit = _read_live(sw, doc, verb)
     if _held_unit(by_unit):
         return
@@ -1011,8 +1026,8 @@ def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
     held = _held(current)
     shown = "; ".join(f'"{n}" is {held.get(n, "?")} there and {e} here' for n, e in changes[:3])
     more = f"; and {len(changes) - 3} more" if len(changes) > 3 else ""
-    raise BuildError(f"{_file(doc.path)} does not hold what the workbook asks of it, so it cannot be {verb}: "
-                     f"{shown}{more}.")
+    raise NotAsBuilt(f"{_file(doc.path)} does not hold what the workbook asks of it, so it cannot be {verb}: "
+                     f"{shown}{more}.", doc.path)
 
 
 def _evaluates(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
@@ -1090,6 +1105,15 @@ class GearboxResult:
     failures stay on its :class:`BuildResult`): after the pre-flight nothing
     escapes :func:`build_gearbox`, so what saved before it still reaches the
     finish (W4 review B1).
+
+    ``mismatched`` are (path, why) for each document to reuse that the live
+    check found not holding what it should (:class:`NotAsBuilt`); then
+    nothing is made at all, and ``mtimes`` holds each such file's time as
+    read at the check, so the finish can record it and the next plan make
+    that part new instead of failing the same check on every press (W4
+    review B2's last corner: an Update left unsaved, SolidWorks closed
+    without saving, and the unchanged file saved later, so its time moved on
+    while it still held the old values).
     """
 
     parts: ManyResult = field(default_factory=ManyResult)
@@ -1102,6 +1126,8 @@ class GearboxResult:
     interference_error: str = ""
     skipped: str = ""
     failures: List[Tuple[str, str]] = field(default_factory=list)
+    mismatched: List[Tuple[str, str]] = field(default_factory=list)
+    mtimes: Dict[str, float] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -1111,7 +1137,7 @@ class GearboxResult:
             return result is None or (result.ok and bool(result.saved))
 
         return (all(saved(r) for r in self.parts.built) and not self.parts.skipped and saved(self.layout)
-                and saved(self.assembly) and not self.skipped and not self.failures)
+                and saved(self.assembly) and not self.skipped and not self.failures and not self.mismatched)
 
     def _interference_ran(self) -> bool:
         return (self.assembly is not None and self.assembly.ok and bool(self.assembly.saved)
@@ -1123,6 +1149,7 @@ class GearboxResult:
         lines = self.parts.log_lines()
         lines.extend(f"ok      checked {_file(p)}: it holds what the workbook asks, so it is reused"
                      for p in self.checked)
+        lines.extend(f"FAIL    checked {_file(p)}: {why}" for p, why in self.mismatched)
         if self.layout is not None:
             lines.extend(self.layout.log_lines())
         elif self.layout_reused:
@@ -1140,7 +1167,8 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
                   layout: Union[BuildPlan, DocumentValues, None] = None, assembly: Optional[BuildPlan] = None,
                   gears: Optional[Mapping[str, str]] = None, *,
                   exists: Callable[[str], bool] = os.path.exists,
-                  progress: Optional[Callable[[Step], None]] = None) -> GearboxResult:
+                  progress: Optional[Callable[[Step], None]] = None,
+                  mtime: Callable[[str], float] = os.path.getmtime) -> GearboxResult:
     """A workbook's parts, its layout part and its static assembly, in one worker job (PLAN-WORKBOOK §4.2–§4.3).
 
     ``parts`` are the new parts' plans; ``reuse`` the parts already built and
@@ -1154,10 +1182,14 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
        nothing changed) if a new path exists or two are the same, a reused
        path is missing, a document of the same file name is open from another
        folder (:func:`same_named_elsewhere` over every path built, opened or
-       inserted), or a reused document does not hold what is expected
-       (decision 3: each is opened with ``open_document`` and checked live —
-       ``planned_changes(...) == []`` and every ``features`` name present —
-       the sentence naming the file and what differs).
+       inserted), or a reused document cannot be opened and read. Each
+       reused document is opened with ``open_document`` and checked live
+       (decision 3: ``planned_changes(...) == []`` and every ``features``
+       name present); one that does not hold what is expected is not a
+       raise but :attr:`GearboxResult.mismatched` — every one is checked,
+       its file's time noted (``mtime``), and the result returned with
+       nothing made, so the finish records it and the next plan makes it
+       new.
     2. The new parts, by :func:`build_many`; a failure skips the rest.
     3. The layout: built (a failure skips the assembly), or the reused one
        left open from step 1.
@@ -1223,8 +1255,21 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     result = GearboxResult()
     for index, doc in enumerate(reused_docs, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, len(reused_docs)))
-        _check_live(sw, doc, "reused")
+        try:
+            _check_live(sw, doc, "reused")
+        except NotAsBuilt as exc:
+            # Not a refusal: the finish records it, and the next plan makes that part new (review B2's last
+            # corner). Every document is still checked, so one press finds them all.
+            result.mismatched.append((doc.path, str(exc)))
+            try:
+                result.mtimes[doc.path] = float(mtime(doc.path))
+            except (OSError, ValueError, TypeError):
+                pass
+            continue
         result.checked.append(doc.path)
+    if result.mismatched:
+        result.skipped = "everything, because a document to reuse does not hold what it should"
+        return result
 
     # From here on documents are made and saved: nothing raises out (W4 review B1). Each document's own trouble
     # is a failure on its BuildResult (_build_in_job); anything else becomes a failure on the result, so what
@@ -1390,7 +1435,9 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     *Check* — raise :class:`BuildError` before any change if a path is
     missing, a same-named document is open from another folder, a document
     lacks a global it should hold (``planned_changes`` raises), or a
-    component is not found by its recorded ``Name2``. Each document is opened
+    component is not found by its recorded ``Name2`` — those three a
+    :class:`NotAsBuilt` naming the document, since only a new revision
+    (Build again…) gets past them. Each document is opened
     with ``open_document`` (decision: Update always opens and activates) and
     read, writing nothing (:func:`_read_live`); each file's time is noted
     first (``mtime``, into :attr:`GearboxUpdate.mtimes`).
@@ -1479,6 +1526,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
             sw.open_document(assembly)
             for index, placement in enumerate(placements, 1):
                 sw.find_component(f"placed{index}", placement.component)
+        except ComponentGone as exc:      # renamed or deleted in SolidWorks: only a new revision puts it back
+            raise NotAsBuilt(str(exc), assembly) from None
         except SolidWorksError as exc:
             raise BuildError(str(exc)) from None
         finally:

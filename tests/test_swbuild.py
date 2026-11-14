@@ -7,7 +7,7 @@ from gear_generator.gears import KINDS
 from gear_generator.gears.base import BuildPlan, CloseSketch, Dimension, LinkDimension, SaveAs
 from gear_generator.gears.equations import DEGREES, RADIANS, split_equation
 from gear_generator.spec import GearSpec
-from gear_generator.swcom import DocInfo, SolidWorksError
+from gear_generator.swcom import ComponentGone, DocInfo, SolidWorksError
 
 SPUR = KINDS["spur"]
 PATH = r"C:\Gears\Gear_m1.5_N25.SLDPRT"
@@ -289,7 +289,7 @@ class FakeSolidWorks:
         self._log("find_component", handle, name)
         if name in self.missing_components:
             title = self.active.title if self.active else "the assembly"
-            raise SolidWorksError(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
+            raise ComponentGone(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
         self.found[handle] = name
         return name
 
@@ -845,39 +845,46 @@ def test_every_preflight_refusal_is_a_sentence_and_nothing_is_touched(case, sent
     assert fake.calls == []
 
 
-def test_a_reused_part_that_holds_other_values_is_refused_naming_it_and_nothing_is_made():
+def test_a_reused_part_that_holds_other_values_is_named_and_nothing_is_made():
+    """W4 review B2's last corner: not a refusal any more but a result naming the part, with its file's time, so
+    the finish records it and the next plan makes the part new rather than fail this check on every press."""
     fake = FakeSolidWorks()
     _saved_part(fake, S68.with_values(teeth="69"), P68)
-    with pytest.raises(swbuild.BuildError) as raised:
-        _build(fake, parts=[plan(S17, path=P17)], reuse=[swbuild.DocumentValues(P68, _values(S68))])
-    assert str(raised.value).startswith("Gear_m1.5_N68.SLDPRT does not hold what the workbook asks of it, so it "
-                                        'cannot be reused: "No. of Teeth" is 69 there and 68 here')
+    _, result = _build(fake, parts=[plan(S17, path=P17)], reuse=[swbuild.DocumentValues(P68, _values(S68))],
+                       mtime=lambda path: 1234.5)
+    ((path, why),) = result.mismatched
+    assert path == P68 and why.startswith("Gear_m1.5_N68.SLDPRT does not hold what the workbook asks of it, so it "
+                                          'cannot be reused: "No. of Teeth" is 69 there and 68 here')
+    assert result.mtimes == {P68: 1234.5} and not result.ok and result.checked == []
     assert "new_part" not in names(fake) and "save_as" not in names(fake)
     assert "set_global_variable" not in names(fake)
+    assert f"FAIL    checked Gear_m1.5_N68.SLDPRT: {why}" in result.log_lines()
 
 
-def test_a_reused_part_missing_a_global_is_refused_with_its_name_in_the_sentence():
+def test_a_reused_part_missing_a_global_is_named_with_the_global_in_the_sentence():
     fake = FakeSolidWorks()
     fake.saved[_key(P68)] = (['"Module"= 1.5'], [])
-    with pytest.raises(swbuild.BuildError) as raised:
-        _build(fake, parts=[plan(S17, path=P17)], reuse=[swbuild.DocumentValues(P68, _values(S68))])
-    assert str(raised.value).startswith('Gear_m1.5_N68.SLDPRT cannot be reused: "')
-    assert "is not in this part, so it was not built by this tool or its equations were edited." in str(raised.value)
+    _saved_part(fake, S17, P17)
+    _, result = _build(fake, parts=[], reuse=[swbuild.DocumentValues(P68, _values(S68)),
+                                             swbuild.DocumentValues(P17, _values(S17))])
+    ((path, why),) = result.mismatched
+    assert path == P68 and why.startswith('Gear_m1.5_N68.SLDPRT cannot be reused: "')
+    assert "is not in this part, so it was not built by this tool or its equations were edited." in why
+    assert result.checked == [P17]                          # every document is still checked, so one press finds all
     assert "new_part" not in names(fake)
 
 
-def test_a_reused_layout_that_lost_a_plane_is_refused():
+def test_a_reused_layout_that_lost_a_plane_is_named():
     fake = FakeSolidWorks()
     fake.saved[_key(LAYOUT)] = (['"S2 X"= 63.75'], ["S1 Axis", "S2 Axis"])
     for path, spec in ((P17, S17), (P68, S68)):
         _saved_part(fake, spec, path)
-    with pytest.raises(swbuild.BuildError) as raised:
-        _build(fake, parts=[], reuse=[swbuild.DocumentValues(P17, _values(S17)),
-                                      swbuild.DocumentValues(P68, _values(S68))],
-               layout=swbuild.DocumentValues(LAYOUT, LAYOUT_VALUES, LAYOUT_FEATURES))
-    assert str(raised.value) == ('R_Layout.SLDPRT cannot be reused: "S2 X Plane" is no longer in it; it was renamed '
-                                 "or deleted in SolidWorks.")
-    assert "new_assembly" not in names(fake)
+    _, result = _build(fake, parts=[], reuse=[swbuild.DocumentValues(P17, _values(S17)),
+                                              swbuild.DocumentValues(P68, _values(S68))],
+                       layout=swbuild.DocumentValues(LAYOUT, LAYOUT_VALUES, LAYOUT_FEATURES))
+    assert result.mismatched == [(LAYOUT, 'R_Layout.SLDPRT cannot be reused: "S2 X Plane" is no longer in it; it was '
+                                          "renamed or deleted in SolidWorks.")]
+    assert "new_assembly" not in names(fake) and result.layout_reused == ""
 
 
 def test_a_reused_document_solidworks_will_not_open_is_refused_with_its_sentence():
@@ -1173,6 +1180,11 @@ def test_every_check_refusal_changes_nothing(case, sentence):
     called = names(fake)
     assert "set_global_variable" not in called and "place_component" not in called and "rebuild" not in called
     assert "save_as" not in called
+    # What only a new revision gets past (W4 review S4.6) is told apart by its type, naming the document.
+    not_as_built = {"missing global": LAYOUT, "lost plane": LAYOUT, "missing component": ASM}
+    assert isinstance(raised.value, swbuild.NotAsBuilt) == (case in not_as_built)
+    if case in not_as_built:
+        assert raised.value.path == not_as_built[case]
 
 
 @pytest.mark.parametrize("route", [None, "something else"])

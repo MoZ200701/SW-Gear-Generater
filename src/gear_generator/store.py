@@ -448,6 +448,12 @@ class LinkRecord:
     - ``unsaved``: path -> the file's modification time (``os.path.getmtime``)
       when Update SolidWorks changed that document without saving it; an
       entry goes once the file on disk is newer (:func:`clear_saved`).
+    - ``mismatched``: path -> the file's modification time when a build's
+      live check found the document not holding what this record says (a
+      change never saved, a feature renamed or deleted in SolidWorks):
+      planning does not reuse it while the file is no newer, but makes that
+      part new (W4 review B2's last corner), and a later build that reuses
+      it, checked live, drops the entry.
     - ``moved_from``: the paths this workbook had before it was moved or
       renamed (Locate…, or a record adopted after a move: :func:`foreign_workbook`),
       oldest first. Its parts' ``.gear.json`` name the path they were built
@@ -480,6 +486,7 @@ class LinkRecord:
     earlier: List[EarlierRevision] = field(default_factory=list)
     unsaved: Dict[str, float] = field(default_factory=dict)
     moved_from: List[str] = field(default_factory=list)   # the workbook's earlier paths, oldest first
+    mismatched: Dict[str, float] = field(default_factory=dict)
 
     def current_parts(self) -> List[PartEntry]:
         """The parts Update and reuse may act on: those the current revision's components name, or every part
@@ -616,12 +623,13 @@ def link_record_from_json(text: str) -> LinkRecord:
             record.gearbox.components = [_checked(c) for c in _entries(ComponentEntry,
                                                                         gearbox.get("components", []))]
         record.earlier = [_checked(e) for e in _entries(EarlierRevision, raw.get("earlier", []))]
-        unsaved = raw.get("unsaved", {}) or {}
-        if not isinstance(unsaved, dict):
-            raise TypeError("unsaved is not an object")
-        if any(isinstance(v, bool) or not isinstance(v, _NUMBER) for v in unsaved.values()):
-            raise TypeError("an unsaved file's time is not a number")
-        record.unsaved = {str(k): float(v) for k, v in unsaved.items()}
+        for key in ("unsaved", "mismatched"):
+            times = raw.get(key, {}) or {}
+            if not isinstance(times, dict):
+                raise TypeError(f"{key} is not an object")
+            if any(isinstance(v, bool) or not isinstance(v, _NUMBER) for v in times.values()):
+                raise TypeError(f"a {key} file's time is not a number")
+            setattr(record, key, {str(k): float(v) for k, v in times.items()})
         record.recalc = bool(record.recalc)
         record.schema_version = LINK_SCHEMA_VERSION
         _checked(record)
