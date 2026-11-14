@@ -344,6 +344,13 @@ from Top by Y (or the base plane at 0), and an `Axis` through them named `"<Shaf
 and `"<Shaft> Y"` drive the offsets. The ±X / ±Y and arbitrary axes, and carriers, wait for W6/W7, since they need
 a plane at an angle, or an axis from a point and a direction (probe tier 6, item 2, of PLAN-GEARBOX).
 
+*Reading chosen (2026-11-13, W4):* a global exists only for a non-zero coordinate; at 0 the base plane is used
+and there is no `"<Shaft> X"` to set. Tier 7 found a global set below zero is accepted and the plane silently
+stays put, so a coordinate that changes side, or reaches or leaves 0, is structural, not a move; a minus-side
+plane is linked to the global as `- "S2 X"`. Components are not renamed: the record maps each gear to the
+`Name2` SolidWorks gave it (`Gear_m1.5_N68-1`), and they are found again by that. A revision's files are
+`<Name>_r<n>_Layout.SLDPRT` beside `<Name>_r<n>.SLDASM`.
+
 ### 4.3 The static assembly (phase W4)
 
 `<Name>.SLDASM`: the layout part inserted and fixed at the origin; each gear inserted, `Place`d at its face centre
@@ -371,6 +378,17 @@ From the linked file's latest read, against what was built (`GearRecord`s and th
   files for the changed rows, unchanged parts reused, and a new layout part and assembly. The next revision is
   `_r3`, and so on. Nothing is overwritten (`SAVE_AS_OVERWRITES` is True, so the existence check is the guard),
   and the old files are left alone.
+
+*Readings chosen (2026-11-13, W4):* **Update SolidWorks does not save**, as the strip's Update values does not;
+the record marks each document it changed as unsaved until the file on disk is newer, and the window asks for a
+save in SolidWorks. Reuse and Update both compare with SolidWorks live, not with the record alone, so an update
+lost or not saved is put right by the next press. A part keeps its file name after a value update
+(`Gear_m1.5_N68` holding 69 teeth), and a Part name change is structural only when the file name it makes
+changes. A Z, Z± or At change is a move while the assembly is static. A build-again takes the smallest revision
+whose layout and assembly paths are free and that no recorded revision used (so `_r2` may be `_r3` if `_r2`'s
+files are already there); a new part whose file name is taken is `<stem>_r<n>`. The question says that reused
+parts are shared, so a later Update that changes one also changes the earlier revision's assembly. There is one
+build button, Build / Build parts / Build again…, with Update SolidWorks beside it.
 
 ## 5. The Workbook window: `workbook_gui.py` (+ `ui_text`)
 
@@ -410,7 +428,7 @@ the pattern: `POLL_MS`).
 | **W1 format** | `xlsx.py` (read, `write_new`, `write_cells`), `schema.py`, `model.py` + tests; **ask the user for the Excel-saved fixture first** | The Excel fixture reads into a `GearboxSpec`; `to_book` → `write_new` → `read` round-trips; `write_cells` on the fixture changes only its cells and refuses a formula cell; a bad cell's diagnostic names it. |
 | **W2 batch parts** | The window's artboard and `UI-DESIGN.md` §9 first (drawn in `design/canvas/` by `gen.py`, as the strip was); then `build_many`, the Workbook window (header, gear list, per-gear errors), Import / New workbook…, the live link and change list, `Recent.workbooks` | Mac: each row's plan equals the strip's for the same `GearSpec`; the window updates within two seconds of a scripted save (screenshots). Windows: a workbook of 4 gears builds 4 parts whose `.gear.json` variables match strip-built twins. |
 | **W3 positions and checks** | `geometry.py`, `checks.py`, `kinematics.py` (parallel), `fixes.py`, `pair.shift_for_centre`, Results, Export / Export as…, `preview.layout_gearbox` | Mac: the 12 : 1 workbook checks clean and its speeds match the pinned values; S2 typed at 64.00 shows E2's error and both fixes (shift x = 0.084550 each); Export writes the fix and Results and leaves a formula cell alone; screenshots checked by eye. Windows: the exported file opens in Excel with no repair prompt. |
-| **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. |
+| **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. *(2026-11-13: in the 12 : 1 reducer S3 X is a formula on S2 X, so S2 X alone moves S3 with it and leaves G1–G2 0.75 mm off its centres: the gearbox fails its checks and Update waits. The demonstration edit is S2 X 63.75 → 64.5 with G2's teeth 68 → 69, which puts G1–G2 back on centres at 64.5.)* |
 | **W5 motion** | §4.4, after `gear_mate` and tier-6 items 3–5 have passed | Drag the input in SolidWorks: the output turns at 1/12 the input's angle, the right way. |
 | **W6 right-angle** | Turned axes, bevel and crossed meshes | A bevel stage feeding a parallel stage builds; sub-plan and questions at the time. |
 | **W7 planetary** | Carriers, copies, loops in kinematics and phases | A 4 : 1 planetary with the ring fixed builds; own sub-plan. |
