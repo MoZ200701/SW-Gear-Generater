@@ -7,10 +7,19 @@ and each shaft's speed. It re-reads the file each time it is saved in Excel
 and says what changed and what that did to the checks; Export writes the fixes
 taken and the Results sheet back into the workbook (or a copy). Through the
 strip's own SolidWorks worker it builds the gearbox — its parts, the layout
-part and the static assembly (or, while rows a later phase builds hold the
-layout back, the parts alone) — and Update SolidWorks carries a later edit of
-the workbook into what was built, or offers to build it again as the next
-revision (docs/PLAN-WORKBOOK.md §4.2–§4.5, phase W4).
+part and the assembly, whose gears are mated so the train turns (phase W5;
+placed fixed when a W5 finding is missing, and a W4 gearbox stays as it was
+built), or, while rows a later phase builds hold the layout back, the parts
+alone — and Update SolidWorks carries a later edit of the workbook into what
+was built, or offers to build it again as the next revision
+(docs/PLAN-WORKBOOK.md §4.2–§4.5, phases W4 and W5).
+
+A build SolidWorks refused a mate of saves no assembly; the footer keeps
+Build greyed for that same read of the workbook (it passes the read's
+``digest``, and :func:`ui_text.workbook_footer` compares it with the one the
+refusal came from) and offers it again once the workbook changes. The Build
+again? question is given the record, so a W4 gearbox built static is told
+its new revision turns.
 
 Every decision comes from :mod:`workbook` — what is checked and what may be
 built from :func:`workbook.assess.assess`, what a press would build from
@@ -658,7 +667,8 @@ class WorkbookWindow(tk.Toplevel):
             error=self.error or self.plan_trouble, folder=folder,
             folder_exists=bool(folder) and os.path.isdir(folder),
             building=job is not None and not job.updating, updating=job is not None and job.updating,
-            progress=job.progress.step if job is not None else None, note=self.note, results_due=self.results_due)
+            progress=job.progress.step if job is not None else None, note=self.note, results_due=self.results_due,
+            digest=self.reading.digest if self.reading is not None else "")
 
     def _refresh_state(self) -> None:
         footer = self.footer()
@@ -984,7 +994,7 @@ class WorkbookWindow(tk.Toplevel):
         if not self._worker_free():
             return
         again, digest = self.plan, self.reading.digest
-        question = ui_text.build_again_question(self.update_plan, again)
+        question = ui_text.build_again_question(self.update_plan, again, record=self.record)
         self._asking = True
         try:
             yes = ask_yes_no(self, ui_text.BUILD_AGAIN_TITLE, question)

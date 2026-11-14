@@ -1,11 +1,16 @@
-"""The Workbook window's W4 wiring, through the real window (docs/PLAN-WORKBOOK.md §4.2–§4.5, §5).
+"""The Workbook window's W4 and W5 wiring, through the real window (docs/PLAN-WORKBOOK.md §4.2–§4.5, §5).
 
-Build makes the parts, the layout part and the static assembly; Update SolidWorks carries a later edit of the
-workbook into them; Build again… makes the next revision. Each press goes through a fake worker whose job runs
-against the fake SolidWorks of ``test_swbuild`` — saving real (empty) files, so the window's own planning, which
-looks at the disk, sees what a job left — and the finishes write real sidecars and a real record beside the
-workbook. Needs Tk and a display (run on Windows: ``python.exe -m pytest tests/test_workbook_window.py``);
-skipped where there is none.
+Build makes the parts, the layout part and the assembly, whose gears are mated so the train turns (W5); Update
+SolidWorks carries a later edit of the workbook into them, putting a train the user turned back only when it must
+move a gear; Build again… makes the next revision. Each press goes through a fake worker whose job runs against the
+fake SolidWorks of ``test_swbuild`` — saving real (empty) files, so the window's own planning, which looks at the
+disk, sees what a job left — and the finishes write real sidecars and a real record beside the workbook. Needs Tk
+and a display (run on Windows: ``python.exe -m pytest tests/test_workbook_window.py``); skipped where there is
+none.
+
+The W5 findings the plans read are pinned here (``w5_findings``), so no test hangs on what the probes have
+committed today: a test that needs the other branch of one says so. Tests of W4's own static gearbox (its Update of
+a tooth count among them) build it with :func:`built_w4`, as a gearbox built before W5 stays static (D5).
 """
 
 import hashlib
@@ -15,9 +20,9 @@ import pathlib
 
 import pytest
 
-from gear_generator import store, swbuild, ui_text
+from gear_generator import findings, store, swbuild, ui_text
 from gear_generator.swcom import DocInfo
-from gear_generator.workbook import model, xlsx
+from gear_generator.workbook import model, motion, xlsx
 from gear_generator.workbook.gearbox import LayoutReuse
 from gear_generator.workbook.model import Gear
 from test_swbuild import FakeSolidWorks
@@ -131,6 +136,25 @@ class Desk:
         return str(self.folder / f"{stem}{ext}")
 
 
+def unexpected_question(parent, title, text):
+    """Every test that expects a question answers it itself; any other question fails the test at once, where a
+    real dialog would wait for a click that never comes."""
+    raise AssertionError(f"a question the test did not expect: {title}: {text}")
+
+
+# The W5 findings the plans and the worker read, as the probes left them by tier 8 and P0 (W5-DECISIONS), but with
+# no route to change a gear mate's ratio: a tooth change of a turning gearbox needs Build again… unless a test sets
+# GEAR_MATE_RATIO_ROUTE to "remake" itself (both branches are tested below).
+W5_FINDINGS = {"GEAR_MATE_RATIO_ROUTE": None, "GEAR_MATE_RATIO_REMAKE_WORKS": True, "LOCK_RETAKES_AN_OFFSET": True,
+               "MATED_ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(True)"}
+
+
+@pytest.fixture(autouse=True)
+def w5_findings(monkeypatch):
+    for name, value in W5_FINDINGS.items():
+        monkeypatch.setattr(findings, name, value, raising=False)
+
+
 @pytest.fixture
 def desk(tmp_path, monkeypatch):
     try:
@@ -145,6 +169,7 @@ def desk(tmp_path, monkeypatch):
     monkeypatch.setattr(workbook_gui, "_VERDICTS", {})          # this session's move-or-copy answers: none yet
     monkeypatch.setattr(workbook_gui, "_ASKED", set())
     monkeypatch.setattr(workbook_gui, "_UNOWNED", [])           # no job a closed window left running
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", unexpected_question)    # a real dialog would hang the test
     d = Desk(root, tmp_path)
     try:
         yield d
@@ -197,6 +222,35 @@ def built(desk, spec=None):
     return window
 
 
+def built_w4(desk, monkeypatch, spec=None):
+    """A window whose workbook was built by W4: a static assembly, its record as a W4 record reads (kind static, no
+    mates, no reason it is static: ``static_reason`` is only W5's static by necessity). Built here with a W5 finding
+    missing (``motion.motion_reason`` says a sentence, as B keeps its W4 tests static), then the finding back and the
+    reason cleared, so from then on the window plans as W5 does for a gearbox built before it."""
+    real = motion.motion_reason
+    monkeypatch.setattr(motion, "motion_reason", lambda: "This test builds phase W4's static assembly.")
+    window = built(desk, spec)
+    monkeypatch.setattr(motion, "motion_reason", real)
+    record = store.open_link_record(window.link.path)
+    assert record.gearbox.kind == store.GEARBOX_STATIC and record.gearbox.mates == []
+    record.gearbox.static_reason = ""
+    store.save_link_record(record, store.link_record_path(window.link.path))
+    window.note = None
+    window._plan()
+    window._paint()
+    return window
+
+
+def name2(window, gear):
+    return next(c.name for c in record_of(window).gearbox.components if c.gear == gear)
+
+
+def turn_train(desk, window, degrees):
+    """The user drags the 12 : 1's input in SolidWorks: each gear turns degrees·ω_i/ω_in about its own axis."""
+    for gear, k in {"G1": 1.0, "G2": -0.25, "G3": -0.25, "G4": 1 / 12}.items():
+        desk.sw.turn(name2(window, gear), degrees * k)
+
+
 def sha(path):
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
@@ -210,7 +264,8 @@ def test_build_makes_the_parts_the_layout_and_the_assembly_and_records_them(desk
     assert (footer.build_action, footer.build_label, footer.build_enabled, footer.update_shown) == (
         ui_text.BUILD, "Build", True, False)
     assert window.status.get() == (f"Ready: Build makes 4 parts, {NAME}_Layout and {NAME}.SLDASM in "
-                                   f"{ui_text.short_path(str(desk.folder), 48)}.")
+                                   f"{ui_text.short_path(str(desk.folder), 48)}. Its gears are mated to their shafts "
+                                   "and to each other, so they turn together in SolidWorks.")
     assert window.build_button._primary and not window.update_button.winfo_manager()
     assert gear_states(window) == {"G1": "to build", "G2": "to build", "G3": "to build", "G4": "to build"}
 
@@ -226,8 +281,11 @@ def test_build_makes_the_parts_the_layout_and_the_assembly_and_records_them(desk
 
     desk.finish(window)
     assert window._pending is None
-    assert window.status.get().startswith(f"Built 4 parts, {NAME}_Layout and {NAME}.SLDASM; no interference "
-                                          "between the gears.")
+    assert window.status.get() == (f"Built 4 parts, {NAME}_Layout and {NAME}.SLDASM; no interference between the "
+                                   "gears where they stand. Its gears are mated to turn together, and SolidWorks "
+                                   "reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. "
+                                   "1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves "
+                                   "it unset.")
     assert [os.path.basename(p) for p in desk.sw.saved_in(0)] == [
         "Gear_m1.5_N17.SLDPRT", "Gear_m1.5_N68.SLDPRT", "Gear_m2_N17.SLDPRT", "OutputGear.SLDPRT",
         f"{NAME}_Layout.SLDPRT", f"{NAME}.SLDASM"]
@@ -242,6 +300,11 @@ def test_build_makes_the_parts_the_layout_and_the_assembly_and_records_them(desk
     assert [c.gear for c in record.gearbox.components] == ["G1", "G2", "G3", "G4"]
     assert all(c.name for c in record.gearbox.components) and record.gearbox.layout_component
     assert record.digest == window.reading.digest and len(record.parts) == 4
+    assert (record.gearbox.kind, record.gearbox.drag, record.gearbox.mate_problems) == (store.GEARBOX_MOTION, ["G1"],
+                                                                                        [])
+    assert [m.name for m in record.gearbox.mates] == [
+        "G1 on S1 Axis", "G1 along S1", "G2 on S2 Axis", "G2 along S2", "G3 locked to G2", "G4 on S3 Axis",
+        "G4 along S3", "G1 meshes G2", "G3 meshes G4"]
 
     footer = window.footer()
     assert (footer.build_action, footer.build_label, footer.build_enabled) == (
@@ -251,6 +314,12 @@ def test_build_makes_the_parts_the_layout_and_the_assembly_and_records_them(desk
     assert window.update_button.winfo_manager() and window.build_button.label.cget("text") == "Build again…"
     assert window.read_line.get().endswith(" · built from this version")
     assert set(gear_states(window).values()) == {"built"} and window.parts_readout.get() == "4 parts built"
+    window.note = None                                         # the state's own sentence, once the job's has gone
+    window._refresh_state()
+    assert window.status.get() == ("SolidWorks already matches the workbook on record; Update SolidWorks checks it "
+                                   "live and puts right anything changed there; gears turned in SolidWorks stay where "
+                                   "they are unless something must move. It was built with its gears mated to turn: "
+                                   "drag G1 in SolidWorks and the rest of its train follow.")
 
 
 def test_a_build_the_worker_refuses_says_so_and_records_nothing(desk):
@@ -325,7 +394,7 @@ def test_a_failed_assembly_leaves_a_record_the_next_build_continues_from(desk):
     desk.finish(window)
     assert [os.path.basename(p) for p in desk.sw.saved_in(start)] == [f"{NAME}.SLDASM"]
     assert window.status.get().startswith(f"Built {NAME}.SLDASM, reusing {NAME}_Layout and the 4 parts already "
-                                          "built; no interference between the gears.")
+                                          "built; no interference between the gears where they stand.")
     assert record_of(window).gearbox.assembly and window.footer().build_label == "Build again…"
 
 
@@ -333,14 +402,17 @@ def test_a_failed_assembly_leaves_a_record_the_next_build_continues_from(desk):
 
 
 DEMONSTRATION = {"Shafts": {"C3": 64.5, "C4": 132.5}, "Gears": {"F3": 69}}    # S3 X follows S2 by its formula
+TURNS = "It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow."
 
 
-def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk):
-    window = built(desk)
+def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk, monkeypatch):
+    """W4's demonstration on a gearbox W4 built: static, so a tooth change is still an Update (D5)."""
+    window = built_w4(desk, monkeypatch)
     before = record_of(window)
     save_in_excel(window, DEMONSTRATION)
     assert window.status.get() == ("Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in "
-                                   f"{NAME}_Layout, and re-place G2, G3 and G4.")
+                                   f"{NAME}_Layout, and re-place G2, G3 and G4. It was built static, before gears could "
+                                   "be mated to turn: Build again… makes a new revision whose gears turn.")
     assert window.read_line.get().endswith(" · changed since it was built")
     assert gear_states(window)["G2"] == "built · changes on Update" and gear_states(window)["G1"] == "built"
     assert window.update_button._enabled and window.update_button._primary
@@ -389,8 +461,8 @@ def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk)
     assert "Gear_m1.5_N68" in [r.stem for r in window.plan.reuse]
 
 
-def test_an_update_that_stops_part_way_records_what_it_changed_and_the_next_press_finishes(desk):
-    window = built(desk)
+def test_an_update_that_stops_part_way_records_what_it_changed_and_the_next_press_finishes(desk, monkeypatch):
+    window = built_w4(desk, monkeypatch)
     save_in_excel(window, DEMONSTRATION)
     desk.sw.fail_on = {"set_global_variable": ("S2 X", "The equation would not take.")}
     window.press_update()
@@ -419,7 +491,7 @@ def test_a_structural_edit_asks_and_no_changes_nothing(desk, monkeypatch):
     from gear_generator import workbook_gui
     window = built(desk)
     save_in_excel(window, {"Gears": {"K2": "arcs"}})           # G1's flank: a new recipe, a new part
-    assert window.status.get().endswith(f"Update SolidWorks offers to build again as {NAME}_r2.")
+    assert window.status.get().endswith(f"Update SolidWorks offers to build again as {NAME}_r2. {TURNS}")
     assert gear_states(window)["G1"] == "needs a new part" and gear_states(window)["G2"] == "built"
     asked = []
     monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append((title, text)) or False)
@@ -431,7 +503,7 @@ def test_a_structural_edit_asks_and_no_changes_nothing(desk, monkeypatch):
     # After No the reason stays on screen, joined plainly (W4 review nit: it read the answer alone).
     assert window.status.get() == (f"{ui_text.NOTHING_CHANGED} Gear_m1.5_N17 (G1): Flank changed from involute to "
                                    "arcs, which its values cannot carry, so it needs a new part. Update SolidWorks "
-                                   f"offers to build again as {NAME}_r2.")
+                                   f"offers to build again as {NAME}_r2. {TURNS}")
     assert len(desk.worker.calls) == calls and record_bytes(window) == on_record
     window.press_build()                                       # Build again… asks the same question
     assert len(asked) == 2 and asked[1] == asked[0] and len(desk.worker.calls) == calls
@@ -661,6 +733,8 @@ def test_the_window_keeps_its_width_with_update_shown_and_a_long_sentence(desk):
     fresh_size = width_and_height(fresh)
 
     window = built(desk)                                       # Export, Export as…, Build again…, Update SolidWorks
+    window.note = ("Built.", True)
+    window._refresh_state()
     short_height = width_and_height(window)[1]
     window.note = (LONG, False)
     window._refresh_state()
@@ -730,7 +804,8 @@ def test_a_copied_workbook_builds_its_own_gearbox_and_leaves_the_originals_recor
     # Said once, in green: Build goes ahead with a gearbox of its own; no part-by-part "built from …" sentences.
     assert copy.status.get() == (
         f"Ready: Build makes 4 parts, {NAME}_r2_Layout and {NAME}_r2.SLDASM in "
-        f"{ui_text.short_path(str(desk.folder), 48)}. This workbook is a copy of "
+        f"{ui_text.short_path(str(desk.folder), 48)}. Its gears are mated to their shafts and to each other, so they "
+        "turn together in SolidWorks. This workbook is a copy of "
         f"{ui_text.short_path(original, 48)}, which is still there, so the record that came with it is that "
         "workbook's, and so are the SolidWorks files it lists: Build makes this workbook's own gearbox beside them, "
         "sharing and overwriting nothing.")
@@ -855,14 +930,14 @@ def test_a_finish_that_raises_still_answers_and_frees_the_window(desk, monkeypat
 
 
 def test_an_update_lost_with_solidworks_and_its_file_saved_unchanged_is_made_new_by_the_next_press(desk, monkeypatch):
-    """Review B2's last corner, through the window: Update set N68 to 69 teeth; SolidWorks was closed without saving,
+    """Review B2's last corner, through the window, on a gearbox W4 built (where a tooth change is an Update): Update set N68 to 69 teeth; SolidWorks was closed without saving,
     and later the unchanged 68-tooth file was opened and saved, so its time moved on and the unsaved mark cleared
     while the record still says 69. Build again… then failed the live check on every press; now the first press
     says what it found and records it, and the next makes G2's part new."""
     from gear_generator import workbook_gui
     from test_swbuild import _key
     monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: True)
-    window = built(desk)
+    window = built_w4(desk, monkeypatch)
     n68 = desk.part("Gear_m1.5_N68")
     as_built = tuple(list(held) for held in desk.sw.saved[_key(n68)])
     save_in_excel(window, DEMONSTRATION)
@@ -975,11 +1050,11 @@ def test_update_plan_is_what_update_would_do_and_tk_update_is_tks(desk):
     window.update()                                            # Tk's: processes events, raises nothing
 
 
-def test_the_demonstrations_structural_step_with_update_unsaved_asks_for_the_save_once(desk):
+def test_the_demonstrations_structural_step_with_update_unsaved_asks_for_the_save_once(desk, monkeypatch):
     """The demonstration's state 06 (w4-window-20261113-195843.log; review S4.1): after Update, unsaved, G1's bore
     cleared. It asked for the save twice, offered Update while greyed, named one of three unsaved documents and said
-    "build again" three times."""
-    window = built(desk)
+    "build again" three times. On a gearbox W4 built, where the tooth change is an Update."""
+    window = built_w4(desk, monkeypatch)
     save_in_excel(window, DEMONSTRATION)
     window.press_update()
     desk.finish(window)
@@ -990,8 +1065,11 @@ def test_the_demonstrations_structural_step_with_update_unsaved_asks_for_the_sav
                          "changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's "
                          "part new, as Gear_m1.5_N69, rather than reuse it.")
     assert text.startswith(f"Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its "
-                           f"values, so it needs a new part. Update SolidWorks offers to build again as {NAME}_r2.")
-    assert text.count("save them") == 1 and text.lower().count("build again") == 1
+                           f"values, so it needs a new part. Update SolidWorks offers to build again as {NAME}_r2. "
+                           "It was built static, before gears could be mated to turn: Build again… makes a new "
+                           "revision whose gears turn.")
+    # The offer once, and once what W5 adds to it for a gearbox W4 built (D5): its new revision's gears turn.
+    assert text.count("save them") == 1 and text.lower().count("build again") == 2
     footer = window.footer()
     assert footer.ok and footer.build_enabled and footer.update_enabled
     assert window.read_line.get().endswith(" · changed since it was built")
@@ -1311,3 +1389,215 @@ def test_a_finish_that_raises_after_an_update_that_changed_nothing_never_says_it
     assert "Its changes are in SolidWorks" not in nothing.text and "It changed nothing in SolidWorks." in nothing.text
     changed = window._finish_update(job, swbuild.GearboxUpdate(changed=[desk.part(PARTS[1])]))
     assert "Its changes are in SolidWorks, not saved" in changed.text
+
+
+# -- W5: the gearbox that turns ----------------------------------------------------------------------------------
+#
+# Every sentence below is ui_text's for that state, written out whole as the window shows it.
+
+TURNING_EDIT = {"Shafts": {"C4": 148.75}, "Gears": {"G4": 2.5, "G5": 2.5, "C5": 30}}
+"""An Update of a turning gearbox (the demonstration's, in place of W4's G2 68 → 69, which changes a gear mate's
+ratio): G3 and G4 to module 2.5 with S3 moved out to their new centre (no ratio changes), and G4's At 27 → 30, which
+moves S3's anchor along its shaft (its Face Z)."""
+
+
+def test_a_refused_mate_greys_build_for_that_read_and_a_changed_workbook_offers_it_again(desk):
+    """W5-DECISIONS answer 1: a refused mate stops the build and says why; the parts and the layout part are kept;
+    Build waits for a changed workbook, since the same one would make the same mates."""
+    desk.sw.mate_codes = {"G3 locked to G2": (46, False)}     # the fake flags the lock, as SolidWorks may
+    window = desk.open()
+    window.press_build()
+    desk.finish(window)
+    assert window.status.get() == (
+        f"Built 4 parts and {NAME}_Layout; no assembly was saved, because SolidWorks found a problem with its mates. "
+        "The mate G3 locked to G2 is in error in SolidWorks. The parts and the layout part are kept. The assembly is "
+        "left open in SolidWorks as Assem1, not saved; its parts are the saved ones. Build is available again once the "
+        "workbook changes: the same workbook would make the same mates. Update SolidWorks waits until Build has made "
+        "the assembly.")
+    footer = window.footer()
+    assert (footer.build_label, footer.build_enabled, footer.update_shown, footer.update_enabled, footer.ok) == (
+        "Build", False, True, False, False)
+    assert not window.build_button._enabled and not window.update_button._enabled
+    record = record_of(window)
+    assert record.gearbox.layout and not record.gearbox.assembly and len(record.parts) == 4
+    assert record.gearbox.mate_problems == ["The mate G3 locked to G2 is in error in SolidWorks."]
+    assert record.gearbox.mate_problems_digest == window.reading.digest
+    calls = len(desk.worker.calls)
+    window.press_build()                                       # greyed: a press does nothing
+    assert len(desk.worker.calls) == calls
+
+    window.note = None                                         # the state's own sentence says the same
+    window._refresh_state()
+    assert window.status.get() == (
+        f"{NAME}.SLDASM was not saved, because SolidWorks found a problem with its mates. The mate G3 locked to G2 is "
+        "in error in SolidWorks. Build is available again once the workbook changes: the same workbook would make the "
+        "same mates. Update SolidWorks waits until Build has made the assembly.")
+    assert not window.footer().build_enabled
+
+    save_in_excel(window, {"Gears": {"U2": "pinion, checked"}})    # any save: a new read of the workbook
+    footer = window.footer()
+    assert footer.build_enabled and footer.ok and not footer.update_enabled
+    assert window.status.get() == (
+        f"Ready: Build makes {NAME}.SLDASM in {ui_text.short_path(str(desk.folder), 48)}, reusing {NAME}_Layout and "
+        "the 4 parts already built. Its gears are mated to their shafts and to each other, so they turn together in "
+        f"SolidWorks. {NAME}.SLDASM was not saved, because SolidWorks found a problem with its mates. The mate G3 "
+        "locked to G2 is in error in SolidWorks. The workbook has changed since, so Build tries the assembly again. "
+        f"{NAME}_Layout.SLDPRT was saved but its assembly was not made: Build carries on with it, and Update "
+        "SolidWorks waits until it has.")
+
+    desk.sw.mate_codes = {}
+    start = len(desk.sw.calls)
+    window.press_build()
+    desk.finish(window)
+    assert [os.path.basename(p) for p in desk.sw.saved_in(start)] == [f"{NAME}.SLDASM"]
+    assert window.status.get() == (
+        f"Built {NAME}.SLDASM, reusing {NAME}_Layout and the 4 parts already built; no interference between the gears "
+        "where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in "
+        "SolidWorks and the rest of its train follow.")
+    box = record_of(window).gearbox
+    assert box.kind == store.GEARBOX_MOTION and box.assembly and (box.mate_problems, box.mate_problems_digest) == (
+        [], "")
+
+
+def test_update_on_a_turned_train_with_nothing_to_put_leaves_it_where_it_was_turned_and_says_so(desk):
+    """W5-DECISIONS answer 2: with nothing to put, the train stays where the user turned it, said plainly."""
+    window = built(desk)
+    turn_train(desk, window, 30.0)
+    turned = {g: desk.sw.frames[name2(window, g)] for g in ("G1", "G2", "G3", "G4")}
+    start = len(desk.sw.calls)
+    window.press_update()
+    desk.finish(window)
+    assert window.status.get() == ("SolidWorks already matches the workbook: nothing was changed. The gears stand "
+                                   "where they were turned in SolidWorks.")
+    assert window.status_label.cget("fg") == __import__("gear_generator.theme", fromlist=["x"]).OK
+    assert {g: desk.sw.frames[name2(window, g)] for g in turned} == turned
+    assert not [c for c in desk.sw.calls[start:] if c[0] == "place_component"]
+    assert record_of(window).unsaved == {}
+
+
+def test_the_turning_demonstration_edit_is_an_update_and_puts_a_turned_train_back_at_its_built_turn(desk):
+    """W5-DECISIONS answer 2: Update returns a turned train to its built position when it must move a gear, and says
+    so for that train."""
+    window = built(desk)
+    turn_train(desk, window, 30.0)
+    save_in_excel(window, TURNING_EDIT)
+    assert window.status.get() == (f"Update SolidWorks will change the values in Gear_m2_N17 (G3) and OutputGear (G4), "
+                                   f"move S3 in {NAME}_Layout, move G4 along S3, and re-place G4. {TURNS}")
+    assert window.update_button._enabled and window.update_button._primary
+    window.press_update()
+    desk.finish(window)
+    assert window.status.get() == (
+        "Updated SolidWorks: changed 1 variable in Gear_m2_N17 (it is now module 2.5; its file keeps its name), "
+        f"changed 1 variable in OutputGear, moved S3 in {NAME}_Layout, moved G4 along S3, re-placed G1, G2, G3 and G4; "
+        "no interference between the gears where they stand. G1, G2, G3 and G4 had been turned in SolidWorks; their "
+        "train is back at the turn it was built at. Save Gear_m2_N17, OutputGear, Reducer_12to1_Layout and "
+        "Reducer_12to1 in SolidWorks to keep them.")
+    assert desk.sw.locked_puts == []                           # every put made with the train's lock off
+    record = record_of(window)
+    assert {m.name: m.z_front for m in record.gearbox.mates if m.kind == motion.ALONG}["G4 along S3"] == 20.0
+    window.note = None
+    window._refresh_state()
+    assert window.update_plan.record_matches and window.status.get().startswith(
+        "SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything "
+        "changed there; gears turned in SolidWorks stay where they are unless something must move. " + TURNS)
+
+
+def test_an_anchors_edit_off_the_front_plane_needs_build_again_and_the_sentence_names_the_edit(desk, monkeypatch):
+    """W5-DECISIONS answer 3: no datum plane, so an anchor's front face leaving the Front plane is structural, and
+    the sentence names the edit, never only the plane."""
+    from gear_generator import workbook_gui
+    window = built(desk)
+    save_in_excel(window, {"Gears": {"C2": 10}})               # G1's At 7.5 → 10
+    assert window.status.get() == (
+        "G1's At (7.5 → 10) moves its front face off the Front plane (z 0 → 2.5): the mate G1 along S1 holds it on "
+        "that plane and cannot take a distance, so the gearbox needs building again. Update SolidWorks offers to build "
+        f"again as {NAME}_r2. {TURNS}")
+    asked = []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append(text) or False)
+    window.press_update()
+    (question,) = asked
+    assert question.startswith("G1's At (7.5 → 10) moves its front face off the Front plane (z 0 → 2.5): the mate G1 "
+                               "along S1 holds it on that plane and cannot take a distance, so the gearbox needs "
+                               f"building again. Build again as {NAME}_r2? That reuses 4 parts that have not "
+                               "changed")
+    assert "was built static" not in question                  # a turning record is never told so
+
+
+def test_a_tooth_change_needs_build_again_until_a_gear_mates_ratio_can_be_changed(desk):
+    """D7, without the ratio route (findings.GEAR_MATE_RATIO_ROUTE None): W4's demonstration edit names the gear
+    mate it would change and offers Build again…."""
+    window = built(desk)
+    save_in_excel(window, DEMONSTRATION)
+    assert window.status.get() == (
+        "G2's teeth (68 → 69) change the gear mate G1 meshes G2 from 17 : 68 to 17 : 69, and a gear mate's ratio cannot "
+        "be changed in a built assembly until the probes settle how (findings.GEAR_MATE_RATIO_ROUTE), so the gearbox "
+        f"needs building again. Update SolidWorks offers to build again as {NAME}_r2. {TURNS}")
+    assert window.update_plan.needs_new_revision and window.footer().update_enabled
+
+
+def test_a_tooth_change_is_an_update_that_sets_the_gear_mate_once_its_ratio_can_be_remade(desk, monkeypatch):
+    """D7 with the remake route: the same edit is an Update, which remakes the gear mate at the new ratio."""
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    window = built(desk)
+    save_in_excel(window, DEMONSTRATION)
+    assert window.status.get() == (f"Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in "
+                                   f"{NAME}_Layout, set the gear mate G1 meshes G2 to 17 : 69, and re-place G2, G3 and "
+                                   f"G4. {TURNS}")
+    window.press_update()
+    desk.finish(window)
+    assert window.status.get() == (
+        "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved "
+        f"S2 and S3 in {NAME}_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no "
+        "interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 "
+        "in SolidWorks to keep them.")
+    assert {m.name: m.ratio for m in record_of(window).gearbox.mates}["G1 meshes G2"] == [17, 69]
+
+
+def test_a_gearbox_w4_built_stays_static_and_is_offered_a_turning_revision(desk, monkeypatch):
+    """D5: a W4 static record is never changed into a turning one by Update; the footer and the Build again?
+    question say the new revision's gears turn."""
+    from gear_generator import workbook_gui
+    window = built_w4(desk, monkeypatch)
+    assert window.status.get() == ("SolidWorks already matches the workbook on record; Update SolidWorks checks it "
+                                   "live and puts right anything changed there. It was built static, before gears "
+                                   "could be mated to turn: Build again… makes a new revision whose gears turn.")
+    assert window.update_plan.motion is None and window.plan.motion is not None
+    asked = []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append(text) or False)
+    window.press_build()
+    assert asked == [
+        f"{NAME}.SLDASM was built static; the new revision's gears are mated to turn. Build again as {NAME}_r2? That "
+        f"reuses 4 parts that have not changed and makes a new layout part and assembly ({NAME}_r2_Layout and "
+        f"{NAME}_r2.SLDASM). Nothing is overwritten, and {NAME}.SLDASM stays as it is on disk, but it shares the 4 "
+        f"reused parts: a later Update SolidWorks that changes one of them changes {NAME}.SLDASM too."]
+    window.press_update()                                      # Update carries on as W4: nothing differs, no question
+    desk.finish(window)
+    assert len(asked) == 1 and record_of(window).gearbox.kind == store.GEARBOX_STATIC
+    assert window.status.get() == "SolidWorks already matches the workbook: nothing was changed."
+
+
+def test_a_recorded_mate_update_cannot_read_still_offers_build_again(desk, monkeypatch):
+    """The refusal names Build again…, so the window keeps that button on and its press asks: the person is never
+    left with nothing to press."""
+    from gear_generator import workbook_gui
+    window = built(desk)
+    path = pathlib.Path(store.link_record_path(window.link.path))
+    raw = json.loads(path.read_text())
+    raw["gearbox"]["mates"][0]["name"] = ""                    # hand-edited: a mate Update could not find
+    path.write_text(json.dumps(raw))
+    window.note = None
+    window._plan()
+    window._paint()
+    refusal = ("The record of what was built lists a mate with no name, and Update SolidWorks finds each mate by its "
+               "name, so Update SolidWorks cannot act on the gearbox the record describes: Build again… makes a new "
+               "revision from the workbook instead.")
+    assert window.status.get() == refusal
+    footer = window.footer()
+    assert (footer.build_label, footer.build_enabled, footer.update_shown, footer.update_enabled) == (
+        "Build again…", True, True, False)
+    asked = []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append((title, text)) or False)
+    window.press_build()
+    ((title, question),) = asked
+    assert title == "Build again?" and f"Build again as {NAME}_r2?" in question
+    assert window.status.get() == f"{ui_text.NOTHING_CHANGED} {refusal}"
