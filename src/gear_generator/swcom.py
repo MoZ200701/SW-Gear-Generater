@@ -807,6 +807,10 @@ class Session:
         axis_through_base_planes). Without those findings a str plane is
         refused rather than guessed. The order of selection sets which way the
         axis points (``findings.LAYOUT_AXIS_Z_SIGN``), so it is never changed here.
+        Through the app on 2026 (gearbox_smoke 2026-11-13): a layout part's axes
+        through Top then Right, and through a Top-parallel plane on the minus
+        side then a Right-parallel one on the plus side, each crossed z = 0
+        where the shaft is, to 1e-9 mm, and read +Z.
         """
         named = any(isinstance(p, str) for p in planes)
         route = getattr(findings, "AXIS_PLANE_SELECT_ROUTE", None)
@@ -1407,14 +1411,15 @@ class Session:
     def _component_path(component: Any) -> str:
         """The file a component refers to, or ``""`` when it cannot be read.
 
-        ``IComponent2.GetModelDoc2`` on a component just inserted is what the
-        mates select a component's planes through (probe gear_mate, 2026), and
-        ``IModelDoc2.GetPathName`` is how every save is read back (probe
-        save_as); together they have not yet been compared with the inserted
-        path on SolidWorks (W4 Windows run: UNVERIFIED). A component whose
-        model is not loaded (lightweight) gives no model, so
-        ``IComponent2.GetPathName`` is asked instead (UNVERIFIED: no probe has
-        called it).
+        ``IComponent2.GetModelDoc2`` then ``IModelDoc2.GetPathName``: on
+        SolidWorks 2026 (34.0.0, probe/gearbox_smoke.py 2026-11-13) it gave the
+        inserted path for both gears of a strip pair, for parts built in the
+        same job, for one part inserted twice, for a body-less layout part and
+        for parts reused from an earlier build and opened by path. A component
+        whose model is not loaded (lightweight) gives no model, so
+        ``IComponent2.GetPathName`` is asked instead; probe/gear_pairs_check.py
+        has read components' paths that way on 2026 and 2024, but no
+        lightweight component has yet reached this fallback.
         """
         try:
             model = call(component, "GetModelDoc2")
@@ -1736,8 +1741,14 @@ class Session:
         ``UPDATE_OPEN_ROUTE`` "ask" nothing is opened: the document must
         already be open, and is only activated.
 
+        Run through the app on SolidWorks 2026 (34.0.0, probe/gearbox_smoke.py
+        2026-11-13): closed parts, a layout part and an assembly opened and
+        activated, and an assembly already open (a component "dragged" in it)
+        opened again and brought forward, each then changed by Update.
+
         A document of the same file name open from another folder is refused
-        before anything is asked, naming both paths: probe
+        before anything is asked, naming both paths (gearbox_smoke: refused,
+        with OpenDoc6 never called): probe
         add_component_same_name_elsewhere saw ``OpenDoc6`` answer it with no
         document and error ``SAME_NAME_OPEN_ERROR`` (65536,
         swFileWithSameTitleAlreadyOpen), which is worded the same way if it
@@ -1834,7 +1845,9 @@ class Session:
         ``COMPONENTS_RESOLVED_AFTER_REOPEN``), so none is resolved here; but a
         user's 2024 may open components lightweight, and resolving one is not
         probed, so the state is read and a suppressed or lightweight
-        component is refused with what to do.
+        component is refused with what to do. Through the app on 2026
+        (gearbox_smoke 2026-11-13): five components of a reopened assembly
+        found by GetComponentByName, each state read without error.
         """
         route = getattr(findings, "COMPONENT_FIND_ROUTE", None)
         if route not in COMPONENT_FIND_ROUTES:
@@ -1887,8 +1900,10 @@ class Session:
         translation in metres. Probe nonparallel_mates, SolidWorks 2026: the
         rotation is in columns (``findings.TRANSFORM_ARRAY_ORDER``), as
         ``place_component`` writes it; probe layout_assembly_reopen read frames
-        back this way to 2e-16 after a save and reopen. "rows" is taken as it
-        says, should a version ever answer so.
+        back this way to 2e-16 after a save and reopen. Through the app on 2026
+        (gearbox_smoke 2026-11-13) every frame read back equal to what
+        ``place_component`` put, to 1e-6, before and after a save and reopen.
+        "rows" is taken as it says, should a version ever answer so.
         """
         order = getattr(findings, "TRANSFORM_ARRAY_ORDER", None)
         if order not in TRANSFORM_ORDERS:
@@ -1917,6 +1932,11 @@ class Session:
         probe's other route, "GetComponents()", is taken if a version answers
         so, UNVERIFIED). Where the names cannot be read — no route, or the read
         fails — they are ``()`` and only the volume is given.
+
+        One interference is one region of contact, not one pair: on 2026
+        (gearbox_smoke 2026-11-13) a 24-tooth gear turned half a pitch against
+        a 16-tooth one gave three, each naming the same two components (and
+        never the body-less layout); ``swbuild`` merges them.
         """
         route = getattr(findings, "INTERFERENCE_NAMES_ROUTE", None) or ""
         doc = self._doc()

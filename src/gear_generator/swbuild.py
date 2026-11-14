@@ -30,7 +30,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, 
 from . import findings
 from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
-from .gears.equations import DEGREES, EquationError, evaluate_all, split_equation
+from .gears.equations import DEGREES, RADIANS, EquationError, evaluate_all, split_equation
 from .store import same_path
 from .swcom import MINIMUM_MAJOR, DocInfo, SolidWorksError, meets_minimum, release_year
 
@@ -773,7 +773,8 @@ class Placement:
 
 @dataclass(frozen=True)
 class Clash:
-    """One interference in an assembly. ``components`` are the ``Name2``s SolidWorks gave (``()`` when the names
+    """One clash in an assembly: every interference SolidWorks found between the same components, merged
+    (:func:`_clashes`). ``components`` are the ``Name2``s SolidWorks gave (``()`` when the names
     could not be read, ``findings.INTERFERENCE_NAMES_ROUTE``); ``gears`` the workbook's gear ids for them, in
     the same order, where the caller's map knows them (else the Name2 itself). ``volume`` in mm³."""
 
@@ -847,20 +848,40 @@ def _saved_path(plan: BuildPlan) -> str:
 
 
 def _clash_line(clash: Clash) -> str:
-    """``G1 and G2 interfere, 12.345 mm³; look at their mesh``, or the volume alone when nothing was named."""
+    """``G1 and G2 interfere, 12.345 mm³; look where they meet``, or the volume alone when nothing was named.
+
+    Not "their mesh": two gears on one shaft can clash too (on SolidWorks 2026, gearbox_smoke 2026-11-13, a
+    gear widened by Update ran into its neighbour on the same shaft)."""
     names = list(clash.gears or clash.components)
     if not names:
         return (f"an interference of {clash.volume:.3f} mm³ between components SolidWorks did not name; "
                 "look at each mesh")
     if len(names) == 1:
-        return f"{names[0]} interferes, {clash.volume:.3f} mm³; look at its meshes"
+        return f"{names[0]} interferes, {clash.volume:.3f} mm³; look where it meets the others"
     listed = ", ".join(names[:-1]) + f" and {names[-1]}"
-    return f"{listed} interfere, {clash.volume:.3f} mm³; look at their mesh"
+    return f"{listed} interfere, {clash.volume:.3f} mm³; look where they meet"
 
 
 def _clashes(found: Sequence[Tuple[Sequence[str], float]], gear_of: Mapping[str, str]) -> List[Clash]:
-    """``interferences()`` as :class:`Clash`es, each Name2 mapped to its gear id where the map knows it."""
-    return [Clash(tuple(names), tuple(gear_of.get(n, n) for n in names), float(volume)) for names, volume in found]
+    """``interferences()`` as :class:`Clash`es, each Name2 mapped to its gear id where the map knows it.
+
+    SolidWorks gives one interference per region of contact: on 2026 (34.0.0,
+    gearbox_smoke 2026-11-13) a 24-tooth gear turned half a pitch against a
+    16-tooth one gave three, each between the same two components. Those are
+    one clash to a reader, so interferences between the same components are
+    merged, in the order first met, their volumes summed. Unnamed ones are
+    kept apart: nothing says they are the same pair.
+    """
+    merged: Dict[object, Clash] = {}
+    for index, (names, volume) in enumerate(found):
+        names = tuple(names)
+        key: object = frozenset(names) if names else index
+        if key in merged:
+            earlier = merged[key]
+            merged[key] = Clash(earlier.components, earlier.gears, earlier.volume + float(volume))
+        else:
+            merged[key] = Clash(names, tuple(gear_of.get(n, n) for n in names), float(volume))
+    return list(merged.values())
 
 
 def _interference_lines(clashes: Sequence[Clash], error: str, ran: bool) -> List[str]:
@@ -885,23 +906,37 @@ def _held(current: Sequence[Tuple[str, float]]) -> Dict[str, str]:
 
 
 def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str, evaluate: bool = False) -> List[Tuple[str, str]]:
-    """Open a saved document and compare it with what it should hold, changing nothing it keeps.
+    """Open a saved document and compare it with what it should hold.
 
     ``open_document`` (which also refuses a same-named document from another
-    folder), the document's trig units measured (``detect_trig_units`` adds and
-    deletes one equation, as ``update_variables`` always has), then
-    ``planned_changes`` — which raises when a global is missing — and every
-    name in ``doc.features`` looked for. Returns the planned changes; every
-    refusal is a :class:`BuildError` naming the file, worded "<file> cannot be
-    <verb>: …".
+    folder), then ``planned_changes`` — which raises when a global is missing
+    — and every name in ``doc.features`` looked for. Returns the planned
+    changes; every refusal is a :class:`BuildError` naming the file, worded
+    "<file> cannot be <verb>: …".
+
+    Reuse (``evaluate`` False) writes nothing. Measuring the trig units
+    (``detect_trig_units``) adds and deletes an equation, and on SolidWorks
+    2026 (34.0.0, gearbox_smoke 2026-11-13) that alone left each reused part
+    marked modified, where opening it, reading its equations and walking its
+    features did not. A reused document must hold every expression exactly,
+    so the trig units are read from the text instead: it is accepted when it
+    holds the degree form or the radian form of every global, and the
+    sentence shows whichever differs less. An update (``evaluate`` True) is
+    about to change the document anyway, and measures, as
+    ``update_variables`` always has; the new values are evaluated in those
+    units before anything changes.
     """
     name = _file(doc.path)
     sw.begin_build()
     try:
         try:
             sw.open_document(doc.path)
-            trig = sw.detect_trig_units()
-            changes = planned_changes(sw.equations(), doc.variables, trig)
+            current = sw.equations()
+            if evaluate:
+                trig = sw.detect_trig_units()
+                changes = planned_changes(current, doc.variables, trig)
+            else:
+                changes = min((planned_changes(current, doc.variables, t) for t in (DEGREES, RADIANS)), key=len)
         except BuildError as exc:
             raise BuildError(f"{name} cannot be {verb}: {exc}") from None
         except SolidWorksError as exc:
@@ -1051,6 +1086,12 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     open when the assembly inserts them, and they are, from the live check;
     with "closed" they would not need to be, but the live check opens them
     anyway. A clash keeps :attr:`GearboxResult.ok` True (W4 agreement 9).
+
+    On SolidWorks 2026 (34.0.0, probe/gearbox_smoke.py 2026-11-13) the live
+    check left every reused document unmodified, but once inserted into the
+    new assembly, rebuilt and saved, each part (and the layout) read
+    ``GetSaveFlag`` True: SolidWorks' own doing, nothing of theirs on disk is
+    stale, so it is not a reason to mark them unsaved.
     """
     say = progress or _quiet
     _gate(sw)

@@ -923,7 +923,7 @@ def test_a_clash_names_the_gears_and_leaves_the_build_ok():
     assert result.clashes[0] == swbuild.Clash(("gear1-1", "gear2-1"), ("G1", "G2"), 12.3454)
     assert result.clashes[2].gears == ("layout-1", "G2")
     lines = result.log_lines()
-    assert "CHECK   G1 and G2 interfere, 12.345 mm³; look at their mesh" in lines
+    assert "CHECK   G1 and G2 interfere, 12.345 mm³; look where they meet" in lines
     assert ("CHECK   an interference of 1.500 mm³ between components SolidWorks did not name; look at each mesh"
             in lines)
     assert "ok      no interference between the gears" not in lines
@@ -1156,7 +1156,7 @@ def test_an_update_clash_names_the_gears_from_the_placements():
     fake = _built_gearbox(clashes=[(("gear1-1", "gear2-1"), 3.0)])
     result = _update(fake)
     assert result.ok and result.clashes == [swbuild.Clash(("gear1-1", "gear2-1"), ("G1", "G2"), 3.0)]
-    assert "CHECK   G1 and G2 interfere, 3.000 mm³; look at their mesh" in result.log_lines()
+    assert "CHECK   G1 and G2 interfere, 3.000 mm³; look where they meet" in result.log_lines()
 
 
 def test_with_parts_not_settled_beside_their_assembly_an_open_assembly_must_be_closed_first(monkeypatch):
@@ -1197,3 +1197,33 @@ def test_an_update_refuses_an_old_solidworks():
     fake.revision = (31, 0, 0)
     with pytest.raises(swbuild.BuildError, match="2024"):
         swbuild.update_gearbox(fake, exists=fake.exists)
+
+
+# -- W4: what the first run on SolidWorks 2026 found (probe/gearbox_smoke.py, 2026-11-13) -----------------
+
+
+@pytest.mark.parametrize("trig", [DEGREES, RADIANS])
+def test_the_reuse_check_writes_nothing_and_reads_the_trig_units_from_the_text(trig):
+    fake = FakeSolidWorks(trig=trig)
+    _saved_part(fake, S17, P17)
+    _, result = _build(fake, parts=[plan(S68, path=P68)], reuse=[swbuild.DocumentValues(P17, _values(S17))])
+    assert result.ok, result.log_lines()
+    called = names(fake)
+    assert "detect_trig_units" not in called[:called.index("new_part")]
+    assert "add_global_variable" not in called[:called.index("new_part")]
+
+
+def test_the_update_check_still_measures_the_trig_units_it_evaluates_in():
+    fake = _built_gearbox()
+    _update(fake)
+    called = names(fake)
+    assert "detect_trig_units" in called[:called.index("set_global_variable")]
+
+
+def test_interferences_between_the_same_components_are_one_clash_with_their_volumes_summed():
+    fake = FakeSolidWorks(clashes=[(("gear1-1", "gear2-1"), 54.0), (("gear2-1", "gear1-1"), 27.0),
+                                   (("gear1-1", "gear2-1"), 10.5), ((), 0.5), ((), 0.25)])
+    _, result = _build(fake)
+    assert result.clashes == [swbuild.Clash(("gear1-1", "gear2-1"), ("G1", "G2"), 91.5),
+                              swbuild.Clash((), (), 0.5), swbuild.Clash((), (), 0.25)]
+    assert "CHECK   G1 and G2 interfere, 91.500 mm³; look where they meet" in result.log_lines()
