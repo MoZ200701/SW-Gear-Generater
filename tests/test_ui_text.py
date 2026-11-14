@@ -2321,3 +2321,45 @@ def test_the_summary_names_the_whole_train_for_a_face_z_set_or_a_shaft_moved_und
     moved = _summary_motion(lone, moved_shafts=("S4",), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")))
     assert ui_text.update_summary(moved) == (
         "Update SolidWorks will move S4 in Reducer_12to1_Layout, and re-place G7 and G8.")
+
+
+def test_a_gear_mate_set_back_names_both_ratios_from_what_the_worker_read():
+    """``ratios_read`` (package A, ceb6433): the ratio SolidWorks held and the one it was set back to."""
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], ratios=["G1 meshes G2"],
+                    ratios_found=["G1 meshes G2"], ratios_read=[("G1 meshes G2", 17, 68, 17, 69)])
+    text, ok = ui_text.gearbox_update_status(_motion_update(ratios=()), result)
+    assert (_clean(text), ok) == (
+        "Updated SolidWorks: set the gear mate G1 meshes G2 back to 17 : 69 (SolidWorks held it at 17 : 68), "
+        "re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Reducer_12to1 in "
+        "SolidWorks to keep it.", True)
+    two = _moved(changed=[ASM], placed=["G1", "G2", "G3", "G4"], ratios=["G1 meshes G2", "G3 meshes G4"],
+                 ratios_found=["G1 meshes G2", "G3 meshes G4"],
+                 ratios_read=[("G1 meshes G2", 17, 68, 17, 69), ("G3 meshes G4", 17, 51, 17, 52)])
+    assert ui_text.gearbox_update_status(_motion_update(ratios=()), two)[0].startswith(
+        "Updated SolidWorks: set the gear mates G1 meshes G2 back to 17 : 69 (SolidWorks held it at 17 : 68) and G3 "
+        "meshes G4 back to 17 : 52 (SolidWorks held it at 17 : 51), re-placed G1, G2, G3 and G4;")
+    # One read, one not: each said as far as the result knows.
+    mixed = _moved(changed=[ASM], ratios=["G1 meshes G2", "G3 meshes G4"],
+                   ratios_found=["G1 meshes G2", "G3 meshes G4"], ratios_read=[("G1 meshes G2", 17, 68, 17, 69)])
+    assert ui_text.gearbox_update_status(_motion_update(ratios=()), mixed)[0].startswith(
+        "Updated SolidWorks: set the gear mate G1 meshes G2 back to 17 : 69 (SolidWorks held it at 17 : 68), set the "
+        "gear mate G3 meshes G4 back to the workbook's ratio, which SolidWorks held at another;")
+
+
+def test_a_remake_that_failed_is_never_said_to_be_set():
+    """The read stays when the remake then fails, and ``ratios`` does not list the mate: no ratio is said to be set,
+    and the job's failure is what the sentence says."""
+    failed = _moved(changed=[ASM], ratios=[], ratios_found=["G1 meshes G2"],
+                    ratios_read=[("G1 meshes G2", 17, 68, 17, 69)],
+                    failures=[("Reducer_12to1.SLDASM", "The gear mate G1 meshes G2 could not be made again.")])
+    text, ok = ui_text.gearbox_update_status(_motion_update(ratios=()), failed)
+    assert not ok and "set the gear mate" not in text and "17 : 69" not in text
+    assert ui_text.motion_update_lines(_motion_update(ratios=()), _moved(
+        ratios_found=["G1 meshes G2"], ratios_read=[("G1 meshes G2", 17, 68, 17, 69)])) == []
+
+
+def test_a_gear_mate_already_right_takes_its_ratio_from_what_the_worker_read():
+    result = _moved(ratios_already=["G9 meshes G10"], ratios_read=[("G9 meshes G10", 20, 60, 20, 60)])
+    assert ui_text.gearbox_update_status(_motion_update(), result) == (
+        "SolidWorks already matches the workbook: nothing was changed. The gear mate G9 meshes G10 was already 20 : 60 "
+        "in SolidWorks, so it was left as it is.", True)

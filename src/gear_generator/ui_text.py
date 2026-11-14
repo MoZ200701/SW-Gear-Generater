@@ -2742,7 +2742,9 @@ def _motion_pieces(update, result) -> List[str]:
     """What the motion path did, as pieces of *Updated SolidWorks: …*, in the order it did them: *turned the mate
     G1 meshes G2 back on (it was suppressed in SolidWorks)* (D10), *moved G4 along S3* (``result.axial``), *set the
     gear mate G1 meshes G2 to 17 : 69* (``result.ratios``), *set the gear mate G1 meshes G2 back to the workbook's
-    ratio, which SolidWorks held at another* (``result.ratios_found``: no change was asked, SolidWorks had another)."""
+    ratio, which SolidWorks held at another* (``result.ratios_found``: no change was asked, SolidWorks had another),
+    or with ``result.ratios_read`` naming both, *set the gear mate G1 meshes G2 back to 17 : 69 (SolidWorks held it
+    at 17 : 68)*; a remake that failed (not in ``result.ratios``) is never said to be set."""
     pieces = []
     back = [n for n in result.unsuppressed if n]
     if back:
@@ -2752,17 +2754,35 @@ def _motion_pieces(update, result) -> List[str]:
     axial = [g for g in result.axial if g]
     if axial:
         pieces.append(f"moved {_along(update, axial)}")
-    found = [n for n in getattr(result, "ratios_found", ()) or () if n]
-    ratios = [n for n in result.ratios if n and n not in found]
+    found_all = [n for n in getattr(result, "ratios_found", ()) or () if n]
+    ratios = [n for n in result.ratios if n and n not in found_all]
     if ratios:
         pieces.append(f"set {_gear_mates(update, ratios)}")
-    if found:
-        # Found at another ratio though the plan asked no change (a remake lost with an unsaved close, say): set back.
-        # The ratio SolidWorks held is not in the result, so it is not named.
-        one = len(found) == 1
-        pieces.append(f"set the gear mate{'' if one else 's'} {_and(found)} back to the workbook's "
+    # Found at another ratio though the plan asked no change (a remake lost with an unsaved close, say): set back —
+    # said only of a remake that was made (in ``result.ratios``), with both ratios where ``ratios_read`` has them.
+    found = [n for n in found_all if n in result.ratios]
+    named = [n for n in found if _ratio_read(result, n) is not None]
+    if named:
+        one = len(named) == 1
+        held = []
+        for name in named:
+            _, live_a, live_b, want_a, want_b = _ratio_read(result, name)
+            held.append(f"{name} back to {want_a} : {want_b} (SolidWorks held it at {live_a} : {live_b})")
+        pieces.append(f"set the gear mate{'' if one else 's'} {_and(held)}")
+    unnamed = [n for n in found if n not in named]
+    if unnamed:
+        one = len(unnamed) == 1
+        pieces.append(f"set the gear mate{'' if one else 's'} {_and(unnamed)} back to the workbook's "
                       f"ratio{'' if one else 's'}, which SolidWorks held at another")
     return pieces
+
+
+def _ratio_read(result, name: str):
+    """``(name, live_a, live_b, want_a, want_b)`` from ``result.ratios_read`` for the gear mate ``name``, else None."""
+    for entry in getattr(result, "ratios_read", ()) or ():
+        if entry and entry[0] == name and len(entry) == 5:
+            return tuple(entry)
+    return None
 
 
 def _pair_kind(update, pair: Tuple[str, str]) -> str:
@@ -2819,7 +2839,10 @@ def _motion_after(update, result, earlier: str = "") -> List[str]:
     if already:
         # Asked to change, found already at the wanted ratio, so not remade: said, as the summary promised the set.
         one = len(already) == 1
-        ratios = [_asked_ratio(update, n) for n in already]
+        ratios = []
+        for name in already:
+            read = _ratio_read(result, name)
+            ratios.append(f"{read[3]} : {read[4]}" if read is not None else _asked_ratio(update, name))
         if all(ratios):
             what = f"{_and(already)} {'was' if one else 'were'} already {_and(ratios)}"
         else:
