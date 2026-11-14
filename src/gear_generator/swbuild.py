@@ -965,9 +965,11 @@ def _held(current: Sequence[Tuple[str, float]]) -> Dict[str, str]:
 
 
 def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tuple[str, float]],
-                                                                        Dict[str, List[Tuple[str, str]]]]:
-    """Open a saved document and read what it holds, writing nothing: its equations, and the planned changes
-    (``planned_changes``) in each trig unit, ``{DEGREES: […], RADIANS: […]}``.
+                                                                        Dict[str, List[Tuple[str, str]]],
+                                                                        Dict[str, float]]:
+    """Open a saved document and read what it holds, writing nothing: its equations, the planned changes
+    (``planned_changes``) in each trig unit, ``{DEGREES: […], RADIANS: […]}``, and the values SolidWorks
+    evaluates its equations to (``equation_values``), for :func:`_held_unit`.
 
     ``open_document`` (which also refuses a same-named document from another
     folder), then ``planned_changes`` — which raises when a global is missing
@@ -979,7 +981,9 @@ def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tup
     2026-11-13) that alone left each document marked modified, where opening
     it, reading its equations and walking its features did not. So the
     units are read from the text: a document that holds the degree form or
-    the radian form of every global holds what is asked, in those units.
+    the radian form of every global holds what is asked, in those units —
+    provided SolidWorks also evaluates them as that unit would (see
+    :func:`_held_unit`).
     """
     name = _file(doc.path)
     sw.begin_build()
@@ -1005,23 +1009,77 @@ def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tup
                 listed = ", ".join(f'"{f}"' for f in lost)
                 raise NotAsBuilt(f"{name} cannot be {verb}: {listed} {'is' if len(lost) == 1 else 'are'} no "
                                  "longer in it; it was renamed or deleted in SolidWorks.", doc.path)
-        return current, by_unit
+        try:
+            values = dict(sw.equation_values())
+        except SolidWorksError as exc:
+            raise BuildError(f"{name} cannot be {verb}: its equations' values could not be read: {exc}") from None
+        return current, by_unit, values
     finally:
         sw.end_build()
 
 
-def _held_unit(by_unit: Mapping[str, Sequence[Tuple[str, str]]]) -> str:
-    """The trig unit in which a document already holds every global as asked (degrees first), or ``""``."""
-    return next((t for t in (DEGREES, RADIANS) if not by_unit[t]), "")
+def _values_off(values: Mapping[str, float], variables: Sequence[GlobalVariable],
+                trig: str) -> Optional[Tuple[str, float, float]]:
+    """The first global whose value SolidWorks evaluates (``values``) differs from what ``variables`` give in
+    ``trig``, as (name, SolidWorks' value, the expected value); None when every one agrees (to the build's own
+    tolerance, :data:`VALUE_TOLERANCE`), or when the expected values cannot be worked out here — then the text
+    alone decides, as before."""
+    try:
+        expected = evaluate_all([(v.name, v.expression_for(trig)) for v in variables], trig)
+    except EquationError:
+        return None
+    for variable in variables:
+        want, got = expected.get(variable.name), values.get(variable.name)
+        if want is None or got is None:
+            continue
+        if abs(float(got) - want) > VALUE_TOLERANCE * max(1.0, abs(want)):
+            return variable.name, float(got), want
+    return None
+
+
+def _held_unit(by_unit: Mapping[str, Sequence[Tuple[str, str]]], values: Optional[Mapping[str, float]] = None,
+               variables: Sequence[GlobalVariable] = ()) -> str:
+    """The trig unit in which a document already holds every global as asked (degrees first), or ``""``.
+
+    The text decides which unit's form it holds; with ``values`` (what
+    SolidWorks evaluates, ``equation_values``) that unit must also be the one
+    SolidWorks evaluates in: the values ``variables`` give in it must be the
+    values SolidWorks has (:func:`_values_off`). A document holding the
+    degree form of ``"Pitch Diameter" * cos ( "Pressure Angle" )`` whose
+    angle unit was later set to radians evaluates cos(20 rad): its text is
+    right and its geometry is not, so it does not hold what is asked, and
+    Update sets it (measuring the unit) rather than leave it (W4 review N5;
+    before S2, Update measured the unit every time). A global with no trig
+    has the same text and value in both units, so only trig globals can
+    differ. The build's own read-back (:func:`_verify`) has compared
+    ``equation_values`` with the maths on SolidWorks 2026 and 2024; this
+    comparison on a reopened document has not yet run on real SolidWorks."""
+    for trig in (DEGREES, RADIANS):
+        if by_unit[trig]:
+            continue
+        if values is not None and _values_off(values, variables, trig) is not None:
+            continue
+        return trig
+    return ""
 
 
 def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
     """A document to be reused, opened and checked, writing nothing (:func:`_read_live`): it must hold every
-    global exactly, in either trig unit, and every feature named; otherwise a :class:`NotAsBuilt` saying what
-    differs, in the unit that differs less (a :class:`BuildError` when it cannot be opened or read at all)."""
-    current, by_unit = _read_live(sw, doc, verb)
-    if _held_unit(by_unit):
+    global exactly, in either trig unit, SolidWorks must evaluate them as that unit would (:func:`_held_unit`),
+    and every feature named must be there; otherwise a :class:`NotAsBuilt` saying what differs — the texts in
+    the unit that differs less, or the first value when only the angle unit is wrong — (a :class:`BuildError`
+    when it cannot be opened or read at all)."""
+    current, by_unit, values = _read_live(sw, doc, verb)
+    if _held_unit(by_unit, values, doc.variables):
         return
+    written = next((t for t in (DEGREES, RADIANS) if not by_unit[t]), "")
+    off = _values_off(values, doc.variables, written) if written else None
+    if off is not None:
+        name, got, want = off
+        raise NotAsBuilt(f"{_file(doc.path)} does not hold what the workbook asks of it, so it cannot be {verb}: its "
+                         f"equations are written for {written}, but SolidWorks evaluates them otherwise (\"{name}\" "
+                         f"is {got:.6g} there and {want:.6g} here), so its angle unit was changed since they were "
+                         "written.", doc.path)
     changes = min((by_unit[t] for t in (DEGREES, RADIANS)), key=len)
     held = _held(current)
     shown = "; ".join(f'"{n}" is {held.get(n, "?")} there and {e} here' for n, e in changes[:3])
@@ -1445,7 +1503,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     *Change* — each part, then the layout, that does not already hold what
     it should: ``open_document`` then :func:`update_variables`; the first
     failure stops. A document the check found holding every global already
-    (in either trig unit) is not touched at all: no trig units measured, no
+    (in either trig unit, and evaluating them as that unit would:
+    :func:`_held_unit`) is not touched at all: no trig units measured, no
     equation added, nothing set (W4 review S2: on SolidWorks 2026 measuring
     the units alone left every part marked modified, so every Update asked
     for saves of parts it had not changed). Then the assembly, when
@@ -1517,8 +1576,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     holds: List[str] = []           # per document: the trig unit it already holds every global in, or ""
     for index, doc in enumerate(documents, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, total))
-        _, by_unit = _read_live(sw, doc, "updated")
-        holds.append(_held_unit(by_unit))
+        _, by_unit, values = _read_live(sw, doc, "updated")
+        holds.append(_held_unit(by_unit, values, doc.variables))
     if assembly and (beside or not documents):
         say(Step(STAGE_CHECK, _stem(assembly), total, total))
         sw.begin_build()

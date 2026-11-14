@@ -1454,6 +1454,40 @@ def test_an_update_that_changes_nothing_touches_nothing(trig):
     assert result.log_lines()[-1] == "nothing changed in SolidWorks"
 
 
+def test_a_part_whose_text_is_the_degree_form_but_whose_unit_is_radians_does_not_hold_its_values():
+    """W4 review N5: the read-only decision took the text alone, so a part holding the degree form of its trig
+    globals whose angle unit was later set to radians — its geometry evaluating cos(20 rad) — was called correct,
+    reused, and left alone by Update. The values SolidWorks evaluates now decide too."""
+    fake = FakeSolidWorks(trig=DEGREES)
+    _saved_part(fake, S17, P17)
+    fake.trig = RADIANS                                    # the document's unit set to radians since it was built
+    trig_globals = [v.name for v in _values(S17) if v.expression_for(DEGREES) != v.expression_for(RADIANS)]
+    assert trig_globals                                    # a spur part has some: the case is real
+    _, result = _build(fake, parts=[], reuse=[swbuild.DocumentValues(P17, _values(S17))], layout=None, assembly=None)
+    ((path, why),) = result.mismatched
+    assert path == P17 and why.startswith(
+        "Gear_m1.5_N17.SLDPRT does not hold what the workbook asks of it, so it cannot be reused: its equations are "
+        f'written for degrees, but SolidWorks evaluates them otherwise ("{trig_globals[0]}" is ')
+    assert why.endswith("here), so its angle unit was changed since they were written.")
+    # Update no longer leaves it alone: it measures the unit and writes the radian forms.
+    fake.calls.clear()
+    result = _update(fake, parts=[swbuild.DocumentValues(P17, _values(S17))], layout=None, assembly="",
+                     placements=[])
+    assert result.ok and result.changed == [P17] and result.parts[0].trig == RADIANS
+    assert "detect_trig_units" in names(fake)
+    held = dict(split_equation(t) for t in fake.saved[_key(P17)][0])
+    assert all(held[v.name].replace(" ", "") == v.expression_for(RADIANS).replace(" ", "") for v in _values(S17))
+
+
+def test_a_part_whose_unit_and_text_agree_is_still_left_alone_in_either_unit():
+    for trig in (DEGREES, RADIANS):
+        fake = FakeSolidWorks(trig=trig)
+        _saved_part(fake, S17, P17)
+        result = _update(fake, parts=[swbuild.DocumentValues(P17, _values(S17))], layout=None, assembly="",
+                         placements=[])
+        assert result.ok and result.changed == [] and "detect_trig_units" not in names(fake)
+
+
 def test_new_values_that_evaluate_in_one_trig_unit_only_are_measured_to_decide():
     odd = (GlobalVariable("No. of Teeth", "69", radian_expression='"Nowhere" * 2'),)
     fake = _built_gearbox(trig=DEGREES)
