@@ -73,6 +73,25 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    of this probe is written; `notes-workbook/W4-REBUILD-PROBE-TODO.md` says exactly what to build and run
    (a new tier-7 item, on 2026 and 2024). Then change the two rebuild sites, teach the fake that a full
    rebuild marks every component modified, and add the regression test.
+
+   *2026-11-14: done as far as code goes.* The probe is `assembly_rebuild_scope` (`e79e863`, `6d0b1bb`); it
+   passed in a full run on 2026, now 34.1.1 (76 of 76, `latest.json`), and alone on 2024 (27 of 27,
+   `sw2024/probe-results-20261114-014813`), every decision the same (`9b9f546`): every route, even no rebuild,
+   showed the put, the layout move and the changed part; `ForceRebuild3(True)` marked only what changed and
+   returned False on a failed component; `ForceRebuild3(False)` marked every component. Findings in `e57aca7`
+   (`ASSEMBLY_REBUILD_ROUTE` and the rest). The fix is `9c39fb8`: `swcom.rebuild_call` is the one place that
+   decides (a part as always, an assembly by the finding, refused with a sentence when unsettled), used by
+   `Session.rebuild` and `place_component`; builds and Update refuse an unsettled finding before changing
+   anything; the fake rebuilds as SolidWorks did. **What the SolidWorks rerun (step 3) must still confirm:**
+   the three checks the 2026 rerun failed now pass (section a "SolidWorks marks modified exactly the
+   documents Update changed" and "the superseded G1 part, which Update never changed, is not marked
+   modified"; section b "SolidWorks marks modified only the layout and the assembly"); after a fresh build
+   no part or layout part reads `GetSaveFlag` True; a pair's mates (the gear-pair builds) solve under the
+   top-only rebuild, which the probe did not try. Two things the fix did not change, for the rerun to
+   show: the interference check marks the assembly itself modified (the probe saw it), so after a fresh
+   build the saved assembly reads modified; and an Update that changes a part but re-places no gear still
+   rebuilds the assembly, which marks it, while `GearboxUpdate.changed` lists the assembly only when a gear
+   was re-placed.
 2. **A brief independent verification of pass 4** (`git diff 8b1ef15..f335379`).
 3. **Rerun both demonstration scripts** (`probe/workbook_assembly_check.py`,
    `probe/workbook_window_check.py`) on SolidWorks 2026, and on 2024 in a fresh session — there, for the
