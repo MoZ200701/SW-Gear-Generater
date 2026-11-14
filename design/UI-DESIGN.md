@@ -323,12 +323,13 @@ And where the window differs from the artboards, because Tk would not do it:
   gear B turned Σ, dimensioned `R 67.082 mm · Σ 90°`. A crossed pair is drawn as
   a parallel one with `· Σ 90°` after the centre distance.
 
-## 9. The Workbook window (W2–W4, docs/PLAN-WORKBOOK.md §4.2–§4.5, §5)
+## 9. The Workbook window (W2–W5, docs/PLAN-WORKBOOK.md §4.2–§4.5, §5)
 
 A second window for a whole gearbox written in an `.xlsx` workbook, linked to
 the file: it reads it, checks it, re-reads it on every save, and builds it in
-SolidWorks — its parts, a layout part with an axis per shaft and a static
-assembly with the gears placed meshed — then carries later edits of the
+SolidWorks — its parts, a layout part with an axis per shaft and an assembly
+whose gears are mated so the train turns (W5; *The gearbox that turns*
+below) — then carries later edits of the
 workbook into what it built (**Update SolidWorks**), or builds the next
 revision beside it (**Build again…**). It is a `Toplevel`, `Workbook —
 Reducer_12to1.xlsx`, sharing the strip's theme, widgets and SolidWorks worker;
@@ -347,10 +348,13 @@ Artboards, each with its render in `design/renders/`: `WorkbookReady` (after
 a save that made G4 wider), `WorkbookError` (a save that broke a cell and added
 a bevel gear), `WorkbookFix` (S2 and S3 typed 0.25 mm on, so G1–G2 is off its
 centres, both fixes offered), `WorkbookChosen` (the move chosen, waiting for
-Export), `WorkbookBuilt` (Build pressed: the build's sentence, **Build again…**
-and **Update SolidWorks**), `WorkbookUpdate` (PLAN-WORKBOOK §6's edit, S2 X
-63.75 → 64.5 with G2's teeth 68 → 69 and S3 X following to 132.5, before the
-press), `WorkbookUpdated` (after it, not yet saved), `WorkbookAgain` (G1's
+Export), `WorkbookBuilt` (Build pressed: the build's sentence, the gears
+mated to turn, **Build again…** and **Update SolidWorks**), `WorkbookUpdate`
+(an edit Update carries on a turning gearbox: G3 and G4 to module 2.5 with S3
+X moved out to 148.75, and G4's At 27 → 30, before the press; W4's
+demonstration edit, G2's teeth 68 → 69, changes a gear mate's ratio and needs
+Build again… until the probes settle how a ratio is changed),
+`WorkbookUpdated` (after it, not yet saved), `WorkbookAgain` (G1's
 flank changed to arcs, which needs a new part, with the *Build again?*
 question), `WorkbookUnsaved` (after the update, still not saved, G1's bore
 cleared: the demonstration's structural step), `WorkbookCopy` (the
@@ -358,7 +362,12 @@ reducer's folder copied whole, workbook and record, the original still
 there; each part under the `_r2` name the build will give it),
 `WorkbookMoved` (the folder moved by hand, the record's workbook gone: the
 window asks whether it was moved or is a copy) and `WorkbookCloseAnyway` (the
-window closed a second time while SolidWorks has not answered its build). `gen.py` draws them from a real workbook written, read and worked
+window closed a second time while SolidWorks has not answered its build);
+for W5, `WorkbookRefused` (SolidWorks flags the lock G3 locked to G2: no
+assembly saved, Build greyed for this read), `WorkbookTurned` (the train
+turned by hand in SolidWorks, then the edit above: Update puts the train back
+at its built turn and says so) and `WorkbookStatic` (a gearbox W4 built
+static, offered a turning revision). `gen.py` draws them from a real workbook written, read and worked
 through by the app, with the window's own sizes and colours from
 `workbook_gui`, the end view from `preview.layout_gearbox` and every line from
 `ui_text` — the footer is `workbook_footer` whole. The built boards run
@@ -806,7 +815,10 @@ before it made anything — KeyError: …*).
 3. The assembly, `Reducer_12to1.SLDASM` (both named for the Box's Name): the
    layout part inserted and fixed at the origin, then each gear inserted,
    placed with its face's middle on its shaft and turned to its phase, and
-   fixed. It is static: nothing turns until W5. SolidWorks names the components
+   fixed; then, since W5, each gear unfixed and mated so the train turns
+   (*The gearbox that turns*, below), the mates checked before the save — a
+   W4 gearbox stays static, and so does one built while a W5 finding is
+   missing. SolidWorks names the components
    (`Gear_m1.5_N68-1`); the record maps each gear to the name SolidWorks kept,
    and they are never renamed.
 4. Interference, as for a pair: *…; no interference between the gears.*, or a
@@ -972,6 +984,54 @@ file); otherwise as text, and each path is read once per planning pass, so an
 offline share holds the window up once, not at every comparison. The Gears
 table shows each part to build under the name the build will give it
 (`plan.part_of`).
+
+### The gearbox that turns (W5)
+
+Build makes the assembly with its gears mated (PLAN-WORKBOOK §4.4 and its
+dated note; `workbook/motion.py` plans it): one gear per shaft, the anchor, is
+mated coincident to its shaft's axis and held along it from the layout's Front
+plane (`<G> along <S>`; a `<G> Face Z` global when its front face is off that
+plane), every other gear on the shaft is locked to its anchor, and each listed
+mesh is a gear mate at the tooth ratio (`G1 meshes G2`). Before it saves, the
+worker reads every mate's status and error and every gear's constrained state;
+one problem stops the build. No new control: the same Build, Build again… and
+Update SolidWorks, and every sentence below is `ui_text`'s.
+
+| State | Sentence | Build button | Update SolidWorks |
+|---|---|---|---|
+| ready, the gears to be mated | the ready sentence, then *Its gears are mated to their shafts and to each other, so they turn together in SolidWorks.* (*each train turns together* for two or more; which gears turn apart from the train, and which stay fixed, when some do) | **Build**, on | as before |
+| ready, a W5 finding missing | the ready sentence, then *Its gears are placed meshed and fixed, not mated to turn.* and the planning's own sentence naming the finding | **Build**, on | as before |
+| built (the job's sentence) | *Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow.* | **Build again…**, on | on, primary |
+| built, nothing on record differs | *SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything changed there; gears turned in SolidWorks stay where they are unless something must move. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow.* (the second sentence follows every Build again… state that is not an error) | **Build again…**, on | on, primary |
+| a mate refused (the job's sentence) | *Built 4 parts and Reducer_12to1_Layout; no assembly was saved, because SolidWorks found a problem with its mates. The mate G3 locked to G2 is in error in SolidWorks. The parts and the layout part are kept. The assembly is left open in SolidWorks as Assem1, not saved; its parts are the saved ones. Build is available again once the workbook changes: the same workbook would make the same mates. Update SolidWorks waits until Build has made the assembly.*, red | **Build**, off for this read | shown, off |
+| … the same read, the job's sentence gone | *Reducer_12to1.SLDASM was not saved, because SolidWorks found a problem with its mates. The mate G3 locked to G2 is in error in SolidWorks. Build is available again once the workbook changes: …* (as above), red | off | shown, off |
+| … the workbook saved since | the ready sentence (*reusing Reducer_12to1_Layout and the 4 parts already built*), the line on the gears turning, *Reducer_12to1.SLDASM was not saved, because …* with the problem, *The workbook has changed since, so Build tries the assembly again.*, and Update's reason | **Build**, on | shown, off |
+| a turning edit, before the press | *Update SolidWorks will change the values in Gear_m2_N17 (G3) and OutputGear (G4), move S3 in Reducer_12to1_Layout, move G4 along S3, and re-place G4.* and the line on the gears turning | **Build again…**, on | on, primary |
+| an anchor's front face onto, off or across the Front plane | *G1's At (7.5 → 10) moves its front face off the Front plane (z 0 → 2.5): the mate G1 along S1 holds it on that plane and cannot take a distance, so the gearbox needs building again. Update SolidWorks offers to build again as Reducer_12to1_r2.* (the same for a face width) | **Build again…**, on | on (asks) |
+| a tooth change, no ratio route | *G2's teeth (68 → 69) change the gear mate G1 meshes G2 from 17 : 68 to 17 : 69, and a gear mate's ratio cannot be changed in a built assembly until the probes settle how (findings.GEAR_MATE_RATIO_ROUTE), so the gearbox needs building again. Update SolidWorks offers to build again as Reducer_12to1_r2.* With `GEAR_MATE_RATIO_ROUTE` `"remake"` the same edit is an Update: *… set the gear mate G1 meshes G2 to 17 : 69, …* | **Build again…**, on | on (asks, or updates) |
+| a recorded mate Update cannot read (a hand-edited record) | *The record of what was built lists a mate with no name, and Update SolidWorks finds each mate by its name, so Update SolidWorks cannot act on the gearbox the record describes: Build again… makes a new revision from the workbook instead.*, red | **Build again…**, on: its press asks, so the sentence's offer is kept | shown, off |
+| a gearbox W4 built (static) | W4's sentence for the state, then *It was built static, before gears could be mated to turn: Build again… makes a new revision whose gears turn.* while Build again… is on and its plan turns | **Build again…**, on | on, primary: W4's static Update |
+
+**After Update SolidWorks on a turning gearbox.** The motion path's pieces
+join W4's list — *moved G4 along S3*, *set the gear mate G1 meshes G2 to 17 :
+69*, *turned the mate … back on (it was suppressed in SolidWorks)* — and the
+interference is of the gears *where they stand*. Then, each a sentence: a
+relation found out of step (*G1 and G2 had been turned out of step with each
+other in SolidWorks; they are back in mesh.*); for each train Update had to
+put and that the user had turned, *G1, G2, G3 and G4 had been turned in
+SolidWorks; their train is back at the turn it was built at.*; with nothing
+to put, *SolidWorks already matches the workbook: nothing was changed. The
+gears stand where they were turned in SolidWorks.*; and mates the app did not
+make, suppressed, *left as they are*. A gear dragged off its axis is W4's
+*had been moved in SolidWorks; put back where the workbook has it*; a turn
+is never a drag.
+
+**The Build again? question** for a gearbox W4 built opens with
+*Reducer_12to1.SLDASM was built static; the new revision's gears are mated to
+turn.* (the window passes the record). For a record whose mate Update cannot
+read it opens with W4's *Nothing on record needs a new revision.*, which the
+footer's refusal contradicts: `build_again_question` has no sentence for an
+Update refusal yet (open, package C).
 
 ### The record, `Reducer_12to1.workbook.json`
 

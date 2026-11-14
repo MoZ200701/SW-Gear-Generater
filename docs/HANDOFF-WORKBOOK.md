@@ -18,12 +18,13 @@ answers of that day and the rulings that follow from them are in `notes-workbook
 | W2 Workbook window, live link, Build parts | done, reviewed, fixes in. The batch build (`swbuild.build_many`) ran on SolidWorks 2024 and 2026 (`208712c`); logs `probe/results/w2-build-20261113-164647.log` and `probe/results/sw2024/w2-build-20261113-165706.log`. |
 | W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed twice, every item fixed. The Excel checks passed on Windows: the Windows-saved fixture (`aa86cc7`) reads, and exported files open in Excel with no repair prompt. |
 | W4 layout part + static assembly, Update SolidWorks, build-again `_r<n>` | **closed 2026-11-14**: the rebuild fault probed and fixed, pass 4 verified, both demonstrations rerun on SolidWorks 2026 and 2024 with every check passing, each step reviewed. Details and what is left open below. |
-| W5 motion | **in progress**: the user's answers recorded, probe package P0 run and reviewed (one more round, P0b, running), the interface commit in and reviewed (`2f82a0e`, `07fd66a`), packages A, B and C being written. Details below. |
+| W5 motion | **in progress**: the user's answers recorded, probe package P0 run and reviewed (round P0b/P0c running), the interface commit in and reviewed (`2f82a0e`, `07fd66a`), packages A, B, C and D written; the demonstration on SolidWorks (package E) waits for P0b. Details below. |
 | W6 right-angle, W7 planetary, W8 sleeves and modes | not started; each needs its own sub-plan. |
 
 Suite, measured on a clean `git archive` of `2250ceb` (WSL, 2026-11-13): `PYTHONPATH=src .venv/bin/python -m
 pytest -q` → **1559 passed, 10 skipped**. On the 2026-11-14 clone (another Python, fewer skips): 1699 passed, 1
-skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`. The window's Tk tests run under Windows Python: `python.exe -m
+skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`. At `aa9c5f0` (packages A–D in, the window and boards of D): 2079 passed, 1 skipped; the Tk tests
+under Windows Python 109–110 passed of 111, the rest the known display flake, a different test each run. The window's Tk tests run under Windows Python: `python.exe -m
 pytest tests/test_workbook_build.py tests/test_workbook_window.py -q` → 102 passed, 1 skipped (a "no display
 for Tk" skip is a known flake that moves between tests; rerun). The `PYTHONPATH` matters in a copy: the
 venv's editable install otherwise imports the working tree's `src`, uncommitted edits and all.
@@ -167,55 +168,89 @@ running, a document left unsaved in the other session cannot be seen.
 
 ## W5 in detail
 
-**Probes.** Tier 8 (`probe/p8_motion.py`: `c53bc2d`, `b9ddb12`; results `853e91b`; findings `9aeed80`)
-passed on SolidWorks 2026 (a full run of every probe, 75 of 75, `probe/results/latest.json`) and 2024 (tier
-8 alone, 31 of 31), every decision the same; no STOP trigger fired. Report:
-`notes-workbook/W5-PROBE-REPORT.md` (one misstatement in it: a mate was deleted by "Select2 then
-EditDelete()", as the results record, not by `DeleteSelection2`). In short: a gear's axis is mated
-*coincident* with the layout's shaft axis (concentric is refused); one gear per shaft is held that way and
-along the shaft, and every other gear on the shaft is held to it by a lock mate alone; every gear mate
-takes Flip False; a 12 : 1 train driven 30° turned its output 2.5° the right way, all Z+ and with a Z−
-middle shaft. **No API drag reproduces a mouse drag**, so W5's "drag the input" has to be watched by a
-person; the API-side proof is a temporary driving mate.
+*Rewritten 2026-11-14, after packages A–D.* The authority order is `PLAN-WORKBOOK.md` → `notes-workbook/W5-DECISIONS.md`
+→ `W5-PLAN-REVIEW.md` → `W5-PLAN.md`; the shapes the packages share are pinned in `notes-workbook/W5-INTERFACES.md`.
 
-**Plan.** `notes-workbook/W5-PLAN.md`, reviewed in `notes-workbook/W5-PLAN-REVIEW.md` (the review was cut
-short; it lists what it did not check). Verdict: go with these changes. Before any code:
+**Probes.** Tier 8 (`probe/p8_motion.py`: `c53bc2d`, `b9ddb12`; results `853e91b`; findings `9aeed80`) passed on
+SolidWorks 2026 (75 of 75) and 2024 (31 of 31), every decision the same. Report: `notes-workbook/W5-PROBE-REPORT.md`
+(one misstatement: a mate was deleted by "Select2 then EditDelete()", not `DeleteSelection2`). A gear's axis is mated
+*coincident* with the layout's shaft axis (concentric is refused); one gear per shaft, the anchor, is held that way and
+along the shaft, every other gear on it by a lock mate alone; every gear mate takes Flip False; a 12 : 1 train driven
+30° turned its output 2.5° the right way. No API drag reproduces a mouse drag: "drag the input" is a person's step, and
+the API proof is a temporary driving mate. PLAN-WORKBOOK §4.4 now carries this as a dated note (*Readings changed by
+probe tier 8*), and §6's W5 row says "once probe tier 8 has passed".
 
-- M1: when Update puts gears back, put every mated gear of the train and test locks exactly (the plan's
-  "modulo pitch" skip leaves a lock holding the wrong angle after the user turns the input by whole teeth);
-- M2: a sign error in the planned tests and the driven proof (`k == ω_b/ω_a`, `δ_i = 30°·ω_i/ω_in`: speeds
-  are about each shaft's own axis);
-- M3: the plan names `9aeed80` as its base; it builds on the W4 fixes above, so the interface commit comes
-  after them;
-- M4: probes to add to the plan's two (changing a saved gear mate's ratio; a lock re-taken after a move
-  along the shaft): renaming a lock mate, the demonstration's drive geometry, and a put on a gear in two
-  gear mates of an undriven train.
+**Plan and decisions.** `notes-workbook/W5-PLAN.md`, reviewed in `W5-PLAN-REVIEW.md` (M1–M13). The user's answers of
+2026-11-14 and the rulings on the review and on P0 are in `W5-DECISIONS.md` and in PLAN-WORKBOOK §4.5 as *Readings
+chosen (W5)*: a refused mate stops the build (no static fallback); Update returns a turned train to its built turn
+only when it must move a gear of it; no datum plane, so an anchor's Front-plane edits need Build again…; a follower's
+place along its shaft is an Update; a tooth change that alters a gear mate's ratio needs Build again… until the ratio
+route is probed; W4 static gearboxes stay static; a recorded mate found suppressed is turned back on.
 
-M5–M13 are to be decided while implementing or by the user (below). PLAN-WORKBOOK §4.4 still says
-"concentric", "locked by an angle mate" and "each gear mated to its axis", and names PLAN-GEARBOX tier 6;
-the probes found otherwise. W5-PLAN §0.4 has the text for a dated note; it is not yet added.
+**Probe package P0** (`0d638db` … `8504856`, rulings `0551abc`) ran tier 8 items 7–13 on both versions and was
+reviewed. **Round P0b/P0c is running** (`7c48d84`, `4ced012` and the probe agent's uncommitted results): a train
+*built* under the top-only rebuild, the ratio remake in a fresh 2024 session (P1b), and the tooth change as an Update
+does it. The probe agent is about to commit `GEAR_MATE_RATIO_ROUTE = "remake"`; until it does, a tooth change on a
+turning gearbox is Build again…. Every package's tests pin the findings they depend on, so they pass either way.
+
+**Interface commit** `2f82a0e`, its review's rulings `07fd66a` (`W5-INTERFACES.md` §6). The packages, each reviewed:
+
+- **A — SolidWorks** (`swcom.py`, `swbuild.py`, the fake): `e231ae3` (the train's mate members from tier 8),
+  `6ffc84a` (the fake learns mates), `171a50b` (the mate check before the save; a refused mate stops the build),
+  `bad8fc8` (Update's motion path); review fixes `3eba2ec`, `39ddf45`, `0459c04`, `885de1c`.
+- **B — planning** (`motion.py`, `gearbox.py`, `update.py`): `e39b9d4` (the mates: anchors, locks, gear mates, loops,
+  shafts held still), `84db947` (build to turn whenever the findings allow; record what was made or refused),
+  `8bb1d86` (classify and finish a turning Update), `0536153` (the turning round trip on the fake), `1b1bb39` (tests
+  pin the findings a probe round may change).
+- **C — record and sentences** (`store.py`, `ui_text.py`): `e224e2e`, `5c25a1b`, `0110c88`, `bf3202e`.
+- **D — window, boards, docs**: `f71c5c4` (the window passes the read's digest to the footer and the record to the
+  Build again? question; its tests restored and the W5 states added), `aa9c5f0` (boards), and the docs commit after
+  it. The window needed no new control. Its two hanging tests hung on a Build again? question no test answered; every
+  window test now gets a stand-in that fails at once on an unexpected question. The four tests about W4's
+  tooth-change Update run on a gearbox built as W4 built it (`built_w4`); the W5 findings are pinned in the test file.
+  New boards: `WorkbookRefused`, `WorkbookTurned`, `WorkbookStatic` (no fallback board: there is no fallback); every
+  board after a build is redrawn with the gears mated. Their Update boards use an edit Update carries whatever the
+  ratio finding says (G3 and G4 to module 2.5 with S3 X 148.75, G4's At 27 → 30) in place of G2 68 → 69.
+
+**What the demonstration (package E) still has to show**, on SolidWorks 2026 and then 2024 in a fresh session, and
+not before P0b is committed and reviewed: W5-PLAN §4 — a turning build of the 12 : 1 (and the Risky_Placements and
+Arc_Move workbooks) with every mate's status and every gear's constrained state read; the driven proof (a temporary
+driving mate: input 30°, every gear's turn against `δ_i = 30°·ω_i/ω_in`, then Drive set back and the control mate
+deleted, every frame back at the built frame to 1e-6, nothing left behind before any save); Update on a train turned
+by hand with nothing to put (left turned) and with a put (put back, locks off around the puts and back on); an
+anchor's Face Z move; a follower's At; a mate suppressed by hand turned back on; an unknown mate refusing the Update;
+a refused mate stopping the build with the parts and layout kept; the tooth change both ways as the committed
+finding says; and the window run through these states. The person's step: drag G1 in SolidWorks and watch the
+output turn at 1/12, the right way (W5-PLAN §4.4); log every gear's origin and axis residuals after it, since
+`POSE_TOLERANCE` against a mouse drag has not been measured (`W5-INTERFACES.md` §7 E).
+
+**Open:**
+
+- **A record whose mate Update cannot read** (a hand-edited record: a mate with no name, a gear not in the assembly):
+  the footer's refusal names Build again…, and the window keeps that offer (Build again… stays on; its press asks).
+  But `ui_text.build_again_question` has no sentence for an Update refusal, so the question opens with W4's *Nothing
+  on record needs a new revision.*, which the footer contradicts. Package C's to word.
+- **The header after a refused mate** reads *· changed since it was built* on the very read the build was refused
+  from (`workbook_built_tag` sees a gearbox block whose `digest` is `""`). Package C's (or B's, if the record should
+  keep the read).
+- **A W4 gearbox's structural state** says "build again" twice: Update's offer, then *It was built static, before
+  gears could be mated to turn: Build again… makes a new revision whose gears turn.* True, but W4's review S4.1 asked
+  for it once; the window test pins both for now.
+- Whether a train's Build may keep the top-only rebuild (P0b); D7's Update branch (the ratio remake) until P0b is
+  committed; folders in the MateGroup are not mates (A's, done in `3eba2ec`; to be seen on SolidWorks).
+- From W4: whether the assembly still reports needing a rebuild after the top-only route (`PUT_NEEDS_REBUILD` not
+  established); a journaled file on a disconnected drive is treated as gone (below).
 
 ## Questions waiting for the user
 
-*2026-11-14: questions 1 to 5 are answered* — a refused mate stops the build and says why; yes; no datum plane
-(the first gear is measured from the Front plane, so those edits need Build again…); problems only; scrub going
-forward (`ee46d20`). The answers and what follows from them are in `notes-workbook/W5-DECISIONS.md`. Question 6
-stands, and one is new: **a journaled file on a disconnected drive is treated as gone** — keep that, or hold
-such entries until the drive is back?
+Questions 1 to 5 of 2026-11-14 are answered (`notes-workbook/W5-DECISIONS.md`; PLAN-WORKBOOK §4.5, *Readings chosen
+(W5)*). Still open:
 
-1. **W5, when SolidWorks refuses a mate:** fall back to the static assembly automatically (the plan), or
-   stop and say why (the review: a refusal repeats every time, so the fallback would be permanent)?
-2. **W5, Update returns a train the user turned to its built position** whenever it has to move any gear.
-   Acceptable?
-3. **W5, face-width and At changes on a shaft's first gear** would need Build again… where W4 took an
-   Update, because in the fixtures that gear's front face sits on the layout's Front plane. The review
-   offers a datum plane far behind in the layout part so the distance never reaches zero (it needs a small
-   probe). Which?
-4. List passed checks in the Checks panel as the plan says, or keep problems only?
-5. Scrub the old document title from `probe/results/probe-results-20260914-180426.*` (it is already in
-   public history)?
-6. Readings the user may overrule: Update SolidWorks does not save; a part keeps its file name after a
-   teeth change; one build button; no static option in the window once W5 is in.
+1. **A journaled file on a disconnected drive is treated as gone** — keep that, or hold such entries until the drive
+   is back?
+2. Readings the user may overrule: Update SolidWorks does not save; a part keeps its file name after a teeth change;
+   one build button; no static option in the window once W5 is in (a gearbox is built static only when a W5 finding
+   is missing, and a W4 one stays static until Build again…).
 
 ## Rules carried over
 

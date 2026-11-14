@@ -4,7 +4,7 @@ Builds parametric spur gears in SolidWorks from a form, and solves gear pairs:
 given a centre distance and a ratio, it finds module and tooth counts that work,
 builds both gears and mates them in an assembly. A whole gearbox written in an
 Excel workbook can be imported, checked and built: its parts, a layout part and
-a static assembly with the gears placed meshed.
+an assembly whose gears are mated so the train turns when you drag its input.
 
 The gear it builds is parametric in SolidWorks itself. Its sizes live in the
 Equation Manager as global variables, starting with the ten a person would type
@@ -339,9 +339,20 @@ with its `.gear.json` (identical gears share one part file); a layout part,
 planes set from the origin by globals such as `"S2 X"`; and an assembly,
 `Reducer_12to1.SLDASM`, with the layout part fixed at the origin and each gear
 placed on its shaft at its At, turned so its teeth sit in its partner's spaces,
-and fixed. It then runs SolidWorks' interference detection: *no interference
-between the gears*, or a check naming the two gears and the volume. The
-assembly is static — the gears are placed meshed, but nothing turns yet. A part
+then mated so the train turns: one gear per shaft is mated to its shaft's axis
+and held along it from the layout's Front plane, any other gear on the shaft is
+locked to it, and each mesh is a gear mate at the tooth ratio. Before it saves,
+SolidWorks is asked whether every mate took and every gear is free to turn;
+if SolidWorks refuses or flags a mate, no assembly is saved (the parts and the
+layout part are kept, and the sentence names the mate), and Build waits until
+the workbook changes, since the same workbook would make the same mates. It
+then runs SolidWorks' interference detection: *no interference between the
+gears where they stand*, or a check naming the two gears and the volume, and
+says which gear to drag: *drag G1 in SolidWorks and the rest of its train
+follow*. (When a finding the mates need is missing for the SolidWorks in use,
+the gears are placed meshed and fixed instead, and the window says so before
+Build. A gearbox built before the gears could be mated stays static, and
+Build again… offers a new revision whose gears turn.) A part
 or layout already built and unchanged is reused, after it is opened and checked
 to hold exactly what the workbook asks — one that does not (an update lost when
 SolidWorks closed unsaved, a feature deleted by hand) is noted, nothing is
@@ -372,7 +383,14 @@ own mated gearbox.
 the values of a part whose row changed (it keeps its file name, so
 `Gear_m1.5_N68` may now hold 69 teeth; the sentence says so), the layout's
 globals for a shaft that moved, and each gear whose place changed re-placed
-where the workbook now puts it, then interference again. It compares with SolidWorks itself, not
+where the workbook now puts it, then interference again. On a gearbox whose
+gears turn, a gear turned by hand in SolidWorks stays where it was turned
+unless Update must move a gear of its train; then the whole train is put back
+at the turn it was built at, and the sentence says so. An anchor's move along
+its shaft sets its distance from the Front plane; a change that would take its
+front face onto, off or across that plane, or a tooth change that alters a gear
+mate's ratio (until the probes settle how a ratio is changed), needs Build
+again…, and the sentence names the edit. It compares with SolidWorks itself, not
 only with its record, so a gear dragged by hand is put back. **Update does not
 save**, as the form's Update values does not: the window names the documents
 it changed — save them in SolidWorks to keep them — and says so until you

@@ -365,6 +365,19 @@ axial position, and each listed mesh becomes a gear mate at the tooth ratio with
 are locked by an angle mate. This needs probe tier 6 items 3–5 of PLAN-GEARBOX (axis-to-axis mates, five or more
 components, a lock between free components): **if they fail, STOP and ask** — the static assembly stays.
 
+*Readings changed by probe tier 8 (2026-11-13):* the paragraph above was written before the probes, and tier 8
+(`p8_motion`, on SolidWorks 2026 and 2024, every decision the same) found otherwise in four places. A gear's axis
+is mated **coincident** with its shaft's axis, closest alignment: concentric between two axes is **refused**
+(`AXIS_CONCENTRIC_REFUSED`). Compound gears are held by a **lock mate alone** (`COMPOUND_LOCK_ROUTE`); an angle
+mate between Top planes also held, but the lock needs no angle and no planes. Only **each shaft's anchor** (one
+gear per shaft) is mated to its axis and to its place along it; every other gear on that shaft is held to the
+anchor by its lock, and a locked gear also mated to its axis over-defines the assembly. The probes it names were
+not PLAN-GEARBOX's tier 6 items 3–5: they were settled as **tier 8** (`probe/p8_motion.py`), which stands on tier
+7. And it did not say that SolidWorks swings a gear's phase the wrong way when its shaft moves, so Update puts the
+gears back where the workbook has them. Every gear mate takes Flip False; a 12 : 1 train driven 30° turned its
+output 2.5° the right way, all Z+ and with a Z− middle shaft. No API drag reproduces a mouse drag, so "drag the
+input" is a person's step; the app's proof is a temporary driving mate in the demonstration.
+
 ### 4.5 Update SolidWorks
 
 From the linked file's latest read, against what was built (`GearRecord`s and the assembly's record):
@@ -427,6 +440,26 @@ part set to radians is updated, not reused). **Every new part's own name is clai
 suffix never takes a typed Part name. Tested against the fake SolidWorks; the assembly check's new section `a3`
 shows the journal and the marks on SolidWorks once rerun.
 
+*Readings chosen (W5, 2026-11-14; the user's answers and the rulings in `notes-workbook/W5-DECISIONS.md`):*
+**A refused mate stops the build.** When SolidWorks refuses or flags a mate, no assembly is saved and none is
+made static in its place: the parts and the layout part the job built are kept and recorded, the assembly is left
+open in SolidWorks, unsaved, and named, and the sentence names the mate. Build stays greyed for that same read of
+the workbook, since the same workbook would make the same mates, and is offered again once the workbook changes.
+**Update returns a turned train to its built position only when it must move a gear** of it; it then puts every
+mated gear of that train, with the train's locks suppressed around the puts, and says so for that train. With
+nothing to put, the train stays where the user turned it, and the footer says so. **No datum plane:** an anchor's
+place along its shaft is measured from the layout's Front plane, so an edit that takes an anchor's front face onto,
+off or across that plane (a face width or an At on G1 or G2 of the 12 : 1) needs Build again…, and the sentence
+names the edit. **A follower's place along its shaft is an Update** (`LOCK_RETAKES_AN_OFFSET`: a lock re-takes
+its offset after a move). **A tooth change that alters a gear mate's ratio needs Build again… until the ratio
+route is probed** (`GEAR_MATE_RATIO_ROUTE`; once it is `"remake"`, Update deletes the gear mate and makes it again
+at the new ratio; changing the mate's definition in place leaves an assembly SolidWorks 2024 cannot close and is
+never used). **A gearbox W4 built stays static**: Update carries its edits as W4 did, and the window offers Build
+again… for a new revision whose gears turn, never forcing it. **A recorded mate found suppressed is turned back
+on** by Update, and said; a suppressed mate the app did not make is left alone and named, and an unsuppressed one
+refuses the Update until it is suppressed. A gearbox is built static only when a W5 finding is missing at
+planning, and the window says so before Build.
+
 ## 5. The Workbook window: `workbook_gui.py` (+ `ui_text`)
 
 Opened from **Import workbook…** in the Gear panel header (a file dialog, then the window), or **New workbook…**
@@ -466,7 +499,7 @@ the pattern: `POLL_MS`).
 | **W2 batch parts** | The window's artboard and `UI-DESIGN.md` §9 first (drawn in `design/canvas/` by `gen.py`, as the strip was); then `build_many`, the Workbook window (header, gear list, per-gear errors), Import / New workbook…, the live link and change list, `Recent.workbooks` | Mac: each row's plan equals the strip's for the same `GearSpec`; the window updates within two seconds of a scripted save (screenshots). Windows: a workbook of 4 gears builds 4 parts whose `.gear.json` variables match strip-built twins. |
 | **W3 positions and checks** | `geometry.py`, `checks.py`, `kinematics.py` (parallel), `fixes.py`, `pair.shift_for_centre`, Results, Export / Export as…, `preview.layout_gearbox` | Mac: the 12 : 1 workbook checks clean and its speeds match the pinned values; S2 typed at 64.00 shows E2's error and both fixes (shift x = 0.084550 each); Export writes the fix and Results and leaves a formula cell alone; screenshots checked by eye. Windows: the exported file opens in Excel with no repair prompt. |
 | **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. *(2026-11-13: in the 12 : 1 reducer S3 X is a formula on S2 X, so S2 X alone moves S3 with it and leaves G1–G2 0.75 mm off its centres: the gearbox fails its checks and Update waits. The demonstration edit is S2 X 63.75 → 64.5 with G2's teeth 68 → 69, which puts G1–G2 back on centres at 64.5. Shown on SolidWorks 2026 in full, 244 checks, 0 failed; on 2024 tier 7, the build, its measurements and controls, the Excel edit and Update — the structural step and `_r2`, the continued build, the pure-move and risky-placement workbooks and the window run are still to run on 2024, in a fresh session. The W4 review's fixes since, and the second review's, are tested on the fake only and await a rerun on SolidWorks.)* |
-| **W5 motion** | §4.4, after `gear_mate` and tier-6 items 3–5 have passed | Drag the input in SolidWorks: the output turns at 1/12 the input's angle, the right way. |
+| **W5 motion** | §4.4, once probe tier 8 has passed | Drag the input in SolidWorks: the output turns at 1/12 the input's angle, the right way. |
 | **W6 right-angle** | Turned axes, bevel and crossed meshes | A bevel stage feeding a parallel stage builds; sub-plan and questions at the time. |
 | **W7 planetary** | Carriers, copies, loops in kinematics and phases | A 4 : 1 planetary with the ring fixed builds; own sub-plan. |
 | **W8 sleeves and modes** | Sleeve and dog kinds, Slides, Modes → configurations | The E4 transfer case's four modes; own sub-plan and probes (per-configuration mate suppression). |
