@@ -2013,6 +2013,12 @@ class GearboxUpdate:
     # change found already at the wanted ratio, so not remade (the record should take the plan's ratio for it).
     ratios_found: List[str] = field(default_factory=list)
     ratios_already: List[str] = field(default_factory=list)
+    # ``ratios_read``: for every gear mate whose live ratio was read and acted on — to be remade (asked by the plan,
+    # or in ``ratios_found``) or found already right (``ratios_already``) — ``(name, live_a, live_b, want_a,
+    # want_b)``: the tooth counts SolidWorks held and the counts the workbook wants, integers, in the gear mate's
+    # own gear order (its first selection first, as ``MateRef.gears``). A gear mate read and found at the ratio the
+    # record already held, which the plan did not ask to change, is not listed. Filled in the check phase.
+    ratios_read: List[Tuple[str, int, int, int, int]] = field(default_factory=list)
     extra_mates: List[str] = field(default_factory=list)
     mates: List[MateState] = field(default_factory=list)
 
@@ -2411,7 +2417,10 @@ def _wanted_teeth(motion: MotionUpdate) -> Dict[str, Tuple[int, int]]:
             continue
         link = next((m for m in motion.meshes if (m.a, m.b) == tuple(mate.gears)), None)
         if link is None or not link.pitch:
-            continue
+            raise BuildError(f"Update SolidWorks was given the gear mate {mate.name} on record with no mesh between "
+                             f"{mate.gears[0]} and {mate.gears[1]} to say the ratio the workbook wants, so the record "
+                             "and the plan disagree about it and nothing is changed; that is a fault in Gear "
+                             "Generator, not in SolidWorks.")
         zb = 360.0 / link.pitch
         za = abs(link.k) * zb
         if abs(zb - round(zb)) > 1e-6 or abs(za - round(za)) > 1e-6:
@@ -2605,9 +2614,11 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
                 continue
             live = tuple(float(n) for n in sw.gear_mate_ratio(f"mate{index}"))
             want = wanted_teeth[mate.name]
+            read = (mate.name, int(round(live[0])), int(round(live[1])), want[0], want[1])
             if _same_ratio(live, want):
                 if mate.name in asked:
                     result.ratios_already.append(mate.name)
+                    result.ratios_read.append(read)
                 continue
             if route != "remake":
                 raise BuildError(f"The gear mate {mate.name} in {_file(assembly)} is at {live[0]:g} : {live[1]:g} "
@@ -2615,6 +2626,7 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
                                  f"has not been settled on SolidWorks (findings.GEAR_MATE_RATIO_ROUTE is {route!r}), "
                                  "so nothing is changed; build the gearbox again.")
             remakes.append((mate.name, want[0], want[1]))
+            result.ratios_read.append(read)
             if mate.name not in asked:
                 result.ratios_found.append(mate.name)
         if remakes:

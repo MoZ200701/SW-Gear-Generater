@@ -2986,7 +2986,9 @@ def test_a_mate_in_error_or_a_gear_not_free_after_the_update_is_a_failure_senten
 def test_a_lone_mated_gear_is_put_only_when_off_its_axis():
     fake = _built_train()
     fake.turn("gear4-1", 3.0)
-    unlinked = _motion(meshes=(), locks=(), recorded_meshes=())
+    for name in ("G1 meshes G2", "G3 meshes G4"):            # no gear mate on record: each gear turns alone
+        fake.mate(name, T_ASM).suppressed = True
+    unlinked = _motion(mates=tuple(m for m in MATE_REFS if m.kind != "mesh"), meshes=(), locks=(), recorded_meshes=())
     result = _update_train(fake, motion=unlinked)
     assert result.ok and result.placed == [] and "place_component" not in names(fake)
 
@@ -2994,7 +2996,9 @@ def test_a_lone_mated_gear_is_put_only_when_off_its_axis():
 def test_a_fixed_gear_is_re_placed_as_w4_re_places_it_modulo_its_pitch():
     fake = _built_train()
     fake.turn("gear4-1", 360.0 / 51)                   # a whole tooth: the same placement
-    motion = _motion(fixed=("G4",), meshes=MESHES[:1], recorded_meshes=MESHES[:1])
+    fake.mate("G3 meshes G4", T_ASM).suppressed = True       # G4 fixed: its gear mate is not on record
+    motion = _motion(mates=tuple(m for m in MATE_REFS if m.name != "G3 meshes G4"), fixed=("G4",),
+                     meshes=MESHES[:1], recorded_meshes=MESHES[:1])
     result = _update_train(fake, motion=motion)
     assert result.ok and result.placed == []
     fake.turn("gear4-1", 2.0)
@@ -3059,6 +3063,7 @@ def test_with_the_remake_a_new_ratio_is_set_with_the_locks_off_before_the_train_
     result = _update_train(fake, motion=_motion(ratios=(("G3 meshes G4", 18, 50),)))
     assert result.ok, result.log_lines()
     assert result.ratios == ["G3 meshes G4"] and result.placed == list(TRAIN_ORDER)
+    assert result.ratios_read == [("G3 meshes G4", 17, 51, 18, 50)] and result.ratios_found == []
     called = [(n, a) for n, a in fake.calls]
     ratio_at = next(i for i, (n, _) in enumerate(called) if n == "set_gear_ratio")
     assert called[ratio_at][1][1:] == ("placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
@@ -3396,6 +3401,7 @@ def test_a_gear_mate_found_at_another_ratio_though_none_was_asked_is_remade_once
     result = _update_train(fake, motion=_motion(meshes=MESHES_69, recorded_meshes=MESHES_69))
     assert result.ok, result.log_lines()
     assert result.ratios == ["G1 meshes G2"] and result.ratios_found == ["G1 meshes G2"] and result.ratios_already == []
+    assert result.ratios_read == [("G1 meshes G2", 17, 68, 17, 69)]
     assert [a[0] for n, a in fake.calls if n == "set_gear_ratio"] == ["mate8"]       # exactly one remake
     assert fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 69.0)
     assert result.placed == list(TRAIN_ORDER) and fake.locked_puts == []
@@ -3413,6 +3419,7 @@ def test_a_gear_mate_asked_to_change_but_already_at_the_wanted_ratio_is_not_rema
                                                 ratios=(("G1 meshes G2", 17, 68),)))
     assert result.ok, result.log_lines()
     assert result.ratios == [] and result.ratios_found == [] and result.ratios_already == ["G1 meshes G2"]
+    assert result.ratios_read == [("G1 meshes G2", 17, 68, 17, 68)]
     assert "set_gear_ratio" not in names(fake) and fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 68.0)
     assert result.placed == [] and fake.locked_puts == []
     assert "ok      already at the ratio the workbook asks, so not remade: G1 meshes G2" in result.log_lines()
@@ -3447,3 +3454,29 @@ def test_without_the_definition_finding_a_motion_update_is_refused_before_anythi
     with pytest.raises(swbuild.BuildError, match=r"GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND is None\), so nothing"):
         _update_train(fake)
     assert fake.calls == []
+
+
+def test_a_gear_mate_on_record_with_no_mesh_in_the_plan_is_refused_before_anything_is_read():
+    fake = _built_train()
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake, motion=_motion(meshes=MESHES[:1], recorded_meshes=MESHES[:1]))
+    assert str(raised.value) == ("Update SolidWorks was given the gear mate G3 meshes G4 on record with no mesh between "
+                                 "G3 and G4 to say the ratio the workbook wants, so the record and the plan disagree "
+                                 "about it and nothing is changed; that is a fault in Gear Generator, not in "
+                                 "SolidWorks.")
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("name", ["GEAR_MATE_RATIO_REMAKE_WORKS", "MATE_DELETE_ROUTE", "GEAR_MATE_FLIP"])
+def test_a_remake_found_live_is_refused_before_anything_changes_while_a_remake_finding_is_missing(
+        remake_route, monkeypatch, name):
+    """The m5 path: the plan asks no ratio, so the early gate reads no remake finding; the live mismatch found in the
+    check phase reads them all (_remake_gate) before anything changes."""
+    fake = _built_train()
+    _remade_then_lost(fake)
+    monkeypatch.setattr(findings, name, None)
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake, motion=_motion(meshes=MESHES_69, recorded_meshes=MESHES_69))
+    assert f"(findings.{name} is None), so nothing is changed; run probe tier 8 first." in str(raised.value)
+    assert "gear_mate_ratio" in names(fake) and not any(n in CHANGING for n in names(fake))
+    assert fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 68.0)
