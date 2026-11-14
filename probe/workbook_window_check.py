@@ -1,18 +1,23 @@
-r"""The Workbook window against real SolidWorks and Excel: Build, Update SolidWorks, Build again (W4).
+r"""The Workbook window against real SolidWorks and Excel: Build, Update SolidWorks, Build again (W4, and W5's footers).
 
 python.exe probe/workbook_window_check.py <repo src> <scratch folder under C:\> --pid PID [--log FILE]
+                                          [--w4-static FOLDER]
 
 The window is opened the way Import workbook… opens it (``workbook_gui.open_workbook`` with the path) under a
 unique title, in a Tk process of its own, with the strip's real SolidWorks worker: nothing is patched but
-``workbook_gui.ask_yes_no`` (the Build again? question, answered Yes and logged) and APPDATA (the recent list
-goes into the scratch folder, not the user's). The strip attaches to the newest SolidWorks, so this refuses to
-start unless the newest reachable session is the PID given. An Excel of its own, on its own thread, makes every
-edit; the buttons are pressed by invoking their commands. Each stage is captured from the window's own handle
-with PrintWindow into <scratch>\shots, and the footer, read line and gear table are logged.
+``workbook_gui.ask_yes_no`` (the Build again? question, answered Yes and logged), APPDATA (the recent list goes
+into the scratch folder, not the user's) and, for stage 5 only, ``workbook_gui.wb_gearbox.plan_gearbox`` for that
+one folder. The strip attaches to the newest SolidWorks, so this refuses to start unless the newest reachable
+session is the PID given. An Excel of its own, on its own thread, makes every edit; the buttons are pressed by
+invoking their commands. Each stage is captured from the window's own handle with PrintWindow into <scratch>\shots,
+and the footer, read line and gear table are logged.
 
-1. The 12 : 1 fixture, its Output folder cell set to the scratch folder in Excel; the window opened; Build.
-2. The demonstration edit in Excel (S2 X 64.5, G2 Teeth 69): the summary, then Update SolidWorks. The header
-   then says "updated from this version, not yet saved", never "built from this version".
+1. The 12 : 1 fixture, its Output folder cell set to the scratch folder in Excel; the window opened; Build. Since
+   W5 the gearbox is built to turn: the sentence and the footer say how ("drag G1 in SolidWorks and the rest of its
+   train follow"), shot as 03-built.
+2. The demonstration edit in Excel (S2 X 64.5, G2 Teeth 69): the summary (since W5 it sets the gear mate G1 meshes
+   G2 to 17 : 69 by the remake), then Update SolidWorks. The header then says "updated from this version, not yet
+   saved", never "built from this version".
 3. G1's bore cleared in Excel. Since the W4 review (B2) nothing waits for a save: Build again… and Update
    SolidWorks are both enabled, and the footer gives the structural reason, asks once for the save of
    Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 (since the second review, adding "If SolidWorks closed
@@ -21,16 +26,25 @@ with PrintWindow into <scratch>\shots, and the footer, read line and gear table 
    would (by this driver, through COM, on its own thread), so G2's part is reused; then Update SolidWorks asks
    Build again? and the answer is Yes, and the record ends at revision 2 with N68 reused, its journal taken
    out, and the header "built from this version".
+4. ``--w4-static FOLDER``: a W4-built gearbox's workbook, opened IN PLACE (its schema-2 record names that very
+   workbook, so a copy would read as another's): the footer of a static record — "It was built static, before
+   gears could be mated to turn: Build again… makes a new revision whose gears turn." — shot as 09; nothing is
+   pressed, and every file in that folder keeps its sha256. Skipped, and said, without the option.
+5. The refused state (W5-DECISIONS answer 1): the 12 : 1 in a folder of its own, its plan given one more mate by
+   this script (G3, the follower locked to G2, also on S2 Axis and along S2: over-defined, as probe compound_lock
+   found); Build stops at the mate check: the sentence names the mate problems, says the assembly is left open
+   and that Build is available again once the workbook changes, Build is greyed, the record holds the problems
+   and their digest, and no assembly file is written. Shot as 10. The refused document is then closed by its
+   title (this run's modified documents saved first, as W4's close_ours does on 2024).
 
 Afterwards the window is closed, Excel quit, and this run's SolidWorks documents saved and closed.
 
-Run on SolidWorks 2026 on 2026-11-13 (w4-window-20261113-195843.log) before the review's fixes: the stages
-then read as the review quotes them (state 06 asked for the save twice and said Build again… waited). A rerun
-should log state 06 with both buttons on, one save request with its "If SolidWorks closed them without
-saving" sentence and the "While Gear_m1.5_N68's changes are not saved" sentence, and pass every check below.
+Run on SolidWorks 2026 on 2026-11-13 (w4-window-20261113-195843.log) before the W4 review's fixes, and again on
+2026 and 2024 on 2026-11-14 (w4-window-20261114-055011.log, sw2024/w4-window-20261114-061023.log) for stages 1-3.
 """
 
 import ctypes
+import dataclasses
 import json
 import os
 import queue
@@ -52,6 +66,7 @@ sys.path.insert(0, SRC)
 sys.path.insert(1, os.path.join(HERE, "excel"))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 LOG_PATH = sys.argv[sys.argv.index("--log") + 1] if "--log" in sys.argv else os.path.join(ROOT, "window.log")
+W4_STATIC = sys.argv[sys.argv.index("--w4-static") + 1] if "--w4-static" in sys.argv else ""
 
 import tkinter as tk  # noqa: E402
 
@@ -61,7 +76,9 @@ import win32ui  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from gear_generator import gui, store, swcom, theme, ui_text, workbook_gui  # noqa: E402
+from gear_generator.gears import base  # noqa: E402
 from gear_generator.swcom import call  # noqa: E402
+from gear_generator.workbook import layout as wb_layout  # noqa: E402
 
 UNIQUE = "GG workbook W4 check 5c21"
 SHOTS = os.path.join(ROOT, "shots")
@@ -70,6 +87,10 @@ FOLDER = os.path.join(ROOT, "window")
 os.makedirs(FOLDER)
 PATH = os.path.join(FOLDER, "Reducer_12to1.xlsx")
 shutil.copy(FIXTURE, PATH)
+REFUSED_FOLDER = os.path.join(ROOT, "refused")
+os.makedirs(REFUSED_FOLDER)
+REFUSED_PATH = os.path.join(REFUSED_FOLDER, "Reducer_12to1.xlsx")
+shutil.copy(FIXTURE, REFUSED_PATH)
 LINES = []
 FAILS = []
 
@@ -106,7 +127,7 @@ def excel_thread():
             what, args = job
             try:
                 if what == "open":
-                    wb, rep = xl.open(PATH, "w4-window")
+                    wb, rep = xl.open(args[0] if args else PATH, "w4-window")
                     result = rep["repaired"]
                 elif what == "set-save":
                     for sheet, ref, value in args:
@@ -167,7 +188,11 @@ def _docs(app):
 
 
 def _ours(path):
-    return bool(path) and os.path.normcase(path).startswith(os.path.normcase(FOLDER))
+    return bool(path) and any(os.path.normcase(path).startswith(os.path.normcase(f) + os.sep)
+                              for f in (FOLDER, REFUSED_FOLDER))
+
+
+BEFORE_TITLES = set()        # the untitled documents open before this run: never ours to close
 
 
 def save_paths(paths):
@@ -198,11 +223,34 @@ def close_ours():
     return in_solidworks(work)
 
 
+def close_refused():
+    """The refused assembly the build left open (an untitled assembly that was not open before the run): this run's
+    modified documents saved first, then ``CloseDoc`` by its title, as W4's close_ours closes on 2024."""
+    def work(app):
+        for doc in _docs(app):
+            path = str(call(doc, "GetPathName") or "")
+            if _ours(path) and call(doc, "GetSaveFlag"):
+                call(call(doc, "Extension"), "SaveAs3", path, 0, 1, swcom._null_dispatch(),  # noqa: SLF001
+                     swcom._null_dispatch(), swcom._out_long(), swcom._out_long())  # noqa: SLF001
+        closed = []
+        for doc in _docs(app):
+            title = str(call(doc, "GetTitle"))
+            if not str(call(doc, "GetPathName") or "") and int(call(doc, "GetType")) == 2 and title not in BEFORE_TITLES:
+                call(app, "CloseDoc", title)
+                closed.append(title)
+        left = [str(call(d, "GetTitle")) for d in _docs(app) if not str(call(d, "GetPathName") or "")
+                and str(call(d, "GetTitle")) not in BEFORE_TITLES]
+        return {"closed": closed, "left": left}
+    return in_solidworks(work)
+
+
 newest = in_solidworks(lambda app: swcom.choose(swcom.find_candidates()).pid)
 log("newest session", pid=newest)
 if newest.get("value") != PID:
     print("STOP: the strip would attach to", newest, "not", PID)
     raise SystemExit(2)
+BEFORE_TITLES.update(in_solidworks(lambda app: [str(call(d, "GetTitle")) for d in _docs(app)
+                                                if not str(call(d, "GetPathName") or "")]).get("value", []))
 
 XT = threading.Thread(target=excel_thread, daemon=True)
 XT.start()
@@ -227,6 +275,41 @@ def answer_yes(parent, title, question):
 
 
 workbook_gui.ask_yes_no = answer_yes
+
+# Stage 5: the plan of the refused folder's workbook given one more mate, as probe/workbook_assembly_check.py's m4
+# does (W5-PLAN §4.3 m4). Only while INJECT is on, and only for that folder; every other plan is the app's own.
+INJECT = {"on": False, "done": []}
+_plan_gearbox = workbook_gui.wb_gearbox.plan_gearbox
+
+
+def _injected(plan):
+    handle_of = {g: h for h, g in plan.handles.items()}
+    h3 = handle_of["G3"]
+    z = plan.frames["G3"].at[2]
+    ops, done = [], False
+    for op in plan.assembly.ops:
+        ops.append(op)
+        if not done and isinstance(op, base.Mate) and op.kind == "lock" and op.b == h3:
+            ops.append(base.Mate("inject1", "coincident", f"{h3}:Gear Axis", f"{wb_layout.LAYOUT_HANDLE}:S2 Axis",
+                                 name="G3 on S2 Axis"))
+            ops.append(base.Mate("inject2", "point distance", f"{h3}:origin", f"{wb_layout.LAYOUT_HANDLE}:plane1", z,
+                                 name="G3 along S2"))
+            done = True
+    if not done:
+        return plan
+    return dataclasses.replace(plan, assembly=dataclasses.replace(plan.assembly, ops=tuple(ops)))
+
+
+def plan_gearbox(*args, **kwargs):
+    plan = _plan_gearbox(*args, **kwargs)
+    if (INJECT["on"] and plan is not None and not plan.refusal and plan.assembly is not None
+            and store.same_path(os.path.dirname(plan.assembly_path), REFUSED_FOLDER)):
+        plan = _injected(plan)
+        INJECT["done"].append(plan.assembly_path)
+    return plan
+
+
+workbook_gui.wb_gearbox.plan_gearbox = plan_gearbox
 
 
 def shoot(name):
@@ -282,10 +365,12 @@ def excel_done(what):
     return ok
 
 
-def open_window():
+def open_window(path=PATH, title=UNIQUE):
     global win
-    win = workbook_gui.open_workbook(app, PATH)
-    win.title(UNIQUE)
+    if win is not None and not win._closed():  # noqa: SLF001
+        win.close()
+    win = workbook_gui.open_workbook(app, path)
+    win.title(title)
 
 
 def idle():
@@ -300,6 +385,66 @@ def save_unsaved():
     record = store.read_link_record(PATH)
     paths = list(record.unsaved) if record is not None else []
     log("person saves in SolidWorks", paths=[os.path.basename(p) for p in paths], result=save_paths(paths))
+
+
+def built_turning_check():
+    record = store.read_link_record(PATH)
+    box = record.gearbox
+    drag = ui_text.drag_phrase(list(box.drag))
+    check(box.kind == store.GEARBOX_MOTION, f"built to turn: kind {box.kind!r}")
+    check(drag in win.status.get(), f"the built footer says how to turn it: {drag!r}")
+
+
+def _folder_stamps(folder):
+    import hashlib
+    out = {}
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            with open(path, "rb") as handle:
+                out[name] = (hashlib.sha256(handle.read()).hexdigest(), os.stat(path).st_mtime_ns)
+    return out
+
+
+STATIC = {}
+
+
+def open_static():
+    workbook = next((os.path.join(W4_STATIC, n) for n in sorted(os.listdir(W4_STATIC)) if n.endswith(".xlsx")
+                     and not n.startswith("~$")), "")
+    STATIC["path"], STATIC["before"] = workbook, _folder_stamps(W4_STATIC)
+    raw = json.load(open(store.link_record_path(workbook), encoding="utf-8"))
+    log("the W4 static record's source", folder=W4_STATIC, workbook=os.path.basename(workbook),
+        schema=raw.get("schema"), built=(raw.get("gearbox") or {}).get("built"), kind=(raw.get("gearbox") or {}).get(
+            "kind", "(none: schema 2)"), written_by=raw.get("written_by"))
+    open_window(workbook, UNIQUE + " static")
+
+
+def static_check():
+    text = win.status.get()
+    check("It was built static, before gears could be mated to turn: Build again… makes a new revision whose gears "
+          "turn." in text, "the W4 static record's footer says it was built static and Build again… turns")
+    win.close()
+    after = _folder_stamps(W4_STATIC)
+    check(after == STATIC["before"], f"nothing in the W4 folder changed: "
+          f"{[n for n in after if after.get(n) != STATIC['before'].get(n)]}")
+
+
+def refused_check():
+    text, footer = win.status.get(), win.footer()
+    record = store.read_link_record(REFUSED_PATH)
+    box = record.gearbox
+    check(bool(INJECT["done"]), f"the plan was given the extra mates: {INJECT['done']}")
+    check(box is not None and not box.assembly and box.mate_problems and box.mate_problems_digest
+          == win.reading.digest, f"the record: no assembly, the mate problems and their digest: "
+          f"{box and box.mate_problems}")
+    check(not os.path.exists(os.path.join(REFUSED_FOLDER, "Reducer_12to1.SLDASM")), "no assembly file")
+    check("no assembly was saved" in text and "Build is available again once the workbook changes" in text,
+          "the sentence: no assembly saved, and Build waits for a changed workbook")
+    check(any(p in text for p in box.mate_problems), "the sentence names the mate problems")
+    check("left open in SolidWorks as" in text, "the sentence names the document left open")
+    check(not footer.build_enabled, "Build greyed for the unchanged workbook")
+    INJECT["on"] = False
 
 
 def record_check():
@@ -346,6 +491,7 @@ STEPS = [
     ("wait", status_starts("Built", "Check", "Update SolidWorks stopped", "SolidWorks cannot")),
     ("pause", 1.5),
     ("do", lambda: shoot("03-built")),
+    ("do", built_turning_check),
     ("do", lambda: excel("set-save", ("Shafts", "C3", 64.5), ("Gears", "F3", 69))),
     ("wait", excel_done("set-save")),
     ("wait", status_starts("Update SolidWorks will")),
@@ -371,9 +517,31 @@ STEPS = [
     ("pause", 1.5),
     ("do", lambda: shoot("08-built-again")),
     ("do", record_check),
+] + ([
+    ("do", open_static),
+    ("wait", lambda: win.reading is not None and win.reading.ok and idle()),
+    ("pause", 1.5),
+    ("do", lambda: shoot("09-w4-static-record")),
+    ("do", static_check),
+] if W4_STATIC else [("do", lambda: log("skipped", what="the W4 static record's footer: no --w4-static folder"))]) + [
+    ("do", lambda: excel("close")),
+    ("wait", excel_done("close")),
+    ("do", lambda: excel("open", REFUSED_PATH)),
+    ("wait", excel_done("open")),
+    ("do", lambda: excel("set-save", ("Box", "B4", REFUSED_FOLDER + "\\"))),
+    ("wait", excel_done("set-save")),
+    ("do", lambda: INJECT.update(on=True)),
+    ("do", lambda: open_window(REFUSED_PATH, UNIQUE + " refused")),
+    ("wait", lambda: win.reading is not None and win.reading.ok and win.footer().build_enabled),
+    ("do", lambda: win.build_button.command()),
+    ("wait", status_starts("Built", "No assembly", "Check", "SolidWorks cannot")),
+    ("pause", 1.5),
+    ("do", lambda: shoot("10-refused")),
+    ("do", refused_check),
+    ("do", lambda: log("refused document", result=close_refused())),
 ]
 T0 = time.time()
-DEADLINE = T0 + 1500
+DEADLINE = T0 + 2400
 
 
 def step():
