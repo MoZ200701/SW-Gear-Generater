@@ -1391,7 +1391,8 @@ REFUSED_LAYOUT = ("Reducer_12to1_Layout.SLDPRT was saved but its assembly was no
 LOCK_PROBLEM = "The mate G3 locked to G2 over-defines the assembly."
 FLAG_PROBLEM = "SolidWorks answered 3 when making the mate G1 meshes G2."
 TURN_PROBLEM = "G2 cannot turn: SolidWorks reads it fully defined."
-STATIC_REASON = "how gears are mated to turn is not settled for this version (findings.MOTION_ROUTE)."
+STATIC_REASON = ("How a gear is mated to its shaft's axis is not settled by the probes for this version "
+                 "(findings.AXIS_MATE_ROUTE).")         # motion.motion_reason()'s shape: a whole sentence
 
 
 def _clean(text):
@@ -1507,12 +1508,12 @@ def test_before_build_a_missing_finding_says_the_assembly_will_be_static_and_why
     """Ruling (a) on 2f82a0e: the static build stays when a W5 finding is missing, and is said before Build."""
     plan = _gearbox(static_reason=STATIC_REASON, **FULL)
     assert _clean(ui_text.motion_ready_line(plan)) == (
-        "Its gears are placed meshed and fixed, not mated to turn: how gears are mated to turn is not settled for "
-        "this version (findings.MOTION_ROUTE).")
+        "Its gears are placed meshed and fixed, not mated to turn. How a gear is mated to its shaft's axis is not "
+        "settled by the probes for this version (findings.AXIS_MATE_ROUTE).")
     assert _footer(ready, plan=plan).text == (
         f"Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in {P}. Its gears are placed "
-        "meshed and fixed, not mated to turn: how gears are mated to turn is not settled for this version "
-        "(findings.MOTION_ROUTE).")
+        "meshed and fixed, not mated to turn. How a gear is mated to its shaft's axis is not settled by the probes "
+        "for this version (findings.AXIS_MATE_ROUTE).")
 
 
 def test_nothing_new_is_said_for_parts_only_refused_or_w4_static_plans():
@@ -1575,8 +1576,8 @@ def test_after_build_a_static_build_by_necessity_says_why_and_w4s_says_nothing_n
     plan = _gearbox(static_reason=STATIC_REASON, **FULL)
     assert ui_text.gearbox_status(plan, _built(kind="static")) == (
         "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears. Its gears "
-        "are placed meshed and fixed, not mated to turn: how gears are mated to turn is not settled for this version "
-        "(findings.MOTION_ROUTE).", True)
+        "are placed meshed and fixed, not mated to turn. How a gear is mated to its shaft's axis is not settled by "
+        "the probes for this version (findings.AXIS_MATE_ROUTE).", True)
     w4 = "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears."
     assert ui_text.gearbox_status(_gearbox(**FULL), _built(kind="static")) == (w4, True)
     assert ui_text.gearbox_status(_gearbox(**FULL), _built(kind="")) == (w4, True)
@@ -1791,11 +1792,13 @@ def test_a_gearbox_built_static_for_a_missing_finding_says_why_and_offers_once_i
     record = _record()
     record.gearbox.static_reason = STATIC_REASON
     assert _clean(ui_text.motion_record_line(record, offer=False)) == (
-        "It was built static: how gears are mated to turn is not settled for this version (findings.MOTION_ROUTE).")
+        "It was built static. How a gear is mated to its shaft's axis is not settled by the probes for this version "
+        "(findings.AXIS_MATE_ROUTE).")
     f = _footer(ready, record=record, plan=dataclasses.replace(_again(), motion=_motion()), update=_update())
     assert f.text.endswith(
-        "re-place G2, G3 and G4. It was built static: how gears are mated to turn is not settled for this version "
-        "(findings.MOTION_ROUTE). That is settled now, so Build again… makes a new revision whose gears turn.")
+        "re-place G2, G3 and G4. It was built static. How a gear is mated to its shaft's axis is not settled by the "
+        "probes for this version (findings.AXIS_MATE_ROUTE). That is settled now, so Build again… makes a new "
+        "revision whose gears turn.")
 
 
 def test_the_record_line_is_empty_with_no_gearbox_and_never_follows_an_error(ready):

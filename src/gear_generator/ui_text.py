@@ -2468,8 +2468,8 @@ def motion_ready_line(plan) -> str:
     some are left fixed, and those (:func:`_fixed_sentence`). With
     ``plan.static_reason`` (a W5 finding missing: the static build is kept
     and said here, as ruled on review of 2f82a0e): *Its gears are placed
-    meshed and fixed, not mated to turn: {static_reason}*, the reason the
-    planning clause as it came. ``""`` for a parts-only or refused plan, and
+    meshed and fixed, not mated to turn.* followed by ``static_reason``, the
+    planning's own whole sentence, as it came. ``""`` for a parts-only or refused plan, and
     for W4's static plan, which says nothing new.
     """
     if plan is None or plan.assembly is None or plan.refusal:
@@ -2477,7 +2477,7 @@ def motion_ready_line(plan) -> str:
     motion = getattr(plan, "motion", None)
     if motion is None:
         reason = getattr(plan, "static_reason", "")
-        return f"Its gears are placed meshed and fixed, not mated to turn: {_sentence(reason)}" if reason else ""
+        return f"Its gears are placed meshed and fixed, not mated to turn. {_sentence(reason)}" if reason else ""
     alone = _gears_alone(motion)
     trains = _train_count(motion)
     who = _turning_subject(motion)
@@ -2514,7 +2514,7 @@ def motion_done_line(plan, result) -> str:
     kind = getattr(result, "kind", "")
     if kind == GEARBOX_STATIC:
         reason = getattr(plan, "static_reason", "") if plan is not None else ""
-        return f"Its gears are placed meshed and fixed, not mated to turn: {_sentence(reason)}" if reason else ""
+        return f"Its gears are placed meshed and fixed, not mated to turn. {_sentence(reason)}" if reason else ""
     if kind != GEARBOX_MOTION:
         return ""
     motion = getattr(plan, "motion", None) if plan is not None else None
@@ -2587,7 +2587,7 @@ def motion_record_line(record, digest: str = "", *, offer: bool = True) -> str:
     before gears could be mated to turn: Build again… makes a new revision
     whose gears turn.* — only when ``offer`` (Build again… is on and its plan
     turns), else ``""``, so a W4 sentence stays as it was. ``static`` with a
-    ``static_reason``: *It was built static: {static_reason}*, and when
+    ``static_reason``: *It was built static.* and that whole sentence, and when
     ``offer``, *That is settled now, so Build again… makes a new revision
     whose gears turn.* No assembly and ``mate_problems`` (a refused build):
     *Reducer_12to1.SLDASM was not saved, because SolidWorks found a problem
@@ -2624,7 +2624,7 @@ def motion_record_line(record, digest: str = "", *, offer: bool = True) -> str:
             return f"It was built with its gears mated to turn: {drag_phrase(drag)}."
         return "It was built with its gears each mated to their shaft, free to turn."
     if box.static_reason:
-        return _joined(f"It was built static: {_sentence(box.static_reason)}",
+        return _joined(f"It was built static. {_sentence(box.static_reason)}",
                        "That is settled now, so Build again… makes a new revision whose gears turn." if offer else "")
     return ("It was built static, before gears could be mated to turn: Build again… makes a new revision whose gears "
             "turn.") if offer else ""

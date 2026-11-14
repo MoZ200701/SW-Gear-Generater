@@ -811,7 +811,7 @@ def test_a_v2_file_reads_as_static_and_a_read_never_writes_it(tmp_path):
 def test_a_v3_record_is_written_byte_for_byte_the_same_however_often_it_round_trips(tmp_path):
     record = turning_record(str(tmp_path / "R.xlsx"))
     record.gearbox.mate_problems, record.gearbox.mate_problems_digest = ["G2 is over-defined in SolidWorks."], "d"
-    record.gearbox.static_reason = "how gears are mated to turn is not settled for this version (findings.X)."
+    record.gearbox.static_reason = "How a gear is mated to turn is not settled by the probes (findings.X)."
     record = store.link_record_from_json(store.link_record_to_json(record))   # numbers as read (frames as floats)
     first = store.link_record_to_json(record)
     second = store.link_record_to_json(store.link_record_from_json(first))
