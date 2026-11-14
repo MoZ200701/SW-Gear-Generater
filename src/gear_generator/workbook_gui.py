@@ -50,15 +50,22 @@ one of two copies of an original since deleted. The window asks once, after
 the plan that found it (never from inside planning, never again on a
 re-plan), whether this workbook was moved or renamed from it; until the
 answer it is planned as a copy. The answer holds for the session
-(``_VERDICTS``) and is kept in the record: Yes adopts it, No sets
-``copy_of``.
+(``_VERDICTS``); Yes is also kept in the record (it adopts it), while No
+(``copy_of``, in memory) is never written, so until this workbook builds
+its own gearbox a new session asks again — the way back from a mistaken
+No (third W4 review).
 
 **The journal** (N4): before a build's job is submitted the record gains
 what it is about to make (``pending``), through the same guarded write as
 a finish; the finish takes it out. A build interrupted after SolidWorks
 saved some of it — the app killed, a crash, a power cut, or a close
 answered "Close anyway?" while SolidWorks did not answer — leaves those
-files for the next plan to reuse once checked live.
+files for the next plan to reuse once checked live. The journal is never
+cleared wholesale: a new build's is merged into it by path, and an entry
+leaves only once it is on record or its file is gone
+(``gearbox.settled_journal``, third W4 review). A job left running by
+"Close anyway" holds every Workbook window's Build and Update, with a
+sentence, until it has finished (``_UNOWNED``), so nothing overtakes it.
 
 **Closing while a job runs** a second time asks (default No) whether to
 close anyway; so does closing the strip's window a second time
@@ -139,6 +146,10 @@ JOB_BUILD, JOB_UPDATE = "build", "update"
 # the record too; this holds when that write fails. ``_ASKED``: the pairs already asked this session.
 _VERDICTS: Dict[Tuple[str, str], bool] = {}
 _ASKED: set = set()
+
+# Jobs whose window was closed anyway while SolidWorks had not answered (``WorkbookWindow.close``): no window will
+# collect them, and until each has answered no Workbook window starts a build or an update (third W4 review).
+_UNOWNED: List[Any] = []
 
 
 def _pair(workbook: str, other: str) -> Tuple[str, str]:
@@ -515,7 +526,12 @@ class WorkbookWindow(tk.Toplevel):
         """What the build button and Update SolidWorks would do now, on the Tk thread: the record read without
         moving anything, the documents Update left unsaved that have been saved since dropped (in memory), then
         ``plan_gearbox`` and, with something on record, ``classify``. Nothing here reaches SolidWorks, and only
-        existence checks and ``.gear.json`` reads reach the disk."""
+        existence checks, ``.gear.json`` reads and :func:`store.same_file`'s stats reach the disk — each path
+        statted once for the whole pass (``store.one_pass``)."""
+        with store.one_pass():
+            self._plan_solidworks_pass()
+
+    def _plan_solidworks_pass(self) -> None:
         newer = False
         try:
             record, problem = store.read_link_record(self.link.path), ""
@@ -590,7 +606,9 @@ class WorkbookWindow(tk.Toplevel):
             self._asking = False
         _VERDICTS[_pair(self.link.path, other)] = moved
         try:
-            record = store.open_link_record(self.link.path)
+            # Yes is kept in the record; No is this session's only (never written), so a new session asks again
+            # until this workbook has built its own gearbox (third W4 review: the way back from a mistaken No).
+            record = store.open_link_record(self.link.path) if moved else None
             if record is not None and store.record_owner(record, self.link.path) == (store.UNSURE, other):
                 store.settle_owner(record, self.link.path, moved)
                 store.save_link_record(record, store.link_record_path(self.link.path))
@@ -1025,31 +1043,42 @@ class WorkbookWindow(tk.Toplevel):
             return False
         if record is None:
             record = store.LinkRecord(workbook=self.link.path, own_digest=self.link.own_digest, recalc=self.recalc)
-        record.pending, record.pending_for = wb_gearbox.journal(plan), self.link.path
+        # Merged by path into what an earlier build's journal still holds, never replacing it (third W4 review).
+        record.pending = wb_gearbox.merged_journal(record, wb_gearbox.journal(plan), self.link.path)
+        record.pending_for = self.link.path
         try:
             store.save_link_record(record, store.link_record_path(self.link.path))
         except Exception:  # noqa: BLE001 - a button never raises; the finish says what cannot be written
             return False
         return True
 
-    def _clear_journal(self) -> None:
-        """A build the worker answered with a raise made nothing: its journal is taken out."""
+    def _settle_journal(self) -> None:
+        """A build the worker answered with a raise made nothing: what its journal names that is not on disk, or is
+        on record already, leaves it — and nothing else. Never the whole journal: the files an earlier interrupted
+        build saved, which this one's journal carried, stay this workbook's (third W4 review)."""
         try:
             record = store.open_link_record(self.link.path)
             if record is not None and record.pending:
-                record.pending, record.pending_for = [], ""
-                store.save_link_record(record, store.link_record_path(self.link.path))
+                left = wb_gearbox.settled_journal(record.pending, record)
+                if len(left) != len(record.pending):
+                    record.pending, record.pending_for = left, (record.pending_for if left else "")
+                    store.save_link_record(record, store.link_record_path(self.link.path))
         except Exception:  # noqa: BLE001 - only the journal: the next plan drops what is not on disk
             pass
 
     def _worker_free(self, updating: bool = False) -> bool:
-        """The strip's one SolidWorks thread is there and not building for the strip; else say why."""
+        """The strip's one SolidWorks thread is there, not building for the strip, and not still running a job a
+        closed window left (``_UNOWNED``); else say why."""
         worker = self.app._worker  # noqa: SLF001 - the strip's one SolidWorks thread, shared on purpose
         if worker is None:
             self._set_status(ui_text.job_unreachable(swcom.unavailable_reason(), updating), ok=False)
             return False
         if getattr(self.app, "_pending_build", None) is not None:
             self._set_status(ui_text.strip_busy(updating), ok=False)
+            return False
+        _UNOWNED[:] = [job for job in _UNOWNED if job.poll() is None]
+        if _UNOWNED:
+            self._set_status(ui_text.unowned_job_busy(updating), ok=False)
             return False
         return True
 
@@ -1075,7 +1104,7 @@ class WorkbookWindow(tk.Toplevel):
                 if job.updating and isinstance(error, swbuild.NotAsBuilt):
                     self._mark_not_as_built(error)
                 elif not job.updating:
-                    self._clear_journal()
+                    self._settle_journal()
             elif job.updating:
                 self.note = self._finish_update(job, value)
             else:
@@ -1178,7 +1207,8 @@ class WorkbookWindow(tk.Toplevel):
             if not may_write:
                 faults, notes = notes + faults, []
         except Exception as exc:  # noqa: BLE001 - see the docstring
-            dragged, notes, faults = [], [], [ui_text.finish_failed(exc, updating=True)]
+            changed = bool(getattr(result, "changed", None) or getattr(result, "placed", None))
+            dragged, notes, faults = [], [], [ui_text.finish_failed(exc, updating=True, changed=changed)]
         try:
             text, ok = ui_text.gearbox_update_status(job.update, result, dragged,
                                                      meshes=gearbox.meshes if gearbox is not None else None)
@@ -1231,11 +1261,15 @@ class WorkbookWindow(tk.Toplevel):
                 updating = self._job.updating
                 self._asking = True
                 try:
-                    anyway = ask_yes_no(self, ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question(updating))
+                    anyway = ask_yes_no(self, ui_text.CLOSE_ANYWAY_TITLE,
+                                        ui_text.close_anyway_question(updating, journaled=self._job.journaled))
                 finally:
                     self._asking = False
                 if anyway and self._pending is not None:
-                    self._pending = self._job = None      # its answer goes nowhere; the journal stays for the next plan
+                    # Its answer goes nowhere; the journal stays for the next plan, and until the job has answered
+                    # no Workbook window starts another (_worker_free).
+                    _UNOWNED.append(self._pending)
+                    self._pending = self._job = None
                     self._close_when_done = False
                     self._destroy()
                     return
@@ -1272,11 +1306,13 @@ def open_workbook(app: Any, path: str = "") -> Optional[WorkbookWindow]:
     app.recent.remember_workbook(path)
     store.save_recent(app.recent)
     root = app.winfo_toplevel()
-    for child in root.winfo_children():          # the same workbook twice is one window, brought forward
-        if isinstance(child, WorkbookWindow) and store.same_path(child.link.path, os.path.abspath(path)):
-            child.deiconify()
-            child.lift()
-            return child
+    with store.one_pass():                       # the same workbook twice — by any path to it — is one window
+        same = next((child for child in root.winfo_children() if isinstance(child, WorkbookWindow)
+                     and store.same_file(child.link.path, os.path.abspath(path))), None)
+    if same is not None:
+        same.deiconify()
+        same.lift()
+        return same
     return WorkbookWindow(root, app, path)
 
 

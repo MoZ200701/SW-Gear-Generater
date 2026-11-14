@@ -1134,3 +1134,176 @@ def test_one_workbook_reached_by_another_path_keeps_its_record_through_a_build(t
     assert done.record.workbook == str(workbook) and done.record.moved_from == []
     assert [e.name for e in done.record.earlier] == ["Old", "Reducer_12to1"]      # kept, and the first build added
     assert done.record.gearbox.revision == 2
+
+
+# -- the third W4 review ---------------------------------------------------------------------------------------
+
+
+def test_a_document_holding_unsaved_changes_is_never_counted_loaded_from_its_file_whatever_the_list_says():
+    """Third W4 review item 1 (w4x_documents_cap): Update left N68 changed and open; more than 200 documents were
+    loaded, so documents() (which stopped at 200) did not list it; the next Update counted it loaded from its file
+    and its finish took the unsaved marks off while the changes were still unsaved in SolidWorks. The walk now goes
+    to the end of the list, and as the belt a document opened is counted from disk only if GetSaveFlag reads it
+    holding nothing unsaved — this test cuts the list short, as the old walk did, and the belt alone holds."""
+    sw, disk, record, plan, mtime = _live()
+    n68 = plan.part_of["G2"]
+    _, record = _update_live(sw, disk, record, DEMO, mtime)
+    marked = {norm(p) for p in record.unsaved}
+    assert norm(n68) in marked
+    listed = list(sw.open_docs)
+    sw.documents = lambda: [d for d in listed if "N68" not in d.path]       # the 200-document cut stood in for
+    result, record = _update_live(sw, disk, record, DEMO, mtime, digest="d3")
+    assert norm(n68) not in {norm(p) for p in result.opened}
+    assert norm(n68) in {norm(p) for p in record.unsaved}
+    assert disk.read_sidecar(store.sidecar_path(n68)).record.unsaved_since == 100.0
+
+
+def test_when_the_documents_open_are_not_known_no_document_counts_as_loaded_from_its_file():
+    """open_before None means not known: _from_disk is then never True, so nothing is listed in ``opened`` and the
+    finishes clear no mark on its account (they skip the open_before rule when it is None)."""
+    from test_swbuild import FakeSolidWorks
+    assert not swbuild._from_disk("C:\\P\\A.SLDPRT", None)
+    unknown = swbuild.GearboxUpdate()
+    swbuild._note_opened(FakeSolidWorks(), "C:\\P\\A.SLDPRT", unknown)
+    assert unknown.opened == [] and unknown.open_before is None
+    sw, disk, record, plan, mtime = _live()
+    _, record = _update_live(sw, disk, record, DEMO, mtime)
+    sw.close_all()
+    from gear_generator.workbook import update
+    up = update.classify(record, assessed(reducer()), exists=disk.exists)
+    result = swbuild.update_gearbox(sw, **up.update_kwargs(), exists=sw.exists, mtime=mtime)
+    result.open_before, result.opened = None, []
+    fin = update.finish_update(up, result, record, digest="d3", read_sidecar=disk.read_sidecar, mtime=mtime)
+    assert {norm(p) for p in fin.record.unsaved} == {norm(p) for p in record.unsaved}
+
+
+def test_a_list_of_open_documents_that_never_ends_refuses_the_job_before_anything_is_made():
+    """Decision 7's same-name check cannot pass silently on a list it could not read to the end."""
+    from test_swbuild import FakeSolidWorks
+    from gear_generator import swcom
+    disk = Disk()
+    plan = plan_for(assessed(), None, disk)
+    sw = FakeSolidWorks()
+
+    def runaway():
+        raise swcom.DocumentsUnknown("SolidWorks listed 100000 open documents without coming to the end of its list, "
+                                     "so which documents it holds open cannot be known here, and nothing that "
+                                     "depends on it is started; restart SolidWorks and try again.")
+    sw.documents = runaway
+    with pytest.raises(swcom.DocumentsUnknown, match="nothing that depends on it is started"):
+        swbuild.build_gearbox(sw, **plan.build_kwargs(), exists=sw.exists)
+    assert sw.saved == {} and "new_part" not in [c[0] for c in sw.calls]
+
+
+def _interrupted(disk, sw):
+    """An interrupted first build: the journal written, N17 and N68 saved by SolidWorks, nothing collected."""
+    a = assessed()
+    plan = plan_for(a, None, disk)
+    record = store.LinkRecord(workbook=WORKBOOK, pending=gearbox.journal(plan), pending_for=WORKBOOK)
+    swbuild.build_many(sw, [j.plan for j in plan.build[:2]], sw.exists)
+    disk.add(*sw.saved)
+    return a, plan, record
+
+
+def test_a_refused_job_never_orphans_what_an_interrupted_build_saved():
+    """Third W4 review item 3 (w4x_clear_journal_orphans): the next Build's job was refused at its pre-flight (here a
+    same-named document open elsewhere; SolidWorks not running does the same) and the window cleared the whole
+    journal, so the two files the interrupted build saved became files with no record and the plan after went
+    beside them as _r2. Now only what is not on disk, or is on record, leaves the journal."""
+    from test_swbuild import FakeSolidWorks
+    from gear_generator.swcom import DocInfo
+    disk, sw = Disk(), FakeSolidWorks()
+    a, plan, record = _interrupted(disk, sw)
+    again = plan_for(a, record, disk)
+    assert [(r.stem, r.journaled) for r in again.reuse] == [("Gear_m1.5_N17", True), ("Gear_m1.5_N68", True)]
+    record.pending = gearbox.merged_journal(record, gearbox.journal(again), WORKBOOK, exists=disk.exists,
+                                            read_sidecar=disk.read_sidecar)
+    sw2 = FakeSolidWorks(open_docs=[DocInfo(title="Gear_m2_N17.SLDPRT", path="D:\\Other\\Gear_m2_N17.SLDPRT",
+                                            doc_type=1)])
+    sw2.saved = dict(sw.saved)
+    with pytest.raises(swbuild.BuildError):
+        swbuild.build_gearbox(sw2, **again.build_kwargs(), exists=sw2.exists)
+    # What the window does with a build answered with a raise (WorkbookWindow._settle_journal):
+    record.pending = gearbox.settled_journal(record.pending, record, exists=disk.exists, read_sidecar=disk.read_sidecar)
+    assert sorted(stem(e.path) for e in record.pending) == ["Gear_m1.5_N17", "Gear_m1.5_N68"]
+    third = plan_for(a, record, disk)
+    assert [r.stem for r in third.reuse] == ["Gear_m1.5_N17", "Gear_m1.5_N68"] and third.made_new == ()
+    assert [j.stem for j in third.build] == ["Gear_m2_N17", "OutputGear"]
+
+
+def test_a_new_journal_is_merged_by_path_into_the_old_never_replacing_it():
+    """Close anyway, then a new Build: its journal replaced the old one, so files the abandoned job saved afterwards
+    were in no journal. Merged by path, what the old journal names and the new plan does not stays."""
+    from test_swbuild import FakeSolidWorks
+    disk, sw = Disk(), FakeSolidWorks()
+    a, plan, record = _interrupted(disk, sw)
+    disk.add(plan.build[2].path)                                    # a third saved after the new journal was planned
+    narrow = gearbox.journal(plan_for(a, record, disk))
+    narrow = [e for e in narrow if stem(e.path) == "OutputGear"]
+    merged = gearbox.merged_journal(record, narrow, WORKBOOK, exists=disk.exists, read_sidecar=disk.read_sidecar)
+    assert stem(merged[0].path) == "OutputGear"
+    assert sorted(stem(e.path) for e in merged[1:]) == ["Gear_m1.5_N17", "Gear_m1.5_N68", "Gear_m2_N17"]
+    # Another workbook's journal (a copy's original's, carried in the folder) is never merged into this one's.
+    record.pending_for = r"C:\Elsewhere\Other.xlsx"
+    assert gearbox.merged_journal(record, narrow, WORKBOOK, exists=disk.exists,
+                                  read_sidecar=disk.read_sidecar) == narrow
+
+
+def test_a_journaled_part_that_fails_its_live_check_stays_this_workbooks_with_its_mismatched_mark():
+    """Third W4 review (ride-along): the finish took the whole journal out, so a journaled part found not holding
+    what it should got its mismatched mark and then read as "no record that this workbook built it"."""
+    from test_swbuild import FakeSolidWorks
+    disk, sw = Disk(), FakeSolidWorks()
+    a, plan, record = _interrupted(disk, sw)
+    n68 = plan.build[1].path
+    again = plan_for(a, record, disk)
+    sw.close_all()
+    sw.saved[n68.lower().replace("/", "\\")] = ([], [])             # its globals gone by hand
+    result = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists, mtime=lambda p: 50.0)
+    assert [stem(p) for p, _ in result.mismatched] == ["Gear_m1.5_N68"]
+    record.pending = gearbox.journal(again)
+    done = gearbox.finish_build(again, result, record, workbook=WORKBOOK, digest="d1", written_by="test",
+                                read_sidecar=disk.read_sidecar, mtime=lambda p: 50.0, exists=disk.exists)
+    assert norm(n68) in {norm(e.path) for e in done.record.pending}
+    assert norm(n68) in {norm(p) for p in done.record.mismatched}
+    after = plan_for(a, done.record, disk, mtime=lambda p: 50.0)
+    reasons = {stem(m.old): m.why for m in after.made_new}
+    assert reasons["Gear_m1.5_N68"] == gearbox.MISMATCHED
+    assert gearbox.NO_RECORD not in reasons.values()
+
+
+def test_a_finish_takes_out_only_what_is_on_record_or_gone():
+    """The finish of a build that saved its parts but not its assembly: the parts are on record and leave the
+    journal; the assembly it never saved is not on disk and leaves too; nothing on disk and off record is lost."""
+    disk = Disk()
+    a = assessed()
+    plan = plan_for(a, None, disk)
+    record = store.LinkRecord(workbook=WORKBOOK, pending=gearbox.journal(plan), pending_for=WORKBOOK)
+    stray = path("Stray.SLDPRT")
+    disk.add(stray)
+    record.pending.append(store.PartEntry(path=stray, kind="spur"))  # an earlier interrupted build's, still off record
+    result = run(plan, disk, fail_assembly=True)
+    done = gearbox.finish_build(plan, result, record, workbook=WORKBOOK, digest="d1", written_by="test",
+                                read_sidecar=disk.read_sidecar, exists=disk.exists)
+    assert [stem(e.path) for e in done.record.pending] == ["Stray"] and done.record.pending_for == WORKBOOK
+
+
+def test_after_no_with_the_original_gone_nothing_says_it_is_still_there():
+    """Third W4 review item 4 (w4x_copy_of_gone_sentence)."""
+    from gear_generator import ui_text
+    from gear_generator.workbook import update
+    disk = Disk()
+    _, record = _built_on_disk(disk)                                  # WORKBOOK not on disk: gone
+    store.settle_owner(record, MOVED, moved=False)                    # answered No, this session
+    a = assessed_at(MOVED)
+    p = plan_for(a, record, disk)
+    assert (p.foreign_record, p.foreign_gone, p.foreign_said) == (WORKBOOK, False, True)
+    footer = ui_text.workbook_footer(a, record=None, plan=p, update=None, folder=FOLDER).text
+    assert "still there" not in footer and "which you said this workbook is a copy of" in footer
+    refusal = update.classify(record, a, exists=disk.exists).refusal
+    assert "still there" not in refusal and "which you said this workbook is a copy of" in refusal
+    # The original back on disk: a copy because it is there, and said so.
+    disk.add(WORKBOOK)
+    p = plan_for(a, record, disk)
+    assert p.foreign_said is False and "which is still there" in ui_text.workbook_footer(
+        a, record=None, plan=p, update=None, folder=FOLDER).text

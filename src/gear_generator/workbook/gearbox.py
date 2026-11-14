@@ -61,7 +61,9 @@ that workbook's (``store.record_owner``), so it is planned without — a
 gearbox of this workbook's own, beside the other's files, sharing nothing —
 and :attr:`GearboxPlan.foreign_record` names it. A record whose workbook is
 gone is planned the same way until the person says this workbook was moved
-or renamed from it (second review N1c; :attr:`GearboxPlan.foreign_gone`).
+or renamed from it (second review N1c; :attr:`GearboxPlan.foreign_gone`);
+one the person said this session it is a copy of, while that workbook is
+not there, is told apart for its sentence (:attr:`GearboxPlan.foreign_said`).
 
 **The journal** (second review N4): a build's record gains, before the
 worker starts, what it is about to make (``LinkRecord.pending``). A pending
@@ -70,6 +72,11 @@ is planned for reuse like a part on record — the same plan, then checked
 live — rather than called a file with no record; a pending layout part
 likewise (checked live against the shafts now); a pending assembly is a
 file this workbook made and never recorded, which the build goes beside.
+The journal is never cleared wholesale (third review): an entry leaves it
+only once it is on record or its file is not on disk
+(:func:`settled_journal`), and a new build's journal is merged into the old
+by path (:func:`merged_journal`), so a refused job, or a job abandoned and
+then overtaken, never orphans what an interrupted build saved.
 """
 
 from __future__ import annotations
@@ -197,7 +204,9 @@ class GearboxPlan:
     (a copy), which this plan was made without; ``""`` normally.
     ``foreign_gone``: that workbook is not there any more and nobody has said
     whether this one was moved from it (``store.UNSURE``): planned as a copy
-    until the person answers.
+    until the person answers. ``foreign_said``: that workbook is not there
+    any more and the person said this session that this one is a copy of it
+    (``store.copy_by_answer``).
     """
 
     revision: int
@@ -221,6 +230,7 @@ class GearboxPlan:
     made_new: Tuple[MadeNew, ...] = ()
     foreign_record: str = ""
     foreign_gone: bool = False
+    foreign_said: bool = False
 
     @property
     def parts_only(self) -> bool:
@@ -685,6 +695,7 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
     return attempt
 
 
+@store.in_one_pass
 def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: str = "",
                  assembly_template: str = "", parts_only: bool = False,
                  exists: Callable[[str], bool] = os.path.exists,
@@ -715,6 +726,7 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     here = str(a.read.source_path or spec.source_path or "")
     owner, other = store.record_owner(record, here, exists)
     foreign = other if owner != store.OURS else ""
+    said = bool(foreign) and store.copy_by_answer(record, here, exists)
     journal = _journal_of(record, here, ours=not foreign)
     if foreign:
         record = None                       # a copy: the record and its files are the other workbook's (S1, N1)
@@ -725,7 +737,7 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     empty = dict(folder=folder, layout_path="", assembly_path="", build=(), reuse=(), shafts=(), frames={},
                  layout=None, assembly=None, handles={}, part_of={}, part_template=part_tpl,
                  assembly_template=asm_tpl, meshes=meshes, foreign_record=foreign,
-                 foreign_gone=owner == store.UNSURE)
+                 foreign_gone=owner == store.UNSURE, foreign_said=said)
     name0 = layout.stems(spec.box.name, 0)[0]
 
     named = _gearbox_named(a, jobs)
@@ -839,6 +851,51 @@ def _journal_of(record: Optional[LinkRecord], here: str, ours: bool) -> List[Par
     return list(record.pending) if any(store.same_file(record.pending_for, n) for n in names if n) else []
 
 
+def on_record(record: Optional[LinkRecord], path: str) -> bool:
+    """Whether ``record`` lists ``path``: among its parts, or as a gearbox's layout part or assembly, this
+    revision's or an earlier one's."""
+    if record is None or not path:
+        return False
+    listed = [p.path for p in record.parts] + [record.assembly]
+    if record.gearbox is not None:
+        listed += [record.gearbox.layout, record.gearbox.assembly]
+    for earlier in record.earlier:
+        listed += [earlier.layout, earlier.assembly] + list(earlier.parts)
+    return _in(path, [p for p in listed if p])
+
+
+def settled_journal(entries: Sequence[PartEntry], record: Optional[LinkRecord], *,
+                    exists: Callable[[str], bool] = os.path.exists,
+                    read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar,
+                    written: Sequence[str] = ()) -> List[PartEntry]:
+    """What stays in a journal: every entry whose file is on disk and not yet on record (third W4 review). An
+    entry leaves only once it is on record — ``record`` lists it (:func:`on_record`), or its ``.gear.json`` is
+    written (``written``: the sidecar paths a finish is about to write) or already beside it — or once its file is
+    not on disk. A file saved by an interrupted build therefore stays this workbook's however many jobs are
+    refused, fail their live check or are abandoned after it."""
+    out = []
+    for entry in entries:
+        if not entry.path or not exists(entry.path) or on_record(record, entry.path):
+            continue
+        sidecar = store.sidecar_path(entry.path)
+        if _in(sidecar, written) or read_sidecar(sidecar) is not None:
+            continue
+        out.append(entry)
+    return out
+
+
+def merged_journal(record: Optional[LinkRecord], entries: Sequence[PartEntry], workbook: str, *,
+                   exists: Callable[[str], bool] = os.path.exists,
+                   read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar) -> List[PartEntry]:
+    """The journal a build writes before it starts: its own ``entries`` (:func:`journal`), then every entry of
+    this workbook's journal already in ``record`` for another path that is still unsettled (:func:`settled_journal`)
+    — merged by path, never replacing the old journal (third W4 review). A journal another workbook's build wrote
+    (``pending_for``) is not this one's, and is not carried into it."""
+    ours = record is not None and store.record_owner(record, workbook, exists)[0] == store.OURS
+    old = settled_journal(_journal_of(record, workbook, ours), record, exists=exists, read_sidecar=read_sidecar)
+    return list(entries) + [e for e in old if not any(store.same_path(e.path, n.path) for n in entries)]
+
+
 def journal(plan: GearboxPlan) -> List[PartEntry]:
     """What a build is about to make, for ``LinkRecord.pending`` (written before the worker starts): each new
     part (path, gears, revision, kind, spec), the new layout part and the assembly (``kind`` ``layout`` and
@@ -910,7 +967,8 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
                  digest: str, written_by: str,
                  read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar,
                  stamp: Optional[str] = None,
-                 mtime: Callable[[str], float] = os.path.getmtime) -> Finished:
+                 mtime: Callable[[str], float] = os.path.getmtime,
+                 exists: Callable[[str], bool] = os.path.exists) -> Finished:
     """The sidecars and record a build leaves, from what actually saved (Tk thread, after the worker).
 
     ``record`` is the record as read just before writing
@@ -950,10 +1008,13 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     (``result.opened``) loses its unsaved marks, record and ``.gear.json``
     (N2); one marked unsaved that was not open when the job began
     (``result.open_before``) lost Update's changes and becomes mismatched.
-    The journal (``record.pending``, N4) is taken out — written back even
-    when nothing was made — and a reused part only the journal knew gets
-    its ``.gear.json`` now, in the unit the live check found
-    (``result.held``). The record of a copy is told by ``store.same_file``,
+    The journal (``record.pending``, N4) keeps only what is still not on
+    record and on disk (:func:`settled_journal`, third review: never
+    cleared wholesale; ``exists`` reads the disk) — written back even when
+    nothing was made — and a reused part only the journal knew gets its
+    ``.gear.json`` now, in the unit the live check found (``result.held``).
+    A journaled part that failed its live check stays in the journal, so it
+    stays known as this workbook's, with its mismatched mark. The record of a copy is told by ``store.same_file``,
     so another path to this workbook is never taken for a copy (N1a). The
     window writes ``finished.record`` beside this workbook — even when it is
     the other workbook's record with the journal taken out.
@@ -967,8 +1028,10 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     rec = copy.deepcopy(record) if record is not None else LinkRecord(workbook=workbook)
     store.adopt(rec, workbook)
     saved_any = False
-    journaled = bool(rec.pending) or bool(other is not None and other.pending)
-    rec.pending, rec.pending_for = [], ""  # collected: the journal has done its work (N4)
+    # This workbook's journal (N4): in its own record, or — a copy's — in the record that came with it. Settled at
+    # the end, entry by entry, against what this finish puts on record (third review).
+    source = other if other is not None else rec
+    mine = _journal_of(source, workbook, ours=other is None)
 
     marked_any = False
     for path in result.checked:            # found, live, to hold what it should: reusable again
@@ -1031,6 +1094,11 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     # Reused parts were checked live before anything was built (decision 3): they are this revision's too.
     for reused in plan.reuse:
         old = next((p for p in rec.parts if store.same_path(p.path, reused.path)), None)
+        if old is None and not _in(reused.path, result.checked):
+            # Not on record, and not found live to hold what it should (it failed the check, or the job never
+            # reached it): not put on record now. A journaled one stays in the journal, this workbook's (third
+            # review), and its mismatched mark, if any, decides the next plan.
+            continue
         sidecar = None if old is not None else read_sidecar(store.sidecar_path(reused.path))
         held = next((t for p, t in result.held.items() if store.same_path(p, reused.path)), "")
         if old is not None:
@@ -1086,15 +1154,22 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
                                  "Update SolidWorks cannot find them; build again to replace it.")
         rec.gearbox = gearbox
 
+    left = settled_journal(mine, rec, exists=exists, read_sidecar=read_sidecar, written=[p for p, _ in out.sidecars])
+    settled = len(left) != len(mine)
+    if other is not None:
+        rec.pending, rec.pending_for = left, (workbook if left else "")    # the copy's own record from now
+    elif mine:
+        rec.pending, rec.pending_for = left, (rec.pending_for if left else "")
+
     if not saved_any:
         if marked_any:
             out.record = rec               # nothing made, but what the checks found is on record for the next plan
-        elif journaled and other is not None:
-            kept = copy.deepcopy(other)    # a copy's journal, written into the record that came with it: taken out
-            kept.pending, kept.pending_for = [], ""
+        elif settled and other is not None:
+            kept = copy.deepcopy(other)    # a copy's journal, written into the record that came with it: settled
+            kept.pending, kept.pending_for = left, (other.pending_for if left else "")
             out.record = kept
-        elif journaled:
-            out.record = rec               # nothing made: the journal is taken out
+        elif settled:
+            out.record = rec               # nothing made: what is not on disk leaves the journal
         return out
     if result.ok:
         rec.digest = digest

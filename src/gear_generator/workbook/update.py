@@ -245,6 +245,7 @@ def _part(entry: PartEntry, job: PartJob, exists: Callable[[str], bool]) -> Tupl
     return update, ""
 
 
+@store.in_one_pass
 def classify(record: Optional[LinkRecord], a: Assessment, *,
              exists: Callable[[str], bool] = os.path.exists) -> UpdatePlan:
     """What Update SolidWorks would change, from the planning read of the record (``store.read_link_record``) and
@@ -264,7 +265,8 @@ def classify(record: Optional[LinkRecord], a: Assessment, *,
     here = str(a.read.source_path or a.spec.source_path or "")
     owner, foreign = store.record_owner(record, here, exists)
     if owner != store.OURS:
-        return UpdatePlan(refusal=store.foreign_record_sentence(here, foreign, gone=owner == store.UNSURE),
+        return UpdatePlan(refusal=store.foreign_record_sentence(here, foreign, gone=owner == store.UNSURE,
+                                                                said=store.copy_by_answer(record, here, exists)),
                           foreign_record=foreign)
     box = record.gearbox
     if box is not None and not box.assembly:

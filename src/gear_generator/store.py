@@ -15,9 +15,12 @@ Nothing here touches COM.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import os
 import sys
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -104,18 +107,66 @@ def same_path(a: str, b: str) -> bool:
     return os.path.normcase(a.replace("/", "\\")).lower() == os.path.normcase(b.replace("/", "\\")).lower()
 
 
+_PASS = threading.local()          # within one_pass(): normalised path -> its file id, or None (see _file_id)
+
+
+@contextlib.contextmanager
+def one_pass():
+    """Within it, each path :func:`same_file` stats is statted once, and its answer kept until the pass ends: a
+    planning pass on the Tk thread asks about the same few paths again and again (each sidecar's workbook, the
+    journal's, the record's), and against a network path that is offline each stat can wait out the network's
+    timeout (third W4 review). Nested passes share the outermost; per thread."""
+    if getattr(_PASS, "ids", None) is not None:
+        yield
+        return
+    _PASS.ids = {}
+    try:
+        yield
+    finally:
+        _PASS.ids = None
+
+
+def in_one_pass(function: Callable) -> Callable:
+    """``function`` run inside :func:`one_pass`."""
+    @functools.wraps(function)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with one_pass():
+            return function(*args, **kwargs)
+    return wrapper
+
+
+def _file_id(path: str) -> Optional[Tuple[int, int]]:
+    """``(st_dev, st_ino)`` of the file at ``path``, or None when it cannot be statted or its file id is 0 — some
+    network redirectors and virtual drives report 0 for every file, so 0 says nothing about which file it is (the
+    cause of shutil's false SameFileError). Kept for the rest of a :func:`one_pass`."""
+    ids = getattr(_PASS, "ids", None)
+    key = os.path.normcase(path.replace("/", "\\")).lower()
+    if ids is not None and key in ids:
+        return ids[key]
+    try:
+        st = os.stat(path)
+        found: Optional[Tuple[int, int]] = (st.st_dev, st.st_ino) if st.st_ino else None
+    except (OSError, ValueError):
+        found = None
+    if ids is not None:
+        ids[key] = found
+    return found
+
+
 def same_file(a: str, b: str) -> bool:
-    """Whether two paths name one file: :func:`same_path`, or — when both exist — ``os.path.samefile``, so a
-    mapped drive and its UNC path, a ``subst`` drive, a junction, a symlink or an 8.3 name are one file (W4
-    review N1a). Two paths of which one does not exist are compared as text alone."""
+    """Whether two paths name one file: :func:`same_path` (the text, compared first, statting nothing), or — when
+    both can be statted and each has a file id that is not 0 — the same ``(st_dev, st_ino)``, so a mapped drive
+    and its UNC path, a ``subst`` drive, a junction, a symlink or an 8.3 name are one file (W4 review N1a). A path
+    that cannot be statted, or a file id of 0, is not known to be the same file: compared as text alone (third
+    review). Within :func:`one_pass` each path is statted at most once."""
     if same_path(a, b):
         return True
     if not a or not b:
         return False
-    try:
-        return os.path.samefile(a, b)
-    except (OSError, ValueError):
+    first = _file_id(a)
+    if first is None:
         return False
+    return _file_id(b) == first
 
 
 # -- reading and writing ----------------------------------------------------
@@ -481,15 +532,20 @@ class LinkRecord:
       oldest first. Its parts' ``.gear.json`` name the path they were built
       from, so planning still recognises them as this workbook's — while the
       file at that path is gone (a workbook there now is another one).
-    - ``copy_of``: set (to ``workbook``) when the person said the workbook
-      beside this record is not the one it was written for, which is gone —
-      a copy (:func:`record_owner`): the answer is kept here, so a later
-      absence of the original never flips it and the question is not asked
-      again. The rest of the record is left as it came.
+    - ``copy_of``: in memory only, never written: set (to ``workbook``)
+      when the person said this session that the workbook beside this
+      record is not the one it was written for, which is gone — a copy
+      (:func:`record_owner`). It is not kept in the file, so the answer
+      holds for the session, and until this workbook's first build writes a
+      record of its own over the one that came with it; a workbook opened
+      again in a new session before that is asked again (the way back from
+      a mistaken No, third W4 review).
     - ``pending``: a build's journal (W4 review N4): the parts, layout part
       and assembly a build is about to make (``kind`` ``layout`` or
       ``assembly`` for those two), written before the worker starts and
-      cleared when the job is collected. A pending path that exists when a
+      taken out entry by entry, only once an entry is on record (its
+      ``.gear.json`` written, or listed in ``parts`` or a gearbox) or its
+      file is not on disk (third W4 review). A pending path that exists when a
       later build is planned, with no ``.gear.json`` beside it, is that
       build's interrupted work — SolidWorks saved it, the app never put it
       on record (a crash, a kill, a power cut, or quitting while SolidWorks
@@ -525,7 +581,7 @@ class LinkRecord:
     unsaved: Dict[str, float] = field(default_factory=dict)
     moved_from: List[str] = field(default_factory=list)   # the workbook's earlier paths, oldest first
     mismatched: Dict[str, float] = field(default_factory=dict)
-    copy_of: str = ""                 # ``workbook`` as it was when the workbook beside this was said to be a copy
+    copy_of: str = ""                 # this session's "a copy" answer: in memory only, never written (see above)
     pending: List[PartEntry] = field(default_factory=list)   # a build's journal: what it is about to make
     pending_for: str = ""             # the workbook whose build wrote ``pending``
 
@@ -583,6 +639,7 @@ def link_record_to_json(record: LinkRecord) -> str:
     """Byte-deterministic, always written as the current schema (with ``schema_version`` shown as 1 to a build
     from before schema 2: :data:`LINK_SCHEMA_FOR_OLD_READERS`)."""
     payload = asdict(record)
+    payload.pop("copy_of", None)          # this session's answer only: never kept (LinkRecord)
     payload["schema_version"] = LINK_SCHEMA_FOR_OLD_READERS
     payload[LINK_SCHEMA_KEY] = LINK_SCHEMA_VERSION
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
@@ -667,7 +724,7 @@ def link_record_from_json(text: str) -> LinkRecord:
         raise UnknownSchema(f"it was written by a newer Gear Generator (schema {version}, this one reads "
                             f"{LINK_SCHEMA_VERSION})")
     try:
-        record = LinkRecord(**_known(LinkRecord, raw))
+        record = LinkRecord(**{k: v for k, v in _known(LinkRecord, raw).items() if k != "copy_of"})
         record.parts = [_checked(p) for p in _entries(PartEntry, raw.get("parts", []))]
         gearbox = raw.get("gearbox")
         if gearbox is not None:
@@ -847,16 +904,18 @@ def record_owner(record: Optional[LinkRecord], workbook: str, exists: Callable[[
       same file: a mapped drive and its UNC path are one workbook, not a
       copy of itself;
     - COPY: it names another file that still exists, or the person said
-      this workbook is a copy (``copy_of``, kept in the record): that
-      workbook's record, and its files. Update waits, and Build makes a
-      gearbox of this workbook's own beside them;
+      this session that this workbook is a copy (``copy_of``, in memory
+      only): that workbook's record, and its files. Update waits, and Build
+      makes a gearbox of this workbook's own beside them;
     - UNSURE: it names a file that is gone, and nobody has said. The
       workbook may have been moved or renamed — or it may be one of several
       copies of an original since deleted, renamed, or on a drive that is
       offline now — so the record is not adopted silently: the window asks
       once, and until it is answered the record is treated as not this
       workbook's (as a COPY). "Yes" is kept by adopting the record
-      (:func:`adopt`), "No" by ``copy_of``.
+      (:func:`adopt`), "No" by ``copy_of`` for the session
+      (:func:`copy_by_answer` tells that COPY from one whose workbook is
+      there).
 
     Pure but for ``exists`` and ``same``."""
     other = record.workbook if record is not None else ""
@@ -877,10 +936,26 @@ def foreign_workbook(record: Optional[LinkRecord], workbook: str, exists: Callab
     return "" if owner == OURS else other
 
 
-def foreign_record_sentence(workbook: str, other: str, gone: bool = False) -> str:
+def copy_by_answer(record: Optional[LinkRecord], workbook: str,
+                   exists: Callable[[str], bool] = os.path.exists) -> bool:
+    """Whether the record beside ``workbook`` is another workbook's only because the person said so this session
+    (``copy_of``): that workbook is not there, so no sentence may say it is (third W4 review, item 4)."""
+    if record is None or not record.copy_of or not same_path(record.copy_of, record.workbook):
+        return False
+    return record_owner(record, workbook, exists)[0] == COPY and not exists(record.workbook)
+
+
+def foreign_record_sentence(workbook: str, other: str, gone: bool = False, said: bool = False) -> str:
     """Why a copied workbook's record is not used (:func:`record_owner`), as a sentence naming both files; ``gone``
-    for a record whose workbook is not there any more and nobody has said whether this one was moved from it."""
+    for a record whose workbook is not there any more and nobody has said whether this one was moved from it;
+    ``said`` for one whose workbook is not there and which the person said this workbook is a copy of
+    (:func:`copy_by_answer`)."""
     record = _file_name(link_record_path(workbook))
+    if said:
+        return (f"The record of what was built beside this workbook, {record}, was written for {other}, which you "
+                f"said this workbook is a copy of: the SolidWorks files that record lists are {_file_name(other)}'s, "
+                "so Update SolidWorks leaves them alone, and Build makes this workbook's own gearbox beside them, "
+                "sharing and overwriting nothing.")
     if gone:
         return (f"The record of what was built beside this workbook, {record}, was written for {other}, which is not "
                 "there any more, and whether this workbook was moved or renamed from it has not been answered: until "
@@ -892,8 +967,10 @@ def foreign_record_sentence(workbook: str, other: str, gone: bool = False) -> st
 
 
 def settle_owner(record: LinkRecord, workbook: str, moved: bool) -> None:
-    """The person's answer to "was this workbook moved or renamed from …?" (an UNSURE record), kept in the record
-    in place: Yes adopts it (:func:`adopt`), No marks it another workbook's (``copy_of``)."""
+    """The person's answer to "was this workbook moved or renamed from …?" (an UNSURE record), made in the record
+    in place: Yes adopts it (:func:`adopt`), and written, is kept; No marks it another workbook's (``copy_of``),
+    which is never written, so it holds for the session only (until a build of this workbook's own replaces the
+    record)."""
     if moved:
         adopt(record, workbook)
     else:

@@ -626,6 +626,44 @@ def test_with_the_ask_route_an_open_document_is_activated_and_a_closed_one_is_as
                                  "asked to open a document by its path (findings.UPDATE_OPEN_ROUTE).")
 
 
+def test_documents_walks_to_the_end_of_solidworks_list_however_long(com):
+    """Third W4 review item 1 (w4x_documents_cap): the walk stopped at 200, and one large assembly loads more; a
+    document holding Update's unsaved changes then missed the list and passed as loaded from its file."""
+    for index in range(260):
+        com.opened(W + f"Doc{index}.SLDPRT", active=False)
+    listed = _session(com).documents()
+    assert len(listed) == 260 and listed[-1].path == W + "Doc259.SLDPRT"
+    # open_document's own same-name check walks the same way: a clash past the 200th document is still refused.
+    com.saved(W + "Sub\\Doc250.SLDPRT")
+    with pytest.raises(SolidWorksError, match="same file name"):
+        _session(com).open_document(W + "Sub\\Doc250.SLDPRT")
+
+
+def test_a_list_of_documents_that_never_ends_is_refused_with_a_sentence(com, monkeypatch):
+    monkeypatch.setattr(swcom, "DOCUMENT_WALK_LIMIT", 5)
+    for index in range(5):
+        com.opened(W + f"Doc{index}.SLDPRT", active=False)
+    assert len(_session(com).documents()) == 5                      # the end reached at the limit: all listed
+    com.opened(W + "Doc5.SLDPRT", active=False)
+    with pytest.raises(swcom.DocumentsUnknown) as raised:
+        _session(com).documents()
+    assert str(raised.value) == ("SolidWorks listed 5 open documents without coming to the end of its list, so which "
+                                 "documents it holds open cannot be known here, and nothing that depends on it is "
+                                 "started; restart SolidWorks and try again.")
+
+
+def test_unsaved_changes_are_read_from_the_save_flag_of_the_document_just_opened(com):
+    part = com.saved(W + "Gear.SLDPRT")
+    other = com.opened(W + "Other.SLDPRT")
+    other.GetSaveFlag = True                                         # what is on screen is not what is asked about
+    part.GetSaveFlag = False
+    session = _session(com)
+    session.open_document(W + "Gear.SLDPRT")
+    assert session.has_unsaved_changes() is False
+    part.GetSaveFlag = True
+    assert session.has_unsaved_changes() is True
+
+
 def test_a_document_that_does_not_come_forward_is_refused(com):
     com.opened(W + "Other.SLDPRT")
     com.saved(W + "Gear.SLDPRT")

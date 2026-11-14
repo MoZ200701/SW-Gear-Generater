@@ -474,6 +474,15 @@ class FeatureInfo:
     type_name: str
 
 
+# The most documents ``Session.documents`` walks before it calls the list a runaway (one whose ``GetNext`` never
+# answers nothing). Far beyond any assembly's documents: it is a guard against a loop, not a limit on work.
+DOCUMENT_WALK_LIMIT = 100_000
+
+
+class DocumentsUnknown(SolidWorksError):
+    """SolidWorks' list of open documents did not come to an end (:data:`DOCUMENT_WALK_LIMIT`)."""
+
+
 class Session:
     """One connected SolidWorks. Only ever touched from the worker thread."""
 
@@ -491,14 +500,37 @@ class Session:
         return None if doc is None else self._describe(doc)
 
     def documents(self) -> List[DocInfo]:
-        out: List[DocInfo] = []
+        """Every document SolidWorks holds open, by ``GetFirstDocument``/``GetNext`` to the end of its list.
+
+        A job's pre-flight reads it twice over: decision 7's same-name check,
+        and which documents were open before the job (the marks a job settles,
+        second W4 review N2). So it walks until ``GetNext`` answers nothing:
+        one large assembly loads hundreds of documents, and a list cut short
+        (it stopped at 200 before the third review) let a document holding
+        Update's unsaved changes pass as loaded from its file. Only a runaway
+        list — :data:`DOCUMENT_WALK_LIMIT` documents and no end — is refused,
+        with a sentence (:class:`DocumentsUnknown`)."""
+        return [self._describe(doc) for doc in self._walk_documents()]
+
+    def _walk_documents(self) -> List[Any]:
+        out: List[Any] = []
         doc = call(self._app, "GetFirstDocument")
-        guard = 0
-        while doc is not None and guard < 200:
-            guard += 1
-            out.append(self._describe(doc))
+        while doc is not None:
+            if len(out) >= DOCUMENT_WALK_LIMIT:
+                raise DocumentsUnknown(
+                    f"SolidWorks listed {DOCUMENT_WALK_LIMIT} open documents without coming to the end of its list, "
+                    "so which documents it holds open cannot be known here, and nothing that depends on it is "
+                    "started; restart SolidWorks and try again.")
+            out.append(doc)
             doc = call(doc, "GetNext")
         return out
+
+    def has_unsaved_changes(self) -> bool:
+        """Whether the build document (the one ``open_document`` just opened) holds changes not saved to its file:
+        ``IModelDoc2.GetSaveFlag`` (probe close_document, tier 0: True on a part modified and never saved, 2026
+        and 2024). A job counts a document it opened as loaded from its file only when this is False, so a
+        document holding unsaved changes never has its unsaved mark cleared (third W4 review, item 1)."""
+        return bool(call(self._doc(), "GetSaveFlag"))
 
     @staticmethod
     def _describe(doc: Any) -> DocInfo:
@@ -1814,14 +1846,7 @@ class Session:
     # closes, saves or overwrites a document.
 
     def _open_documents(self) -> List[Any]:
-        out: List[Any] = []
-        doc = call(self._app, "GetFirstDocument")
-        guard = 0
-        while doc is not None and guard < 200:
-            guard += 1
-            out.append(doc)
-            doc = call(doc, "GetNext")
-        return out
+        return self._walk_documents()
 
     def open_document(self, path: str) -> DocInfo:
         """Open a saved part or assembly by path, make it the active document and this session's build document.

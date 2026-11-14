@@ -1,6 +1,7 @@
 """The gear record beside each part, and the app's own memory."""
 
 import json
+import os
 import pathlib
 
 import pytest
@@ -444,18 +445,34 @@ def test_a_record_written_for_another_workbook_still_there_is_that_workbooks():
     assert store.record_owner(record, r"C:\Copy\R.xlsx", exists) == (store.UNSURE, r"C:\Work\R.xlsx")
     assert store.foreign_workbook(record, r"C:\Copy\R.xlsx", exists) == r"C:\Work\R.xlsx"
     said_no = store.LinkRecord(workbook=r"C:\Work\R.xlsx")
-    store.settle_owner(said_no, r"C:\Copy\R.xlsx", moved=False)       # "No: a copy", kept in the record
+    store.settle_owner(said_no, r"C:\Copy\R.xlsx", moved=False)       # "No: a copy", for this session
     assert said_no.workbook == r"C:\Work\R.xlsx" and said_no.copy_of == r"C:\Work\R.xlsx"
     assert store.record_owner(said_no, r"C:\Copy\R.xlsx", exists) == (store.COPY, r"C:\Work\R.xlsx")
+    assert store.copy_by_answer(said_no, r"C:\Copy\R.xlsx", exists)      # a copy only by the answer: said so
     said_yes = store.LinkRecord(workbook=r"C:\Work\R.xlsx")
     store.settle_owner(said_yes, r"C:\Copy\R.xlsx", moved=True)       # "Yes: moved", the record adopted
     assert said_yes.workbook == r"C:\Copy\R.xlsx" and said_yes.moved_from == [r"C:\Work\R.xlsx"]
     assert store.record_owner(said_yes, r"C:\Copy\R.xlsx", exists) == (store.OURS, "")
-    # The answer is the record's own: a later absence or return of the original never flips it.
+    # The original come back: a copy whatever was said, and no longer only by the answer.
     there.add(r"C:\Work\R.xlsx")
     assert store.record_owner(said_no, r"C:\Copy\R.xlsx", exists)[0] == store.COPY
-    round_trip = store.link_record_from_json(store.link_record_to_json(said_no))
-    assert round_trip.copy_of == r"C:\Work\R.xlsx"
+    assert not store.copy_by_answer(said_no, r"C:\Copy\R.xlsx", exists)
+
+
+def test_a_no_is_never_written_so_a_new_session_asks_again_until_the_copy_builds():
+    """Third W4 review (the way back from a mistaken No): No, the default, was kept in the record for ever, and
+    neither Locate… nor reopening could take it back. It now holds for the session only: written, the record reads
+    as it came — unanswered — so a new session asks again, until the copy's own first build replaces the record."""
+    exists = lambda p: False                                          # noqa: E731 - the original is gone
+    said_no = store.LinkRecord(workbook=r"C:\Work\R.xlsx")
+    store.settle_owner(said_no, r"C:\Copy\R.xlsx", moved=False)
+    text = store.link_record_to_json(said_no)
+    assert "copy_of" not in text
+    round_trip = store.link_record_from_json(text)
+    assert round_trip.copy_of == "" and store.record_owner(round_trip, r"C:\Copy\R.xlsx", exists)[0] == store.UNSURE
+    # A record an earlier build of this branch wrote with the answer in it is read as unanswered too.
+    old = text[:-2] + ',\n  "copy_of": "C:\\\\Work\\\\R.xlsx"\n}\n'
+    assert store.link_record_from_json(old).copy_of == ""
 
 
 def test_one_workbook_reached_by_two_paths_is_its_own_record_not_a_copy(tmp_path):
@@ -508,12 +525,15 @@ def test_locate_never_carries_a_copys_record_into_its_own(tmp_path):
     assert str(raised.value) == (f"it was written for {orig}, so it is that workbook's record and lists that "
                                  "workbook's files, not this one's.")
     assert not pathlib.Path(store.link_record_path(str(renamed))).exists()
-    # The same for a copy the person said was a copy, once the original has gone too.
+    # A copy the person said was a copy, once the original has gone too: the answer was this session's only and is
+    # not in the file, so the record is carried unanswered and the question is asked at the new place (third
+    # review: never adopted, never laundered).
     said = store.LinkRecord(workbook=str(tmp_path / "gone.xlsx"), copy_of=str(tmp_path / "gone.xlsx"))
     store.save_link_record(said, store.link_record_path(str(renamed)))
     renamed.rename(tmp_path / "copy" / "Reducer v3.xlsx")
-    with pytest.raises(store.NotCarried):
-        store.carry_link_record(str(renamed), str(tmp_path / "copy" / "Reducer v3.xlsx"))
+    v3 = str(tmp_path / "copy" / "Reducer v3.xlsx")
+    store.carry_link_record(str(renamed), v3)
+    assert store.record_owner(store.read_link_record(v3), v3) == (store.UNSURE, str(tmp_path / "gone.xlsx"))
 
 
 def test_locate_carries_an_unanswered_record_as_it_is_so_the_question_is_asked_again(tmp_path):
@@ -579,3 +599,72 @@ def test_saved_since_compares_the_files_time():
     def gone(_path):
         raise FileNotFoundError("x")
     assert not store.saved_since("x", 1.0, gone)
+
+
+# -- the third W4 review: same_file ------------------------------------------------------------------------------
+
+
+def _ino_zero(real_stat):
+    def stat(path, *args, **kwargs):
+        s = real_stat(path, *args, **kwargs)
+        return os.stat_result((s.st_mode, 0, 7, s.st_nlink, s.st_uid, s.st_gid, s.st_size, int(s.st_atime),
+                               int(s.st_mtime), int(s.st_ctime)))
+    return stat
+
+
+def test_a_file_id_of_zero_never_makes_two_workbooks_one(tmp_path, monkeypatch):
+    """Third W4 review item 2 (w4x_samefile_ino0): some redirectors and virtual drives report a file id (st_ino)
+    of 0 for every file; os.path.samefile then called two different workbooks one file, so a copy's record was
+    OURS and the copy drove the original's files."""
+    orig, copy = tmp_path / "Reducer.xlsx", tmp_path / "Copy of Reducer.xlsx"
+    for p in (orig, copy):
+        p.write_bytes(b"x")
+    record = store.LinkRecord(workbook=str(orig))
+    assert store.record_owner(record, str(copy))[0] == store.COPY
+    monkeypatch.setattr(os, "stat", _ino_zero(os.stat))
+    assert not store.same_file(str(orig), str(copy))
+    assert store.record_owner(record, str(copy))[0] == store.COPY
+    assert store.same_file(str(orig), str(orig).upper() if os.name == "nt" else str(orig))   # the text still counts
+
+
+def test_a_path_that_cannot_be_statted_is_not_known_to_be_the_same_file(tmp_path, monkeypatch):
+    here = tmp_path / "R.xlsx"
+    here.write_bytes(b"x")
+    real = os.stat
+
+    def offline(path, *args, **kwargs):
+        if "Offline" in str(path):
+            raise OSError("The network path was not found")
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(os, "stat", offline)
+    assert not store.same_file(str(here), r"\\Offline\Share\R.xlsx")
+    assert not store.same_file(r"\\Offline\Share\R.xlsx", str(here))
+
+
+def test_within_one_pass_each_path_is_statted_once_and_text_is_compared_first(tmp_path, monkeypatch):
+    """same_file must not turn a planning pass on the Tk thread into repeated stats of an offline network path."""
+    here = tmp_path / "R.xlsx"
+    here.write_bytes(b"x")
+    real, seen = os.stat, []
+
+    def counting(path, *args, **kwargs):
+        seen.append(str(path))
+        if "Offline" in str(path):
+            raise OSError("The network path was not found")
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(os, "stat", counting)
+    assert store.same_file(str(here), str(here)) and seen == []        # the same text: nothing statted
+    with store.one_pass():
+        for _ in range(5):
+            assert not store.same_file(r"\\Offline\Share\R.xlsx", str(here))
+            assert not store.same_file(str(here), r"\\Offline\Share\R.xlsx")
+    assert sorted(seen) == sorted([r"\\Offline\Share\R.xlsx", str(here)])
+    seen.clear()
+    store.same_file(r"\\Offline\Share\R.xlsx", str(here))             # a new pass (none): statted again
+    assert seen == [r"\\Offline\Share\R.xlsx"]
+
+
+def test_planning_is_one_pass():
+    """plan_gearbox and classify each run as one pass (store.in_one_pass), and the window's planning wraps both."""
+    from gear_generator.workbook import gearbox, update
+    assert gearbox.plan_gearbox.__wrapped__ and update.classify.__wrapped__

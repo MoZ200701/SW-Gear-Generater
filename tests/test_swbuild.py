@@ -26,7 +26,8 @@ class FakeSolidWorks:
     opened joins them (``close_all`` empties them, as closing SolidWorks
     without saving would); ``saved`` is each file as saved and ``memory``
     each open document as it is now, so a change not saved is lost when it
-    is closed; a saved document keeps
+    is closed, and ``has_unsaved_changes`` (``GetSaveFlag``) reads whether
+    the document just opened differs from its file; a saved document keeps
     its globals and the planes and axes it made, and ``open_document`` brings
     them back, so ``planned_changes`` and ``feature_names`` see what a build
     left; ``missing_components`` are Name2s ``find_component`` will not find;
@@ -309,6 +310,13 @@ class FakeSolidWorks:
             self.open_docs.append(info)
         self.active = info
         return info
+
+    def has_unsaved_changes(self):
+        """``GetSaveFlag`` on the document just opened: True when what it holds in memory is not what was saved,
+        or a call has modified it since (``touched``)."""
+        self._log("has_unsaved_changes")
+        key = _key(self.current)
+        return key in self.touched or self.memory.get(key) != self.saved.get(key)
 
     def find_component(self, handle, name):
         self._log("find_component", handle, name)

@@ -94,6 +94,7 @@ class SolidWorks(Protocol):
     def documents(self) -> List[DocInfo]: ...
     def feature_names(self) -> List[str]: ...
     def open_document(self, path: str) -> DocInfo: ...
+    def has_unsaved_changes(self) -> bool: ...
     def find_component(self, handle: str, name: str) -> str: ...
     def component_frame(self, handle: str) -> Tuple[Tuple[float, ...], Tuple[float, float, float]]: ...
     def interferences(self) -> List[Tuple[Tuple[str, ...], float]]: ...
@@ -964,12 +965,14 @@ def _held(current: Sequence[Tuple[str, float]]) -> Dict[str, str]:
     return held
 
 
-def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tuple[str, float]],
-                                                                        Dict[str, List[Tuple[str, str]]],
-                                                                        Dict[str, float]]:
+def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str,
+               after_open: Optional[Callable[[str], None]] = None) -> Tuple[List[Tuple[str, float]],
+                                                                            Dict[str, List[Tuple[str, str]]],
+                                                                            Dict[str, float]]:
     """Open a saved document and read what it holds, writing nothing: its equations, the planned changes
     (``planned_changes``) in each trig unit, ``{DEGREES: […], RADIANS: […]}``, and the values SolidWorks
-    evaluates its equations to (``equation_values``), for :func:`_held_unit`.
+    evaluates its equations to (``equation_values``), for :func:`_held_unit`. ``after_open`` is told the path
+    as soon as the document is open and still the build document (:func:`_note_opened`).
 
     ``open_document`` (which also refuses a same-named document from another
     folder), then ``planned_changes`` — which raises when a global is missing
@@ -990,6 +993,8 @@ def _read_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> Tuple[List[Tup
     try:
         try:
             sw.open_document(doc.path)
+            if after_open is not None:
+                after_open(doc.path)
             current = sw.equations()
         except BuildError as exc:
             raise BuildError(f"{name} cannot be {verb}: {exc}") from None
@@ -1063,13 +1068,14 @@ def _held_unit(by_unit: Mapping[str, Sequence[Tuple[str, str]]], values: Optiona
     return ""
 
 
-def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> str:
+def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str,
+                after_open: Optional[Callable[[str], None]] = None) -> str:
     """A document to be reused, opened and checked, writing nothing (:func:`_read_live`): it must hold every
     global exactly, in either trig unit, SolidWorks must evaluate them as that unit would (:func:`_held_unit`),
     and every feature named must be there; returns that unit. Otherwise a :class:`NotAsBuilt` saying what
     differs — the texts in the unit that differs less, or the first value when only the angle unit is wrong —
     (a :class:`BuildError` when it cannot be opened or read at all)."""
-    current, by_unit, values = _read_live(sw, doc, verb)
+    current, by_unit, values = _read_live(sw, doc, verb, after_open)
     unit = _held_unit(by_unit, values, doc.variables)
     if unit:
         return unit
@@ -1148,10 +1154,31 @@ def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], ve
     return [d.path for d in documents if d.path]
 
 
-def _from_disk(path: str, open_before: Sequence[str]) -> bool:
+def _from_disk(path: str, open_before: Optional[Sequence[str]]) -> bool:
     """Whether a document the job opens was not open in SolidWorks before it (``documents()`` at the pre-flight),
-    so ``open_document`` loaded it from its file: what it holds in memory is then what the file holds."""
-    return not any(same_path(path, p) for p in open_before)
+    so ``open_document`` loaded it from its file: what it holds in memory is then what the file holds. Never when
+    what was open is not known (``open_before`` None)."""
+    return open_before is not None and not any(same_path(path, p) for p in open_before)
+
+
+def _note_opened(sw: SolidWorks, path: str, result: Union["GearboxResult", "GearboxUpdate"]) -> None:
+    """Right after ``open_document(path)``: list ``path`` in ``result.opened`` — loaded from its file, so its
+    unsaved marks may go — only when it was not open as the job began (:func:`_from_disk` on
+    ``result.open_before``) and SolidWorks reads no unsaved changes in it (``has_unsaved_changes``,
+    ``GetSaveFlag``). The second is the belt to the first's braces (third W4 review, item 1): a document holding
+    changes not saved is never one whose mark may be cleared, whatever the list of open documents said — it was
+    open before the job, so it joins ``result.open_before``, and the finishes never take it for one SolidWorks
+    closed. A flag that cannot be read counts as changes."""
+    if not _from_disk(path, result.open_before) or any(same_path(path, p) for p in result.opened):
+        return
+    try:
+        unsaved = bool(sw.has_unsaved_changes())
+    except SolidWorksError:
+        unsaved = True
+    if unsaved:
+        result.open_before.append(path)
+    else:
+        result.opened.append(path)
 
 
 @dataclass
@@ -1192,9 +1219,14 @@ class GearboxResult:
     (second W4 review N2: the finish clears or re-decides their marks, and a
     document marked unsaved that was not open when the job began has lost
     its unsaved changes). That a document in memory is listed by
-    ``documents()`` (``GetFirstDocument``/``GetNext``) whether or not its
-    window is open is what decision 7's same-name check already relies on;
-    it has not yet been exercised for this on real SolidWorks.
+    ``documents()`` (``GetFirstDocument``/``GetNext``, walked to the end of
+    the list) whether or not its window is open is what decision 7's
+    same-name check already relies on; it has not yet been exercised for
+    this on real SolidWorks. So a document is listed in ``opened`` only when
+    ``GetSaveFlag`` also reads it holding no unsaved changes once opened
+    (:func:`_note_opened`, third W4 review): one holding Update's changes is
+    never counted as loaded from its file, and joins ``open_before``, since
+    it was evidently open before the job.
     """
 
     parts: ManyResult = field(default_factory=ManyResult)
@@ -1339,10 +1371,8 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     result = GearboxResult(open_before=list(open_before))
     for index, doc in enumerate(reused_docs, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, len(reused_docs)))
-        if _from_disk(doc.path, open_before):
-            result.opened.append(doc.path)      # _check_live opens it, or raises out of the job before anything
         try:
-            result.held[doc.path] = _check_live(sw, doc, "reused")
+            result.held[doc.path] = _check_live(sw, doc, "reused", lambda path: _note_opened(sw, path, result))
         except NotAsBuilt as exc:
             # Not a refusal: the finish records it, and the next plan makes that part new (review B2's last
             # corner). Every document is still checked, so one press finds them all.
@@ -1444,8 +1474,8 @@ class GearboxUpdate:
     time, so a save made in SolidWorks while the job was answering still
     reads as newer (W4 review nit). ``open_before`` and ``opened`` are as on
     :class:`GearboxResult`: the documents open when the job began, and those
-    it opened from disk (every part and the layout in the check phase, and
-    the assembly when it was reached).
+    it opened from disk and found holding no unsaved changes (every part and
+    the layout in the check phase, and the assembly when it was reached).
     """
 
     parts: List[UpdateResult] = field(default_factory=list)
@@ -1611,17 +1641,14 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     holds: List[str] = []           # per document: the trig unit it already holds every global in, or ""
     for index, doc in enumerate(documents, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, total))
-        if _from_disk(doc.path, open_before):
-            result.opened.append(doc.path)
-        _, by_unit, values = _read_live(sw, doc, "updated")
+        _, by_unit, values = _read_live(sw, doc, "updated", lambda path: _note_opened(sw, path, result))
         holds.append(_held_unit(by_unit, values, doc.variables))
     if assembly and (beside or not documents):
         say(Step(STAGE_CHECK, _stem(assembly), total, total))
         sw.begin_build()
         try:
             sw.open_document(assembly)
-            if _from_disk(assembly, open_before):
-                result.opened.append(assembly)
+            _note_opened(sw, assembly, result)
             for index, placement in enumerate(placements, 1):
                 sw.find_component(f"placed{index}", placement.component)
         except ComponentGone as exc:      # renamed or deleted in SolidWorks: only a new revision puts it back
@@ -1695,9 +1722,7 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
         try:
             sw.open_document(assembly)
             opened = True
-            if _from_disk(assembly, result.open_before or ()) and not any(same_path(assembly, p)
-                                                                          for p in result.opened):
-                result.opened.append(assembly)
+            _note_opened(sw, assembly, result)
             handles = [f"placed{index}" for index in range(1, len(placements) + 1)]
             for handle, placement in zip(handles, placements):
                 sw.find_component(handle, placement.component)

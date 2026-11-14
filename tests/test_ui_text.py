@@ -1214,10 +1214,10 @@ def test_an_answer_keeps_the_reason_it_answered(ready):
 
 def test_what_the_window_says_when_the_app_closes_mid_job_or_a_finish_raises():
     assert ui_text.app_closes_when_done(1) == (
-        "Gear Generator closes once a workbook's job in SolidWorks has finished and what it saved is on record; it "
-        "stays open if something needs saying.")
+        "Gear Generator closes once a workbook's job in SolidWorks has finished and what it did is on record; it "
+        "stays open if a Workbook window has something to say.")
     assert ui_text.app_closes_when_done(2).startswith("Gear Generator closes once 2 workbooks' jobs in SolidWorks have "
-                                                      "finished and what they saved")
+                                                      "finished and what they did")
     assert ui_text.APP_STAYED_OPEN == ("Gear Generator stayed open: a workbook's job has something to say in its "
                                        "window. Close this window again to quit.")
     assert ui_text.finish_failed(RuntimeError("boom")) == (
@@ -1288,3 +1288,90 @@ def test_the_save_is_never_asked_as_if_it_were_certain_to_be_possible(ready):
     assert f.update_enabled and f.text.endswith(
         "save them in SolidWorks to keep them. If SolidWorks closed them without saving, press Update SolidWorks to "
         "make them again.")
+
+
+# -- the third W4 review: sentences true in every state they appear in ------------------------------------------
+
+
+def test_the_strips_close_sentence_says_only_what_is_true_for_the_strip():
+    """The strip does not stay open to show what its job said (CloseGuard.check quits once it is collected), and its
+    job may be an update of a part's values, not a build with saved files."""
+    alone = ui_text.app_closes_when_done(0, strip=True)
+    assert alone == ("Gear Generator closes once the strip's job in SolidWorks has finished and the strip has "
+                     "collected it.")
+    both = ui_text.app_closes_when_done(1, strip=True)
+    assert both == ("Gear Generator closes once a workbook's job in SolidWorks has finished and what it did is on "
+                    "record, and once the strip's job in SolidWorks has finished and the strip has collected it; it "
+                    "stays open if a Workbook window has something to say.")
+    assert "build" not in alone and "saved" not in alone
+
+
+def test_the_escape_questions_say_nothing_the_job_does_reaches_the_record_and_promise_only_a_written_journal():
+    for question in (ui_text.quit_anyway_question(), ui_text.quit_anyway_question(True),
+                     ui_text.close_anyway_question(), ui_text.close_anyway_question(journaled=True),
+                     ui_text.close_anyway_question(updating=True)):
+        assert "from now" not in question and "nothing will be overwritten" in question
+    assert "Nothing that job saves or changes is put on record by this session" in ui_text.quit_anyway_question()
+    built = ui_text.close_anyway_question(journaled=True)
+    assert "Nothing the build saves is put on record by this window" in built
+    assert built.endswith("the build listed what it is about to make in the record before it began, so the next "
+                          "Build finds those files, checks them in SolidWorks and reuses what it can.")
+    unjournaled = ui_text.close_anyway_question(journaled=False)
+    assert "finds" not in unjournaled and unjournaled.endswith(
+        "what the build was about to make could not be listed in the record before it began, so the next Build goes "
+        "beside the files it saves rather than over them.")
+    update = ui_text.close_anyway_question(updating=True)
+    assert "Nothing the update changes is put on record by this window" in update and "journal" not in update
+    assert "Build finds" not in update
+    # The quit question's promise is worded to hold even when a workbook's journal could not be written.
+    assert "unless the record cannot be written" in ui_text.quit_anyway_question(True)
+
+
+def test_a_finish_that_raises_after_an_update_that_changed_nothing_never_says_its_changes_are_in_solidworks():
+    nothing = ui_text.finish_failed(RuntimeError("boom"), updating=True, changed=False)
+    assert nothing == ("What the update found could not all be put on record — RuntimeError: boom. It changed "
+                       "nothing in SolidWorks.")
+    assert "Its changes are in SolidWorks" in ui_text.finish_failed(RuntimeError("boom"), updating=True)
+
+
+def test_the_moved_question_names_a_drive_not_connected_and_says_no_holds_only_until_the_copy_builds():
+    q = ui_text.moved_question("C:\\Copy\\R.xlsx", "Z:\\Work\\R.xlsx")
+    assert "a drive that is not connected now, answer No: nothing is shared or overwritten." in q
+    assert "the answer is kept in the record. No:" in q
+    assert "until it has, you are asked again the next time Gear Generator opens this workbook" in q
+
+
+def test_a_copy_by_answer_whose_original_is_gone_is_never_said_to_be_still_there(ready):
+    """Third review item 4 (w4x_copy_of_gone_sentence): after No, with the original gone, the footer and Update's
+    refusal both said the original "is still there"."""
+    plan = dataclasses.replace(_again(), revision=0, foreign_record="C:\\Work\\Reducer_12to1.xlsx",
+                               foreign_said=True)
+    sentence = ui_text._copy_sentence(plan)
+    assert "still there" not in sentence
+    assert sentence.startswith("The record that came with this workbook was written for C:\\Work\\Reducer_12to1.xlsx, "
+                               "which you said this workbook is a copy of,")
+    assert sentence.endswith("If this workbook was in fact moved or renamed from it, quit Gear Generator and open "
+                             "this workbook again before you build, and you are asked again.")
+    refusal = store.foreign_record_sentence("C:\\Copy\\Reducer_12to1.xlsx", "C:\\Work\\Reducer_12to1.xlsx",
+                                            said=True)
+    assert "still there" not in refusal and "which you said this workbook is a copy of" in refusal
+
+
+def test_a_job_a_closed_window_left_running_holds_build_and_update_with_a_sentence():
+    assert ui_text.unowned_job_busy() == (
+        "A job from a Workbook window that was closed while SolidWorks had not answered is still running in "
+        "SolidWorks; build when it has finished.")
+    assert ui_text.unowned_job_busy(True).endswith("press Update SolidWorks when it has finished.")
+
+
+def test_a_built_gear_the_next_build_makes_new_is_never_shown_as_simply_built(ready):
+    """The W4 rerun on SolidWorks 2026, window state 06: the Gears table said G2 was "built" while the footer said
+    the new revision makes G2's part new (its Update not saved)."""
+    from gear_generator.workbook.gearbox import MISMATCHED, UNSAVED
+    record = _record()
+    for why in (UNSAVED, MISMATCHED):
+        plan = dataclasses.replace(_again(), made_new=(_made(["G2"], "Gear_m1.5_N68", "Gear_m1.5_N69", why),))
+        rows = {r[0]: (r[7], r[8]) for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, [], record=record,
+                                                                       plan=plan)}
+        assert rows["G2"] == (ui_text.GEAR_STATE_CHANGES, "built · new part on Build")
+        assert rows["G1"] == (ui_text.GEAR_STATE_BUILT, "built")

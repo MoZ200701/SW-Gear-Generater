@@ -783,7 +783,11 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record
     cannot carry names it, or its part's file is missing. A gear still to
     build shows the part the build would make — ``plan.part_of`` (a
     ``workbook.gearbox.GearboxPlan``), which is ``<stem>_r2`` when its own
-    file name is taken — rather than its own stem (second review N6).
+    file name is taken — rather than its own stem (second review N6). A built
+    gear whose part the next build would make new rather than reuse
+    (``plan.made_new``: its Update not saved, or found not as recorded) is
+    *built · new part on Build*, as the footer says it (the W4 rerun on
+    SolidWorks: the table said *built* beside a footer making G2's part new).
     """
     by_gear = {}
     for job in parts.jobs:
@@ -808,7 +812,7 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record
         elif gear.id in built:
             entry = built[gear.id]
             part = _stem(entry.path)
-            state, what = _built_state(gear.id, entry, update)
+            state, what = _built_state(gear.id, entry, update, plan)
         elif gear.id in by_gear:
             job, index = by_gear[gear.id]
             planned = (getattr(plan, "part_of", None) or {}).get(gear.id, "") if plan is not None else ""
@@ -823,16 +827,19 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record
     return rows
 
 
-def _built_state(gear_id: str, entry, update) -> Tuple[str, str]:
-    """A gear already built: whether Update SolidWorks leaves it, changes it, or cannot carry its change."""
+def _built_state(gear_id: str, entry, update, plan=None) -> Tuple[str, str]:
+    """A gear already built: whether Update SolidWorks leaves it, changes it, or cannot carry its change — and
+    whether the next build makes its part new rather than reuse it (``plan.made_new``)."""
     import re
+    from .store import same_path
     if update is not None:
         named = re.compile(rf"(?<![\w]){re.escape(gear_id)}(?![\w])")
-        from .store import same_path
         if any(same_path(entry.path, m) for m in update.missing) or any(named.search(s) for s in update.structural):
             return GEAR_STATE_NEW_PART, "needs a new part"
-        if any(gear_id in p.gear_ids for p in update.changed_parts):
-            return GEAR_STATE_CHANGES, "built · changes on Update"
+    if update is not None and any(gear_id in p.gear_ids for p in update.changed_parts):
+        return GEAR_STATE_CHANGES, "built · changes on Update"
+    if any(gear_id in m.gear_ids and same_path(m.old, entry.path) for m in (getattr(plan, "made_new", ()) or ())):
+        return GEAR_STATE_CHANGES, "built · new part on Build"
     return GEAR_STATE_BUILT, "built"
 
 
@@ -1682,8 +1689,16 @@ def _copy_sentence(plan) -> str:
     """A copied workbook (``GearboxPlan.foreign_record``, review S1): the record that came with it, and the files it
     lists, are the other workbook's; Build makes this one's own beside them. A record whose workbook is gone, and
     nobody has said whether this one was moved from it (``plan.foreign_gone``, second review N1c), is said as
-    such: the window is asking."""
+    such: the window is asking. One whose workbook is gone and which the person said this one is a copy of
+    (``plan.foreign_said``, third review) is said so — never "still there" — with the way to take the answer back:
+    it holds for the session only, so until this workbook has built its own gearbox, a new session asks again."""
     other = plan.foreign_record
+    if getattr(plan, "foreign_said", False):
+        return (f"The record that came with this workbook was written for {short_path(other, 48)}, which you said "
+                "this workbook is a copy of, so that record, and the SolidWorks files it lists, are that workbook's: "
+                "Build makes this workbook's own gearbox beside them, sharing and overwriting nothing. If this "
+                "workbook was in fact moved or renamed from it, quit Gear Generator and open this workbook again "
+                "before you build, and you are asked again.")
     if getattr(plan, "foreign_gone", False):
         return (f"The record that came with this workbook was written for {short_path(other, 48)}, which is not there "
                 "any more: until you say whether this workbook was moved or renamed from it, Build makes this "
@@ -2051,6 +2066,14 @@ def job_unreachable(reason: str, updating: bool = False) -> str:
     return f"SolidWorks cannot be reached from here, so nothing was {done}. {reason}".strip()
 
 
+def unowned_job_busy(updating: bool = False) -> str:
+    """A job whose window was closed anyway (``close_anyway_question``) is still running in SolidWorks: no window
+    will collect it, and a new build or update must not overtake it (third W4 review)."""
+    then = "press Update SolidWorks" if updating else "build"
+    return (f"A job from a Workbook window that was closed while SolidWorks had not answered is still running in "
+            f"SolidWorks; {then} when it has finished.")
+
+
 def strip_busy(updating: bool = False) -> str:
     """The strip has a build of its own in SolidWorks (they share one worker)."""
     then = "press Update SolidWorks" if updating else "build the workbook"
@@ -2137,13 +2160,18 @@ def collect_failed(error: BaseException, updating: bool = False) -> str:
     return f"The {what} could not be collected — {type(error).__name__}: {error}"
 
 
-def finish_failed(error: BaseException, updating: bool = False, journaled: bool = False) -> str:
+def finish_failed(error: BaseException, updating: bool = False, journaled: bool = False,
+                  changed: bool = True) -> str:
     """Working out what a finished job leaves on record raised (W4 review B1, the window's half), so nothing of the
     record was written. A build whose journal was written before it began (``journaled``, second review N4) still
     has it on record: the next Build reuses what SolidWorks saved, once checked. Update saves nothing: what it
-    changed is in SolidWorks only, and not marked unsaved."""
+    changed is in SolidWorks only, and not marked unsaved — unless it changed nothing (``changed`` False, third
+    review), when nothing is said to be in SolidWorks."""
     lead = f"What the {'update changed' if updating else 'build saved'} could not all be put on record — " \
            f"{type(error).__name__}: {error}."
+    if updating and not changed:
+        return (f"What the update found could not all be put on record — {type(error).__name__}: {error}. It "
+                "changed nothing in SolidWorks.")
     if updating:
         return f"{lead} Its changes are in SolidWorks, not saved: save them there to keep them."
     if journaled:
@@ -2154,13 +2182,24 @@ def finish_failed(error: BaseException, updating: bool = False, journaled: bool 
 
 def app_closes_when_done(count: int = 1, strip: bool = False) -> str:
     """The strip's window was closed while Workbook windows (``count``) or the strip itself (``strip``) have jobs in
-    SolidWorks: the app stays until what they saved is on record (the worker thread would die with it, and
-    nothing would reach the record). Closing it again offers to quit anyway (:func:`quit_anyway_question`)."""
-    jobs = (["a workbook's job" if count == 1 else f"{count} workbooks' jobs"] if count else []) + (
-        ["the strip's build"] if strip else [])
-    one = len(jobs) == 1 and count <= 1
-    return (f"Gear Generator closes once {_and(jobs)} in SolidWorks {'has' if one else 'have'} finished and what "
-            f"{'it' if one else 'they'} saved is on record; it stays open if something needs saying.")
+    SolidWorks: the app stays until they have finished and been collected (the worker thread would die with it,
+    and nothing would reach the record). Closing it again offers to quit anyway (:func:`quit_anyway_question`).
+
+    Only a Workbook window stays open to show what its job said (``CloseGuard.check``); the strip is not waited
+    on for that — once its job is collected the app quits, whatever it said — and the strip's job may be a build
+    or an update of a part's values, so it is called a job, collected, not a build whose saved files are on record
+    (third W4 review)."""
+    said = []
+    if count:
+        jobs = "a workbook's job" if count == 1 else f"{count} workbooks' jobs"
+        said.append(f"{jobs} in SolidWorks {'has' if count == 1 else 'have'} finished and "
+                    f"what {'it' if count == 1 else 'they'} did is on record")
+    if strip:
+        said.append("the strip's job in SolidWorks has finished and the strip has collected it")
+    text = "Gear Generator closes once " + ", and once ".join(said)
+    if count:
+        text += "; it stays open if a Workbook window has something to say"
+    return text + "."
 
 
 APP_CLOSES_AFTER_QUESTION = "Gear Generator closes once the question open in a Workbook window is answered."
@@ -2172,28 +2211,38 @@ CLOSE_ANYWAY_TITLE = "Close anyway?"
 def quit_anyway_question(workbook_build: bool = False) -> str:
     """Asked (default No) when the strip's window is closed a second time while a job in SolidWorks has not
     answered — SolidWorks may be held by a dialog, and nothing can stop a call it does not answer (second W4
-    review N4.3). What it says is what holds: this session puts nothing more on record, and no file is
-    overwritten (a build never overwrites one). ``workbook_build``: a workbook's build is among the jobs, whose
-    journal lets its next Build reuse what it saved."""
+    review N4.3). What it says is what holds: nothing those jobs save or change is put on record by this session
+    (not only what they do from now: their finishes never run), and no file is overwritten (a build never
+    overwrites one). ``workbook_build``: a workbook's build is among the jobs; its journal covers the files a
+    build saves — written before it began unless the record could not be written, which is said as such — and
+    never an update's changes (third review)."""
     text = ("SolidWorks has not answered yet: a job is still running there, perhaps held up by a dialog open in "
-            "SolidWorks. Quit anyway? Files SolidWorks saves from now, and documents it changes, are not put on record "
-            "by this session, and nothing will be overwritten.")
+            "SolidWorks. Quit anyway? Nothing that job saves or changes is put on record by this session, and nothing "
+            "will be overwritten.")
     if workbook_build:
-        text += (" The workbook's next Build finds the files its build saved, checks them in SolidWorks and reuses "
-                 "what it can.")
+        text += (" A workbook's build lists what it is about to make in that workbook's record before it begins, "
+                 "unless the record cannot be written, so the workbook's next Build finds the files it saved, checks "
+                 "them in SolidWorks and reuses what it can.")
     return text
 
 
-def close_anyway_question(updating: bool = False) -> str:
-    """The Workbook window's own close, a second time while its job has not answered (second W4 review N4.3)."""
+def close_anyway_question(updating: bool = False, journaled: bool = False) -> str:
+    """The Workbook window's own close, a second time while its job has not answered (second W4 review N4.3).
+    Nothing the job saves or changes is put on record by this window — not only what it does from now: its finish
+    never runs. The build's journal (``journaled``: written before it began) lets the next Build find what it
+    saved; without one, the next Build goes beside those files. An update has no journal: what it changes is in
+    SolidWorks only (third review)."""
     if updating:
         return ("SolidWorks has not answered yet: Update SolidWorks is still running there, perhaps held up by a "
-                "dialog open in SolidWorks. Close this window anyway? What it changes from now is not put on record, "
-                "so this window will not ask for those documents to be saved, and nothing will be overwritten.")
+                "dialog open in SolidWorks. Close this window anyway? Nothing the update changes is put on record by "
+                "this window, so it will not ask for those documents to be saved, and nothing will be overwritten.")
+    then = ("the build listed what it is about to make in the record before it began, so the next Build finds those "
+            "files, checks them in SolidWorks and reuses what it can." if journaled else
+            "what the build was about to make could not be listed in the record before it began, so the next Build "
+            "goes beside the files it saves rather than over them.")
     return ("SolidWorks has not answered yet: the build is still running there, perhaps held up by a dialog open in "
-            "SolidWorks. Close this window anyway? Files SolidWorks saves from now are not put on record by this "
-            "window, and nothing will be overwritten: the next Build finds them, checks them in SolidWorks and "
-            "reuses what it can.")
+            "SolidWorks. Close this window anyway? Nothing the build saves is put on record by this window, and "
+            f"nothing will be overwritten: {then}")
 
 
 MOVED_TITLE = "Moved, or a copy?"
@@ -2202,11 +2251,15 @@ MOVED_TITLE = "Moved, or a copy?"
 def moved_question(workbook: str, other: str) -> str:
     """Asked once (default No) when the record beside a workbook was written for another that is not there any more
     (``store.UNSURE``, second W4 review N1c): moved or renamed — the record is this workbook's — or a copy of an
-    original since deleted, renamed or gone offline, whose files are not this workbook's."""
+    original since deleted, renamed or gone offline, whose files are not this workbook's. Yes is kept in the record;
+    No holds for the session, and is asked again in a new one until this workbook has built its own gearbox (third
+    review). A drive not connected now is named, and No is the safe answer then."""
     return (f"The record of what was built beside this workbook was written for {short_path(other, 60)}, which is not "
             "there any more. Was this workbook moved or renamed from it? Yes: the record is this workbook's, and "
-            "Update SolidWorks and Build carry on from what it lists. No: this workbook is a copy, so Build makes "
-            "its own gearbox beside those files, sharing and overwriting nothing. The answer is kept in the record.")
+            "Update SolidWorks and Build carry on from what it lists; the answer is kept in the record. No: this "
+            "workbook is a copy, so Build makes its own gearbox beside those files, sharing and overwriting nothing; "
+            "until it has, you are asked again the next time Gear Generator opens this workbook. If that workbook "
+            "may be on a drive that is not connected now, answer No: nothing is shared or overwritten.")
 
 
 def answer_not_kept(error: BaseException) -> str:

@@ -144,6 +144,7 @@ def desk(tmp_path, monkeypatch):
     from gear_generator import workbook_gui
     monkeypatch.setattr(workbook_gui, "_VERDICTS", {})          # this session's move-or-copy answers: none yet
     monkeypatch.setattr(workbook_gui, "_ASKED", set())
+    monkeypatch.setattr(workbook_gui, "_UNOWNED", [])           # no job a closed window left running
     d = Desk(root, tmp_path)
     try:
         yield d
@@ -768,6 +769,10 @@ def record_of_path(path):
     return store.read_link_record(str(path))
 
 
+def record_bytes_of(path):
+    return pathlib.Path(store.link_record_path(str(path))).read_bytes()
+
+
 def test_closing_the_strips_window_stays_open_when_the_job_has_something_to_say(desk):
     from gear_generator import gui
     said, quit = [], []
@@ -987,6 +992,10 @@ def test_the_demonstrations_structural_step_with_update_unsaved_asks_for_the_sav
     footer = window.footer()
     assert footer.ok and footer.build_enabled and footer.update_enabled
     assert window.read_line.get().endswith(" · changed since it was built")
+    # The table agrees with the footer (the W4 rerun on SolidWorks 2026, state 06: G2 read "built" while the footer
+    # made its part new): G1 needs a new part, G2's part is made new by the build, G3 and G4 are reused as built.
+    assert gear_states(window) == {"G1": "needs a new part", "G2": "built · new part on Build", "G3": "built",
+                                   "G4": "built"}
 
 
 # -- the second W4 review ------------------------------------------------------------------------------------------
@@ -1025,8 +1034,10 @@ def test_a_record_whose_workbook_is_gone_is_asked_about_once_and_yes_adopts_it(d
     assert asked[0][1] == (
         f"The record of what was built beside this workbook was written for {ui_text.short_path(old, 60)}, which is "
         "not there any more. Was this workbook moved or renamed from it? Yes: the record is this workbook's, and "
-        "Update SolidWorks and Build carry on from what it lists. No: this workbook is a copy, so Build makes its own "
-        "gearbox beside those files, sharing and overwriting nothing. The answer is kept in the record.")
+        "Update SolidWorks and Build carry on from what it lists; the answer is kept in the record. No: this workbook "
+        "is a copy, so Build makes its own gearbox beside those files, sharing and overwriting nothing; until it has, "
+        "you are asked again the next time Gear Generator opens this workbook. If that workbook may be on a drive "
+        "that is not connected now, answer No: nothing is shared or overwritten.")
     record = record_of(window)
     assert store.same_path(record.workbook, str(new)) and record.moved_from == [old] and record.copy_of == ""
     assert window.record is not None and window.read_line.get().endswith(" · built from this version")
@@ -1036,26 +1047,41 @@ def test_a_record_whose_workbook_is_gone_is_asked_about_once_and_yes_adopts_it(d
 
 
 def test_no_keeps_a_record_whose_workbook_is_gone_another_workbooks_and_builds_beside_it(desk, monkeypatch):
+    """No holds for the session, and is never written (third W4 review: the way back from a mistaken No): another
+    window in this session is not asked again, a new session is — until this workbook's first build replaces the
+    record with its own. Nothing says the gone original "is still there" (item 4)."""
     from gear_generator import workbook_gui
     asked = []
     monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append(title) or False)
     old, new = _moved_away(desk, built(desk))
-    before = record_of_path(new)
+    before = record_bytes_of(new)
     window = desk.open(path=new)
     window.update()
     assert asked == [ui_text.MOVED_TITLE]
-    record = record_of(window)
-    assert record.copy_of == old and record.workbook == old and record.parts == before.parts   # kept as it came
+    assert record_bytes_of(new) == before                       # nothing written: the record as it came
     assert window.record is None and not window.footer().update_shown
-    assert window.plan.foreign_record == old and not window.plan.foreign_gone
-    # Another window on it, in this session or the next, is not asked again: the answer is the record's.
-    workbook_gui._VERDICTS.clear()
-    workbook_gui._ASKED.clear()
+    assert window.plan.foreign_record == old and not window.plan.foreign_gone and window.plan.foreign_said
+    footer = window.status.get()
+    assert "still there" not in footer and footer.endswith(
+        f"The record that came with this workbook was written for {ui_text.short_path(old, 48)}, which you said this "
+        "workbook is a copy of, so that record, and the SolidWorks files it lists, are that workbook's: Build makes "
+        "this workbook's own gearbox beside them, sharing and overwriting nothing. If this workbook was in fact moved "
+        "or renamed from it, quit Gear Generator and open this workbook again before you build, and you are asked "
+        "again.")
+    # Another window on it in this session is not asked again.
     window._pending = window._job = None
     window.close()
     again = desk.open(path=new)
     again.update()
-    assert asked == [ui_text.MOVED_TITLE] and again.record is None
+    assert asked == [ui_text.MOVED_TITLE] and again.record is None and again.plan.foreign_said
+    # A new session is, while nothing has been built.
+    workbook_gui._VERDICTS.clear()
+    workbook_gui._ASKED.clear()
+    again._pending = again._job = None
+    again.close()
+    again = desk.open(path=new)
+    again.update()
+    assert asked == [ui_text.MOVED_TITLE] * 2 and again.record is None
     again.press_build()
     desk.finish(again)
     built_now = record_of(again)
@@ -1085,7 +1111,7 @@ def test_two_copies_of_one_deleted_original_are_each_asked_never_adopt_silently(
         w.update()
         assert w.record is None
     assert asked == [ui_text.MOVED_TITLE, ui_text.MOVED_TITLE]
-    assert all(record_of_path(c).copy_of == original and record_of_path(c).moved_from == [] for c in copies)
+    assert all(record_of_path(c).workbook == original and record_of_path(c).moved_from == [] for c in copies)
 
 
 def test_locate_on_a_copy_never_takes_the_originals_record_for_its_own(desk, monkeypatch):
@@ -1131,13 +1157,23 @@ def test_closing_a_window_twice_while_solidworks_does_not_answer_offers_to_close
     window.close()                                             # first: it stays, and closes once on record
     assert asked == [] and not window._closed()
     window.close()                                             # second: asks; No keeps waiting
-    assert asked == [(ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question())] and not window._closed()
+    assert asked == [(ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question(journaled=True))]
+    assert not window._closed()
     assert asked[0][1] == (
         "SolidWorks has not answered yet: the build is still running there, perhaps held up by a dialog open in "
-        "SolidWorks. Close this window anyway? Files SolidWorks saves from now are not put on record by this window, "
-        "and nothing will be overwritten: the next Build finds them, checks them in SolidWorks and reuses what it can.")
+        "SolidWorks. Close this window anyway? Nothing the build saves is put on record by this window, and nothing "
+        "will be overwritten: the build listed what it is about to make in the record before it began, so the next "
+        "Build finds those files, checks them in SolidWorks and reuses what it can.")
     window.close()                                             # again: Yes closes; the job goes on
     assert window._closed()
+    # While that job runs, no Workbook window starts another, and says why (third W4 review).
+    meanwhile = desk.open(path=path)
+    calls = len(desk.worker.calls)
+    meanwhile.press_build()
+    assert len(desk.worker.calls) == calls and meanwhile._pending is None
+    assert meanwhile.status.get() == ui_text.unowned_job_busy()
+    assert record_of_path(path).pending == journal
+    meanwhile.close()
     desk.worker.run()                                          # SolidWorks answers at last: nobody collects it
     assert all(store.read_sidecar(desk.part(s)) is None for s in PARTS)
     assert record_of_path(path).pending == journal and record_of_path(path).parts == []
@@ -1151,8 +1187,12 @@ def test_closing_a_window_twice_while_solidworks_does_not_answer_offers_to_close
     again.press_build()
     desk.finish(again)
     record = record_of(again)
-    assert record.pending == [] and record.gearbox.revision == 2 and len(record.parts) == 4
+    assert record.gearbox.revision == 2 and len(record.parts) == 4
     assert all(store.read_sidecar(desk.part(s)).record.workbook == path for s in PARTS)
+    # The parts are on record now and left the journal; the layout part and assembly the abandoned job saved at
+    # revision 0 are on disk and on no record, so they stay this workbook's in the journal (third W4 review: an
+    # entry leaves only once on record or gone).
+    assert sorted(os.path.basename(e.path) for e in record.pending) == [f"{NAME}.SLDASM", f"{NAME}_Layout.SLDPRT"]
 
 
 def test_a_question_open_over_a_window_keeps_it_and_the_app_until_it_is_answered(desk, monkeypatch):
@@ -1192,9 +1232,10 @@ def test_closing_the_strips_window_twice_while_a_job_has_not_answered_offers_to_
     assert asked == [(ui_text.QUIT_ANYWAY_TITLE, ui_text.quit_anyway_question(True))] and quit == []
     assert asked[0][1] == (
         "SolidWorks has not answered yet: a job is still running there, perhaps held up by a dialog open in "
-        "SolidWorks. Quit anyway? Files SolidWorks saves from now, and documents it changes, are not put on record by "
-        "this session, and nothing will be overwritten. The workbook's next Build finds the files its build saved, "
-        "checks them in SolidWorks and reuses what it can.")
+        "SolidWorks. Quit anyway? Nothing that job saves or changes is put on record by this session, and nothing "
+        "will be overwritten. A workbook's build lists what it is about to make in that workbook's record before it "
+        "begins, unless the record cannot be written, so the workbook's next Build finds the files it saved, checks "
+        "them in SolidWorks and reuses what it can.")
     guard.request()
     assert quit == [True]
 
@@ -1208,10 +1249,62 @@ def test_closing_the_strips_window_waits_for_the_strips_own_build(desk):
     desk.app._pending_build = object()                         # the strip building a part of its own
     guard.request()
     assert quit == [] and said == [(ui_text.app_closes_when_done(0, strip=True), True)]
-    assert said[0][0] == ("Gear Generator closes once the strip's build in SolidWorks has finished and what it saved "
-                          "is on record; it stays open if something needs saying.")
+    assert said[0][0] == ("Gear Generator closes once the strip's job in SolidWorks has finished and the strip has "
+                          "collected it.")
     guard.check()
     assert quit == []
     desk.app._pending_build = None                             # the strip's poll collected it, its record written
     guard.check()
     assert quit == [True]
+
+
+# -- the third W4 review -------------------------------------------------------------------------------------------
+
+
+def test_a_build_refused_after_an_interrupted_one_keeps_what_that_build_saved_in_the_journal(desk):
+    """Third W4 review item 3 (w4x_clear_journal_orphans): a build interrupted after two parts saved; the next Build's
+    job refused at its pre-flight; the window cleared the whole journal, and the plan after went beside the two
+    files as _r2. Only what is not on disk, or on record, leaves the journal now."""
+    window = desk.open()
+    path = window.link.path
+    plan = window.plan
+    window._write_journal(plan)
+    from gear_generator import swbuild
+    swbuild.build_many(desk.sw, [j.plan for j in plan.build[:2]], desk.sw.exists)   # two saved, then the app gone
+    window._pending = window._job = None
+    window.close()
+    again = desk.open(path=path)
+    assert [r.stem for r in again.plan.reuse] == list(PARTS[:2]) and all(r.journaled for r in again.plan.reuse)
+    elsewhere = str(desk.tmp / "elsewhere" / f"{PARTS[2]}.SLDPRT")
+    desk.sw.open_docs = [DocInfo(title=f"{PARTS[2]}.SLDPRT", path=elsewhere, doc_type=1)]
+    again.press_build()
+    desk.finish(again)
+    assert again.status.get().startswith(f"{elsewhere} is open in SolidWorks")
+    assert sorted(os.path.basename(e.path) for e in record_of(again).pending) == [f"{s}.SLDPRT" for s in PARTS[:2]]
+    assert [r.stem for r in again.plan.reuse] == list(PARTS[:2]) and again.plan.made_new == ()
+    desk.sw.open_docs = []                                         # the other document closed: Build again
+    again.press_build()
+    desk.finish(again)
+    record = record_of(again)
+    assert record.pending == [] and record.gearbox.revision == 0 and len(record.parts) == 4
+
+
+def test_a_finish_that_raises_after_an_update_that_changed_nothing_never_says_its_changes_are_in_solidworks(
+        desk, monkeypatch):
+    """Third W4 review (ride-along): "Its changes are in SolidWorks, not saved" was said even when the update had
+    changed nothing (every document found holding the values already)."""
+    from gear_generator import swbuild, workbook_gui
+    from gear_generator.workbook import update as wb_update
+    window = built(desk)
+    save_in_excel(window, DEMONSTRATION)
+    assert window.update_plan is not None
+
+    def broken(*args, **kwargs):
+        raise KeyError("parts")
+    monkeypatch.setattr(wb_update, "finish_update", broken)
+    job = workbook_gui.Job(workbook_gui.JOB_UPDATE, window.reading.digest, update=window.update_plan,
+                           record=window.record)
+    nothing = window._finish_update(job, swbuild.GearboxUpdate())
+    assert "Its changes are in SolidWorks" not in nothing.text and "It changed nothing in SolidWorks." in nothing.text
+    changed = window._finish_update(job, swbuild.GearboxUpdate(changed=[desk.part(PARTS[1])]))
+    assert "Its changes are in SolidWorks, not saved" in changed.text
