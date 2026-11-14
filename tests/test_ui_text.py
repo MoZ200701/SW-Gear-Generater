@@ -716,6 +716,30 @@ def test_a_missing_file_offers_to_build_again_and_stands_out(ready):
     assert f.text.endswith("offers to build again as Reducer_12to1_r2.") and not f.ok and f.update_enabled
 
 
+def test_an_answer_is_followed_plainly_by_what_was_already_so(ready, tmp_path):
+    """No to Build again? for a missing file: nothing happened, so *Since then* would be wrong (it read
+    "Nothing was changed in SolidWorks. Since then: Gear_m1.5_N68.SLDPRT is no longer in …")."""
+    missing = _update(missing=(_path("Gear_m1.5_N68"),))
+    f = _footer(ready, record=_record(), plan=_again(), update=missing, note=(ui_text.NOTHING_CHANGED, True))
+    assert f.text == (f"Nothing was changed in SolidWorks. Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved or "
+                      "renamed since it was built, so Update SolidWorks offers to build again as Reducer_12to1_r2.")
+    assert not f.ok
+    f = _footer(ready, record=_record(), plan=_again(), update=missing, note=(ui_text.ASKED_TOO_LATE, False))
+    assert f.text.startswith(ui_text.ASKED_TOO_LATE + " Gear_m1.5_N68.SLDPRT is no longer in")
+    # An Export's sentence is an answer too: an error it did not mend was there before it.
+    spec = model.replace(reducer(), gears=(reducer().gears[0], model.replace(reducer().gears[1], teeth="68.5"))
+                         + reducer().gears[2:])
+    read, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec, "Bad.xlsx")))
+    bad = assess.assess(read, diagnostics, P)
+    from gear_generator.workbook.export import Exported
+    exported = ui_text.export_note(Exported(written=["Shafts!C3"], results=True))
+    assert isinstance(exported, ui_text.Standing) and exported == ("Exported 1 cell and the Results sheet.", True)
+    f = _footer(bad, note=exported)
+    assert f.text.startswith("Exported 1 cell and the Results sheet. Fix the workbook before building:")
+    # A job's sentence keeps *Since then*: the workbook may have moved on while it ran.
+    assert _footer(bad, note=("Built 4 parts.", True)).text.startswith("Built 4 parts. Since then: Fix the workbook")
+
+
 def test_an_update_left_unsaved_is_said_until_it_is_saved(ready):
     update = _update(unsaved=(_path("Gear_m1.5_N68"), _path("Reducer_12to1_Layout")))
     f = _footer(ready, record=_record(), update=update)

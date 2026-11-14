@@ -938,22 +938,6 @@ def workbook_change_lines(changes: Sequence[str], consequence=None,
     return list(changes) + [did]
 
 
-def workbook_status(parts, diagnostics: Sequence[Diagnostic], error: str = "", folder: str = "") -> Tuple[str, bool]:
-    """The footer's one sentence, and whether Build can go ahead.
-
-    Rows a later phase builds (``parts.refused``) do not hold Build back — the
-    other gears' parts still build — but the sentence names the first of them,
-    since none is checked or placed before its phase."""
-    from .workbook.assess import build_refusal         # the one rule for Build parts; the words for it are its
-    if error:
-        return error, False
-    refusal = build_refusal(parts, diagnostics, folder)
-    if refusal:
-        return refusal, False
-    files = _plural(len(parts.jobs), "part")
-    return f"Ready: Build makes {files} in {short_path(folder, 48)}." + _left_for_later(parts), True
-
-
 def _left_for_later(parts) -> str:
     """`` Left for a later phase: Gears!A6: G5 is a bevel gear: …`` — never a bare "Ready" or "Built" while rows
     wait for a later phase: they are not checked, and nothing places them."""
@@ -986,6 +970,12 @@ def _shared_steps(results) -> List[str]:
     return out
 
 
+class Standing(tuple):
+    """A footer note, ``(sentence, shown as good)``, that says what an Export did or how a question was answered:
+    no build or update stood between it and the state the footer goes on to give, so the two are joined plainly
+    rather than with *Since then:* (see :func:`workbook_footer`). It compares equal to the plain tuple."""
+
+
 def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
     """What an Export did, for the footer: (sentence, shown as good). ``done`` is a
     :class:`workbook.export.Exported`; ``copy_name`` the file Export as… wrote, or ``""``.
@@ -1005,10 +995,10 @@ def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
         cells = "; ".join(f"{cell} ({item} {header}, the fix would make it {value})"
                           for cell, item, header, value in done.formulas)
         where = f"changed in the copy, {copy_name}" if copy_name else "written"
-        return (f"Nothing was {where}: every cell the fix would change "
-                f"holds a formula — {cells} — and Excel recalculating cannot move them, since nothing they read "
-                "has changed. Change the formula, or a cell it reads, in Excel; the fix stays chosen until "
-                "then."), False
+        return Standing((f"Nothing was {where}: every cell the fix would change "
+                         f"holds a formula — {cells} — and Excel recalculating cannot move them, since nothing they "
+                         "read has changed. Change the formula, or a cell it reads, in Excel; the fix stays chosen "
+                         "until then.", False))
     what = _plural(len(done.written), "cell") + (" and the Results sheet" if done.results else "")
     parts = [f"Exported {what}" + (f" to {copy_name}" if copy_name else "") + "."]
     if done.added_headers:
@@ -1027,54 +1017,12 @@ def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
                                            "partly in it.")
     if done.results_error:
         parts.append(f"The Results sheet could not be written: {done.results_error} Export again to write it.")
-    return " ".join(parts), not others and not done.results_error
+    return Standing((" ".join(parts), not others and not done.results_error))
 
 
 RECALC_WAIT = ("Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they "
                "recalculate; Build and Export wait for that save.")
 RESULTS_DUE = " Export again to write the Results sheet: it waited for Excel to recalculate."
-
-
-def workbook_state(parts, diagnostics: Sequence[Diagnostic], *, error: str = "", folder: str = "",
-                   folder_exists: bool = True, building: bool = False,
-                   note: Optional[Tuple[str, bool]] = None, chosen: int = 0,
-                   recalc: bool = False, results_due: bool = False) -> Tuple[str, bool, bool]:
-    """The Workbook window's footer, as one decision: (sentence, shown as good, Build enabled).
-
-    Every path that changes the window — a read, a read that failed, a build
-    starting, a build finishing, a save during a build — asks this, so the
-    button can never be left enabled for a workbook that is broken, half-saved
-    or out of date. ``note`` is the last build's own sentence, kept until the
-    file next changes; if the workbook has gone wrong since, that is said too.
-    ``recalc``: Export wrote cells into a workbook with formulas, and Build waits
-    for Excel to recalculate and save it. ``results_due``: an Export left the
-    Results sheet out (a formula cell it would not write), and Excel has saved
-    since, so it is time to Export again.
-    """
-    if building:
-        return f"Building {_plural(len(parts.jobs), 'part')} in SolidWorks…", True, False
-    if error:
-        return error, False, False
-    if note is not None and not note[1] and chosen:
-        return note[0], False, False          # a refused Export must show, even with a fix still chosen
-    if chosen:
-        return (f"{_plural(chosen, 'fix', 'fixes')} chosen: Export writes "
-                f"{'it' if chosen == 1 else 'them'} into the workbook, and Build waits for that, so the workbook "
-                "and the parts agree."), True, False
-    if recalc:
-        lead = f"{note[0]} " if note is not None else ""
-        return lead + RECALC_WAIT, True, False
-    due = RESULTS_DUE if results_due else ""
-    text, ok = workbook_status(parts, diagnostics, error, folder)
-    if ok and not folder_exists:
-        text, ok = (f"The output folder {short_path(folder, 48)} does not exist; make it, or change it on the Box "
-                    "sheet.", False)
-    if note is not None:
-        note_text, note_ok = note
-        if ok:
-            return note_text + _left_for_later(parts) + due, note_ok, True
-        return f"{note_text} Since then: {text}{due}", False, False
-    return text + due, ok, ok
 
 
 def workbook_speed_lines(spec, motion) -> Tuple[List[str], str]:
@@ -1099,29 +1047,10 @@ def end_view_readout(view) -> str:
     return " · ".join(f"z {_n(z, 1)}" for z in view.planes) + (" · origin" if view.origin else " · origin off view")
 
 
-def many_status(result) -> Tuple[str, bool]:
-    """One sentence for a batch of parts: how many were built, or the first thing that went wrong."""
-    built = [r for r in result.built if r.ok and r.saved]
-    for part in result.built:
-        if not (part.ok and part.saved):
-            text, _ = build_status(part)
-            done = f"{_plural(len(built), 'part')} built before it; " if built else ""
-            skipped = f" {_plural(len(result.skipped), 'part')} not attempted." if result.skipped else ""
-            return f"{done}{text}{skipped}", False
-    text = f"Built {_plural(len(built), 'part')}."
-    manual = manual_steps_line(_shared_steps(built))
-    checks = [c for r in built for c in r.checks]
-    if checks:
-        text += " Check: " + "; ".join(checks) + "."
-    if manual:
-        text += " " + manual
-    return text, not checks
-
-
 # -- W4: the footer as one decision, and the sentences of a gearbox build and update ----------------------------
 #
-# Interfaces pinned in the W4 interface commit (docs/PLAN-WORKBOOK.md §5, W4-PLAN §4.1–§4.2). ``workbook_state``
-# above stays as it is until the window is wired to ``workbook_footer``. Everything here reads the plans and the
+# Interfaces pinned in the W4 interface commit (docs/PLAN-WORKBOOK.md §5, W4-PLAN §4.1–§4.2). ``workbook_footer``
+# replaced W2–W3's ``workbook_state`` once the window was wired to it. Everything here reads the plans and the
 # worker's results by their fields only (never ``GearboxResult.ok``), and the worker's own BuildError text is
 # shown as it comes, never reworded.
 
@@ -1617,7 +1546,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
                     error: str = "", folder: str = "", folder_exists: bool = True, building: bool = False,
                     updating: bool = False, progress=None, note: Optional[Tuple[str, bool]] = None,
                     results_due: bool = False) -> Footer:
-    """The footer for every state of the window (W4-PLAN §4.2's table), replacing :func:`workbook_state`.
+    """The footer for every state of the window (W4-PLAN §4.2's table): its sentence, colour and buttons.
 
     ``assessment`` is the last good read's ``workbook.assess.Assessment``
     (assessed with ``provisional=`` the window's recalc, and its chosen
@@ -1629,7 +1558,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     ``workbook.update.UpdatePlan`` from ``classify`` (None with nothing on
     record). ``building``/``updating``: a worker job is running, and
     ``progress`` its last ``swbuild.Step`` (or None). ``note``: the last
-    job's own sentence, as :func:`workbook_state` keeps it. Order of the gate:
+    job's own sentence, kept until the file next changes. Order of the gate:
     the window's own state (error, a job running, the folder missing on disk,
     the record problem), then ``assessment.lay_out_refusal()`` — falling back
     to Build parts when only ``parts.refused`` holds the layout back and
@@ -1646,7 +1575,11 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     and when the change needs a new revision (the press asks, then builds
     again). A finished job's ``note`` takes the sentence's place while nothing
     has gone wrong since, coloured by its own ``ok`` (a clash is ``False``);
-    otherwise *… Since then: …*.
+    otherwise *… Since then: …*. A note that answers rather than reports a
+    job — No to *Build again?* (:data:`NOTHING_CHANGED`), the question left
+    open too long (:data:`ASKED_TOO_LATE`), an Export's (:func:`export_note`)
+    — marks no moment for *since then* to count from: what follows it was
+    already so, so it is joined plainly (:func:`_after_note`).
     """
     from .store import LINK_WAITS
     a = assessment
@@ -1680,7 +1613,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
 
     due = RESULTS_DUE if results_due else ""
     if newer:
-        text = f"{note[0]} Since then: {record_problem}" if note is not None else record_problem
+        text = _after_note(note, record_problem) if note is not None else record_problem
         return footer(text + due, False)
 
     where = folder or a.folder
@@ -1723,7 +1656,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
         if ok:
             text, ok = note[0] + _left_for_later(a.parts), note[1]
         else:
-            text = f"{note[0]} Since then: {text}"
+            text = _after_note(note, text)
     else:
         unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
         if unsaved:
@@ -1744,6 +1677,16 @@ BUILD_AGAIN_TITLE = "Build again?"
 NOTHING_CHANGED = "Nothing was changed in SolidWorks."
 ASKED_TOO_LATE = ("The workbook changed while Build again? was open, so nothing was built; press Build again… once "
                   "more if it still applies.")
+
+
+def _after_note(note: Tuple[str, bool], text: str) -> str:
+    """A note, then a state that is not fine: *Built 4 parts. Since then: Fix the workbook …* after a job, which
+    marks a moment the workbook may have moved on from; plainly joined after an answer or an Export, which mark
+    none — *Nothing was changed in SolidWorks. Gear_m1.5_N68.SLDPRT is no longer in C:\\P: …* — since what follows
+    was already so when the question was answered."""
+    if isinstance(note, Standing) or note[0] in (NOTHING_CHANGED, ASKED_TOO_LATE):
+        return f"{note[0]} {text}"
+    return f"{note[0]} Since then: {text}"
 
 
 def workbook_built_tag(record, digest: str) -> str:

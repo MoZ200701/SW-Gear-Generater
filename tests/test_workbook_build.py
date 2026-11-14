@@ -82,9 +82,10 @@ def test_kinds_a_later_phase_builds_are_set_aside(tmp_path):
     assert parts.refused[-1].message == ("Modes!A2: 2H, 4H, N and 4L are modes: they become the assembly's "
                                          "configurations in phase W8.")
     assert all(not d.is_error and d in parts.diagnostics for d in parts.refused)
-    assert ui_text.workbook_status(parts, parts.diagnostics, folder=FOLDER) == (
+    footer = ui_text.workbook_footer(assess.assess(spec, [], FOLDER), folder=FOLDER)
+    assert (footer.text, footer.ok, footer.build_label, footer.build_enabled) == (
         "Nothing in this workbook can be built yet: InDog is a dog ring: dog rings are built in phase W8, with "
-        "modes.", False)
+        "modes.", False, "Build parts", False)
 
 
 def planetary():
@@ -111,9 +112,10 @@ def test_a_carrier_is_refused_with_its_phase_and_its_gears_still_build(tmp_path)
     # ...but never says a bare "Ready" for a gearbox it has not checked, and nothing lays it out.
     assert state.lay_out_refusal() == ("The gearbox cannot be laid out yet, since it is not checked: P1 is mounted "
                                        "on C: carriers are laid out in phase W7.")
-    text, ok, enabled = ui_text.workbook_state(parts, diagnostics + parts.diagnostics, folder=FOLDER)
-    assert (ok, enabled) == (True, True)
-    assert text == (f"Ready: Build makes 2 parts in {FOLDER}. Left for a later phase: " + refused.message)
+    footer = ui_text.workbook_footer(state, folder=FOLDER)
+    assert (footer.ok, footer.build_label, footer.build_enabled) == (True, "Build parts", True)
+    assert footer.text == (f"Ready: Build parts makes 2 parts in {FOLDER}; the layout and assembly wait for a later "
+                           "phase: " + refused.message)
     # The gearbox checks stop at the layout and leave the saying to the refusal, at its cell — and the report
     # says it was not checked, so an empty list is never read as a clean gearbox.
     from gear_generator.workbook import checks
@@ -143,9 +145,10 @@ def test_every_row_a_later_phase_builds_is_named_with_its_phase(tmp_path):
     assert len(parts.jobs) == 4
     assert assess.assess(read_spec, diagnostics, FOLDER).lay_out_refusal().startswith(
         "The gearbox cannot be laid out yet, since it is not checked: S3's axis is X+")
-    text, ok = ui_text.workbook_status(parts, diagnostics + parts.diagnostics, folder=FOLDER)
-    assert ok and text.endswith("Left for a later phase: Shafts!A4: S3's axis is X+: turned axes are laid out in "
-                                "phase W6, and the gearbox is not checked until then. (3 more under Checks)")
+    footer = ui_text.workbook_footer(assess.assess(read_spec, diagnostics, FOLDER), folder=FOLDER)
+    assert footer.ok and footer.text.endswith(
+        "the layout and assembly wait for a later phase: Shafts!A4: S3's axis is X+: turned axes are laid out in "
+        "phase W6, and the gearbox is not checked until then. (3 more under Checks)")
 
 
 def test_a_workbook_with_nothing_for_later_can_be_laid_out(tmp_path):
@@ -492,9 +495,10 @@ def test_the_windows_readouts(tmp_path):
     assert ui_text.workbook_parts_readout(parts) == "4 parts to build"
     assert ui_text.workbook_checks_readout(parts.diagnostics) == "2 warnings"
     assert ui_text.workbook_changes_readout([], "14:02") == "nothing changed · 14:02"
-    assert ui_text.workbook_status(parts, parts.diagnostics, folder=FOLDER) == (
-        f"Ready: Build makes 4 parts in {FOLDER}.", True)
-    assert ui_text.workbook_status(parts, parts.diagnostics, folder="")[1] is False
+    footer = ui_text.workbook_footer(assess.assess(spec, [], FOLDER), folder=FOLDER)
+    assert (footer.text, footer.ok) == (f"Ready: Build makes 4 parts, the layout part and the assembly in {FOLDER}.",
+                                        True)
+    assert ui_text.workbook_footer(assess.assess(spec, [], ""), folder="").ok is False
 
 
 def test_the_gear_tables_states(tmp_path):
@@ -510,19 +514,23 @@ def test_the_gear_tables_states(tmp_path):
     assert rows["G2"][3] == "68.5" and rows["G2"][7:] == (ui_text.GEAR_STATE_ERROR, "see Checks")
     assert rows["G5"][6:] == ("Gear_m1.5_N17", ui_text.GEAR_STATE_SHARES, "the same part as G1")
     assert rows["G6"][7:] == (ui_text.GEAR_STATE_LATER, "later · phase W6")
-    text, ok = ui_text.workbook_status(parts, diagnostics + parts.diagnostics, folder=FOLDER)
-    assert not ok and text.startswith("Fix the workbook before building: Gears!F3: Teeth must be a whole number")
+    footer = ui_text.workbook_footer(assess.assess(read_spec, diagnostics, FOLDER), folder=FOLDER)
+    assert not footer.ok and not footer.build_enabled
+    assert footer.text.startswith("Fix the workbook before building: Gears!F3: Teeth must be a whole number")
 
 
 def test_a_batchs_sentence(tmp_path):
+    """Build parts (parts alone, no plan for a layout): the batch said as one sentence, shared steps merged."""
     batch = plans(tmp_path)
-    assert ui_text.many_status(swbuild.build_many(FakeSolidWorks(), batch, never_exists))[0] == (
+    done = swbuild.GearboxResult(parts=swbuild.build_many(FakeSolidWorks(), batch, never_exists))
+    assert ui_text.gearbox_status(None, done)[0] == (
         "Built 4 parts. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset.")
     second = os.path.join(FOLDER, "Gear_m1.5_N68.SLDPRT")
     failed = swbuild.build_many(FakeSolidWorks(fail_on={"save_as": (second, "The disk is full.")}), batch,
                                 never_exists)
-    text, ok = ui_text.many_status(failed)
-    assert not ok and text.startswith("1 part built before it; ") and text.endswith("2 parts not attempted.")
+    text, ok = ui_text.gearbox_status(None, swbuild.GearboxResult(parts=failed))
+    assert not ok and text.startswith("1 part built before it; ")
+    assert text.endswith("2 parts not attempted. Press Build parts to carry on: what was built is reused.")
 
 
 
@@ -569,65 +577,69 @@ def test_a_damaged_link_record_is_said_and_left_where_it_is(tmp_path):
 # -- the window's one decision: what the footer says and whether Build may run ---------------
 
 
-def ready(tmp_path, spec=None):
-    read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, spec or reducer())))
-    parts = build.plan_parts(read_spec, FOLDER, skip_rows=build.rows_with_errors(diagnostics))
-    return parts, diagnostics + parts.diagnostics
+def ready(tmp_path, spec=None, chosen=0, provisional=False):
+    """The workbook read and assessed as the window does; ``chosen`` fixes stand in by count (the footer only
+    counts them)."""
+    import dataclasses
+    import tempfile
+    where = type(tmp_path)(tempfile.mkdtemp(dir=tmp_path))   # a file of its own each time: write_new never overwrites
+    read_spec, diagnostics = model.from_book(xlsx.read(write(where, spec or reducer())))
+    state = assess.assess(read_spec, diagnostics, FOLDER, provisional=provisional)
+    return dataclasses.replace(state, chosen=tuple(range(chosen))) if chosen else state
+
+
+def footer(state, **kw):
+    return ui_text.workbook_footer(state, folder=FOLDER, **kw)
 
 
 def test_build_is_enabled_only_for_a_good_current_read(tmp_path):
-    parts, diagnostics = ready(tmp_path)
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER)[2] is True
+    state = ready(tmp_path)
+    assert footer(state).build_enabled is True
     # A read that failed (mid-save, gone, unreadable): the last good plan is not built from.
-    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, error="The workbook is no longer at X.",
-                                               folder=FOLDER)
-    assert (text, ok, enabled) == ("The workbook is no longer at X.", False, False)
+    f = footer(state, error="The workbook is no longer at X.")
+    assert (f.text, f.ok, f.build_enabled) == ("The workbook is no longer at X.", False, False)
     # A build in flight.
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, building=True) == (
-        "Building 4 parts in SolidWorks…", True, False)
+    f = footer(state, building=True)
+    assert (f.text, f.ok, f.build_enabled) == ("Building in SolidWorks…", True, False)
     # The output folder is missing.
-    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, folder_exists=False)
-    assert not enabled and "does not exist" in text
+    f = footer(state, folder_exists=False)
+    assert not f.build_enabled and "does not exist" in f.text
 
 
 def test_after_a_build_the_note_shows_and_build_follows_the_file(tmp_path):
-    parts, diagnostics = ready(tmp_path)
     note = ("Built 4 parts.", True)
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, note=note) == ("Built 4 parts.", True, True)
+    f = footer(ready(tmp_path), note=note)
+    assert (f.text, f.ok, f.build_enabled) == ("Built 4 parts.", True, True)
     spec = reducer()
     broken = model.replace(spec, gears=(model.replace(spec.gears[0], teeth="68.5"),) + spec.gears[1:])
-    bad_parts, bad_diagnostics = ready(tmp_path / "b" if (tmp_path / "b").mkdir() is None else tmp_path, broken)
-    text, ok, enabled = ui_text.workbook_state(bad_parts, bad_diagnostics, folder=FOLDER, note=note)
-    assert not enabled and not ok
-    assert text.startswith("Built 4 parts. Since then: Fix the workbook before building: Gears!F2")
+    f = footer(ready(tmp_path, broken), note=note)
+    assert not f.build_enabled and not f.ok
+    assert f.text.startswith("Built 4 parts. Since then: Fix the workbook before building: Gears!F2")
 
 
 def test_a_chosen_fix_holds_build_until_export_and_a_refused_export_shows(tmp_path):
-    parts, diagnostics = ready(tmp_path)
-    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=2)
-    assert ok and not enabled and text.startswith("2 fixes chosen: Export writes them")
+    f = footer(ready(tmp_path, chosen=2))
+    assert f.ok and not f.build_enabled and f.text.startswith("2 fixes chosen: Export writes them")
     # The last Export was refused with the fix still chosen: that sentence wins, shown as a fault.
     refused = ("Nothing was written: the workbook changed since it was last read.", False)
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=1, note=refused) == (
-        refused[0], False, False)
+    one = ready(tmp_path, chosen=1)
+    f = footer(one, note=refused)
+    assert (f.text, f.ok, f.build_enabled) == (refused[0], False, False)
     # A good note does not hide the fix still waiting.
-    text, _, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=1,
-                                              note=("Built 4 parts.", True))
-    assert text.startswith("1 fix chosen: Export writes it") and not enabled
+    f = footer(one, note=("Built 4 parts.", True))
+    assert f.text.startswith("1 fix chosen: Export writes it") and not f.build_enabled
     # Building and a failed read still come first.
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, chosen=1, building=True)[0].startswith(
-        "Building")
-    assert ui_text.workbook_state(parts, diagnostics, error="Gone.", chosen=1, note=refused)[0] == "Gone."
+    assert footer(one, building=True).text.startswith("Building")
+    assert footer(one, error="Gone.", note=refused).text == "Gone."
 
 
 def test_an_export_into_formulas_waits_for_excel_to_recalculate(tmp_path):
-    parts, diagnostics = ready(tmp_path)
-    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True,
-                                               note=("Wrote 1 cell.", True))
-    assert ok and not enabled
-    assert text == ("Wrote 1 cell. Export wrote cells that formulas in the workbook may depend on: open and save it "
-                    "in Excel so they recalculate; Build and Export wait for that save.")
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True)[0].startswith("Export wrote cells")
+    held = ready(tmp_path, provisional=True)
+    f = footer(held, note=("Wrote 1 cell.", True))
+    assert f.ok and not f.build_enabled
+    assert f.text == ("Wrote 1 cell. Export wrote cells that formulas in the workbook may depend on: open and save it "
+                      "in Excel so they recalculate; Build and Export wait for that save.")
+    assert footer(held).text.startswith("Export wrote cells")
 
 
 def test_short_path_fits_even_one_long_name():
@@ -747,20 +759,18 @@ def test_after_a_build_the_footer_still_names_the_rows_left_for_later(tmp_path):
     """Review item 6: the build's own sentence stood alone, and the later-phase rows went unsaid."""
     read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, planetary(), "p.xlsx")))
     state = assess.assess(read_spec, diagnostics, FOLDER)
-    text, ok, enabled = ui_text.workbook_state(state.parts, state.diagnostics, folder=FOLDER,
-                                               note=("Built 2 parts.", True))
-    assert (ok, enabled) == (True, True)
-    assert text == "Built 2 parts. Left for a later phase: " + state.parts.refused[0].message
+    f = ui_text.workbook_footer(state, folder=FOLDER, note=("Built 2 parts.", True))
+    assert (f.ok, f.build_enabled) == (True, True)
+    assert f.text == "Built 2 parts. Left for a later phase: " + state.parts.refused[0].message
 
 
 def test_results_left_out_for_a_formula_are_due_after_excels_save(tmp_path):
-    parts, diagnostics = ready(tmp_path)
-    text, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=FOLDER, results_due=True)
-    assert enabled and text == (f"Ready: Build makes 4 parts in {FOLDER}. Export again to write the Results sheet: "
-                                "it waited for Excel to recalculate.")
+    f = footer(ready(tmp_path), results_due=True)
+    assert f.build_enabled and f.text == (f"Ready: Build makes 4 parts, the layout part and the assembly in {FOLDER}. "
+                                          "Export again to write the Results sheet: it waited for Excel to "
+                                          "recalculate.")
     # While Excel has yet to save, the wait is what is said.
-    assert ui_text.workbook_state(parts, diagnostics, folder=FOLDER, recalc=True, results_due=True)[0] == (
-        ui_text.RECALC_WAIT)
+    assert footer(ready(tmp_path, provisional=True), results_due=True).text == ui_text.RECALC_WAIT
 
 
 def window_for(tmp_path, path):
@@ -874,7 +884,8 @@ def test_a_provisional_read_offers_no_fix_and_lays_nothing_out(tmp_path):
 def test_the_layout_gate_asks_for_an_output_folder_as_build_does(tmp_path):
     read_spec, diagnostics = model.from_book(xlsx.read(write(tmp_path, reducer())))
     assert assess.assess(read_spec, diagnostics, "").lay_out_refusal() == assess.NO_FOLDER
-    assert ui_text.workbook_status(build.plan_parts(read_spec, ""), diagnostics, folder="") == (assess.NO_FOLDER, False)
+    f = ui_text.workbook_footer(assess.assess(read_spec, diagnostics, ""), folder="")
+    assert (f.text, f.ok, f.build_enabled) == (assess.NO_FOLDER, False, False)
 
 
 def test_a_renamed_gear_keeps_its_problems(tmp_path):
