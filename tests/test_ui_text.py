@@ -821,3 +821,95 @@ def test_the_gear_table_says_what_is_built_and_what_update_changes(ready):
     assert rows["G1"][7] == ui_text.GEAR_STATE_BUILT
     plain = {r[0]: r for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, ready.diagnostics)}
     assert plain["G1"][7:] == (ui_text.GEAR_STATE_BUILDS, "to build")
+
+
+# -- what the Workbook window itself says around a job (the W4 window wiring) ------------------------------------
+
+
+def test_the_gears_readout_counts_what_is_on_record(ready):
+    assert ui_text.workbook_parts_readout(ready.parts) == "4 parts to build"
+    assert ui_text.workbook_parts_readout(ready.parts, record=_record()) == "4 parts built"
+    two = store.LinkRecord(parts=_record().parts[:2])
+    assert ui_text.workbook_parts_readout(ready.parts, record=two) == "2 parts built · 2 to build"
+    assert ui_text.workbook_parts_readout(ready.parts, record=store.LinkRecord()) == "4 parts to build"
+
+
+def test_the_header_says_whether_what_is_built_is_this_version():
+    assert ui_text.workbook_built_tag(None, "abc") == ""
+    assert ui_text.workbook_built_tag(store.LinkRecord(digest="abc"), "abc") == ""        # nothing on record
+    built = dataclasses.replace(_record(), digest="abc")
+    assert ui_text.workbook_built_tag(built, "abc") == " · built from this version"
+    assert ui_text.workbook_built_tag(built, "def") == " · changed since it was built"
+    parts = dataclasses.replace(_record(layout=False), digest="abc")
+    assert ui_text.workbook_built_tag(parts, "abc") == " · parts built from this version"
+    assert ui_text.workbook_built_tag(parts, "def") == " · changed since its parts were built"
+
+
+def test_a_job_that_cannot_start_says_why():
+    assert ui_text.job_unreachable("pywin32 is not installed.") == (
+        "SolidWorks cannot be reached from here, so nothing was built. pywin32 is not installed.")
+    assert ui_text.job_unreachable("", updating=True) == "SolidWorks cannot be reached from here, so nothing was " \
+                                                          "updated."
+    assert ui_text.strip_busy() == "The strip is building in SolidWorks; build the workbook when it has finished."
+    assert ui_text.strip_busy(True) == ("The strip is building in SolidWorks; press Update SolidWorks when it has "
+                                        "finished.")
+    assert ui_text.export_busy() == "a build is running in SolidWorks; export when it has finished."
+    assert ui_text.export_busy(True) == "Update SolidWorks is running; export when it has finished."
+
+
+def test_a_job_that_raised_is_said_as_it_came_or_named():
+    refusal = swbuild.BuildError("C:\\P\\R.SLDASM already exists, and a build never overwrites a file.")
+    assert ui_text.job_failed(refusal) == str(refusal)
+    assert ui_text.job_failed(KeyError("x")) == "The build hit a problem in SolidWorks — KeyError: 'x'"
+    assert ui_text.job_failed(ValueError("v"), updating=True) == ("Update SolidWorks hit a problem — ValueError: v")
+    assert ui_text.collect_failed(ValueError("v")) == "The build could not be collected — ValueError: v"
+    assert ui_text.planning_failed(ValueError("v")) == (
+        "What to build could not be worked out — ValueError: v. Nothing is built or updated until it can be.")
+
+
+def test_records_that_could_not_be_written_or_carried():
+    assert ui_text.sidecar_unwritten("C:\\P\\G.gear.json", OSError("denied")) == (
+        "The part's record G.gear.json could not be written beside it: denied.")
+    assert ui_text.record_unwritten("C:\\P\\R.workbook.json", OSError("denied")) == (
+        "The record of what was built, R.workbook.json, could not be written: denied. What SolidWorks saved stays "
+        "on disk, and the next Build goes beside it rather than over it.")
+    assert ui_text.record_not_carried("it was written by a newer Gear Generator") == (
+        "The record of what was built stays beside the workbook's old place: it was written by a newer Gear "
+        "Generator.")
+
+
+def test_the_question_its_answer_and_closing_while_a_job_runs():
+    assert ui_text.BUILD_AGAIN_TITLE == "Build again?" and ui_text.NOTHING_CHANGED == "Nothing was changed in " \
+                                                                                      "SolidWorks."
+    assert ui_text.ASKED_TOO_LATE.startswith("The workbook changed while Build again? was open, so nothing was built")
+    assert ui_text.closes_when_done() == ("This window closes once the build has finished and what it saved is on "
+                                          "record; it stays open if something needs saying.")
+    assert ui_text.closes_when_done(True).startswith("This window closes once the update has finished")
+
+
+def test_a_clash_is_called_a_mesh_only_when_it_is_one():
+    """W4 smoke test on SolidWorks 2026: a widened G1 clashed with G4 beside it, which it does not mesh with."""
+    asm = _saved("Reducer_12to1", ".SLDASM")
+    built = dict(parts=swbuild.ManyResult(built=[_saved(s) for s in STEMS]), layout=_saved("Reducer_12to1_Layout"),
+                 assembly=asm)
+    plan = _gearbox(**FULL, meshes=(("G1", "G2"), ("G3", "G4")))
+    mesh = swbuild.Clash(("Gear_m1.5_N17-1", "Gear_m1.5_N68-1"), ("G2", "G1"), 1.0)
+    beside = swbuild.Clash(("Gear_m1.5_N17-1", "OutputGear-1"), ("G1", "G4"), 2.0)
+    result = swbuild.GearboxResult(clashes=[mesh], **built)
+    assert ui_text.gearbox_status(plan, result)[0].endswith(
+        "Check: G2 and G1 interfere, 1 mm³; look at their mesh in Reducer_12to1.SLDASM.")
+    result.clashes = [beside]
+    assert ui_text.gearbox_status(plan, result)[0].endswith(
+        "Check: G1 and G4 interfere, 2 mm³; look where they meet in Reducer_12to1.SLDASM.")
+    result.clashes = [mesh, beside]
+    assert ui_text.gearbox_status(plan, result)[0].endswith(
+        "Check: G2 and G1 interfere, 1 mm³; G1 and G4 interfere, 2 mm³; look where they meet in "
+        "Reducer_12to1.SLDASM.")
+    result.clashes = [swbuild.Clash((), (), 0.5)]               # unnamed: not known to be a mesh
+    assert ui_text.gearbox_status(plan, result)[0].endswith("look where they meet in Reducer_12to1.SLDASM.")
+    nothing = _updated(parts=[], layout=None, placed=[], changed=[], clashes=[beside])
+    assert ui_text.gearbox_update_status(_update(), nothing, meshes=[["G1", "G2"], ["G3", "G4"]])[0].endswith(
+        "look where they meet in Reducer_12to1.SLDASM.")
+    nothing.clashes = [mesh]
+    assert ui_text.gearbox_update_status(_update(), nothing, meshes=[["G1", "G2"], ["G3", "G4"]])[0].endswith(
+        "look at their mesh in Reducer_12to1.SLDASM.")

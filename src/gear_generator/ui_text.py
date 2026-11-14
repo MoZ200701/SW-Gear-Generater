@@ -839,9 +839,19 @@ def _gears_row(where: str) -> int:
     return int(match.group(1) or match.group(2)) if match else 0
 
 
-def workbook_parts_readout(parts) -> str:
-    """The Gears panel's readout: ``4 parts to build · 1 later``."""
-    pieces = [_plural(len(parts.jobs), "part") + " to build"] if parts.jobs else ["nothing to build yet"]
+def workbook_parts_readout(parts, *, record=None) -> str:
+    """The Gears panel's readout: ``4 parts to build · 1 later``.
+
+    With ``record`` (a ``store.LinkRecord``), the parts whose every gear its
+    current parts serve are counted as built, as the table's rows say:
+    ``4 parts built``, ``3 parts built · 1 to build``."""
+    served = {g for p in (record.current_parts() if record is not None else []) for g in p.gears}
+    built = [job for job in parts.jobs if job.gear_ids and all(g in served for g in job.gear_ids)]
+    new = len(parts.jobs) - len(built)
+    if built:
+        pieces = [_plural(len(built), "part") + " built"] + ([f"{new} to build"] if new else [])
+    else:
+        pieces = [_plural(len(parts.jobs), "part") + " to build"] if parts.jobs else ["nothing to build yet"]
     if parts.later:
         pieces.append(f"{len(parts.later)} later")
     return " · ".join(pieces)
@@ -1220,15 +1230,31 @@ def _clash_lines(clashes) -> List[str]:
     return lines
 
 
-def _interference(clashes, error: str, assembly: str) -> Tuple[str, bool]:
-    """``; no interference between the gears`` (to end a sentence), or a sentence of its own that stands out."""
+def _all_meshes(clashes, meshes) -> bool:
+    """Whether every clash is between the two gears of a listed mesh. ``meshes`` None: not known (the wording from
+    before W4's smoke test, which took every clash for a mesh)."""
+    if meshes is None:
+        return True
+    listed = {frozenset(pair) for pair in meshes}
+    return all(len(set(c.gears)) == 2 and frozenset(c.gears) in listed for c in clashes)
+
+
+def _interference(clashes, error: str, assembly: str, meshes=None) -> Tuple[str, bool]:
+    """``; no interference between the gears`` (to end a sentence), or a sentence of its own that stands out.
+
+    A clash is said to be at *their mesh* only when its two gears are a listed mesh (``meshes``, pairs of gear
+    ids): SolidWorks 2026 showed a widened gear clashing with one beside it on the same shaft that it does not
+    mesh with (W4 smoke test), so any other clash, or one it could not name, is *where they meet*."""
     where = f" in {assembly}" if assembly else ""
     if error:
         return f". Interference could not be checked: {_sentence(error)} Look at each mesh{where} by eye.", False
     if clashes:
         lines = _clash_lines(clashes)
-        return (f". Check: {'; '.join(lines)}; look at {'their mesh' if len(lines) == 1 else 'those meshes'}"
-                f"{where}."), False
+        if _all_meshes(clashes, meshes):
+            look = "at their mesh" if len(lines) == 1 else "at those meshes"
+        else:
+            look = "where they meet"
+        return f". Check: {'; '.join(lines)}; look {look}{where}.", False
     return "; no interference between the gears.", True
 
 
@@ -1316,7 +1342,8 @@ def gearbox_status(plan, result) -> Tuple[str, bool]:
         skipped = f" {_sentence(result.skipped)}" if result.skipped else " The assembly was not made."
         text, ok = f"{done}.{skipped}", False
     elif asm_name:
-        ending, clean = _interference(result.clashes, result.interference_error, asm_name)
+        ending, clean = _interference(result.clashes, result.interference_error, asm_name,
+                                      tuple(plan.meshes) if plan is not None and plan.meshes else None)
         text, ok = done + ending, ok and clean
     else:
         text = f"{done}."
@@ -1417,10 +1444,11 @@ def _layout_shafts(names: Sequence[str]) -> List[str]:
     return shafts
 
 
-def gearbox_update_status(update, result, dragged: Sequence[str] = ()) -> Tuple[str, bool]:
+def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes=None) -> Tuple[str, bool]:
     """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
     *Save in SolidWorks to keep it.* whenever ``result.changed`` is not empty; *SolidWorks already matches the
-    workbook: nothing was changed.* when nothing was."""
+    workbook: nothing was changed.* when nothing was. ``meshes``: the record's listed meshes (pairs of gear ids),
+    so a clash is called a mesh only when it is one (see :func:`_interference`)."""
     changed_docs = [_stem(p) for p in result.changed]
     if result.failures:
         what, why = result.failures[0]
@@ -1464,7 +1492,7 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = ()) -> Tuple[
     if nothing:
         text = ALREADY_MATCHES
         if assembly and (result.clashes or result.interference_error):
-            ending, ok = _interference(result.clashes, result.interference_error, assembly)
+            ending, ok = _interference(result.clashes, result.interference_error, assembly, meshes)
             text += ending[1:]
         return text, ok
     put_back = ""
@@ -1478,7 +1506,7 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = ()) -> Tuple[
             text += f". SolidWorks reported an error rebuilding {assembly}, so look at it before saving."
             ok = False
         else:
-            ending, clean = _interference(result.clashes, result.interference_error, assembly)
+            ending, clean = _interference(result.clashes, result.interference_error, assembly, meshes)
             text, ok = text + ending, ok and clean
     else:
         text += "."
@@ -1704,3 +1732,92 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
                      f"that are not saved: save {'it' if one else 'them'} in SolidWorks to keep them.")
     return footer(text + due, ok, build_on, update_on)
 
+
+
+# -- W4: what the Workbook window itself says around a job (the window wiring) ----------------------------------
+#
+# The footer's sentence is :func:`workbook_footer`'s and a finished job's is :func:`gearbox_status` or
+# :func:`gearbox_update_status`; these are the few things only the window knows to say: a job that could not
+# start, a record it could not write, the question's title and its "No", and the header's word on the record.
+
+BUILD_AGAIN_TITLE = "Build again?"
+NOTHING_CHANGED = "Nothing was changed in SolidWorks."
+ASKED_TOO_LATE = ("The workbook changed while Build again? was open, so nothing was built; press Build again… once "
+                  "more if it still applies.")
+
+
+def workbook_built_tag(record, digest: str) -> str:
+    """The header's word on the record beside the workbook: `` · built from this version`` or `` · changed since
+    it was built`` once a layout part or assembly is on record (``record.digest`` is the read SolidWorks was last
+    built or updated from), `` · parts built from this version`` / `` · changed since its parts were built`` for
+    W2's parts alone, and ``""`` with nothing on record."""
+    if record is None or not (record.parts or record.gearbox is not None):
+        return ""
+    same = bool(digest) and record.digest == digest
+    if record.gearbox is None:
+        return " · parts built from this version" if same else " · changed since its parts were built"
+    return " · built from this version" if same else " · changed since it was built"
+
+
+def job_unreachable(reason: str, updating: bool = False) -> str:
+    """*SolidWorks cannot be reached from here, so nothing was built.* and why (``swcom.unavailable_reason``)."""
+    done = "updated" if updating else "built"
+    return f"SolidWorks cannot be reached from here, so nothing was {done}. {reason}".strip()
+
+
+def strip_busy(updating: bool = False) -> str:
+    """The strip has a build of its own in SolidWorks (they share one worker)."""
+    then = "press Update SolidWorks" if updating else "build the workbook"
+    return f"The strip is building in SolidWorks; {then} when it has finished."
+
+
+def job_failed(error: BaseException, updating: bool = False) -> str:
+    """A job that raised in the worker: a SolidWorks or build refusal is a sentence of its own, said as it came
+    (nothing was made or changed before such a refusal); anything else is named."""
+    from .swcom import SolidWorksError
+    if isinstance(error, SolidWorksError):
+        return str(error)
+    what = "Update SolidWorks hit a problem" if updating else "The build hit a problem in SolidWorks"
+    return f"{what} — {type(error).__name__}: {error}"
+
+
+def planning_failed(error: BaseException) -> str:
+    """Planning a build or an update raised, which it should never do: say so rather than offer the button."""
+    return (f"What to build could not be worked out — {type(error).__name__}: {error}. Nothing is built or updated "
+            "until it can be.")
+
+
+def sidecar_unwritten(path: str, error: BaseException) -> str:
+    """A part saved, but its ``.gear.json`` could not be written beside it."""
+    return f"The part's record {_file(path)} could not be written beside it: {error}."
+
+
+def record_unwritten(path: str, error: BaseException) -> str:
+    """The ``.workbook.json`` could not be written (the disk refused): the files SolidWorks saved stay."""
+    return (f"The record of what was built, {_file(path)}, could not be written: {error}. What SolidWorks saved "
+            "stays on disk, and the next Build goes beside it rather than over it.")
+
+
+def record_not_carried(why: str) -> str:
+    """Locate…: the record beside the workbook's old place could not be carried to its new one."""
+    return f"The record of what was built stays beside the workbook's old place: {_sentence(why)}"
+
+
+def export_busy(updating: bool = False) -> str:
+    """Why Export waits while a job runs (follows *Nothing was exported:*)."""
+    if updating:
+        return "Update SolidWorks is running; export when it has finished."
+    return "a build is running in SolidWorks; export when it has finished."
+
+
+def closes_when_done(updating: bool = False) -> str:
+    """The window was closed while a job runs: it stays until what the job saved is on record."""
+    job = "the update" if updating else "the build"
+    return (f"This window closes once {job} has finished and what it saved is on record; it stays open if "
+            "something needs saying.")
+
+
+def collect_failed(error: BaseException, updating: bool = False) -> str:
+    """A finished job whose answer the window could not take in."""
+    what = "update" if updating else "build"
+    return f"The {what} could not be collected — {type(error).__name__}: {error}"
