@@ -580,7 +580,7 @@ def test_p1b_plans_w4s_static_gearbox_whatever_w5_would_choose(monkeypatch):
     assert p8.static_plan(px, object()).motion is None
     assert seen == [p8.STATIC_FOR_THE_PROBE] and motion.motion_reason is original
     monkeypatch.setattr(gearbox, "plan_gearbox", lambda a, r: SimpleNamespace(refusal="", motion="turning"))
-    with pytest.raises(harness.Require, match="turning assembly"):
+    with pytest.raises(harness.Require, match="static assembly"):
         p8.static_plan(px, object())
     assert motion.motion_reason is original
 

@@ -2774,8 +2774,8 @@ def static_plan(px: Px, assessed: Any) -> Any:
             wb_motion.motion_reason = original
     px.require(not plan.refusal, f"plan_gearbox plans it: {plan.refusal!r}")
     px.require(getattr(plan, "motion", None) is None,
-               "plan_gearbox planned a turning assembly though motion_reason said the gearbox is static, so this "
-               "probe, which mates W4's static assembly itself, cannot be run until it is taught the turning one")
+               "the plan is W4's static assembly, which this probe mates itself (a plan with a turning assembly, "
+               "though motion_reason said static, would need the probe taught the turning one)")
     px.fact("update_plan_static_reason", getattr(plan, "static_reason", ""))
     return plan
 
@@ -2856,8 +2856,8 @@ def gear_mate_update(px: Px) -> None:
     try:
         # The static assembly mated as W5 will, checked, and saved: the turning train an Update finds.
         doc, comps, layout, title = open_train()
-        px.require(not mate_names(doc), "build_gearbox made a static assembly (no mates); if plan_gearbox now makes "
-                                        "a turning one, this probe must mate nothing itself")
+        px.require(not mate_names(doc), "build_gearbox made a static assembly, with no mates for the probe to "
+                                        "double (a turning one would need the probe taught to mate nothing itself)")
         made = mate_w5_train(px, doc, comps, layout, built, old_teeth, adder(px, call(doc, "GetEquationMgr")))
         facts["rebuild_mated"] = rebuild(px, doc, "mated", top_only=TOP_ONLY)
         facts["mated_off_built"] = worst(_off(comps, built))
