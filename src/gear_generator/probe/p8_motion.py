@@ -5060,6 +5060,7 @@ def origin_noise(px: Px) -> None:
         facts["part_global"] = e
 
         # (c) the last shaft moved 1 mm by its layout global, in the layout's own document; its gears left out.
+        start = _origins(comps)
         layout_doc, _ = open_by_path(px, plan.layout_path, prefer="OpenDoc6")
         px.require(activate(px, str(call(layout_doc, "GetTitle"))), "the layout part is active")
         leqm = call(layout_doc, "GetEquationMgr")
@@ -5070,6 +5071,8 @@ def origin_noise(px: Px) -> None:
         px.require(activate(px, title), "the assembly is active again")
         on_it = [g for g, s in shaft_of.items() if s == moved_shaft]
         e.update(around(f"{moved_shaft} moved by the layout", leave_out=on_it))
+        # The discriminator: the gears on the moved shaft did move, 1 mm, by the time of the second read.
+        e["moved_shaft_gears_mm"] = {g: math.dist(start[g], e["after"][g]) for g in on_it}
         px.require(activate(px, str(call(layout_doc, "GetTitle"))), "the layout part is active")
         e["set_back"] = _set_exact(leqm, name, x_old)
         call(layout_doc, "ForceRebuild3", False)
@@ -5088,6 +5091,8 @@ def origin_noise(px: Px) -> None:
     px.fact("origin_noise_detail", facts)
     largest = {k: v["largest_mm"] for k, v in facts.items()}
     largest["drive_start_to_end"] = facts["drive"]["start_to_end"]["largest_mm"]
+    px.check(all(abs(v - 1.0) < 1e-9 for v in facts["layout_move"]["moved_shaft_gears_mm"].values()),
+             f"the layout move moved the gears on its shaft 1 mm: {facts['layout_move']['moved_shaft_gears_mm']}")
     px.check(True, f"the largest origin move around a top-only rebuild (mm): {largest}")
     px.fact("origin_noise_mm", largest, "per case, the largest origin difference (mm) between the two reads")
     px.fact("origin_noise_within_moved_tolerance", all(v <= MOVED_TOLERANCE_MM for v in largest.values()))
