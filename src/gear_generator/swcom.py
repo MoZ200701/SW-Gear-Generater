@@ -600,6 +600,8 @@ class Session:
         self._app = app
         self.revision = revision
         self.pid = pid
+        # AddMate5's status out-parameter for every mate this session made, by the name it kept (W5: mate_status).
+        self._mate_statuses: Dict[str, int] = {}
 
     @property
     def label(self) -> str:
@@ -1880,14 +1882,15 @@ class Session:
         angle = math.radians(value) if types[kind] == findings.MATE_ANGLE else 0.0
         # A point distance is taken along the plane's normal; a negative one is flipped (probe nonparallel_mates).
         flip = kind == "point distance" and value < 0
-        mate = call(self._doc(), "AddMate5", types[kind], findings.MATE_ALIGN_CLOSEST, flip, distance, distance,
-                    distance, 1, 1, angle, angle, angle, False, False, 0, _out_long())
+        mate, status = self._add_mate5(types[kind], findings.MATE_ALIGN_CLOSEST, flip, distance, distance,
+                                       distance, 1, 1, angle, angle, angle, False, False, 0)
         call(self._doc(), "ClearSelection2", True)
         made = [n for n in self._mate_names() if n not in before]
         if mate is None or len(made) != 1:
-            raise SolidWorksError(f"AddMate5 would not make a {kind} mate between {a} and {b}.")
+            raise MateRefused(f"AddMate5 would not make a {kind} mate between {a} and {b}.")
         feature = self._mate_feature(made[0])
         kept = self._rename(feature, name) if name else made[0]
+        self._mate_statuses[kept] = status
         dim = ""
         if types[kind] != findings.MATE_COINCIDENT:
             wanted = distance if types[kind] == findings.MATE_DISTANCE else angle
@@ -1912,15 +1915,84 @@ class Session:
         self._component_ref(a, append=False)
         self._component_ref(b, append=True)
         numerator, denominator = ratio if findings.GEAR_MATE_NUMERATOR_FIRST else (ratio[1], ratio[0])
-        mate = call(self._doc(), "AddMate5", findings.MATE_GEAR, findings.MATE_ALIGN_CLOSEST, flip, 0.0, 0.0, 0.0,
-                    float(numerator), float(denominator), 0.0, 0.0, 0.0, False, False, 0, _out_long())
+        mate, status = self._add_mate5(findings.MATE_GEAR, findings.MATE_ALIGN_CLOSEST, flip, 0.0, 0.0, 0.0,
+                                       float(numerator), float(denominator), 0.0, 0.0, 0.0, False, False, 0)
         call(self._doc(), "ClearSelection2", True)
         made = [n for n in self._mate_names() if n not in before]
         if mate is None or len(made) != 1:
-            raise SolidWorksError(f"AddMate5 would not make a gear mate between {a} and {b}.")
+            raise MateRefused(f"AddMate5 would not make a gear mate between {a} and {b}.")
         kept = self._rename(self._mate_feature(made[0]), name) if name else made[0]
+        self._mate_statuses[kept] = status
         self._handles[handle] = {"mate": kept}
         return kept, ""
+
+    def _add_mate5(self, *args: Any) -> Tuple[Any, int]:
+        """``AddMate5`` on what is selected, with a by-reference status as its last argument: the mate (or None)
+        and the status SolidWorks wrote. pywin32 may hand back ``(mate, status)`` or the mate alone with the
+        status in the out parameter; both are read, as probe tier 8's ``add_mate`` read them
+        (``findings.ADD_MATE_NO_ERROR``, ``ADD_MATE_OVER_DEFINED``: a mate made over-defining is still made)."""
+        status = _out_long()
+        result = call(self._doc(), "AddMate5", *args, status)
+        if isinstance(result, tuple):
+            mate = result[0] if result else None
+            return mate, _by_ref(result[1]) if len(result) > 1 else _by_ref(status)
+        return result, _by_ref(status)
+
+    @staticmethod
+    def _settled(name: str, what: str, wanted: Any = None) -> Any:
+        """A W5 finding, read with getattr: its value, or a sentence refusing ``what`` (nothing changed) when it is
+        missing, None, or not ``wanted`` (when one is given)."""
+        value = getattr(findings, name, None)
+        if value is None or (wanted is not None and value != wanted):
+            raise SolidWorksError(f"{what} has not been settled on SolidWorks yet (findings.{name} is {value!r}), so "
+                                  "nothing is changed; run probe tier 8 first.")
+        return value
+
+    def _mate_group(self) -> List[Any]:
+        """Every sub-feature of the build document's MateGroup, in tree order (``findings.MATE_FIND_ROUTE`` "mate
+        group": ``FirstFeature`` → the ``MateGroup`` → ``GetFirstSubFeature`` / ``GetNextSubFeature``, as probe
+        lock_mate_rename found every kind of mate by its name); ``[]`` with no MateGroup."""
+        self._settled("MATE_FIND_ROUTE", "Finding a mate by its name", "mate group")
+        out: List[Any] = []
+        feature = call(self._doc(), "FirstFeature")
+        while feature is not None:
+            if _type_name(feature) == "MateGroup":
+                child = call(feature, "GetFirstSubFeature")
+                while child is not None:
+                    out.append(child)
+                    child = call(child, "GetNextSubFeature")
+            feature = call(feature, "GetNextFeature")
+        return out
+
+    @staticmethod
+    def _is_mate(feature: Any) -> bool:
+        """Whether a MateGroup sub-feature is a mate: every mate tier 8 read had a ``GetTypeName2`` starting
+        "Mate" (MateCoincident, MateDistanceDim, MateLock, MateGearDim, MatePlanarAngleDim, in probe/results), so
+        anything else there — a folder — is not one (W5-INTERFACES §7 A). One whose type cannot be read counts as
+        a mate, so an Update never overlooks a mate it cannot name the kind of."""
+        type_name = _type_name(feature)
+        return type_name == "?" or type_name.startswith("Mate")
+
+    def _kept_mate(self, handle: str) -> Tuple[str, Any]:
+        """A mate kept under ``handle`` (``add_mate`` or ``find_mate``), found again by its name: (name, feature)."""
+        kept = self._handles.get(handle) if hasattr(self, "_handles") else None
+        if not kept or "mate" not in kept:
+            raise SolidWorksError(f"No mate is kept as {handle!r}, so it cannot be changed; that is a fault in Gear "
+                                  "Generator, not in SolidWorks.")
+        name = kept["mate"]
+        feature = next((f for f in self._mate_group() if self._is_mate(f) and str(call(f, "Name")) == name), None)
+        if feature is None:
+            raise MateGone(f'The mate "{name}" is not in {call(self._doc(), "GetTitle")} any more: it was renamed or '
+                           "deleted in SolidWorks.")
+        return name, feature
+
+    def _is_suppressed(self, feature: Any) -> bool:
+        """``IsSuppressed2(findings.THIS_CONFIGURATION, null dispatch)``: a tuple or list back, its first item (as
+        probe tier 8's ``is_suppressed`` read it)."""
+        configuration = self._settled("THIS_CONFIGURATION", "Reading whether a mate is suppressed")
+        value = call(feature, "IsSuppressed2", configuration, _null_dispatch())
+        value = value[0] if isinstance(value, tuple) and value else value
+        return bool(value[0] if isinstance(value, (list, tuple)) and value else value)
 
     # -- W5: the workbook gearbox that turns (docs/notes-workbook/W5-PLAN.md §1.5, W5-INTERFACES.md)
     #
@@ -1941,40 +2013,116 @@ class Session:
         False, 0, 0, 0, 1, 1, 0, 0, 0, False, False, 0, status)``; exactly one new mate in the MateGroup, else
         :class:`MateRefused`; renamed to ``name`` when one is given (``findings.MATE_RENAME_ROUTE``); the status
         kept as for every mate. Returns ``(kept name, "")`` — a lock has no dimension."""
-        raise NotImplementedError("W5: Agent A, swcom.Session._lock_mate")
+        self._settled("COMPOUND_LOCK_ROUTE", "Locking a compound gear to its anchor", "lock alone")
+        self._settled("LOCK_SELECT_ROUTE", "Selecting two components for a lock mate",
+                      "Select4 with a mark-1 select data")
+        lock = self._settled("MATE_LOCK", "A lock mate's type")
+        align = self._settled("MATE_ALIGN_CLOSEST", "A mate's closest alignment")
+        if name:
+            self._settled("MATE_RENAME_ROUTE", "Renaming a mate", "IFeature.Name put")
+        components = []
+        for ref in (a, b):
+            kept = self._handles.get(ref, {}).get("component")
+            if kept is None:
+                raise SolidWorksError(f"A lock mate takes two components, and {ref!r} is not one this build placed; "
+                                      "that is a fault in Gear Generator, not in SolidWorks.")
+            components.append(kept)
+        doc = self._doc()
+        before = self._mate_names()
+        call(doc, "ClearSelection2", True)
+        for position, component in enumerate(components):
+            data = call(call(doc, "SelectionManager"), "CreateSelectData")
+            _put(data, "Mark", 1)
+            count = self._selected()
+            if not self._retry_select(lambda c=component, d=data, append=position > 0: call(c, "Select4", append, d,
+                                                                                               False), count):
+                call(doc, "ClearSelection2", True)
+                raise SolidWorksError(f"{call(component, 'Name2')} could not be selected for the lock mate "
+                                      f"{name or f'between {a} and {b}'} {self._selection_context()}.")
+        mate, status = self._add_mate5(lock, align, False, 0.0, 0.0, 0.0, 1, 1, 0.0, 0.0, 0.0, False, False, 0)
+        call(doc, "ClearSelection2", True)
+        made = [n for n in self._mate_names() if n not in before]
+        if mate is None or len(made) != 1:
+            raise MateRefused(f"AddMate5 would not make a lock mate between {a} and {b}.")
+        kept_name = self._rename(self._mate_feature(made[0]), name) if name else made[0]
+        self._mate_statuses[kept_name] = status
+        self._handles[handle] = {"mate": kept_name}
+        return kept_name, ""
 
     def mate_status(self, name: str) -> Optional[int]:
         """The status out-parameter ``AddMate5`` gave when this session made the mate now called ``name``
         (``findings.ADD_MATE_NO_ERROR`` 1 is sound, ``ADD_MATE_OVER_DEFINED`` 5 made but over-defining), or None
         for a mate this session did not make. Reads nothing from SolidWorks."""
-        raise NotImplementedError("W5: Agent A, swcom.Session.mate_status")
+        return self._mate_statuses.get(name)
 
     def mate_states(self) -> List[MateState]:
         """Every mate of the build document, in tree order (``findings.MATE_FIND_ROUTE`` "mate group": walk
         ``FirstFeature`` to the ``MateGroup``, then ``GetFirstSubFeature`` / ``GetNextSubFeature``): its
         ``Name``; ``GetErrorCode2`` with a by-reference bool for ``IsWarning`` (a tuple back, or the out
         parameter's ``.value``); ``IsSuppressed2(findings.THIS_CONFIGURATION, null dispatch)`` (a tuple or list
-        back: its first item). An assembly with no MateGroup has no mates: ``[]``."""
-        raise NotImplementedError("W5: Agent A, swcom.Session.mate_states")
+        back: its first item). An assembly with no MateGroup has no mates: ``[]``. A sub-feature that is not a
+        mate (a folder: :meth:`_is_mate`) is left out."""
+        out: List[MateState] = []
+        for feature in self._mate_group():
+            if not self._is_mate(feature):
+                continue
+            flag = _out_bool()
+            answer = call(feature, "GetErrorCode2", flag)
+            if isinstance(answer, tuple):
+                code = answer[0] if answer else 0
+                warning = answer[1] if len(answer) > 1 else getattr(flag, "value", True)
+            else:
+                code, warning = answer, getattr(flag, "value", True)
+            code = _by_ref(code)
+            out.append(MateState(name=str(call(feature, "Name")), code=code,
+                                 warning=bool(warning) if code else True, suppressed=self._is_suppressed(feature)))
+        return out
 
     def constrained_status(self, handle: str) -> int:
         """``IComponent2.GetConstrainedStatus`` of a kept component (``add_component`` or ``find_component``'s
         handle), read and, if a method comes back, called: ``findings.COMPONENT_UNDER_DEFINED`` 2 for a gear free to
         turn, ``COMPONENT_FULLY_DEFINED`` 3, ``COMPONENT_OVER_DEFINED`` 4."""
-        raise NotImplementedError("W5: Agent A, swcom.Session.constrained_status")
+        self._settled("COMPONENT_UNDER_DEFINED", "Reading whether a gear is free to turn")
+        kept = self._handles.get(handle, {}).get("component") if hasattr(self, "_handles") else None
+        if kept is None:
+            raise SolidWorksError(f"No component is kept as {handle!r}, so whether it is free to turn cannot be read; "
+                                  "that is a fault in Gear Generator, not in SolidWorks.")
+        value = _read(kept, "GetConstrainedStatus")
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise SolidWorksError(f"SolidWorks answered {value!r} when asked whether {call(kept, 'Name2')} is free to "
+                                  "turn, which is not a constrained status.") from None
 
     def find_mate(self, handle: str, name: str) -> str:
         """Find a mate of the build document by its name (``findings.MATE_FIND_ROUTE``) and keep it as ``handle``,
         so :meth:`set_mate_suppressed` and :meth:`set_gear_ratio` act on it; returns its name as read back.
-        Missing: :class:`MateGone` with its sentence."""
-        raise NotImplementedError("W5: Agent A, swcom.Session.find_mate")
+        Missing: :class:`MateGone` with its sentence. A folder of the same name is not a mate (:meth:`_is_mate`)."""
+        for feature in self._mate_group():
+            if self._is_mate(feature) and str(call(feature, "Name")) == name:
+                self._handles[handle] = {"mate": name}
+                return str(call(feature, "Name"))
+        raise MateGone(f'The mate "{name}" is not in {call(self._doc(), "GetTitle")} any more: it was renamed or '
+                       "deleted in SolidWorks.")
 
     def set_mate_suppressed(self, handle: str, suppressed: bool) -> None:
         """Suppress or unsuppress a kept mate (one ``add_mate`` made under ``handle``, or ``find_mate`` found):
         ``IFeature.SetSuppression2(findings.FEATURE_SUPPRESS or FEATURE_UNSUPPRESS, THIS_CONFIGURATION, None)``
         (``findings.SUPPRESSION_ROUTE``), then ``IsSuppressed2`` read back; one that did not take raises with a
         sentence naming the mate. Does not rebuild."""
-        raise NotImplementedError("W5: Agent A, swcom.Session.set_mate_suppressed")
+        what = "Suppressing a mate" if suppressed else "Turning a suppressed mate back on"
+        self._settled("SUPPRESSION_ROUTE", what, "SetSuppression2 this configuration, None")
+        action = self._settled("FEATURE_SUPPRESS" if suppressed else "FEATURE_UNSUPPRESS", what)
+        configuration = self._settled("THIS_CONFIGURATION", what)
+        name, feature = self._kept_mate(handle)
+        call(feature, "SetSuppression2", action, configuration, None)
+        if self._is_suppressed(feature) != bool(suppressed):
+            title = call(self._doc(), "GetTitle")
+            if suppressed:
+                raise SolidWorksError(f"SolidWorks would not suppress the mate {name} in {title}: it still reads it "
+                                      "turned on.")
+            raise SolidWorksError(f"SolidWorks would not turn the mate {name} back on in {title}: it still reads it "
+                                  "suppressed.")
 
     def set_gear_ratio(self, handle: str, a: str, b: str, ratio: Tuple[int, int]) -> None:
         """Give a kept gear mate a new ratio, ``ratio[0]`` the teeth of its first selection (W5-PLAN D7), by
@@ -1985,8 +2133,57 @@ class Session:
         ``handle``; None refuses with a
         sentence that changing a gear mate's ratio is not settled. ``"modify definition"`` is refused with a
         sentence too, whatever the finding says (W5-DECISIONS: it leaves an assembly SolidWorks 2024 cannot close,
-        ``findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024``). Does not rebuild."""
-        raise NotImplementedError("W5: Agent A, swcom.Session.set_gear_ratio")
+        ``findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024``). Does not rebuild.
+
+        Every finding is read, and every refusal made, before the mate is touched. The remake is probe
+        gear_mate_ratio's (and P1b's gear_mate_update's): ``ClearSelection2``, the mate's ``Select2(False, 0)``,
+        ``EditDelete()`` (invoked: it takes no arguments, as ``FixComponent``), the name read gone from the
+        MateGroup, then :meth:`_gear_mate` between ``a`` and ``b`` at ``ratio`` with ``GEAR_MATE_FLIP`` and the
+        old name (``MATE_RENAME_ROUTE``). Deleted but not made again is a :class:`MateRefused` saying so."""
+        route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
+        name = self._handles.get(handle, {}).get("mate", handle) if hasattr(self, "_handles") else handle
+        if route is None:
+            raise SolidWorksError(f"Changing a gear mate's ratio has not been settled on SolidWorks yet "
+                                  f"(findings.GEAR_MATE_RATIO_ROUTE is None), so {name} keeps its ratio; build the "
+                                  "gearbox again for a new tooth count.")
+        if route == "modify definition":
+            raise SolidWorksError(f"{name} is not given its new ratio through its definition: on SolidWorks 2024 that "
+                                  "leaves an assembly that cannot be closed (findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024), "
+                                  "so Gear Generator never does it; build the gearbox again for a new tooth count.")
+        if route != "remake":
+            raise SolidWorksError(f"findings.GEAR_MATE_RATIO_ROUTE is {route!r}, which is not a way of changing a gear "
+                                  f"mate's ratio this code knows, so {name} keeps its ratio; run its probe again.")
+        what = "Giving a gear mate a new ratio"
+        if getattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", None) is not True:
+            raise SolidWorksError(f"{what} by making it again has not been settled on SolidWorks yet "
+                                  f"(findings.GEAR_MATE_RATIO_REMAKE_WORKS is "
+                                  f"{getattr(findings, 'GEAR_MATE_RATIO_REMAKE_WORKS', None)!r}), so nothing is "
+                                  "changed; run probe tier 8 first.")
+        self._settled("MATE_DELETE_ROUTE", what, "Select2 then EditDelete()")
+        self._settled("MATE_RENAME_ROUTE", what, "IFeature.Name put")
+        flip = getattr(findings, "GEAR_MATE_FLIP", None)
+        if flip is None or findings.GEAR_MATE_ROUTE is None or findings.MATE_GEAR is None \
+                or findings.GEAR_MATE_NUMERATOR_FIRST is None:
+            raise SolidWorksError(f"{what} has not been settled on SolidWorks yet (a gear mate's Flip or its ratio's "
+                                  "order is not in findings.py), so nothing is changed; run probe tier 8 first.")
+        name, feature = self._kept_mate(handle)
+        doc = self._doc()
+        title = call(doc, "GetTitle")
+        call(doc, "ClearSelection2", True)
+        call(feature, "Select2", False, 0)
+        _guarded("EditDelete", lambda: doc.EditDelete())
+        call(doc, "ClearSelection2", True)
+        if name in self._mate_names():
+            raise SolidWorksError(f"SolidWorks would not delete the gear mate {name} in {title} to give it its new "
+                                  "ratio, so it keeps its old one.")
+        try:
+            kept, _ = self._gear_mate(handle, a, b, (float(ratio[0]), float(ratio[1])), bool(flip), name)
+        except SolidWorksError as exc:
+            raise MateRefused(f"The gear mate {name} was deleted in {title} to give it its new ratio, and SolidWorks "
+                              f"would not make it again ({exc}); build the gearbox again.") from None
+        if kept != name:
+            raise SolidWorksError(f"The gear mate {name}, made again with its new ratio in {title}, was named {kept} by "
+                                  "SolidWorks, so it cannot be found by its name again.")
 
     def set_custom_property(self, name: str, value: str) -> None:
         """A text custom property on the build's part, added or replaced, and read back.

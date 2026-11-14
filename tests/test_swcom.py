@@ -1316,3 +1316,406 @@ def test_an_assembly_whose_kind_is_not_said_is_refused_before_anything_is_change
     assert gear.Transform2.ArrayData == before and _marked(com) == []
     assert not any(e[0] in ("CreateTransform", "Transform2 put", "ForceRebuild3", "EditRebuild3") for e in com.log)
     assert swcom.rebuild_call(swcom.DOC_PART) == ("ForceRebuild3", (False,))
+
+
+# -- W5: the train's mates (findings.py, "the workbook gearbox that turns (tier 8)" and "tier 8 items 7-13") -------
+#
+# A mocked assembly whose MateGroup holds the mates: each answers GetErrorCode2 and IsSuppressed2 as probe tier 8 read
+# them (a tuple back, or an out parameter), SetSuppression2 takes or not, and AddMate5 makes one new mate (or none).
+
+
+class OutBool:
+    """A by-reference boolean, as swcom._out_bool makes one with pywin32."""
+
+    def __init__(self):
+        self.value = False
+
+
+class SelectData:
+    def __init__(self):
+        self.Mark = 0
+
+
+class MateFeature:
+    def __init__(self, doc, name, type_name="MateCoincident", code=0, warning=True, suppressed=False):
+        self.doc, self.Name, self.GetTypeName2 = doc, name, type_name
+        self.code, self.warning, self.suppressed = code, warning, suppressed
+
+    @property
+    def GetNextSubFeature(self):
+        mates = self.doc.mates
+        index = mates.index(self)
+        return mates[index + 1] if index + 1 < len(mates) else None
+
+    @property
+    def GetFirstSubFeature(self):
+        return None
+
+    def GetErrorCode2(self, flag):
+        self.doc.log.append(("GetErrorCode2", self.Name))
+        if self.doc.tuple_answers:
+            return self.code, self.warning
+        flag.value = self.warning
+        return self.code
+
+    def IsSuppressed2(self, configuration, names):
+        self.doc.log.append(("IsSuppressed2", self.Name, configuration))
+        return ((self.suppressed,),) if self.doc.tuple_answers else [self.suppressed]
+
+    def SetSuppression2(self, action, configuration, names):
+        self.doc.log.append(("SetSuppression2", self.Name, action, configuration, names))
+        if self.doc.suppression_takes:
+            self.suppressed = action == findings.FEATURE_SUPPRESS
+        return True
+
+    def Select2(self, append, mark):
+        self.doc.log.append(("Select2", self.Name, append, mark))
+        self.doc.selected.append(self)
+        return True
+
+
+class MateGroup:
+    Name, GetTypeName2, GetNextFeature = "Mates", "MateGroup", None
+
+    def __init__(self, doc):
+        self.doc = doc
+
+    @property
+    def GetFirstSubFeature(self):
+        return self.doc.mates[0] if self.doc.mates else None
+
+
+class Origin:
+    Name, GetTypeName2 = "Origin", "OriginProfileFeature"
+
+    def __init__(self, doc):
+        self.doc = doc
+
+    @property
+    def GetNextFeature(self):
+        return self.doc.group
+
+    @property
+    def GetFirstSubFeature(self):
+        return None
+
+
+class AxisFeature:
+    def __init__(self, component, name):
+        self.component, self.Name = component, name
+
+    def Select2(self, append, mark):
+        doc = self.component.doc
+        doc.log.append(("Select2", f"{self.Name}@{self.component.Name2}", append, mark))
+        doc.selected.append(self)
+        return True
+
+
+class MatedComponent:
+    def __init__(self, doc, name, status=2, as_method=False):
+        self.doc, self.Name2, self.status, self.as_method = doc, name, status, as_method
+
+    def Select4(self, append, data, mark):
+        self.doc.log.append(("Select4", self.Name2, append, getattr(data, "Mark", None), mark))
+        if self.doc.select_takes:
+            self.doc.selected.append(self)
+        return self.doc.select_takes
+
+    def FeatureByName(self, name):
+        return AxisFeature(self, name)
+
+    @property
+    def GetConstrainedStatus(self):
+        return (lambda: self.status) if self.as_method else self.status
+
+
+class MatedSelection:
+    def __init__(self, doc):
+        self.doc = doc
+
+    @property
+    def CreateSelectData(self):
+        return SelectData()
+
+    def GetSelectedObjectCount2(self, mark):
+        return len(self.doc.selected)
+
+
+class MatedDoc:
+    GetType, GetTitle, GetPathName = swcom.DOC_ASSEMBLY, "R.SLDASM", W + "R.SLDASM"
+
+    def __init__(self, with_group=True):
+        self.log, self.selected, self.mates = [], [], []
+        self.tuple_answers, self.suppression_takes, self.select_takes = False, True, True
+        self.refuse, self.status, self.made = False, 1, 0
+        self.group = MateGroup(self) if with_group else None
+        self.SelectionManager = MatedSelection(self)
+
+    @property
+    def FirstFeature(self):
+        return Origin(self)
+
+    def ClearSelection2(self, everything):
+        self.selected = []
+
+    def AddMate5(self, *args):
+        self.log.append(("AddMate5",) + tuple(args[:-1]))
+        if self.refuse:
+            return None
+        self.made += 1
+        mate = MateFeature(self, f"Mate{self.made}", "MateLock" if args[0] == findings.MATE_LOCK else "MateGearDim")
+        self.mates.append(mate)
+        args[-1].value = self.status
+        return mate
+
+    def EditDelete(self):
+        self.log.append(("EditDelete",))
+        for feature in self.selected:
+            if feature in self.mates:
+                self.mates.remove(feature)
+        return True
+
+
+class MatedApp:
+    def __init__(self, doc):
+        self.ActiveDoc = doc
+
+    def GetUserPreferenceToggle(self, which):
+        return False
+
+    def SetUserPreferenceToggle(self, which, value):
+        pass
+
+
+@pytest.fixture
+def mated(monkeypatch):
+    monkeypatch.setattr(swcom, "_out_long", Out)
+    monkeypatch.setattr(swcom, "_out_bool", OutBool)
+    monkeypatch.setattr(swcom, "_null_dispatch", lambda: None)
+    monkeypatch.setattr(swcom.time, "sleep", lambda _seconds: None)
+    doc = MatedDoc()
+    session = swcom.Session(MatedApp(doc), (34, 0, 0), 1)
+    session.begin_build()
+    session._handles = {"gear2": {"component": MatedComponent(doc, "Gear_m1.5_N68-1")},
+                        "gear3": {"component": MatedComponent(doc, "Gear_m1.5_N17-2")}}
+    return session, doc
+
+
+def test_a_lock_selects_the_anchor_then_the_follower_with_mark_one_and_is_made_named_and_kept(mated):
+    session, doc = mated
+    assert session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2") == ("G3 locked to G2", "")
+    selects = [e for e in doc.log if e[0] == "Select4"]
+    assert selects == [("Select4", "Gear_m1.5_N68-1", False, 1, False), ("Select4", "Gear_m1.5_N17-2", True, 1, False)]
+    (made,) = [e for e in doc.log if e[0] == "AddMate5"]
+    assert made == ("AddMate5", findings.MATE_LOCK, findings.MATE_ALIGN_CLOSEST, False, 0.0, 0.0, 0.0, 1, 1, 0.0,
+                    0.0, 0.0, False, False, 0)
+    assert [m.Name for m in doc.mates] == ["G3 locked to G2"]
+    assert session.mate_status("G3 locked to G2") == findings.ADD_MATE_NO_ERROR
+    assert session.mate_status("G1 meshes G2") is None                 # not made by this session
+    assert session._handles["lock1"] == {"mate": "G3 locked to G2"}
+
+
+def test_a_lock_made_over_defining_keeps_its_status_and_does_not_raise(mated):
+    session, doc = mated
+    doc.status = findings.ADD_MATE_OVER_DEFINED
+    session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")
+    assert session.mate_status("G3 locked to G2") == findings.ADD_MATE_OVER_DEFINED
+
+
+def test_a_lock_the_answer_comes_back_as_a_tuple_is_read_the_same_way(mated):
+    session, doc = mated
+    original = doc.AddMate5
+
+    def as_tuple(*args):
+        mate = original(*args)
+        return mate, 5
+    doc.AddMate5 = as_tuple
+    session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")
+    assert session.mate_status("G3 locked to G2") == 5
+
+
+def test_a_lock_solidworks_will_not_make_is_mate_refused(mated):
+    session, doc = mated
+    doc.refuse = True
+    with pytest.raises(swcom.MateRefused) as raised:
+        session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")
+    assert str(raised.value) == "AddMate5 would not make a lock mate between gear2 and gear3."
+
+
+def test_a_component_that_will_not_select_for_a_lock_is_an_ordinary_refusal_not_mate_refused(mated):
+    session, doc = mated
+    doc.select_takes = False
+    with pytest.raises(SolidWorksError) as raised:
+        session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")
+    assert not isinstance(raised.value, swcom.MateRefused)
+    assert str(raised.value).startswith("Gear_m1.5_N68-1 could not be selected for the lock mate G3 locked to G2 ")
+    assert not any(e[0] == "AddMate5" for e in doc.log)
+
+
+@pytest.mark.parametrize("name, value", [("COMPOUND_LOCK_ROUTE", None), ("COMPOUND_LOCK_ROUTE", "lock and axis"),
+                                         ("LOCK_SELECT_ROUTE", None), ("MATE_LOCK", None), ("MATE_RENAME_ROUTE", None)])
+def test_a_lock_without_its_findings_is_refused_before_anything_is_selected(mated, monkeypatch, name, value):
+    session, doc = mated
+    monkeypatch.setattr(findings, name, value, raising=False)
+    with pytest.raises(SolidWorksError) as raised:
+        session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")
+    assert f"(findings.{name} is {value!r}), so nothing is changed; run probe tier 8 first." in str(raised.value)
+    assert doc.log == [] and doc.mates == []
+
+
+def test_every_mate_is_read_in_tree_order_with_its_code_warning_and_suppression_and_folders_are_left_out(mated):
+    session, doc = mated
+    doc.mates = [MateFeature(doc, "G1 on S1 Axis"), MateFeature(doc, "My mates", "FtrFolder"),
+                 MateFeature(doc, "G3 locked to G2", "MateLock", code=46, warning=True),
+                 MateFeature(doc, "Angle1", "MatePlanarAngleDim", code=47, warning=False, suppressed=True)]
+    wanted = [swcom.MateState("G1 on S1 Axis"), swcom.MateState("G3 locked to G2", 46, True, False),
+              swcom.MateState("Angle1", 47, False, True)]
+    assert session.mate_states() == wanted
+    doc.tuple_answers = True
+    assert session.mate_states() == wanted
+    assert ("IsSuppressed2", "Angle1", findings.THIS_CONFIGURATION) in doc.log
+
+
+def test_an_assembly_with_no_mate_group_has_no_mates(monkeypatch):
+    monkeypatch.setattr(swcom, "_out_bool", OutBool)
+    session = swcom.Session(MatedApp(MatedDoc(with_group=False)), (34, 0, 0), 1)
+    assert session.mate_states() == []
+
+
+def test_without_the_mate_group_route_mates_are_not_read(mated, monkeypatch):
+    session, _doc = mated
+    monkeypatch.setattr(findings, "MATE_FIND_ROUTE", None)
+    with pytest.raises(SolidWorksError, match=r"\(findings.MATE_FIND_ROUTE is None\)"):
+        session.mate_states()
+
+
+@pytest.mark.parametrize("as_method", [False, True])
+def test_a_components_constrained_status_is_read_as_a_property_or_called(mated, as_method):
+    session, doc = mated
+    session._handles["placed2"] = {"component": MatedComponent(doc, "Gear_m1.5_N68-1", 3, as_method)}
+    assert session.constrained_status("placed2") == findings.COMPONENT_FULLY_DEFINED
+    assert session.constrained_status("gear2") == findings.COMPONENT_UNDER_DEFINED
+
+
+def test_a_mate_is_found_by_its_name_and_kept_and_a_folder_of_that_name_is_not_a_mate(mated):
+    session, doc = mated
+    doc.mates = [MateFeature(doc, "G4 along S3", "FtrFolder"), MateFeature(doc, "G1 meshes G2", "MateGearDim")]
+    assert session.find_mate("mate9", "G1 meshes G2") == "G1 meshes G2"
+    assert session._handles["mate9"] == {"mate": "G1 meshes G2"}
+    with pytest.raises(swcom.MateGone) as raised:
+        session.find_mate("mate4", "G4 along S3")
+    assert str(raised.value) == ('The mate "G4 along S3" is not in R.SLDASM any more: it was renamed or deleted in '
+                                 "SolidWorks.")
+    assert isinstance(raised.value, swcom.ComponentGone)
+
+
+def test_a_kept_mate_is_suppressed_and_turned_back_on_by_set_suppression_and_read_back(mated):
+    session, doc = mated
+    doc.mates = [MateFeature(doc, "G3 locked to G2", "MateLock")]
+    session.find_mate("lock", "G3 locked to G2")
+    session.set_mate_suppressed("lock", True)
+    assert doc.mates[0].suppressed
+    session.set_mate_suppressed("lock", False)
+    assert not doc.mates[0].suppressed
+    assert [e for e in doc.log if e[0] == "SetSuppression2"] == [
+        ("SetSuppression2", "G3 locked to G2", findings.FEATURE_SUPPRESS, findings.THIS_CONFIGURATION, None),
+        ("SetSuppression2", "G3 locked to G2", findings.FEATURE_UNSUPPRESS, findings.THIS_CONFIGURATION, None)]
+    assert not any(e[0].startswith("ForceRebuild") for e in doc.log)
+
+
+def test_a_suppression_that_does_not_take_names_the_mate(mated):
+    session, doc = mated
+    doc.mates = [MateFeature(doc, "G3 locked to G2", "MateLock", suppressed=True)]
+    doc.suppression_takes = False
+    session.find_mate("lock", "G3 locked to G2")
+    with pytest.raises(SolidWorksError) as raised:
+        session.set_mate_suppressed("lock", False)
+    assert str(raised.value) == ("SolidWorks would not turn the mate G3 locked to G2 back on in R.SLDASM: it still "
+                                 "reads it suppressed.")
+
+
+def test_a_mate_renamed_since_it_was_found_is_gone_when_it_is_suppressed(mated):
+    session, doc = mated
+    doc.mates = [MateFeature(doc, "G3 locked to G2", "MateLock")]
+    session.find_mate("lock", "G3 locked to G2")
+    doc.mates[0].Name = "Lock1"
+    with pytest.raises(swcom.MateGone):
+        session.set_mate_suppressed("lock", True)
+
+
+def _ratio_world(session, doc):
+    doc.mates = [MateFeature(doc, "G3 meshes G4", "MateGearDim")]
+    session._handles.update({"placed3": {"component": MatedComponent(doc, "Gear_m1.5_N17-2")},
+                             "placed4": {"component": MatedComponent(doc, "Gear_m1.5_N51-1")}})
+    session.find_mate("mesh2", "G3 meshes G4")
+
+
+@pytest.mark.parametrize("route, sentence", [
+    (None, "Changing a gear mate's ratio has not been settled on SolidWorks yet (findings.GEAR_MATE_RATIO_ROUTE is "
+           "None), so G3 meshes G4 keeps its ratio; build the gearbox again for a new tooth count."),
+    ("modify definition", "G3 meshes G4 is not given its new ratio through its definition: on SolidWorks 2024 that "
+                          "leaves an assembly that cannot be closed (findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024), so "
+                          "Gear Generator never does it; build the gearbox again for a new tooth count."),
+    ("guess", "findings.GEAR_MATE_RATIO_ROUTE is 'guess', which is not a way of changing a gear mate's ratio this "
+              "code knows, so G3 meshes G4 keeps its ratio; run its probe again."),
+])
+def test_a_ratio_is_changed_only_by_the_remake_and_refused_otherwise_before_anything_is_touched(mated, monkeypatch,
+                                                                                               route, sentence):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", route)
+    with pytest.raises(SolidWorksError) as raised:
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert str(raised.value) == sentence
+    assert [m.Name for m in doc.mates] == ["G3 meshes G4"] and not any(e[0] in ("EditDelete", "AddMate5")
+                                                                       for e in doc.log)
+
+
+def test_the_remake_deletes_the_gear_mate_makes_it_again_at_the_ratio_and_gives_it_its_old_name(mated, monkeypatch):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    steps = [e[:2] for e in doc.log if e[0] in ("Select2", "EditDelete", "AddMate5")]
+    assert steps == [("Select2", "G3 meshes G4"), ("EditDelete",), ("Select2", "Gear Axis@Gear_m1.5_N17-2"),
+                     ("Select2", "Gear Axis@Gear_m1.5_N51-1"), ("AddMate5", findings.MATE_GEAR)]
+    (made,) = [e for e in doc.log if e[0] == "AddMate5"]
+    assert made[3] is findings.GEAR_MATE_FLIP and made[7:9] == (18.0, 50.0)      # numerator with the first selection
+    assert [m.Name for m in doc.mates] == ["G3 meshes G4"]
+    assert session.mate_status("G3 meshes G4") == findings.ADD_MATE_NO_ERROR
+    assert session._handles["mesh2"] == {"mate": "G3 meshes G4"}
+    assert not any(e[0].startswith("ForceRebuild") for e in doc.log)
+
+
+def test_a_remake_solidworks_will_not_make_again_says_the_mate_was_deleted(mated, monkeypatch):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    doc.refuse = True
+    with pytest.raises(swcom.MateRefused) as raised:
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert str(raised.value) == ("The gear mate G3 meshes G4 was deleted in R.SLDASM to give it its new ratio, and "
+                                 "SolidWorks would not make it again (AddMate5 would not make a gear mate between "
+                                 "placed3:Gear Axis and placed4:Gear Axis.); build the gearbox again.")
+
+
+def test_a_remake_without_the_delete_route_is_refused_before_the_mate_is_touched(mated, monkeypatch):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "MATE_DELETE_ROUTE", "Select2 then DeleteSelection2(0)")
+    with pytest.raises(SolidWorksError, match="findings.MATE_DELETE_ROUTE is 'Select2 then DeleteSelection2"):
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert [m.Name for m in doc.mates] == ["G3 meshes G4"] and not any(e[0] == "EditDelete" for e in doc.log)
+
+
+def test_a_gear_mate_keeps_its_status_and_a_refused_one_is_mate_refused(mated):
+    session, doc = mated
+    session._handles["gear1"] = {"component": MatedComponent(doc, "Gear_m1.5_N17-1")}
+    doc.status = findings.ADD_MATE_OVER_DEFINED
+    assert session.add_mate("mesh1", "gear", "gear1:Gear Axis", "gear2:Gear Axis", name="G1 meshes G2",
+                            ratio=(17.0, 68.0)) == ("G1 meshes G2", "")
+    assert session.mate_status("G1 meshes G2") == findings.ADD_MATE_OVER_DEFINED      # kept, never raised on
+    doc.refuse = True
+    with pytest.raises(swcom.MateRefused, match="AddMate5 would not make a gear mate between gear1:Gear Axis and "):
+        session.add_mate("mesh2", "gear", "gear1:Gear Axis", "gear2:Gear Axis", ratio=(17.0, 68.0))
