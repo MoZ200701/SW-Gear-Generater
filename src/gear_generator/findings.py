@@ -815,8 +815,13 @@ UPDATE_INTERFERENCE_CONTROL_HOLDS = True        # a gear half a pitch off clashe
 # still modified, and CloseDoc on each closed it silently. On disk afterwards nothing had been
 # written and the parts still had their saved teeth. QuitDoc did exactly the same. On 2024 too:
 # no "Save Modified Documents" here. The earlier 2024 dialog (scaffold.save_created_parts,
-# 2026-11-02) was not measured again by this round; what is known of it is consistent with parts
-# modified while loaded only as components, where Update has its parts open in their own windows.
+# 2026-11-02, probe assembly_distance_link) was observed once and has not been reproduced since.
+# There too the two parts were open in their own windows when the assembly closed (p4_assembly's
+# _assembly before 4392c8b: each made by _part_with_axis, saved and left open, then the assembly
+# closed first). So being open in their own windows is not the difference. The cases differ in
+# how the parts came to be modified: there, through the assembly's full rebuild (ForceRebuild3(False))
+# after a linked global changed; here, by edits in each part's own document. Which difference
+# decides whether 2024 asks is not known.
 UNSAVED_UPDATE_CLOSE_ASKS = False
 UNSAVED_UPDATE_CLOSE_DISCARDS = True            # CloseDoc and QuitDoc alike, assembly first then each part
 
