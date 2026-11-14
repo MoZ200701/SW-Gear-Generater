@@ -2642,8 +2642,9 @@ REDUCER = UpdateFixture(
     control="G4")
 
 #: A simple train with an idler: G2 sits in two gear mates and its teeth change, so both are remade. Module 2,
-#: 17/30/40 -> 15/32/38: both centre distances (47 mm, 70 mm) hold, so no shaft moves; every gear takes new teeth
-#: and a new phase. Each gear an anchor on its own shaft; no lock.
+#: 17/30/40 -> 15/32/38: both centre distances (47 mm, 70 mm) hold, so no shaft moves; every gear takes new teeth,
+#: but only G2's built phase changes (-0.375°; G1's and G3's stay), so the put tells success from failure on G2
+#: alone. Each gear an anchor on its own shaft; no lock.
 IDLER = UpdateFixture(
     tag="Probe W8 Idler", folder="idler",
     shafts=(("S1", "0", "input"), ("S2", "47", ""), ("S3", "117", "output")),
@@ -4636,9 +4637,12 @@ def mates_under_command_in_progress(px: Px) -> None:
         lock = wanted["all Z+ lock"]
         feature = mate_feature(doc, lock)
         u: Dict[str, Any] = {"suppressed_before": is_suppressed(px, feature)}
+        # Every save flag straight before the call and straight after it, with nothing between.
+        u["flags_before_call"] = _save_flags(px, paths)
         got, value = px.attempt(f"SetSuppression2(unsuppress) on {lock}, already on",
                                 lambda: call(feature, "SetSuppression2", enums["unsuppress"],
                                              enums["this_configuration"], None))
+        u["flags_after_call"] = _save_flags(px, paths)
         u["returned"] = plain(value) if got else "raised"
         u["suppressed_after"] = is_suppressed(px, feature)
         u["errors_after"] = errors_only(mate_errors(px, doc))
@@ -4682,11 +4686,55 @@ def mates_under_command_in_progress(px: Px) -> None:
     px.fact("mate_rename_at_once_holds", bool(at_once and after))
     u = reopened["unsuppress_on"]
     px.fact("unsuppress_on_a_lock_already_on", {"returned": u["returned"], "suppressed_after": u["suppressed_after"],
-                                                "errors": u["errors_after"], "marks_assembly": u["flags_after"]["assembly"]})
+                                                "errors": u["errors_after"], "marks_assembly": u["flags_after"]["assembly"],
+                                                "flags_before_call": u["flags_before_call"],
+                                                "flags_after_call": u["flags_after_call"],
+                                                "marked_by_the_call": sorted(newly_marked(u["flags_before_call"],
+                                                                                          u["flags_after_call"]))})
     px.fact("mates_under_command_in_progress_hold", bool(clean and turned and shows and not c["states_after"]))
 
 
 MATE_FOLDER = "Probe W8 Mate Folder"
+INNER_FOLDER = "Probe W8 Inner Folder"
+FOLDERS_ASSEMBLY = "Probe W8 Folders"
+
+
+def mate_walk(doc: Any) -> List[Dict[str, Any]]:
+    """The MateGroup's sub-features in order, each with its GetTypeName2 and any sub-features of its own."""
+    walk = []
+    for feature in sc.top_features(doc):
+        if sc.type_name(feature) == "MateGroup":
+            child = call(feature, "GetFirstSubFeature")
+            while child is not None:
+                entry = {"name": str(call(child, "Name")), "type": sc.type_name(child)}
+                inner = call(child, "GetFirstSubFeature")
+                kids = []
+                while inner is not None:
+                    kids.append({"name": str(call(inner, "Name")), "type": sc.type_name(inner)})
+                    inner = call(inner, "GetNextSubFeature")
+                if kids:
+                    entry["sub_features"] = kids
+                walk.append(entry)
+                child = call(child, "GetNextSubFeature")
+    return walk
+
+
+def walk_report(px: Px, doc: Any, mates: Sequence[str], label: str) -> Dict[str, Any]:
+    """The walk, and for each mate: an ordinary sibling in it (a direct sub-feature of the MateGroup), and found by
+    FeatureByName; every type name met."""
+    walk = mate_walk(doc)
+    top = [w["name"] for w in walk]
+    found = {}
+    for n in mates:
+        got, f = px.attempt(f"FeatureByName({n!r}), {label}", lambda n=n: call(doc, "FeatureByName", n))
+        found[n] = bool(got and f is not None)
+    return {"walk": walk, "sibling": {n: n in top for n in mates}, "found": found,
+            "types": sorted({w["type"] for w in walk} | {k["type"] for w in walk for k in w.get("sub_features", [])})}
+
+
+def folders_hold(reports: Mapping[str, Mapping[str, Any]]) -> bool:
+    """In every case walked, every mate is an ordinary sibling in the walk and found by name."""
+    return bool(reports) and all(all(r["sibling"].values()) and all(r["found"].values()) for r in reports.values())
 
 
 @probe("mate_folders", needs=("mates_under_command_in_progress",), tier=8,
@@ -4742,21 +4790,7 @@ def mate_folders(px: Px) -> None:
                 facts["folder_name"] = px.attempt("rename the folder", lambda: setattr(folder, "Name", MATE_FOLDER))[0] \
                     and str(call(folder, "Name"))
             rebuild(px, doc, "the folder made", top_only=True)
-            walk = []
-            for feature in sc.top_features(doc):
-                if sc.type_name(feature) == "MateGroup":
-                    child = call(feature, "GetFirstSubFeature")
-                    while child is not None:
-                        entry = {"name": str(call(child, "Name")), "type": sc.type_name(child)}
-                        inner = call(child, "GetFirstSubFeature")
-                        kids = []
-                        while inner is not None:
-                            kids.append({"name": str(call(inner, "Name")), "type": sc.type_name(inner)})
-                            inner = call(inner, "GetNextSubFeature")
-                        if kids:
-                            entry["sub_features"] = kids
-                        walk.append(entry)
-                        child = call(child, "GetNextSubFeature")
+            walk = mate_walk(doc)
             facts["walk"] = walk
             facts["walk_before"] = before
             for n in (own, extra["name"]):
@@ -4765,18 +4799,70 @@ def mate_folders(px: Px) -> None:
                                                               "type": sc.type_name(found) if got and found else None}
             facts["mate_group_walk_finds"] = {n: n in [w["name"] for w in walk] for n in (own, extra["name"])}
             facts["errors_after"] = errors_only(mate_errors(px, doc))
+            mates = [own, extra["name"]]
+            cases: Dict[str, Any] = {"one folder": walk_report(px, doc, mates, "one folder")}
+            if facts["folder_made"]:
+                # (b) A folder inside the folder, holding the extra mate: the mate inside the folder selected.
+                call(doc, "ClearSelection2", True)
+                facts["inner_selected"] = bool(call(mate_feature(doc, extra["name"]), "Select2", False, 0))
+                got, inner = px.attempt("IFeatureManager.InsertFeatureTreeFolder2(swFeatureTreeFolder_Containing), "
+                                        "the extra mate inside the folder selected",
+                                        lambda: call(sc.feature_manager(doc), "InsertFeatureTreeFolder2",
+                                                     types["swFeatureTreeFolder_Containing"]))
+                call(doc, "ClearSelection2", True)
+                facts["inner_made"] = bool(got and inner is not None)
+                if facts["inner_made"]:
+                    px.attempt("rename the inner folder", lambda: setattr(inner, "Name", INNER_FOLDER))
+                rebuild(px, doc, "the inner folder made", top_only=True)
+                cases["a folder in a folder"] = walk_report(px, doc, mates, "a folder in a folder")
+                # (a) Saved under its own name, closed, reopened: the walk an Update does is on a reopened assembly.
+                folders_path = os.path.join(os.path.dirname(info["path"]), f"{FOLDERS_ASSEMBLY}.SLDASM")
+                _fresh(px, folders_path)
+                px.require(_save_in_place(px, doc, folders_path, "the folders train") and os.path.isfile(folders_path),
+                           "the folders train saves")
+                px.shared["created"].append(str(call(doc, "GetTitle")))
+                paths.append(folders_path)
+                _close_quietly(px, paths)
+                doc, components = _open_train(px, folders_path, info["names"])
+                cases["reopened"] = walk_report(px, doc, mates, "reopened")
+                facts["errors_reopened"] = errors_only(mate_errors(px, doc))
+                # (c) The outer folder suppressed by the same call that suppresses a mate, then unsuppressed.
+                sup: Dict[str, Any] = {"by": suppress(px, doc, MATE_FOLDER, True)}
+                rebuild(px, doc, "the folder suppressed", top_only=True)
+                sup["mates_suppressed"] = {n: is_suppressed(px, mate_feature(doc, n)) for n in mates}
+                cases["folder suppressed"] = walk_report(px, doc, mates, "the folder suppressed")
+                sup["unsuppressed_by"] = suppress(px, doc, MATE_FOLDER, False)
+                rebuild(px, doc, "the folder unsuppressed", top_only=True)
+                sup["mates_after"] = {n: is_suppressed(px, mate_feature(doc, n)) for n in mates}
+                sup["errors_after"] = errors_only(mate_errors(px, doc))
+                facts["folder_suppression"] = sup
+            facts["cases"] = cases
     finally:
         _close_quietly(px, paths)
     px.fact("mate_folders", facts)
     seen = sorted({w["type"] for w in facts.get("walk", [])} | {k["type"] for w in facts.get("walk", [])
                                                                  for k in w.get("sub_features", [])}
-                  | set(facts.get("types_before", [])))
+                  | set(facts.get("types_before", []))
+                  | {t for c in facts.get("cases", {}).values() for t in c["types"]})
     px.fact("mate_group_sub_feature_types", seen, "every GetTypeName2 met walking the MateGroup")
+    if facts.get("cases"):
+        px.fact("mate_folder_cases", {k: {"sibling": v["sibling"], "found": v["found"], "types": v["types"]}
+                                      for k, v in facts["cases"].items()})
+        px.check(True, f"walked: {[(k, [(w['name'], w['type']) for w in v['walk']]) for k, v in facts['cases'].items()]}")
+        px.fact("mate_folders_hold_in_every_case", folders_hold(facts["cases"]))
     if facts.get("folder_made"):
         px.fact("mate_group_walk_sees_mates_in_a_folder", all(facts["mate_group_walk_finds"].values()))
         px.fact("feature_by_name_finds_mates_in_a_folder", all(v["found"] for v in facts["feature_by_name"].values()))
     else:
         px.fact("mate_group_walk_sees_mates_in_a_folder", None, f"not probed: {facts.get('folder')}")
+
+
+def resolved_stage(stages: Mapping[str, Mapping[str, Sequence[Any]]], resolved: Optional[int]) -> Optional[str]:
+    """The first stage after which every gear read the fully-resolved value; None if none did."""
+    for stage, read in stages.items():
+        if read and all(v[0] == resolved for v in read.values()):
+            return stage
+    return None
 
 
 @probe("lightweight_remake", needs=("motion_update",), tier=8,
@@ -4808,7 +4894,28 @@ def lightweight_remake(px: Px) -> None:
         tries.append(("silent, lightweight, overriding the default", silent | light | override))
     got, pid = px.attempt("ISldWorks.GetProcessID", lambda: call(sc.app(px), "GetProcessID"))
     px.require(got and isinstance(pid, int) and pid > 0, f"GetProcessID answered the session's process ({pid!r})")
+
+    def read_states(comps: Mapping[str, Any]) -> Dict[str, Any]:
+        """``IComponent2.GetSuppression2`` of every gear: the value and its swComponentSuppressionState_e name."""
+        values = {k: int(call(c, "GetSuppression2")) for k, c in comps.items()}
+        return {k: [v, names_of.get(v, v)] for k, v in values.items()}
+
     try:
+        # A plain open, with no lightweight option (this machine's default): the read an Update can gate on.
+        errors, warnings = sc.out_long(), sc.out_long()
+        with DialogWatch(pid) as watch:
+            got, result = px.attempt(f"OpenDoc6({os.path.basename(path)}, options {silent}: silent, no lightweight "
+                                     f"option)", lambda: call(sc.app(px), "OpenDoc6", path, sc.SW_DOC_ASSEMBLY, silent,
+                                                              "", errors, warnings))
+        doc = result[0] if got and isinstance(result, tuple) else result
+        px.require(got and doc is not None, "the train opens")
+        title = str(call(doc, "GetTitle"))
+        if title not in px.shared.setdefault("created", []):
+            px.shared["created"].append(title)
+        facts["plain_open"] = {"options": silent, "dialogs": watch.report(),
+                               "states": read_states({k: call(doc, "GetComponentByName", n)
+                                                      for k, n in info["names"].items()})}
+        _close_quietly(px, paths)
         for label, flags in tries:
             errors, warnings = sc.out_long(), sc.out_long()
             # Watched: on 2026 the open with the override made the components lightweight, and an add-in
@@ -4833,21 +4940,31 @@ def lightweight_remake(px: Px) -> None:
                 break
             _close_quietly(px, paths)
         if any(facts["lightweight"].values()):
+            stages: Dict[str, Any] = {"after the open": read_states(components)}
             for k in (g3["key"], g4["key"]):
                 got, feature = px.attempt(f"FeatureByName('Gear Axis') on {k}, lightweight",
                                           lambda k=k: call(components[k], "FeatureByName", "Gear Axis"))
                 facts.setdefault("gear_axis", {})[k] = {"found": bool(got and feature is not None)}
+            stages["after FeatureByName('Gear Axis')"] = read_states(components)
             facts["turns_before"] = _drive_by(px, doc, components, RATIO_STEP, "driven, lightweight")
+            stages["after the first drive"] = read_states(components)
             facts["remake"] = remake_gear_mate(px, doc, info["names"], name, g3["key"], g4["key"],
                                                (float(g3["teeth"]), float(RATIO_NEW)), name)
             rebuild(px, doc, "remade, lightweight", top_only=TOP_ONLY)
+            stages["after the remake"] = read_states(components)
             facts["errors"] = errors_only(mate_errors(px, doc))
             facts["turns"] = _drive_by(px, doc, components, RATIO_STEP, "driven after the remake, lightweight")
-            facts["suppression_after"] = {k: names_of.get(int(call(c, "GetSuppression2")), int(call(c, "GetSuppression2")))
-                                          for k, c in components.items()}
+            stages["after the drive that follows"] = read_states(components)
+            facts["states"] = stages
+            facts["suppression_after"] = {k: v[1] for k, v in stages["after the drive that follows"].items()}
     finally:
         _close_quietly(px, paths)
     px.fact("lightweight_remake", facts)
+    plain_values = sorted({v[0] for v in (facts.get("plain_open") or {}).get("states", {}).values()})
+    px.fact("component_resolved_read", {"call": "IComponent2.GetSuppression2",
+                                        "fully_resolved": states.get("swComponentFullyResolved"),
+                                        "plain_open_values": plain_values},
+            "a plain OpenDoc6 (no lightweight option): every gear's GetSuppression2")
     px.fact("lightweight_open_dialogs", {label: [[w["title"], w["children"]] for w in r["windows"]]
                                          for label, r in facts.get("dialogs", {}).items()},
             "the windows SolidWorks opened while each OpenDoc6 was blocked (each closed by WM_CLOSE)")
@@ -4859,6 +4976,12 @@ def lightweight_remake(px: Px) -> None:
     new_expected = train_turns((g1["teeth"], g2["teeth"], g3["teeth"], RATIO_NEW), (1, 1, 1, 1))
     holds = bool((facts.get("remake") or {}).get("name")) and not facts.get("errors") and \
         _ratio_turns_right(facts.get("turns") or {}, keys, others, new_expected)
+    first_right = _ratio_turns_right(facts.get("turns_before") or {}, keys, others, train_turns(TRAIN_TEETH, (1, 1, 1, 1)))
+    px.fact("lightweight_first_drive_right", first_right,
+            f"the drive while lightweight, before the remake: {facts.get('turns_before')}")
+    resolved = states.get("swComponentFullyResolved")
+    px.fact("lightweight_resolved_by", resolved_stage(facts.get("states") or {}, resolved),
+            "the first step after which every gear read swComponentFullyResolved (IComponent2.GetSuppression2)")
     px.check(True, f"lightweight: Gear Axis {facts.get('gear_axis')}, remade by "
                    f"{(facts.get('remake') or {}).get('selected')}, turns {facts.get('turns')}")
     px.fact("lightweight_remake_holds", holds)

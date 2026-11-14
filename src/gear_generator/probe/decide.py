@@ -450,5 +450,9 @@ def decide(records: Records) -> Dict[str, Any]:
         "gear_mate_definition_read_marks": _fact(records, "gear_mate_definition_read", "gear_mate_definition_read_marks"),
         "origin_noise_mm": _fact(records, "origin_noise", "origin_noise_mm"),
         "origin_noise_within_moved_tolerance": _fact(records, "origin_noise", "origin_noise_within_moved_tolerance"),
+        "mate_folders_hold_in_every_case": _fact(records, "mate_folders", "mate_folders_hold_in_every_case"),
+        "lightweight_first_drive_right": _fact(records, "lightweight_remake", "lightweight_first_drive_right"),
+        "lightweight_resolved_by": _fact(records, "lightweight_remake", "lightweight_resolved_by"),
+        "component_resolved_read": _fact(records, "lightweight_remake", "component_resolved_read"),
         "manual_steps": manual_steps(records, recipe),
     }

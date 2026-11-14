@@ -722,3 +722,14 @@ def test_origin_noise_leaves_out_the_gears_meant_to_move():
     after = {"G1": (1e-9, 0.0, 0.0), "G4": (132.75, 0.0, 17.0)}
     assert p8.origin_spread(before, after)["largest_mm"] == pytest.approx(1.0)
     assert p8.origin_spread(before, after, ["G4"])["largest_mm"] == pytest.approx(1e-9)
+
+
+def test_the_first_fully_resolved_stage_and_folders_holding_in_every_case():
+    stages = {"after the open": {"TG1": [1, "swComponentLightweight"], "TG2": [2, "swComponentFullyResolved"]},
+              "after the first drive": {"TG1": [2, "swComponentFullyResolved"], "TG2": [2, "swComponentFullyResolved"]}}
+    assert p8.resolved_stage(stages, 2) == "after the first drive"
+    assert p8.resolved_stage({"after the open": stages["after the open"]}, 2) is None
+    ok = {"sibling": {"Lock1": True}, "found": {"Lock1": True}, "types": ["MateLock"]}
+    assert p8.folders_hold({"one folder": ok, "reopened": ok})
+    assert not p8.folders_hold({"one folder": ok, "reopened": {**ok, "sibling": {"Lock1": False}}})
+    assert not p8.folders_hold({})
