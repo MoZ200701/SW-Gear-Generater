@@ -304,7 +304,8 @@ def test_results_failing_after_the_cells_still_says_what_was_written(tmp_path, m
     watch = link.Link(str(path))
     watch.own_digest = done.digest
     assert watch.read().own
-    text, ok = ui_text.export_note(done)
+    note = ui_text.export_note(done)
+    text, ok = note.text, note.ok
     assert not ok and text == ("Exported 2 cells. The Results sheet could not be written: Reducer_12to1.xlsx is "
                                "open in Excel, so it cannot be saved from here. Export again to write it.")
 
@@ -357,10 +358,10 @@ def test_a_formula_target_is_named_with_the_value_the_fix_wants(tmp_path, folder
     assert [d.field for d in report.diagnostics if d.is_error] == ["Meshes!A2"]    # only stage 1 is off
     done = export.export(str(path), spec, [report.fixes["Meshes!A2"][0]], report)
     assert done.written == ["Shafts!C3"] and done.formulas == [("Shafts!C4", "S3", "X", "131.75")]
-    assert ui_text.export_note(done) == (
+    assert ui_text.export_note(done) == ui_text.Note(
         "Exported 1 cell. Shafts!C4 (S3 X) holds a formula, so it was not written (the fix would make it 131.75): "
         "once Excel has recalculated, Checks will say whether S3 sits where its meshes need it. The Results sheet "
-        "was left out until then: Export again after Excel's save to write it.", True)
+        "was left out until then: Export again after Excel's save to write it.", True, ui_text.NOTE_STANDING)
 
 
 def test_nothing_written_when_every_cell_the_fix_names_is_a_formula(tmp_path):
@@ -374,11 +375,11 @@ def test_nothing_written_when_every_cell_the_fix_names_is_a_formula(tmp_path):
     move = report.fixes["Meshes!A2"][0]
     done = export.export(str(path), spec, [move], report)
     assert done.written == [] and not done.results and len(done.formulas) == 2
-    assert ui_text.export_note(done) == (
+    assert ui_text.export_note(done) == ui_text.Note(
         "Nothing was written: every cell the fix would change holds a formula — Shafts!C3 (S2 X, the fix would "
         "make it 63.75); Shafts!C4 (S3 X, the fix would make it 131.75) — and Excel recalculating cannot move them, "
         "since nothing they read has changed. Change the formula, or a cell it reads, in Excel; the fix stays "
-        "chosen until then.", False)
+        "chosen until then.", False, ui_text.NOTE_STANDING)
 
 
 def test_two_trains_have_no_ratio_between_them(tmp_path):

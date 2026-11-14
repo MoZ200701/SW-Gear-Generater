@@ -970,14 +970,42 @@ def _shared_steps(results) -> List[str]:
     return out
 
 
-class Standing(tuple):
-    """A footer note, ``(sentence, shown as good)``, that says what an Export did or how a question was answered:
-    no build or update stood between it and the state the footer goes on to give, so the two are joined plainly
-    rather than with *Since then:* (see :func:`workbook_footer`). It compares equal to the plain tuple."""
+NOTE_JOB = "job"              # a finished job's own sentence: it marks a moment the workbook may have moved on from
+NOTE_STANDING = "standing"    # what an Export, a Locate… or a save did: no job stood between it and the state
+NOTE_ANSWER = "answer"        # how the Build again? question was answered: the state it answered still holds
 
 
-def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
-    """What an Export did, for the footer: (sentence, shown as good). ``done`` is a
+@dataclass(frozen=True)
+class Note:
+    """The Workbook window's last sentence of its own, kept until the file next changes: ``text``, shown as good
+    when ``ok``, and its ``kind``, which says how the footer joins it to the state (:func:`workbook_footer`):
+
+    - :data:`NOTE_JOB` — a build's or an update's sentence. It takes the
+      state's place while the state is fine; otherwise *… Since then: <state>*.
+    - :data:`NOTE_STANDING` — what an Export, a Locate… or a save did. It
+      takes the state's place while the state is fine; otherwise the state
+      follows plainly, since it was already so.
+    - :data:`NOTE_ANSWER` — No to *Build again?*, or the question left open
+      while the workbook changed. The state follows plainly, always: the
+      reason the question was asked still stands (W4 review nit).
+    """
+
+    text: str
+    ok: bool
+    kind: str = NOTE_JOB
+
+
+def _as_note(note) -> Optional[Note]:
+    """A :class:`Note`, or a plain ``(text, ok)`` pair from a caller that knows only a job's sentence (the
+    demonstration script's desk), taken as a job's."""
+    if note is None or isinstance(note, Note):
+        return note
+    text, ok = note
+    return Note(text, ok)
+
+
+def export_note(done, copy_name: str = "") -> Note:
+    """What an Export did, for the footer: a :data:`NOTE_STANDING` :class:`Note`. ``done`` is a
     :class:`workbook.export.Exported`; ``copy_name`` the file Export as… wrote, or ``""``.
 
     A formula cell is never written over. When it is a fix's target the
@@ -995,10 +1023,9 @@ def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
         cells = "; ".join(f"{cell} ({item} {header}, the fix would make it {value})"
                           for cell, item, header, value in done.formulas)
         where = f"changed in the copy, {copy_name}" if copy_name else "written"
-        return Standing((f"Nothing was {where}: every cell the fix would change "
-                         f"holds a formula — {cells} — and Excel recalculating cannot move them, since nothing they "
-                         "read has changed. Change the formula, or a cell it reads, in Excel; the fix stays chosen "
-                         "until then.", False))
+        return Note(f"Nothing was {where}: every cell the fix would change holds a formula — {cells} — and Excel "
+                    "recalculating cannot move them, since nothing they read has changed. Change the formula, or a "
+                    "cell it reads, in Excel; the fix stays chosen until then.", False, NOTE_STANDING)
     what = _plural(len(done.written), "cell") + (" and the Results sheet" if done.results else "")
     parts = [f"Exported {what}" + (f" to {copy_name}" if copy_name else "") + "."]
     if done.added_headers:
@@ -1017,7 +1044,7 @@ def export_note(done, copy_name: str = "") -> Tuple[str, bool]:
                                            "partly in it.")
     if done.results_error:
         parts.append(f"The Results sheet could not be written: {done.results_error} Export again to write it.")
-    return Standing((" ".join(parts), not others and not done.results_error))
+    return Note(" ".join(parts), not others and not done.results_error, NOTE_STANDING)
 
 
 RECALC_WAIT = ("Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they "
@@ -1062,7 +1089,12 @@ BUILD_LABELS = {BUILD: "Build", BUILD_PARTS: "Build parts", BUILD_AGAIN: "Build 
 RECALC_WAIT_UPDATE = ("Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so "
                       "they recalculate; Build, Update SolidWorks and Export wait for that save.")
 ALREADY_MATCHES = "SolidWorks already matches the workbook: nothing was changed."
-SAVE_TO_KEEP = "Save in SolidWorks to keep it."
+
+
+def save_to_keep(paths: Sequence[str]) -> str:
+    """After an update, the save asked for, naming every document it changed (W4 review S4.8: a bare *Save in
+    SolidWorks to keep it.* followed a list of several)."""
+    return f"Save {_and(_stem(p) for p in paths)} in SolidWorks to keep {_them(len(paths))}."
 
 
 @dataclass(frozen=True)
@@ -1205,12 +1237,94 @@ def _layout_reused(plan) -> bool:
     return isinstance(getattr(plan, "layout", None), LayoutReuse)
 
 
-def gearbox_status(plan, result) -> Tuple[str, bool]:
+def _never_made(doc) -> bool:
+    """A document SolidWorks never made (``swbuild._build_in_job``: no title, its first step the new document's):
+    a template it could not use, nearly always, so pressing again fails the same way until that is changed."""
+    return not doc.document and doc.stopped_at in ("new part", "new assembly")
+
+
+def _went_wrong(doc, name: str, title: str = "") -> str:
+    """What one document's failure left, as a sentence: *SolidWorks did not make the assembly. There is no
+    assembly template at …* for one never made (no label left lower-case in the middle: W4 review S4.3), else
+    *Part3 was left open, unsaved; cut 'Tooth Space': FeatureCut4 would not cut.* ``title``: how the document
+    made is named (*the assembly Assem1*), its SolidWorks title by default."""
+    title = title or doc.document
+    if doc.failures:
+        what, why = doc.failures[0]
+        if _never_made(doc):
+            return f"SolidWorks did not make {name}. {_sentence(why)}"
+        if what.strip() == "save":
+            return f"{title} was left open, unsaved, since it would not save: {_sentence(why)}"
+        if what.strip() == "the build":
+            return f"{title} was left open, unsaved: {_sentence(why)}"
+        return f"{title} was left open, unsaved; {what.strip()}: {_sentence(why)}"
+    return f"SolidWorks reported an error rebuilding {title}, so it was left open, unsaved."
+
+
+def _template_first(doc, button: str, reused: str) -> str:
+    """For a document never made: change the template before pressing again (the same press would fail the same
+    way); else ``""``."""
+    if not _never_made(doc):
+        return ""
+    noun = "assembly" if doc.stopped_at == "new assembly" else "part"
+    tail = f": {reused}" if reused else ""
+    return (f" Set {'an' if noun == 'assembly' else 'a'} {noun} template SolidWorks can use (the Box sheet's "
+            f"{noun.capitalize()} template, else the strip's), then press {button}{tail}.")
+
+
+def _gears_part(gear_ids: Sequence[str], count: int = 1) -> Tuple[str, str]:
+    """(``G2's part`` / ``the part for G1 and G5`` / ``the parts for G1 and G2``, ``is``/``are``)."""
+    ids = list(gear_ids)
+    if count == 1:
+        return (f"{ids[0]}'s part" if len(ids) == 1 else f"the part for {_and(ids)}"), "is"
+    return f"the parts for {_and(ids)}", "are"
+
+
+def _them(count: int) -> str:
+    return "it" if count == 1 else "them"
+
+
+def _mismatched_status(plan, result, button: str) -> str:
+    """A build the live check stopped (``GearboxResult.mismatched``): what it found, and that the next press makes
+    those parts new — the finish has recorded them (W4 review B2's last corner) — rather than fail again."""
+    from . import store
+    found = [p for p, _ in result.mismatched]
+    reuse = list(getattr(plan, "reuse", ()) or ())
+    parts = [r for r in reuse if any(store.same_path(r.path, p) for p in found)]
+    layout = getattr(plan, "layout", None)
+    layout_bad = _layout_reused(plan) and any(store.same_path(layout.path, p) for p in found)
+    does = []
+    if parts:
+        who, _ = _gears_part([g for r in parts for g in r.gear_ids], len(parts))
+        does.append(f"makes {who} new rather than reuse {_and(r.stem for r in parts)}")
+    if layout_bad:
+        does.append("builds the next revision, with a layout part of its own")
+    whys = " ".join(_sentence(why) for _, why in result.mismatched)
+    then = (f" The next press of {button} {_and(does)}; nothing is overwritten." if does else
+            f" The next press of {button} does not reuse {_them(len(found))}.")
+    return f"Nothing was built. {whys}{then}"
+
+
+def gearbox_status(plan, result, again: bool = False) -> Tuple[str, bool]:
     """A finished build's sentence (``workbook.gearbox.GearboxPlan``, ``swbuild.GearboxResult``): *Built 4 parts,
     Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears.*, a clash's *Check: G1 and
-    G2 interfere, 12.345 mm³; …*, or what failed and that Build carries on, reusing what was built."""
+    G2 interfere, 12.345 mm³; …*, or what went wrong and what the next press does.
+
+    ``again``: the press was Build again… (an assembly was on record), so
+    until this revision's layout part is saved the button still reads Build
+    again… and the sentence names it. A document SolidWorks never made (its
+    template) asks for the template first rather than another press that
+    would fail the same way. A raise between documents
+    (``GearboxResult.failures``) says where the job stopped and what was not
+    attempted; a live check that found a document to reuse not holding what
+    it should (``mismatched``) says what it found and that the next press
+    makes it new."""
     parts_only = plan is None or (plan.layout is None and plan.assembly is None)
-    button = "Build parts" if parts_only else "Build"
+    layout = result.layout
+    layout_on = bool(result.layout_reused) or (layout is not None and layout.ok and bool(layout.saved))
+    button = "Build parts" if parts_only else ("Build again…" if again and not layout_on else "Build")
+    if result.mismatched:
+        return _mismatched_status(plan, result, button), False
     made = [r for r in result.parts.built if r.ok and r.saved]
     reused_parts = len(plan.reuse) if plan is not None else 0
     reused_layout = _stem(result.layout_reused) if result.layout_reused else ""
@@ -1218,7 +1332,7 @@ def gearbox_status(plan, result) -> Tuple[str, bool]:
 
     for part in result.parts.built:
         if not (part.ok and part.saved):
-            text, _ = build_status(part)
+            text = _went_wrong(part, _stem(part.path) or "the part")
             before = f"{_plural(len(made), 'part')} built before it; " if made else ""
             skipped = len(result.parts.skipped)
             if parts_only:
@@ -1227,15 +1341,19 @@ def gearbox_status(plan, result) -> Tuple[str, bool]:
                 tail = f" {_plural(skipped, 'part')} not attempted, nor the layout and assembly."
             else:
                 tail = " The layout and assembly were not attempted."
-            return f"{before}{text}{tail} Press {button} to carry on: what was built is reused.", False
+            reused = "what was built is reused" if made or reused_parts else ""
+            then = _template_first(part, button, reused) or (
+                f" Press {button} to carry on" + (f": {reused}." if reused else "."))
+            return f"{before}{text}{tail}{then}", False
 
-    layout = result.layout
     if layout is not None and not (layout.ok and layout.saved):
-        text, _ = build_status(layout)
+        text = _went_wrong(layout, "the layout part")
         done = _done_phrase(made_names, [_already(reused_parts)] if reused_parts else [])
         lead = f"{done}; " if done else ""
-        return (f"{lead}{text} The assembly was not attempted. Press Build to carry on: "
-                f"{'the parts are' if made or reused_parts else 'what was built is'} reused."), False
+        reused = ("the parts are reused" if made or reused_parts else "")
+        then = _template_first(layout, button, reused) or (
+            f" Press {button} to carry on" + (f": {reused}." if reused else "."))
+        return f"{lead}{text} The assembly was not attempted.{then}", False
 
     layout_name = _stem(layout.saved) if layout is not None and layout.saved else ""
     assembly = result.assembly
@@ -1243,17 +1361,12 @@ def gearbox_status(plan, result) -> Tuple[str, bool]:
         made_now = made_names + ([layout_name] if layout_name else [])
         reused_now = ([reused_layout] if reused_layout else []) + ([_already(reused_parts)] if reused_parts else [])
         done = _done_phrase(made_now, reused_now)
-        if assembly.failures:
-            what, why = assembly.failures[0]
-            where = (f"the assembly {assembly.document} was left open, unsaved" if assembly.document
-                     else "the assembly was not made")
-            failed = f"{where}. {what.strip()}: {why}"
-        else:
-            failed = (f"SolidWorks reported an error rebuilding the assembly {assembly.document}, so it was left "
-                      "open, unsaved.")
+        failed = _went_wrong(assembly, "the assembly", f"the assembly {assembly.document}")
         lead = f"{done}; " if done else ""
         failed = failed if lead else failed[:1].upper() + failed[1:]
-        return f"{lead}{failed} Press Build to try the assembly again: the parts and layout are reused.", False
+        then = _template_first(assembly, button, "the parts and layout are reused") or (
+            f" Press {button} to try the assembly again: the parts and layout are reused.")
+        return f"{lead}{failed}{then}", False
 
     built_names = made_names + ([layout_name] if layout_name else [])
     asm_name = _file(assembly.saved) if assembly is not None and assembly.saved else ""
@@ -1261,20 +1374,26 @@ def gearbox_status(plan, result) -> Tuple[str, bool]:
         built_names.append(asm_name)
     reused_names = ([reused_layout] if reused_layout else []) + ([_already(reused_parts)] if reused_parts else [])
     done = _done_phrase(built_names, reused_names)
-    # W4 fix pass 1 (temporary, pass 2 words it): a raise between documents is a failure on the result now
-    # (swbuild.GearboxResult.failures), not an exception out of the worker.
-    stopped = ""
-    if getattr(result, "failures", None):
+    if result.failures:
+        # A raise between documents (W4 review B1): the job returned what it had saved, and says where it stopped.
         what, why = result.failures[0]
-        stopped = f" The job stopped during {what}: {_sentence(why)}"
+        later = [] if plan is None else [
+            name for name, planned, reached in (
+                ("the layout part", plan.layout is not None and not _layout_reused(plan), layout is not None),
+                ("the assembly", plan.assembly is not None, assembly is not None))
+            if planned and not reached and name != what]
+        missed = (f" {_and(later)[:1].upper()}{_and(later)[1:]} {'was' if len(later) == 1 else 'were'} not "
+                  "attempted.") if later else ""
+        stopped = f"The job stopped during {what}: {_sentence(why)}{missed}"
+        if not done:
+            return f"Nothing was saved. {stopped} Press {button} to try again.", False
+        return f"{done}. {stopped} Press {button} to carry on: what was built is reused.", False
     if not done:
-        return "Nothing was built." + stopped, False
+        return "Nothing was built.", False
     results = made + [r for r in (layout, assembly) if r is not None and r.saved]
     checks = [c for r in results for c in r.checks]
     ok = not checks
-    if stopped:
-        text, ok = f"{done}.{stopped} Press {button} to carry on: what was built is reused.", False
-    elif not parts_only and not asm_name:
+    if not parts_only and not asm_name:
         # Planned and never reached, with nothing failing: say what the worker said was left.
         skipped = f" {_sentence(result.skipped)}" if result.skipped else " The assembly was not made."
         text, ok = f"{done}.{skipped}", False
@@ -1303,9 +1422,31 @@ def _missing_sentence(missing: Sequence[str]) -> str:
             "SolidWorks cannot change them.")
 
 
+_STRIP_AGAIN = "; build it again as a new part."
+
+
+def _reason(text: str) -> str:
+    """A reason Update cannot carry, as the workbook says it. ``swbuild.structural_change`` ends its sentence for
+    the strip's single part, *…; build it again as a new part.*; folded into the footer's offer that read "build
+    again" twice (W4 review S4.2), so here the part *needs a new part* and the offer says how."""
+    text = _sentence(text)
+    return text[:-len(_STRIP_AGAIN)] + ", so it needs a new part." if text.endswith(_STRIP_AGAIN) else text
+
+
+def _cannot_carry(update) -> str:
+    """Why Update SolidWorks cannot carry the change, as one sentence (the first reason, and how many more)."""
+    if update.missing:
+        more = len(update.structural)
+        also = f" (and {_plural(more, 'other change')} it cannot carry)" if more else ""
+        return _missing_sentence(update.missing)[:-1] + also + "."
+    more = len(update.structural) - 1
+    also = f" (and {_plural(more, 'other change')} Update SolidWorks cannot carry)" if more else ""
+    return _reason(update.structural[0])[:-1] + also + "."
+
+
 def _again_sentence(update, name: str = "") -> str:
-    """Why Update cannot carry it, folded into one line for the footer: *G2's bore was added, which its built part
-    cannot take: Update SolidWorks offers to build again as Reducer_12to1_r2.*"""
+    """Why Update cannot carry it, and the offer: *Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B', so it
+    needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2.* — "build again" once."""
     target = name or "a new revision"
     offer = f"Update SolidWorks offers to build again as {target}."
     if update.missing:
@@ -1317,9 +1458,7 @@ def _again_sentence(update, name: str = "") -> str:
             where = f"in {short_path(folder, 48)}" if folder else "where it was built"
             return f"{files[0]} is no longer {where}: it was moved or renamed since it was built{also}, so {offer}"
         return f"{_and(files)} are no longer where they were built: they were moved or renamed since{also}, so {offer}"
-    more = len(update.structural) - 1
-    also = f" (and {_plural(more, 'other change')} Update SolidWorks cannot carry)" if more else ""
-    return f"{update.structural[0].strip().rstrip('.')}{also}: {offer}"
+    return f"{_cannot_carry(update)} {offer}"
 
 
 def update_summary(update) -> str:
@@ -1383,9 +1522,9 @@ def _layout_shafts(names: Sequence[str]) -> List[str]:
 
 def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes=None) -> Tuple[str, bool]:
     """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
-    *Save in SolidWorks to keep it.* whenever ``result.changed`` is not empty; *SolidWorks already matches the
-    workbook: nothing was changed.* when nothing was. ``meshes``: the record's listed meshes (pairs of gear ids),
-    so a clash is called a mesh only when it is one (see :func:`_interference`)."""
+    with :func:`save_to_keep` naming the documents whenever ``result.changed`` is not empty; *SolidWorks already
+    matches the workbook: nothing was changed.* when nothing was. ``meshes``: the record's listed meshes (pairs of
+    gear ids), so a clash is called a mesh only when it is one (see :func:`_interference`)."""
     changed_docs = [_stem(p) for p in result.changed]
     if result.failures:
         what, why = result.failures[0]
@@ -1450,22 +1589,108 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
     if put_back and pieces:
         text += f" {put_back}."
     if result.changed:
-        text += f" {SAVE_TO_KEEP}"
+        text += " " + save_to_keep(result.changed)
     return text, ok
+
+
+def _made_new_by(plan, why: str) -> list:
+    return [m for m in (getattr(plan, "made_new", ()) or ()) if m.why == why]
+
+
+def _occupied(plan, overwritten: bool = True, superseded: Sequence[str] = ()) -> str:
+    """Why a new part takes another file name than its own (``GearboxPlan.made_new``, review S5), one sentence per
+    reason: *Gear_m1.5_N17.SLDPRT is already there, built from this workbook for values G1 no longer has, so G1's
+    part is made as Gear_m1.5_N17_r2; nothing is overwritten.* For a copied workbook the files of the workbook it
+    was copied from are said once, by :func:`_copy_sentence`, not part by part. *Nothing is overwritten* is said
+    once, after the last (``overwritten``; the question says it in its own last sentence). A part of this
+    workbook's own for other values that is one of the parts on record (``superseded``) is not said: it is the
+    part a change Update cannot carry replaces, and that change's sentence says so already."""
+    from . import store
+    from .workbook.gearbox import NO_RECORD, OTHER_WORKBOOK, STALE
+    folder = getattr(plan, "folder", "") or ""
+    copied = getattr(plan, "foreign_record", "") or ""
+    groups: Dict[Tuple[str, str], list] = {}
+    for m in getattr(plan, "made_new", ()) or ():
+        if m.why not in (STALE, OTHER_WORKBOOK, NO_RECORD):
+            continue
+        if m.why == OTHER_WORKBOOK and copied and store.same_path(m.workbook, copied):
+            continue
+        if m.why == STALE and any(store.same_path(m.old, p) for p in superseded):
+            continue
+        groups.setdefault((m.why, m.workbook.lower()), []).append(m)
+    out = []
+    for (why, _), items in groups.items():
+        one = len(items) == 1
+        files = _and(_file(m.old) for m in items)
+        there = _folder_of(items[0].old)
+        where = ("already there" if not there or store.same_path(there, folder)
+                 else f"already in {short_path(there, 48)}")
+        ids = [g for m in items for g in m.gear_ids]
+        who, be = _gears_part(ids, len(items))
+        lead = f"{files} {'is' if one else 'are'} {where}"
+        if why == STALE:
+            lead += f", built from this workbook for values {_and(ids)} no longer {'has' if len(ids) == 1 else 'have'}"
+        elif why == OTHER_WORKBOOK:
+            lead += f", built from {_file(items[0].workbook)}"
+        else:
+            lead += (f", with no record that this workbook built {_them(len(items))} (a build that was interrupted "
+                     "can leave such a file)")
+        out.append(f"{lead}, so {who} {be} made as {_and(_stem(m.new) for m in items)}")
+    if not out:
+        return ""
+    return ". ".join(out) + ("; nothing is overwritten." if overwritten else ".")
+
+
+def _held_back(plan, subject: str, after_unsaved_line: bool) -> str:
+    """The parts made new although a built one matched (``GearboxPlan.made_new``, UNSAVED and MISMATCHED), as what
+    ``subject`` (*Build*, *the new revision*) does: *Until Gear_m1.5_N68 is saved, the new revision makes G2's part
+    new, as Gear_m1.5_N69, rather than reuse it.* — after the sentence asking for the save, which is not asked
+    again (W4 review S3, S4.1) — else with its own reason."""
+    from .workbook.gearbox import MISMATCHED, UNSAVED
+    out = []
+    for why in (UNSAVED, MISMATCHED):
+        items = _made_new_by(plan, why)
+        if not items:
+            continue
+        one = len(items) == 1
+        olds = _and(_stem(m.old) for m in items)
+        who, _ = _gears_part([g for m in items for g in m.gear_ids], len(items))
+        does = (f"{subject} makes {who} new, as {_and(_stem(m.new) for m in items)}, rather than reuse "
+                f"{_them(len(items))}.")
+        if why == UNSAVED and after_unsaved_line:
+            out.append(f"Until {olds} {'is' if one else 'are'} saved, {does}")
+        elif why == UNSAVED:
+            out.append(f"{olds} {'has' if one else 'have'} changes from Update SolidWorks that are not saved, so "
+                       f"{does}")
+        else:
+            out.append(f"{olds} did not hold what the record says when the last build checked "
+                       f"{_them(len(items))}, so {does}")
+    return " ".join(out)
+
+
+def _copy_sentence(plan) -> str:
+    """A copied workbook (``GearboxPlan.foreign_record``, review S1): the record that came with it, and the files it
+    lists, are the other workbook's; Build makes this one's own beside them."""
+    other = plan.foreign_record
+    return (f"This workbook is a copy of {short_path(other, 48)}, which is still there, so the record that came with "
+            "it is that workbook's, and so are the SolidWorks files it lists: Build makes this workbook's own gearbox "
+            "beside them, sharing and overwriting nothing.")
 
 
 def build_again_question(update, again) -> str:
     """The *Build again?* question (``UpdatePlan``, and the ``GearboxPlan`` it would run): why Update cannot carry
-    the change, what the new revision makes and reuses, and — decision 8 — that the reused parts are shared, so a
-    later Update changes the earlier revision's assembly too. Never promises the old assembly is untouched."""
+    the change, what the new revision makes and reuses — and why a part is made new although one was built — and,
+    decision 8, that the reused parts are shared, so a later Update changes the earlier revision's assembly too.
+    Never promises the old assembly is untouched, and never names one when none was built (a record from Build
+    parts)."""
+    from .workbook.gearbox import MISMATCHED, UNSAVED
     reasons = []
     if update is not None and update.missing:
         reasons.append(_missing_sentence(update.missing))
     if update is not None:
-        reasons.extend(_sentence(s) for s in update.structural)
+        reasons.extend(_reason(s) for s in update.structural)
     if not reasons:
-        reasons.append("Update SolidWorks can bring SolidWorks up to date as it is, so a new revision is not "
-                       "needed.")
+        reasons.append("Nothing on record needs a new revision.")
     text = " ".join(reasons) + f" Build again as {again.name}?"
     if again.refusal:
         return f"{text} It cannot go ahead: {again.refusal}"
@@ -1484,9 +1709,28 @@ def build_again_question(update, again) -> str:
         does.append(f"makes a new layout part and assembly ({_stem(again.layout_path)} and {asm})")
     if does:
         text += " That " + _and(does) + "."
+    for why, because, after in ((UNSAVED, "has changes from Update SolidWorks that are not saved", True),
+                                (MISMATCHED, "did not hold what the record says when the last build checked it",
+                                 False)):
+        items = _made_new_by(again, why)
+        if not items:
+            continue
+        one = len(items) == 1
+        who, be = _gears_part([g for m in items for g in m.gear_ids], len(items))
+        olds = _and(_stem(m.old) for m in items)
+        said = because if one else because.replace("has", "have", 1).replace("checked it", "checked them")
+        text += f" {who[:1].upper()}{who[1:]} {be} new because {olds} {said}"
+        text += (f"; to reuse {_them(len(items))} instead, answer No and save {_them(len(items))} in SolidWorks "
+                 "first." if after else ".")
+    occupied = _occupied(again, overwritten=False,
+                         superseded=[p.path for p in update.parts] if update is not None else ())
+    if occupied:
+        text += " " + occupied
 
-    old = _file(update.assembly) if update is not None and update.assembly else "the earlier assembly"
-    if kept:
+    old = _file(update.assembly) if update is not None and update.assembly else ""
+    if not old:
+        text += " Nothing is overwritten, and what is already built is left as it is."
+    elif kept:
         one = kept == 1
         text += (f" Nothing is overwritten, and {old} stays as it is on disk, but it shares the "
                  f"{'reused part' if one else f'{kept} reused parts'}: a later Update SolidWorks that changes "
@@ -1505,9 +1749,10 @@ def _without_folder(assessment):
     return dataclasses.replace(assessment, folder="-")
 
 
-def _ready_build(assessment, plan, folder: str) -> Tuple[str, bool]:
+def _ready_build(assessment, plan, folder: str, superseded: Sequence[str] = ()) -> Tuple[str, bool]:
     """*Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\Parts\\Reducer_12to1.*,
-    reusing what is built, and why the revision is not 0."""
+    reusing what is built; why the revision is not 0; why a new part takes another name (:func:`_occupied`); and,
+    for a copied workbook, whose the files beside it are (:func:`_copy_sentence`)."""
     where = short_path((plan.folder if plan is not None and plan.folder else folder), 48)
     if plan is None:
         return (f"Ready: Build makes {_plural(len(assessment.parts.jobs), 'part')}, the layout part and the "
@@ -1523,17 +1768,15 @@ def _ready_build(assessment, plan, folder: str) -> Tuple[str, bool]:
     if plan.reuse:
         reused.append(_already(len(plan.reuse)))
     text = f"Ready: Build makes {_and(made)} in {where}" + (", reusing " + _and(reused) if reused else "") + "."
-    if plan.revision_reason:
+    copied = bool(getattr(plan, "foreign_record", ""))
+    if plan.revision_reason and not copied:
         text += " " + _sentence(plan.revision_reason)
-    text += _made_new(plan)
+    occupied = _occupied(plan, superseded=superseded)
+    if occupied:
+        text += " " + occupied
+    if copied:
+        text += " " + _copy_sentence(plan)
     return text, bool(made)
-
-
-def _made_new(plan) -> str:
-    """W4 fix pass 1 (temporary, pass 2 words it): why a new part takes another name than its own, or is made
-    although a built one matched (``GearboxPlan.made_new``), one sentence each — the plan no longer moves the
-    whole gearbox to another revision for a part's file, so the revision's reason no longer says it."""
-    return "".join(" " + m.sentence for m in getattr(plan, "made_new", ()) or ())
 
 
 def _waiting_rows(parts) -> str:
@@ -1542,7 +1785,7 @@ def _waiting_rows(parts) -> str:
     return f"the layout and assembly wait for a later phase: {refused[0].message}{more}" if refused else ""
 
 
-def _ready_parts(assessment, plan, folder: str) -> Tuple[str, bool]:
+def _ready_parts(assessment, plan, folder: str, superseded: Sequence[str] = ()) -> Tuple[str, bool]:
     """*Ready: Build parts makes 2 parts in …; the layout and assembly wait for a later phase: Shafts!A4: …* (W2's
     batch, through the same reuse as Build, decision 9)."""
     where = short_path((plan.folder if plan is not None and plan.folder else folder), 48)
@@ -1555,50 +1798,67 @@ def _ready_parts(assessment, plan, folder: str) -> Tuple[str, bool]:
     text = f"Ready: Build parts makes {_plural(new, 'part')} in {where}"
     if kept:
         text += f", reusing {_already(kept)}"
-    return text + (f"; {waits}" if waits else ".") + (_made_new(plan) if plan is not None else ""), True
+    text += f"; {waits}" if waits else "."
+    occupied = _occupied(plan, superseded=superseded) if plan is not None else ""
+    if occupied:
+        text += " " + occupied
+    if plan is not None and getattr(plan, "foreign_record", ""):
+        text += " " + _copy_sentence(plan)
+    return text, True
+
+
+def _unsaved_line(paths: Sequence[str]) -> str:
+    """The save asked for once, naming every document Update changed and that is not saved: parts first, the
+    assembly last, as Update changed them."""
+    paths = sorted(paths, key=lambda p: str(p).lower().endswith(".sldasm"))
+    one = len(paths) == 1
+    return (f"{_and(_stem(p) for p in paths)} {'has' if one else 'have'} changes from Update SolidWorks that are not "
+            f"saved: save {_them(len(paths))} in SolidWorks to keep {_them(len(paths))}.")
 
 
 def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=None, update=None,
                     error: str = "", folder: str = "", folder_exists: bool = True, building: bool = False,
-                    updating: bool = False, progress=None, note: Optional[Tuple[str, bool]] = None,
-                    results_due: bool = False) -> Footer:
-    """The footer for every state of the window (W4-PLAN §4.2's table): its sentence, colour and buttons.
+                    updating: bool = False, progress=None, note=None, results_due: bool = False) -> Footer:
+    """The footer for every state of the window (design/UI-DESIGN.md §9's table): its sentence, colour, buttons.
 
     ``assessment`` is the last good read's ``workbook.assess.Assessment``
     (assessed with ``provisional=`` the window's recalc, and its chosen
     fixes), or None when there is none. ``record`` is the planning read of the
-    link record (``store.read_link_record``), ``record_problem`` the sentence
-    if that read raised (a newer or broken record: Build and Update wait).
-    ``plan`` is the ``workbook.gearbox.GearboxPlan`` the build button would
-    run (None while the gate refuses) and ``update`` the
-    ``workbook.update.UpdatePlan`` from ``classify`` (None with nothing on
-    record). ``building``/``updating``: a worker job is running, and
-    ``progress`` its last ``swbuild.Step`` (or None). ``note``: the last
-    job's own sentence, kept until the file next changes. Order of the gate:
-    the window's own state (error, a job running, the folder missing on disk,
-    the record problem), then ``assessment.lay_out_refusal()`` — falling back
-    to Build parts when only ``parts.refused`` holds the layout back and
-    ``build_refusal()`` passes — then ``plan.refusal``.
+    link record (``store.read_link_record``) when it is this workbook's (None
+    for a copy's: ``plan.foreign_record`` says so), ``record_problem`` the
+    sentence if that read raised (a newer or broken record). ``plan`` is the
+    ``workbook.gearbox.GearboxPlan`` the build button would run (None while
+    the gate refuses) and ``update`` the ``workbook.update.UpdatePlan`` from
+    ``classify`` (None with nothing on record). ``building``/``updating``: a
+    worker job is running, and ``progress`` its last ``swbuild.Step``.
+    ``note``: the window's last sentence of its own, a :class:`Note` (a plain
+    ``(text, ok)`` is a job's). Order of the gate: the window's own state
+    (error, a job running, the folder missing on disk, the record problem),
+    then ``assessment.lay_out_refusal()`` — falling back to Build parts when
+    only ``parts.refused`` holds the layout back and ``build_refusal()``
+    passes — then ``plan.refusal``.
 
-    The build button's action follows the record and the read, not the moment:
-    Build again… once an assembly is on record, else Build parts while rows a
-    later phase builds are there, else Build. A newer record (its sentence ends
-    ``store.LINK_WAITS``) holds both buttons back; a broken one only Update:
-    Build goes ahead without it, and its finish sets the file aside
-    (``store.open_link_record``). Update SolidWorks is gated as Build is, but
-    never on the output folder, since it writes nothing there; it stays
-    enabled when the record says nothing differs (the worker compares live),
-    and when the change needs a new revision (the press asks, then builds
-    again). A finished job's ``note`` takes the sentence's place while nothing
-    has gone wrong since, coloured by its own ``ok`` (a clash is ``False``);
-    otherwise *… Since then: …*. A note that answers rather than reports a
-    job — No to *Build again?* (:data:`NOTHING_CHANGED`), the question left
-    open too long (:data:`ASKED_TOO_LATE`), an Export's (:func:`export_note`)
-    — marks no moment for *since then* to count from: what follows it was
-    already so, so it is joined plainly (:func:`_after_note`).
+    The build button's action follows the record and the read, not the
+    moment: Build again… once an assembly is on record, else Build parts
+    while rows a later phase builds are there, else Build. A newer record
+    (its sentence ends ``store.LINK_WAITS``) holds both buttons back; a
+    broken one only Update. Update SolidWorks is gated as Build is, but never
+    on the output folder, since it writes nothing there; it stays enabled
+    when the record says nothing differs (the worker compares live), and
+    when the change needs a new revision once an assembly is built (the press
+    asks, then builds again) — but not when that build cannot go, nor before
+    an assembly is built, when Build itself makes what is needed.
+
+    Every sentence is decided from fields, never from another sentence's
+    words: a greyed button always has its reason on screen, no sentence offers
+    a greyed button, the save of what Update left unsaved is asked for once
+    (:func:`_unsaved_line`), and the parts a build makes new rather than reuse
+    are said from ``plan.made_new`` (:func:`_occupied`, :func:`_held_back`).
+    The note joins as its kind says (:class:`Note`).
     """
     from .store import LINK_WAITS
     a = assessment
+    note = _as_note(note)
     gearbox = getattr(record, "gearbox", None)
     has_assembly = bool(gearbox is not None and gearbox.assembly)
     on_record = record is not None and bool(record.parts or gearbox is not None)
@@ -1616,15 +1876,15 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
         return footer(error, False)
     if a is None:
         return footer(record_problem, not record_problem)
-    if note is not None and not note[1] and a.chosen:
-        return footer(note[0], False)            # a refused Export must show, even with a fix still chosen
+    if note is not None and not note.ok and a.chosen:
+        return footer(note.text, False)          # a refused Export must show, even with a fix still chosen
     if a.chosen:
         n = len(a.chosen)
         waits = "Build and Update SolidWorks wait" if on_record else "Build waits"
         return footer(f"{_plural(n, 'fix', 'fixes')} chosen: Export writes {'it' if n == 1 else 'them'} into the "
                       f"workbook, and {waits} for that, so the workbook and SolidWorks agree.", True)
     if a.provisional:
-        lead = f"{note[0]} " if note is not None else ""
+        lead = f"{note.text} " if note is not None else ""
         return footer(lead + (RECALC_WAIT_UPDATE if on_record else RECALC_WAIT), True)
 
     due = RESULTS_DUE if results_due else ""
@@ -1640,8 +1900,11 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     loose = _without_folder(a)
     update_gate = loose.lay_out_refusal() if gearbox is not None else loose.build_refusal()
     update_on = on_record and not update_gate and update is not None and not update.refusal
+    unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
+    superseded = [p.path for p in record.parts] if record is not None else []
 
-    held = ""                                     # why Build again… is greyed, when the sentence does not say it
+    held = ""              # why Build again… or Update SolidWorks is greyed, when the sentence does not say it
+    subject = ""           # who makes the plan's parts new, when this state offers the plan's build
     if action == BUILD_AGAIN:
         build_on = not build_block
         if update_gate:
@@ -1650,45 +1913,57 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
             text, ok, held = f"{_file(gearbox.assembly)} is built from this workbook.", True, build_block
         elif update.refusal:
             text, ok, held = update.refusal, False, build_block
+        elif update.needs_new_revision and build_block:
+            # Update would ask, then build again, and that build cannot go: say why, and offer neither.
+            name = f", {plan.name}," if plan is not None and plan.name else ""
+            text, ok, update_on = (f"{_cannot_carry(update)} The new revision it needs{name} cannot be built yet: "
+                                   f"{build_block}"), False, False
         elif update.needs_new_revision:
             text, ok = _again_sentence(update, plan.name if plan is not None else ""), not update.missing
-            if build_block:
-                # Update would ask, and the build it offers cannot go: say why, and hold both back.
-                text, ok, update_on = f"{text} {build_block}", False, False
+            occupied = _occupied(plan, superseded=superseded) if plan is not None else ""
+            if occupied:
+                text += " " + occupied
+            subject = "the new revision"
         else:
             text, ok, held = update_summary(update), True, build_block
     else:
         if build_block:
             text, ok, build_on = build_block, False, False
         elif action == BUILD_PARTS:
-            text, ok = _ready_parts(a, plan, where)
+            text, ok = _ready_parts(a, plan, where, superseded)
             build_on = plan is None or bool(plan.build)
+            subject = "Build parts"
         else:
-            text, ok = _ready_build(a, plan, where)
+            text, ok = _ready_build(a, plan, where, superseded)
             build_on = ok
+            subject = "Build"
+        if on_record and update is not None and not update.refusal and update.needs_new_revision:
+            # Nothing is assembled yet (a record from Build parts): Build makes what is needed, and Update would
+            # otherwise offer a build-again of an assembly that was never built (W4 review S4.4).
+            update_on = False
+            held = f"{_cannot_carry(update)} Update SolidWorks waits until Build has made what that needs."
+        elif on_record and update is not None and update.refusal:
+            held = update.refusal              # Update shown but greyed: its reason, whatever shows (S4.5)
 
     if record_problem:                            # a broken record: Build goes ahead and sets it aside
         text, ok = f"{text} {record_problem}", False
-    unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
-    # A greyed button always has its reason on screen: the reason itself follows. (W4 fix pass 1: Build again… no
-    # longer waits for a save — plan_gearbox makes an unsaved part new, GearboxPlan.unsaved_made_new — so nothing
-    # here reads a refusal's words to learn it; pass 2 words the made-new parts.)
     if note is not None:
-        if ok:
-            text, ok = note[0] + _left_for_later(a.parts), note[1]
+        if note.kind == NOTE_ANSWER:
+            text, ok = f"{note.text} {text}", ok and note.ok
+        elif ok:
+            text, ok = note.text + _left_for_later(a.parts), note.ok
         else:
             text = _after_note(note, text)
-        if held:
-            text += " " + held
     else:
         if unsaved:
-            one = len(unsaved) == 1
-            text += (f" {_and(_stem(p) for p in unsaved)} {'has' if one else 'have'} changes from Update SolidWorks "
-                     f"that are not saved: save {'it' if one else 'them'} in SolidWorks to keep them.")
-        if held:
-            text += " " + held
+            text += " " + _unsaved_line(unsaved)
+        if subject and plan is not None and not plan.refusal:
+            back = _held_back(plan, subject, after_unsaved_line=bool(unsaved))
+            if back:
+                text += " " + back
+    if held:
+        text += " " + held
     return footer(text + due, ok, build_on, update_on)
-
 
 
 # -- W4: what the Workbook window itself says around a job (the window wiring) ----------------------------------
@@ -1699,31 +1974,39 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
 
 BUILD_AGAIN_TITLE = "Build again?"
 NOTHING_CHANGED = "Nothing was changed in SolidWorks."
-ASKED_TOO_LATE = ("The workbook changed while Build again? was open, so nothing was built; press Build again… once "
+ASKED_TOO_LATE = ("The workbook changed while the question was open, so nothing was built; press Build again… once "
                   "more if it still applies.")
 
 
-def _after_note(note: Tuple[str, bool], text: str) -> str:
+def _after_note(note: Note, text: str) -> str:
     """A note, then a state that is not fine: *Built 4 parts. Since then: Fix the workbook …* after a job, which
-    marks a moment the workbook may have moved on from; plainly joined after an answer or an Export, which mark
-    none — *Nothing was changed in SolidWorks. Gear_m1.5_N68.SLDPRT is no longer in C:\\P: …* — since what follows
-    was already so when the question was answered."""
-    if isinstance(note, Standing) or note[0] in (NOTHING_CHANGED, ASKED_TOO_LATE):
-        return f"{note[0]} {text}"
-    return f"{note[0]} Since then: {text}"
+    marks a moment the workbook may have moved on from; plainly joined after anything else, which marks none —
+    *Exported 1 cell and the Results sheet. Fix the workbook before building: …* — since what follows was already
+    so."""
+    if note.kind != NOTE_JOB:
+        return f"{note.text} {text}"
+    return f"{note.text} Since then: {text}"
 
 
 def workbook_built_tag(record, digest: str) -> str:
     """The header's word on the record beside the workbook: `` · built from this version`` or `` · changed since
     it was built`` once a layout part or assembly is on record (``record.digest`` is the read SolidWorks was last
     built or updated from), `` · parts built from this version`` / `` · changed since its parts were built`` for
-    W2's parts alone, and ``""`` with nothing on record."""
+    W2's parts alone, and ``""`` with nothing on record. While documents Update changed are not saved
+    (``record.unsaved``) this version is in SolidWorks only: `` · updated from this version, not yet saved``
+    (W4 review S4.7)."""
     if record is None or not (record.parts or record.gearbox is not None):
         return ""
     same = bool(digest) and record.digest == digest
+    unsaved = bool(getattr(record, "unsaved", None))
     if record.gearbox is None:
-        return " · parts built from this version" if same else " · changed since its parts were built"
-    return " · built from this version" if same else " · changed since it was built"
+        if same:
+            return (" · parts updated from this version, not yet saved" if unsaved
+                    else " · parts built from this version")
+        return " · changed since its parts were built"
+    if same:
+        return " · updated from this version, not yet saved" if unsaved else " · built from this version"
+    return " · changed since it was built"
 
 
 def job_unreachable(reason: str, updating: bool = False) -> str:
@@ -1739,12 +2022,36 @@ def strip_busy(updating: bool = False) -> str:
 
 
 def job_failed(error: BaseException, updating: bool = False) -> str:
-    """A job that raised in the worker: a SolidWorks or build refusal is a sentence of its own, said as it came
-    (nothing was made or changed before such a refusal); anything else is named."""
+    """A job the worker answered with a raise.
+
+    Since the W4 review that is a refusal before anything was made or
+    changed: ``build_gearbox`` and ``update_gearbox`` turn whatever goes wrong
+    after their own checks into failures on the result they return. So it is
+    one of those checks — the paths, a document of the same name open from
+    another folder, the plans, a document to reuse or update that cannot be
+    opened or read, and Update's check phase (a global, feature or component
+    gone; new values that do not evaluate) — or the connection to SolidWorks
+    failing before the job began. One thing short of a change is done first:
+    when an Update's new values evaluate in one trig unit only, that
+    document's units are measured, which leaves it marked modified in
+    SolidWorks although no value in it changed. A live check that finds a
+    document to reuse not holding what it should is not a raise any more
+    (``GearboxResult.mismatched``).
+
+    A SolidWorks refusal is said as it came; anything else is named. A
+    document Update found not as it was built (``swbuild.NotAsBuilt``: a
+    component, feature or global renamed or deleted in SolidWorks) gets the
+    way on, since Update cannot put it back (W4 review S4.6)."""
+    from .swbuild import NotAsBuilt
     from .swcom import SolidWorksError
     if isinstance(error, SolidWorksError):
-        return str(error)
-    what = "Update SolidWorks hit a problem" if updating else "The build hit a problem in SolidWorks"
+        text = str(error)
+        if updating and isinstance(error, NotAsBuilt):
+            text = (f"{_sentence(text)} Update SolidWorks cannot put that back; Build again… builds the next revision "
+                    "beside it, with an assembly of its own, and leaves this one as it is.")
+        return text
+    what = "Update SolidWorks stopped before it changed anything" if updating else \
+        "The build stopped before it made anything"
     return f"{what} — {type(error).__name__}: {error}"
 
 
@@ -1792,3 +2099,23 @@ def collect_failed(error: BaseException, updating: bool = False) -> str:
     """A finished job whose answer the window could not take in."""
     what = "update" if updating else "build"
     return f"The {what} could not be collected — {type(error).__name__}: {error}"
+
+
+def finish_failed(error: BaseException, updating: bool = False) -> str:
+    """Putting a finished job on record raised (W4 review B1, the window's half): what could be written was."""
+    what = "update changed" if updating else "build saved"
+    return (f"What the {what} could not all be put on record — {type(error).__name__}: {error}. What SolidWorks "
+            "saved stays on disk, and the next Build goes beside it rather than over it.")
+
+
+def app_closes_when_done(count: int = 1) -> str:
+    """The strip's window was closed while Workbook windows have jobs in SolidWorks: the app stays until what
+    they saved is on record (the worker thread would die with it, and nothing would reach the record)."""
+    jobs = "a workbook's job" if count == 1 else f"{count} workbooks' jobs"
+    one = count == 1
+    return (f"Gear Generator closes once {jobs} in SolidWorks {'has' if one else 'have'} finished and what "
+            f"{'it' if one else 'they'} saved is on record; it stays open if something needs saying.")
+
+
+APP_STAYED_OPEN = ("Gear Generator stayed open: a workbook's job has something to say in its window. Close this window "
+                   "again to quit.")

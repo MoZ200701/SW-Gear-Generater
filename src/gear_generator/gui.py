@@ -6,7 +6,7 @@ import os
 import sys
 import tkinter as tk
 from tkinter import filedialog, font as tkfont, ttk
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import __version__, findings, preview, store, swbuild, swcom, theme, ui_text, widgets
 from .gears import KINDS, PLANNED_KINDS, crossed, helical as helix, kind_for, pair as pairs, standards, plan_for
@@ -249,6 +249,10 @@ class GearApp(ttk.Frame):
         self._refresh_link_labels()
         self._derive_now()
         self._start_link()
+        # Closing this window while a Workbook window has a job in SolidWorks waits for what it saved to be on
+        # record (the worker thread dies with the app): see CloseGuard.
+        self._close_guard = CloseGuard(self.winfo_toplevel(), self._set_status)
+        self.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._close_guard.request)
 
     # ---------------------------------------------------------------- layout
     #
@@ -1862,6 +1866,71 @@ def _scale_to_dpi(root: tk.Tk) -> float:
         if size < 0:
             f.configure(size=int(round(size * factor)))
     return factor
+
+
+class CloseGuard:
+    """The strip's window closing while a Workbook window has a job in SolidWorks (W4 review B1, the window's half).
+
+    The strip owns the one SolidWorks worker, a daemon thread, and every
+    Workbook window is a ``Toplevel`` of the same root: closing the root
+    ended the process mid-job, so the job's finish — the parts' ``.gear.json``
+    and the record beside the workbook — never ran for files SolidWorks had
+    already saved, and the next build met them as files with no record. So
+    it is guarded as a Workbook window's own close is: each window with a
+    job pending is asked to close (it stays, says so, collects the answer,
+    writes what it saved, then closes — or stays open to show a fault); the
+    strip says the app closes once that is done
+    (:func:`ui_text.app_closes_when_done`); and the app closes when no job is
+    pending and every window that had one has closed. If one stayed open to
+    say something, the app stays too and says so
+    (:data:`ui_text.APP_STAYED_OPEN`); closing again then quits. With no job
+    pending the root is destroyed at once, as before. ``say`` is the strip's
+    status (``GearApp._set_status``) and ``quit`` destroys the root (tests
+    replace both); ``poll_ms`` how often it looks again.
+    """
+
+    def __init__(self, root: tk.Misc, say: Callable[..., None], poll_ms: int = 1000,
+                 quit: Optional[Callable[[], None]] = None) -> None:
+        self.root = root
+        self.say = say
+        self.poll_ms = poll_ms
+        self.quit = quit or root.destroy
+        self.waiting: List[Any] = []          # Workbook windows asked to close once their job is on record
+        self._after: Optional[str] = None
+
+    def pending(self) -> List[Any]:
+        """The Workbook windows with a job in SolidWorks now."""
+        from .workbook_gui import WorkbookWindow
+        return [w for w in self.root.winfo_children()
+                if isinstance(w, WorkbookWindow) and w._pending is not None]  # noqa: SLF001
+
+    def request(self) -> None:
+        """The window's close button (``WM_DELETE_WINDOW``): close now, or once every job's finish is written."""
+        pending = self.pending()
+        if not pending:
+            self.waiting = []
+            self.quit()
+            return
+        for window in pending:
+            if window not in self.waiting:
+                self.waiting.append(window)
+                window.close()                # it stays, and closes once what its job saved is on record
+        self.say(ui_text.app_closes_when_done(len(pending)), True)
+        if self._after is None:
+            self._after = self.root.after(self.poll_ms, self.check)
+
+    def check(self) -> None:
+        """Look again: still waiting, closing, or staying open because a window had something to say."""
+        self._after = None
+        if self.pending():
+            self.request()
+            return
+        stayed = [w for w in self.waiting if not w._closed()]  # noqa: SLF001
+        self.waiting = []
+        if stayed:
+            self.say(ui_text.APP_STAYED_OPEN, False)
+            return
+        self.quit()
 
 
 def main() -> None:

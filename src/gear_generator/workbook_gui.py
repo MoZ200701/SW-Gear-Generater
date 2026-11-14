@@ -36,7 +36,13 @@ the record through ``store.open_link_record`` / ``store.save_link_record``.
 **Closing while a job runs** does not stop it, nor drop what it saves: the
 window stays (saying it will close), collects the answer, writes the sidecars
 and the record, and then closes — unless the job's sentence is a fault, which
-it stays open to show.
+it stays open to show. Closing the strip's own window does the same for every
+Workbook window with a job pending (``gui.CloseGuard``). A finish writes what
+it can whatever raises: each sidecar and the record stand alone, and the
+sentence says what could not be written.
+
+``update_plan`` holds what Update SolidWorks would do (it was ``update``,
+which hid Tk's own ``update()``).
 """
 
 from __future__ import annotations
@@ -108,6 +114,23 @@ def _update_gate(a: wb_assess.Assessment, record: store.LinkRecord) -> str:
 JOB_BUILD, JOB_UPDATE = "build", "update"
 
 
+def _had_assembly(record: Optional[store.LinkRecord]) -> bool:
+    """Whether the record a build was planned from had an assembly: the press was Build again…, and the button
+    reads so again until the new revision's layout part is saved."""
+    return record is not None and record.gearbox is not None and bool(record.gearbox.assembly)
+
+
+def _what_it_builds(plan: Optional[wb_gearbox.GearboxPlan]) -> Optional[tuple]:
+    """What a plan would make and reuse, to tell whether the Build again? question still describes the plan once
+    it is answered (a part file that came or went changes it as much as a save does)."""
+    if plan is None:
+        return None
+    norm = lambda path: os.path.normcase(str(path).replace("/", "\\")).lower()       # noqa: E731
+    return (plan.name, plan.revision, plan.refusal, tuple(norm(j.path) for j in plan.build),
+            tuple(norm(r.path) for r in plan.reuse), type(plan.layout).__name__, norm(plan.layout_path),
+            norm(plan.assembly_path), tuple((m.gear_ids, norm(m.old), norm(m.new), m.why) for m in plan.made_new))
+
+
 @dataclasses.dataclass
 class Job:
     """One press in SolidWorks: what was submitted, and what its finish needs on the Tk thread.
@@ -148,7 +171,7 @@ class WorkbookWindow(tk.Toplevel):
         self.state: Optional[wb_assess.Assessment] = None   # the last good read with the chosen fixes made
         self.read_at = ""
         self.error = ""                # the last read's trouble ("" once a read is good); Build waits on it
-        self.note: Optional[tuple] = None    # (sentence, ok) of the last build, export or fix set aside
+        self.note: Optional[ui_text.Note] = None    # the last job's, Export's, answer's or Locate's own sentence
         self.chosen: List[wb_fixes.Fix] = []  # fixes taken but not yet written: Export writes them
         self.report: Optional[wb_checks.Report] = None
         self.effective: Optional[wb_model.GearboxSpec] = None    # the read, with the chosen fixes made
@@ -159,7 +182,7 @@ class WorkbookWindow(tk.Toplevel):
         self.record: Optional[store.LinkRecord] = None
         self.record_problem = ""       # why the record beside the workbook cannot be read ("" when it can)
         self.plan: Optional[wb_gearbox.GearboxPlan] = None      # what the build button would run
-        self.update: Optional[wb_update.UpdatePlan] = None      # what Update SolidWorks would do
+        self.update_plan: Optional[wb_update.UpdatePlan] = None    # what Update SolidWorks would do (not Tk's update)
         self.plan_trouble = ""         # planning itself raised: said, and both buttons held
         self._pending: Optional[Any] = None    # the worker's answer to come (gui.GearApp looks at this too)
         self._job: Optional[Job] = None
@@ -354,6 +377,7 @@ class WorkbookWindow(tk.Toplevel):
                 self._refresh_read_line()           # "open in Excel" follows Excel between saves
                 if self._saved_since() and self.reading is not None and self.reading.ok:
                     self._plan()                    # a document Update left unsaved has been saved since
+                    self._refresh_read_line()       # the header no longer says "not yet saved"
                     self._paint()
         except Exception as exc:  # noqa: BLE001 - never kill the timer
             self._show(wb_link.Reading(error=f"The workbook could not be read — {type(exc).__name__}: {exc}"))
@@ -466,14 +490,13 @@ class WorkbookWindow(tk.Toplevel):
         if record is not None:
             store.clear_saved(record)
         self.record, self.record_problem = record, problem
-        foreign = store.foreign_workbook(record, self.link.path)
-        if foreign:
-            # W4 fix pass 1 (temporary, pass 2 decides how the window shows it): the record beside this workbook
-            # was written for another that is still there — a copy. It is not this workbook's: nothing is shown as
-            # built, Update is not offered, and Build makes a gearbox of its own (plan_gearbox plans without the
-            # record and says so in plan.foreign_record; finish_build then starts a fresh record).
-            self.record, self.record_problem = None, store.foreign_record_sentence(self.link.path, foreign)
-        self.plan = self.update = None
+        if store.foreign_workbook(record, self.link.path):
+            # The record beside this workbook was written for another that is still there: a copy (W4 review S1).
+            # It is not this workbook's, so nothing is shown as built and Update SolidWorks is not offered; Build
+            # makes a gearbox of this workbook's own beside the other's files, and the footer says so from
+            # plan.foreign_record (plan_gearbox plans without that record; finish_build then starts a fresh one).
+            self.record = None
+        self.plan = self.update_plan = None
         self.plan_trouble = ""
         a = self.state
         if a is None or newer:
@@ -490,9 +513,9 @@ class WorkbookWindow(tk.Toplevel):
                                                     assembly_template=self._strip("assembly_template"),
                                                     parts_only=parts_only)
             if ours is not None and (ours.parts or gearbox is not None) and not _update_gate(a, ours):
-                self.update = wb_update.classify(ours, a)
+                self.update_plan = wb_update.classify(ours, a)
         except Exception as exc:  # noqa: BLE001 - planning is pure and should never raise; if it does, say so
-            self.plan = self.update = None
+            self.plan = self.update_plan = None
             self.plan_trouble = ui_text.planning_failed(exc)
 
     def _strip(self, name: str) -> str:
@@ -519,7 +542,7 @@ class WorkbookWindow(tk.Toplevel):
         job = self._job
         return ui_text.workbook_footer(
             self.state if self.reading is not None else None, record=self.record,
-            record_problem=self.record_problem, plan=self.plan, update=self.update,
+            record_problem=self.record_problem, plan=self.plan, update=self.update_plan,
             error=self.error or self.plan_trouble, folder=folder,
             folder_exists=bool(folder) and os.path.isdir(folder),
             building=job is not None and not job.updating, updating=job is not None and job.updating,
@@ -566,7 +589,7 @@ class WorkbookWindow(tk.Toplevel):
         self.consequence, self._raw = None, None
         self._results_waiting = self.results_due = False
         self._last_digest = ""
-        self.note = ui_text.Standing((carried, False)) if carried else None     # of this Locate…, not of a job
+        self.note = ui_text.Note(carried, False, ui_text.NOTE_STANDING) if carried else None     # of this Locate…
         self.reread()
 
     # ---------------------------------------------------------------- painting
@@ -588,7 +611,8 @@ class WorkbookWindow(tk.Toplevel):
         for col, text in enumerate(TABLE_HEAD):
             tk.Label(self.table, text=text, bg=theme.WHITE, fg=theme.READOUT, font=f.tiny, anchor="w").grid(
                 row=0, column=col, sticky="w", padx=(0, px(10)))
-        rows = ui_text.workbook_gear_rows(spec, self.parts, self.diagnostics, record=self.record, update=self.update)
+        rows = ui_text.workbook_gear_rows(spec, self.parts, self.diagnostics, record=self.record,
+                                          update=self.update_plan)
         for r, (gear, shaft, kind, teeth, module, face, part, state, what) in enumerate(rows, start=1):
             for col, text in enumerate((gear, shaft, kind, teeth, module, face, part or "—")):
                 font = f.label if col == 2 else f.mono_tiny
@@ -702,7 +726,7 @@ class WorkbookWindow(tk.Toplevel):
         kept = [f for f in self.chosen if f in offered]
         if len(kept) < len(self.chosen):
             # Said of the save just read, not of a job: what the footer goes on to say is as of that save too.
-            self.note = ui_text.Standing((ui_text.FIX_SET_ASIDE, False))
+            self.note = ui_text.Note(ui_text.FIX_SET_ASIDE, False, ui_text.NOTE_STANDING)
         self.chosen = kept
 
     def choose(self, fix: wb_fixes.Fix) -> None:
@@ -734,7 +758,7 @@ class WorkbookWindow(tk.Toplevel):
             done = wb_export.export(self.link.path, self.reading.spec, list(self.chosen), self.report,
                                     out_path=out_path, expected_digest=self.reading.digest)
         except (xlsx.XlsxError, OSError) as exc:
-            self.note = (str(exc), False)
+            self.note = ui_text.Note(str(exc), False, ui_text.NOTE_STANDING)
             if "changed since it was last read" in str(exc):
                 self.reread()
             self._refresh_state()
@@ -768,9 +792,9 @@ class WorkbookWindow(tk.Toplevel):
         except store.StoreError as exc:
             record = None
             if self.note is not None:
-                self.note = (f"{self.note[0]} {exc}", self.note[1])
+                self.note = dataclasses.replace(self.note, text=f"{self.note.text} {exc}")
         if store.foreign_workbook(record, self.link.path):
-            return          # W4 fix pass 1: a copy's record is the other workbook's, written only once this one builds
+            return          # a copy's record is the other workbook's, written only once this one builds (review S1)
         record = record or store.LinkRecord(workbook=self.link.path)
         store.adopt(record, self.link.path)
         record.own_digest, record.recalc = digest, self.recalc
@@ -827,15 +851,15 @@ class WorkbookWindow(tk.Toplevel):
             return
         self._plan()
         footer = self.footer()
-        if not footer.update_enabled or self.update is None:
+        if not footer.update_enabled or self.update_plan is None:
             self._paint()
             return
-        if self.update.needs_new_revision:
+        if self.update_plan.needs_new_revision:
             self._build_again()
             return
         if not self._worker_free(updating=True):
             return
-        update = self.update
+        update = self.update_plan
         job = Job(JOB_UPDATE, self.reading.digest, update=update, record=self.record)
         kwargs = update.update_kwargs()
         self._submit(job, lambda session: swbuild.update_gearbox(session, **kwargs, progress=job.progress.say))
@@ -846,9 +870,9 @@ class WorkbookWindow(tk.Toplevel):
         if not self._worker_free():
             return
         again, digest = self.plan, self.reading.digest
-        question = ui_text.build_again_question(self.update, again)
+        question = ui_text.build_again_question(self.update_plan, again)
         if not ask_yes_no(self, ui_text.BUILD_AGAIN_TITLE, question):
-            self.note = (ui_text.NOTHING_CHANGED, True)
+            self.note = ui_text.Note(ui_text.NOTHING_CHANGED, True, ui_text.NOTE_ANSWER)
             self._refresh_state()
             return
         # The poll ran while the question was open: build only what was asked about.
@@ -857,9 +881,10 @@ class WorkbookWindow(tk.Toplevel):
             return
         self._plan()
         footer = self.footer()
-        if (self.reading.digest != digest or self.plan is None or again is None
-                or self.plan.name != again.name or not footer.build_enabled):
-            self.note = (ui_text.ASKED_TOO_LATE, False)
+        if (self.reading.digest != digest or not footer.build_enabled
+                or _what_it_builds(self.plan) != _what_it_builds(again) or again is None):
+            # What would be built is not what the question described: a save, or a part file that came or went.
+            self.note = ui_text.Note(ui_text.ASKED_TOO_LATE, False, ui_text.NOTE_ANSWER)
             self._paint()
             return
         self._start_build()
@@ -904,15 +929,20 @@ class WorkbookWindow(tk.Toplevel):
             return
         value, error = answer
         job, self._pending, self._job = self._job, None, None
-        if error is not None:
-            self.note = (ui_text.job_failed(error, job.updating), False)
-        elif job.updating:
-            self.note = self._finish_update(job, value)
-        else:
-            self.note = self._finish_build(job, value)
+        try:
+            if error is not None:
+                self.note = ui_text.Note(ui_text.job_failed(error, job.updating), False)
+                if job.updating and isinstance(error, swbuild.NotAsBuilt):
+                    self._mark_not_as_built(error)
+            elif job.updating:
+                self.note = self._finish_update(job, value)
+            else:
+                self.note = self._finish_build(job, value)
+        except Exception as exc:  # noqa: BLE001 - the finishes catch their own; this is the last net
+            self.note = ui_text.Note(ui_text.collect_failed(exc, job.updating), False)
         if self._close_when_done:
             self._close_when_done = False
-            if self.note[1]:
+            if self.note.ok:
                 self.close()
                 return
         if self.reading is not None and self.reading.ok:
@@ -931,59 +961,110 @@ class WorkbookWindow(tk.Toplevel):
             return None, False, [str(exc)]
         except store.StoreError as exc:
             return None, True, [str(exc)]
+        except OSError as exc:            # a broken record that could not even be moved aside: leave it alone
+            return None, False, [ui_text.record_unwritten(store.link_record_path(self.link.path), exc)]
 
     def _write(self, finished: wb_gearbox.Finished, may_write: bool) -> List[str]:
-        """The sidecars, then the record, as a finish asks; the faults, as sentences."""
+        """The sidecars, then the record, as a finish asks; the faults, as sentences. Each write stands alone: a
+        sidecar that cannot be written stops neither the others nor the record (W4 review B1, the window's half)."""
         faults: List[str] = []
         for path, sidecar in finished.sidecars:
             try:
                 store.save(path, sidecar)
                 self.app.recent.remember(path)
-            except OSError as exc:
+            except Exception as exc:  # noqa: BLE001 - said, and the record is still written
                 faults.append(ui_text.sidecar_unwritten(path, exc))
         if finished.sidecars:
-            store.save_recent(self.app.recent)
+            try:
+                store.save_recent(self.app.recent)
+            except Exception:  # noqa: BLE001 - only the Recent menu's memory
+                pass
         if finished.record is not None and may_write:
             try:
                 store.save_link_record(finished.record)
             except store.StoreError as exc:
                 faults.append(str(exc))
-            except OSError as exc:
+            except Exception as exc:  # noqa: BLE001 - the disk refused, or anything else: said
                 faults.append(ui_text.record_unwritten(store.link_record_path(self.link.path), exc))
         return faults + list(finished.notes)
 
-    def _finish_build(self, job: Job, result: swbuild.GearboxResult) -> Tuple[str, bool]:
+    def _finish_build(self, job: Job, result: swbuild.GearboxResult) -> ui_text.Note:
         """What a build saved, on record: the parts' sidecars and the record beside the workbook (merged, the
-        gearbox block as soon as the layout saved), then the build's sentence."""
+        gearbox block as soon as the layout saved; what a live check found not as built), then the build's
+        sentence. Whatever raises, what can be written still is, and the sentence says what could not."""
         from .gui import _log
-        _log(result.log_lines())
-        text, ok = ui_text.gearbox_status(job.plan, result)
-        record, may_write, notes = self._open_record()
-        finished = wb_gearbox.finish_build(job.plan, result, record, workbook=self.link.path, digest=job.digest,
-                                           written_by=f"gear-generator {__version__}")
-        if record is None and finished.record is not None:
-            # A fresh record: keep what this session knows of its own last Export.
-            finished.record.own_digest, finished.record.recalc = self.link.own_digest, self.recalc
-        faults = self._write(finished, may_write)
-        if not may_write:
-            faults, notes = notes + faults, []
-        return " ".join([text] + notes + faults), ok and not faults
+        try:
+            _log(result.log_lines())
+        except Exception:  # noqa: BLE001 - the console log is never worth the record
+            pass
+        try:
+            text, ok = ui_text.gearbox_status(job.plan, result, again=_had_assembly(job.record))
+        except Exception as exc:  # noqa: BLE001
+            text, ok = ui_text.collect_failed(exc), False
+        try:
+            record, may_write, notes = self._open_record()
+            finished = wb_gearbox.finish_build(job.plan, result, record, workbook=self.link.path,
+                                               digest=job.digest, written_by=f"gear-generator {__version__}")
+            if record is None and finished.record is not None:
+                # A fresh record: keep what this session knows of its own last Export.
+                finished.record.own_digest, finished.record.recalc = self.link.own_digest, self.recalc
+            faults = self._write(finished, may_write)
+            if not may_write:
+                faults, notes = notes + faults, []
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            notes, faults = [], [ui_text.finish_failed(exc)]
+        return ui_text.Note(" ".join([text] + notes + faults), ok and not faults)
 
-    def _finish_update(self, job: Job, result: swbuild.GearboxUpdate) -> Tuple[str, bool]:
+    def _finish_update(self, job: Job, result: swbuild.GearboxUpdate) -> ui_text.Note:
         """What an update changed, on record: the changed parts' sidecars, the new frames and shafts, and every
-        document it changed marked unsaved until it is saved in SolidWorks; then the update's sentence."""
+        document it changed marked unsaved until it is saved in SolidWorks; then the update's sentence. Whatever
+        raises, what can be written still is, and the sentence says what could not."""
         from .gui import _log
-        _log(result.log_lines())
-        record, may_write, notes = self._open_record()
-        base = record if record is not None else job.record     # gone or set aside since the press: as planned
-        finished = wb_update.finish_update(job.update, result, base, digest=job.digest, workbook=self.link.path)
+        try:
+            _log(result.log_lines())
+        except Exception:  # noqa: BLE001
+            pass
         gearbox = job.record.gearbox if job.record is not None else None
-        text, ok = ui_text.gearbox_update_status(job.update, result, finished.dragged,
-                                                 meshes=gearbox.meshes if gearbox is not None else None)
-        faults = self._write(finished, may_write)
-        if not may_write:
-            faults, notes = notes + faults, []
-        return " ".join([text] + notes + faults), ok and not faults
+        try:
+            record, may_write, notes = self._open_record()
+            base = record if record is not None else job.record     # gone or set aside since the press: as planned
+            finished = wb_update.finish_update(job.update, result, base, digest=job.digest, workbook=self.link.path)
+            dragged = finished.dragged
+            faults = self._write(finished, may_write)
+            if not may_write:
+                faults, notes = notes + faults, []
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            dragged, notes, faults = [], [], [ui_text.finish_failed(exc, updating=True)]
+        try:
+            text, ok = ui_text.gearbox_update_status(job.update, result, dragged,
+                                                     meshes=gearbox.meshes if gearbox is not None else None)
+        except Exception as exc:  # noqa: BLE001
+            text, ok = ui_text.collect_failed(exc, updating=True), False
+        return ui_text.Note(" ".join([text] + notes + faults), ok and not faults)
+
+    def _mark_not_as_built(self, error: swbuild.NotAsBuilt) -> None:
+        """Update's check found a part not holding what it should (a global gone): put it in the record's
+        ``mismatched``, as a build's finish would, so Build again… makes that part new rather than reuse it and
+        fail the same check (W4 review B2's last corner, S4.6). Best effort: the sentence already says the way on."""
+        path = getattr(error, "path", "")
+        try:
+            record = store.open_link_record(self.link.path)
+        except (store.StoreError, OSError):
+            return
+        if (not path or record is None or store.foreign_workbook(record, self.link.path)
+                or not any(store.same_path(p.path, path) for p in record.parts)):
+            return
+        try:
+            then = os.path.getmtime(path)
+        except OSError:
+            return
+        for marked in [p for p in record.mismatched if store.same_path(p, path)]:
+            del record.mismatched[marked]
+        record.mismatched[path] = then
+        try:
+            store.save_link_record(record, store.link_record_path(self.link.path))
+        except (store.StoreError, OSError):
+            pass
 
     # ---------------------------------------------------------------- the rest
 
