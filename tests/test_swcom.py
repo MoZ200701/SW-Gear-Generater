@@ -897,3 +897,18 @@ def test_a_refused_axis_names_the_planes_it_was_given(com, monkeypatch):
     with pytest.raises(SolidWorksError) as raised:
         session.insert_axis("axis2", "S2 Axis", (2, "x1"))
     assert str(raised.value) == "InsertAxis2 would not make S2 Axis from plane 2 and S2 X Plane."
+
+
+def test_a_missing_template_is_named_as_typed(com, monkeypatch):
+    sw = swcom.Session(com, (34, 0, 0), 1)
+    with pytest.raises(swcom.SolidWorksError) as raised:
+        sw.new_assembly("C:\\T\\No such template.asmdot")
+    assert str(raised.value) == "There is no assembly template at C:\\T\\No such template.asmdot."
+    monkeypatch.setattr(swcom.Session, "default_template", lambda self, kind="part": "")
+    with pytest.raises(swcom.SolidWorksError) as raised:
+        sw.new_part("")
+    assert str(raised.value).startswith("SolidWorks names no default part template")
+    monkeypatch.setattr(swcom.Session, "default_template", lambda self, kind="part": "C:\\SW\\Part.prtdot")
+    with pytest.raises(swcom.SolidWorksError) as raised:
+        sw.new_part("")
+    assert str(raised.value) == "SolidWorks' default part template, C:\\SW\\Part.prtdot, is not there."

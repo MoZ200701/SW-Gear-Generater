@@ -544,9 +544,16 @@ class Session:
         return str(call(self._app, "GetDocumentTemplate", doc_type, "", 0, 0.0, 0.0) or "")
 
     def _new_document(self, template: str, doc_type: int, noun: str) -> DocInfo:
+        asked = template
         template = template or self.default_template("part" if doc_type == DOC_PART else "assembly")
-        if not template or not os.path.isfile(template):
-            raise SolidWorksError(f"There is no {noun} template at {template!r}.")
+        if not template:
+            raise SolidWorksError(f"SolidWorks names no default {noun} template (Tools > Options > Default "
+                                  f"Templates), so no {noun} can be made; name one there, or give a template.")
+        if not os.path.isfile(template):
+            # The path as it is typed: a repr doubled every backslash of a Windows path in the sentence the
+            # window shows (SolidWorks 2026, probe/workbook_assembly_check.py 2026-11-13).
+            raise SolidWorksError(f"There is no {noun} template at {template}." if asked else
+                                  f"SolidWorks' default {noun} template, {template}, is not there.")
         doc = call(self._app, "NewDocument", template, 0, 0.0, 0.0)
         if doc is None:
             raise SolidWorksError(f"SolidWorks would not make a new {noun} from {template}.")
