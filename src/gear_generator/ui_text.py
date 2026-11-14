@@ -1485,6 +1485,34 @@ def _again_sentence(update, name: str = "", *, turning: str = "") -> str:
     return f"{_cannot_carry(update)} {offer}"
 
 
+def _to_replace(update) -> List[str]:
+    """The gears Update SolidWorks will put: ``update.replaced`` on W4's static path. On a turning gearbox
+    (``update.motion``), a mated gear the plan must put — its frame changes, or a gear mate of its train takes a new
+    ratio — takes every mated gear of its train with it (review M1), the train read from the recorded meshes and
+    locks (``MotionUpdate.meshes``, ``locks``; a mated gear with neither is a train of its own); a gear on no mate
+    (left fixed, re-placed W4's way) is named as it is. In ``placements`` order, then in the gears' own order (G2 before G10)."""
+    replaced = [g for g in update.replaced if g]
+    motion = getattr(update, "motion", None)
+    if motion is None:
+        return replaced
+    mated = [g for m in motion.mates for g in m.gears if g]
+    group = {g: {g} for g in mated}
+    for a, b in [(m.a, m.b) for m in motion.meshes] + [(k.anchor, k.follower) for k in motion.locks]:
+        joined = group.setdefault(a, {a}) | group.setdefault(b, {b})
+        for g in joined:
+            group[g] = joined
+    wanted = set(replaced)
+    for name in getattr(update, "ratios", ()) or ():
+        wanted.update(g for m in motion.mates if m.name == name for g in m.gears if g)
+    out = set()
+    for gear in wanted:
+        out |= group.get(gear, {gear})
+    import re
+    seen = [g for g in dict.fromkeys(p.gear for p in update.placements) if g in out]
+    rest = sorted(out - set(seen), key=lambda g: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", g)])
+    return seen + rest
+
+
 def update_summary(update) -> str:
     """What Update SolidWorks will do, before the press (``workbook.update.UpdatePlan``): *Update SolidWorks will
     change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.*; the
@@ -1516,8 +1544,9 @@ def update_summary(update) -> str:
         pieces.append(f"move {_along(update, axial)}")
     if ratios:                                 # W5: only once a gear mate's ratio can be changed (D7)
         pieces.append(f"set {_gear_mates(update, ratios)}")
-    if update.replaced:
-        pieces.append(f"re-place {_and(update.replaced)}")
+    replaced = _to_replace(update)
+    if replaced:
+        pieces.append(f"re-place {_and(replaced)}")
     if len(pieces) > 1:
         pieces[-1] = "and " + pieces[-1]
     return "Update SolidWorks will " + ", ".join(pieces) + "."

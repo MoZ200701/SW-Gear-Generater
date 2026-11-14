@@ -1885,17 +1885,51 @@ def _moved(**values):
 
 
 def test_the_update_summary_names_a_move_along_a_shaft_and_a_new_ratio():
+    # A put on G4 puts every mated gear of its train (review M1), so the summary names them all, as the result will.
     assert ui_text.update_summary(_motion_update(axial=("G4",), replaced=("G4",))) == (
-        "Update SolidWorks will move G4 along S3, and re-place G4.")
-    assert ui_text.update_summary(_motion_update(axial=("G4",))) == "Update SolidWorks will move G4 along S3."
+        "Update SolidWorks will move G4 along S3, and re-place G1, G2, G3 and G4.")
     both = _motion_update(axial=("G2", "G4"), ratios=("G1 meshes G2",), replaced=("G2", "G3", "G4"),
                           moved_shafts=("S2",), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")))
     assert _clean(ui_text.update_summary(both)) == (
         "Update SolidWorks will move S2 in Reducer_12to1_Layout, move G2 along S2 and G4 along S3, set the gear mate "
-        "G1 meshes G2 to 17 : 69, and re-place G2, G3 and G4.")
+        "G1 meshes G2 to 17 : 69, and re-place G1, G2, G3 and G4.")
+    # A gear mate given a new ratio is put with its train, whatever frames change.
     two = _motion_update(ratios=("G1 meshes G2", "G3 meshes G4"))
     assert ui_text.update_summary(two) == (
-        "Update SolidWorks will set the gear mates G1 meshes G2 to 17 : 69 and G3 meshes G4 to 17 : 52.")
+        "Update SolidWorks will set the gear mates G1 meshes G2 to 17 : 69 and G3 meshes G4 to 17 : 52, and re-place "
+        "G1, G2, G3 and G4.")
+
+
+def _summary_motion(plan, **changes):
+    """A turning update whose links come from ``plan``'s mates, as classify makes them."""
+    refs = tuple(swbuild.MateRef(m.name, m.kind, m.gears, m.shaft) for m in plan.mates)
+    meshes = tuple(swbuild.MeshLink(m.gears[0], m.gears[1], -1.0, 5.0) for m in plan.mates if m.kind == "mesh")
+    locks = tuple(swbuild.LockLink(m.gears[0], m.gears[1], 0.0) for m in plan.mates if m.kind == "lock")
+    fields = dict(motion=swbuild.MotionUpdate(mates=refs, meshes=meshes, locks=locks), parts=(), layout=None,
+                  moved_shafts=(), replaced=())
+    fields.update(changes)
+    return _update(**fields)
+
+
+def test_the_summary_names_each_train_it_must_put_and_only_those():
+    plan = TWO_TRAINS                    # G1-G4 one train (G3 locked to G2), G5-G6 the other
+    placements = tuple(swbuild.Placement(g, f"{g}-1", (1, 0, 0, 0, 1, 0, 0, 0, 1), (0, 0, 0))
+                       for g in ("G6", "G5", "G4", "G3", "G2", "G1"))
+    one = _summary_motion(plan, replaced=("G5",))
+    assert ui_text.update_summary(one) == "Update SolidWorks will re-place G5 and G6."
+    ordered = _summary_motion(plan, replaced=("G5",), placements=placements)
+    assert ui_text.update_summary(ordered) == "Update SolidWorks will re-place G6 and G5."      # placements order
+    both = _summary_motion(plan, replaced=("G3", "G6"))
+    assert ui_text.update_summary(both) == "Update SolidWorks will re-place G1, G2, G3, G4, G5 and G6."
+    # A gear on a shaft that meshes nothing is a train of its own; a fixed gear (on no mate) is named as it is.
+    lone = _turning(extra_shafts={"S4": "G7"}, locks=(("G2", "G3"), ("G7", "G8"))).motion
+    assert ui_text.update_summary(_summary_motion(lone, replaced=("G7", "G9"))) == (
+        "Update SolidWorks will re-place G7, G8 and G9.")
+    assert ui_text.update_summary(_summary_motion(lone, replaced=("G10", "G2"))) == (
+        "Update SolidWorks will re-place G1, G2, G3, G4 and G10.")
+    # A static gearbox: W4's words, the gears whose frames differ.
+    assert ui_text.update_summary(_update(parts=(), moved_shafts=(), replaced=("G4",))) == (
+        "Update SolidWorks will re-place G4.")
 
 
 def test_after_update_a_train_that_had_to_move_is_said_to_be_back_at_its_built_turn():
