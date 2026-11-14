@@ -1038,12 +1038,18 @@ window or the app mentions it.
 
 **A failed or lost Update on a turning gearbox** reads as W4's (*Update
 SolidWorks stopped. …*; the save asked for, and *press Update SolidWorks to
-make them again*), with the locks of a train always turned back on. Two of
-its next sentences are not yet right, and the window's tests hold them as
-expected failures: the press after an Update lost with SolidWorks says a gear
-*had been moved in SolidWorks*, and the press after one that stopped part way
-says so too, and that two gears *had been turned out of step* — what the
-stopped job left, not the user (open, packages B and C).
+make them again*), with the locks of a train always turned back on. The next
+press never lays to the user what that Update left: the window passes the
+finish (`Finished.earlier_update`) to `gearbox_update_status`. After an Update
+lost when SolidWorks closed unsaved: *The last Update SolidWorks was not saved
+before Reducer_12to1.SLDASM was closed, so its changes were made again: G4 is
+back where the workbook has it.* (on a gearbox W4 built too). After one not
+saved, or stopped part way: *G3 and G4 were not where the last Update
+SolidWorks, which is not saved, has them on record; they are in place again.
+G2 and G3 were not in step as that Update has them on record either; they are
+in step again.*, and gears left standing are *as they were found in
+SolidWorks*. A gear dragged with no Update unsaved is still *G4 had been moved
+in SolidWorks; put back where the workbook has it.*
 
 ### The record, `Reducer_12to1.workbook.json`
 

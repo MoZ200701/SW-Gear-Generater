@@ -23,10 +23,10 @@ answers of that day and the rulings that follow from them are in `notes-workbook
 
 Suite, measured on a clean `git archive` of `2250ceb` (WSL, 2026-11-13): `PYTHONPATH=src .venv/bin/python -m
 pytest -q` → **1559 passed, 10 skipped**. On the 2026-11-14 clone (another Python, fewer skips): 1699 passed, 1
-skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`; 2085 passed, 1 skipped, 2 expected failures (held for packages B and C) at `fe62c5f`, after D's review
-(2026-11-14).
+skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`; 2096 passed, 1 skipped at `c7770c8`, after D's review and B's
+and C's fixes (2026-11-14).
 The window's Tk tests run under Windows Python: `python.exe -m pytest tests/test_workbook_build.py
-tests/test_workbook_window.py -q` → 113 passed, 1 skipped, 2 expected failures at `fe62c5f` (a "no display for Tk" skip is a known flake that moves between tests;
+tests/test_workbook_window.py -q` → 115 passed, 2 skipped at `c7770c8` (a "no display for Tk" skip is a known flake that moves between tests;
 rerun). The `PYTHONPATH` matters in a copy: the
 venv's editable install otherwise imports the working tree's `src`, uncommitted edits and all.
 
@@ -210,7 +210,8 @@ independently (D's review of 2026-11-14 asked for the fixes now in, below):
   Build again? question; its tests restored and the W5 states added), `aa9c5f0` (boards), and the docs commit after
   it; after D's review, `fe62c5f` (C's fixed sentences pinned; W4's failure cases on a turning gearbox: an Update
   lost with SolidWorks, one that stops part way, the structural step with Update unsaved) and a docs commit. The
-  window needed no new control. Its two hanging tests hung on a Build again? question no test answered; every
+  window needed no new control. `c7770c8` passes the update's finish to its sentence (B's and C's fix for what an
+  unsaved Update left). Its two hanging tests hung on a Build again? question no test answered; every
   window test now gets a stand-in that fails at once on an unexpected question. The four tests about W4's
   tooth-change Update run on a gearbox built as W4 built it (`built_w4`); the W5 findings are pinned in the test file.
   New boards: `WorkbookRefused`, `WorkbookTurned`, `WorkbookStatic` (no fallback board: there is no fallback); every
@@ -235,11 +236,11 @@ output turn at 1/12, the right way (W5-PLAN §4.4); log every gear's origin and 
   Update cannot read now opens with that refusal; the header after a refused mate reads *· its assembly was refused
   for this version* (*· changed since its assembly was refused* after a save); a W4 gearbox's offer of a turning
   revision is said inside Update's one offer; the Update summary names every mated gear of a train it must put.
-- **Two sentences after a failed Update on a turning gearbox blame the user** (packages B and C; held as strict
-  expected failures in `tests/test_workbook_window.py`): after an Update lost when SolidWorks closed unsaved, the next
-  press says a gear *had been moved in SolidWorks* (W4's static path does the same: `finish_update` calls any gear off
-  its recorded frame dragged); after one that stopped part way, the next says so too, and that two gears *had been
-  turned out of step* — what the stopped job left.
+- *Closed by B's `4d7fa03` and C's `3d6c28e`, wired by D:* after an Update lost with SolidWorks or stopped part way,
+  the next press laid what that Update left to the user (*had been moved*, *turned out of step*). The finish now
+  says an earlier Update was not saved (`Finished.earlier_update`), the window passes it to `gearbox_update_status`,
+  and the sentences say what happened; the window's tests pin them on both paths, and a real drag still reads *had
+  been moved in SolidWorks*.
 - **The refused `Assem<n>` left open** is named once, in the build's sentence; the window does not track it, so
   neither the footer afterwards nor a close mentions it (UI-DESIGN §9 says so).
 - Whether a train's Build may keep the top-only rebuild (P0b); D7's Update branch (the ratio remake) until P0b is
