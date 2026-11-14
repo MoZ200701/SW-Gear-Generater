@@ -625,8 +625,14 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     from ``result.components``, its frame) once the assembly saved. A
     build-again moves the previous gearbox to ``earlier`` and its parts the
     new revision no longer uses with it. Parts are merged, never replaced by
-    one batch. ``digest`` (the read this build came from) and ``last_built``
-    are set only if something saved. Pure but for ``read_sidecar``.
+    one batch. ``last_built`` is set if something saved; ``digest`` (the read
+    this build came from) only if everything planned saved (``result.ok``):
+    it says SolidWorks wholly matches that read, and a build that stopped
+    after its parts, or after its layout, has no assembly to match it, so the
+    record keeps the digest it had (``""`` for a first build) and the header
+    says the workbook changed since it was built rather than "built from this
+    version". A clash leaves ``ok`` True: what was built is this read's.
+    Pure but for ``read_sidecar``.
     """
     stamp = stamp or store.now()
     out = Finished()
@@ -701,7 +707,8 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
 
     if not saved_any:
         return out
-    rec.digest = digest
+    if result.ok:
+        rec.digest = digest
     rec.last_built = stamp
     rec.written_by = written_by
     out.record = rec

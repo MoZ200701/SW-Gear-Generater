@@ -449,6 +449,19 @@ def test_a_failed_part_keeps_what_saved_and_the_retry_carries_on():
     assert record.gearbox.assembly and len(record.parts) == 4 and record.earlier == []
 
 
+def test_a_build_that_stopped_part_way_does_not_claim_the_read():
+    """The digest says SolidWorks wholly matches a read: a build with no assembly, or missing a part, does not."""
+    disk = Disk()
+    a = assessed()
+    plan, result, record = build(a, None, disk, fail_assembly=True)
+    assert not result.ok and record.gearbox.layout and record.last_built and record.digest == ""
+    plan, result, record = build(a, record, disk)            # carried on: the layout and parts reused
+    assert result.ok and record.digest == "d1"
+    disk = Disk()
+    plan, result, record = build(a, None, disk, fail_part=2)
+    assert not result.ok and len(record.parts) == 2 and record.digest == ""
+
+
 def test_nothing_saved_leaves_the_record_alone():
     disk = Disk()
     a = assessed()

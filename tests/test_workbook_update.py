@@ -395,7 +395,24 @@ def test_a_failed_update_records_only_what_it_did(built):
                                 mtime=lambda p: 1.0)
     g2 = next(p for p in done.record.parts if stem(p.path) == "Gear_m1.5_N68")
     assert g2.spec["teeth"] == "68" and done.sidecars == []
-    assert done.record.digest == "d2"          # something changed in SolidWorks (the layout), so it is this read's
+    # Something changed in SolidWorks (the layout), but not all of it: SolidWorks does not match this read, so
+    # the record keeps the digest it was built from and the header says the workbook changed since.
+    assert done.record.digest == record.digest != "d2"
+    assert done.record.last_updated and done.record.unsaved
+
+
+def test_an_update_that_skipped_the_rest_keeps_the_digest_and_a_clean_retry_takes_it(built):
+    disk, record = built
+    spec = gears(reducer(), G2=dict(teeth="69"))
+    plan = classify(built, spec)
+    stopped = worker_answer(plan)
+    stopped.skipped = "the assembly, because Reducer_12to1_Layout.SLDPRT failed"
+    done = update.finish_update(plan, stopped, record, digest="d2", read_sidecar=disk.read_sidecar,
+                                mtime=lambda p: 1.0)
+    assert done.record.digest == record.digest
+    again = update.finish_update(plan, worker_answer(plan), done.record, digest="d2", read_sidecar=disk.read_sidecar,
+                                 mtime=lambda p: 1.0)
+    assert again.record.digest == "d2"
 
 
 def test_a_sidecar_that_cannot_be_read_is_said(built):

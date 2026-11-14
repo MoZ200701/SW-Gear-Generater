@@ -360,7 +360,7 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     (``store.open_link_record``). For each part whose values changed in
     SolidWorks (``result.parts[i].changed``): ``store.updated_sidecar`` and its
     ``PartEntry`` spec and variables. The re-placed gears' component frames.
-    ``digest`` and ``last_updated`` set when anything changed. Every path in
+    ``last_updated`` set when anything changed. Every path in
     ``result.changed`` goes into ``record.unsaved`` with ``mtime(path)``: Update
     does not save (decision 3). ``dragged`` lists the gears whose live frame
     (``result.found``) differed from the recorded one while the recorded one
@@ -370,8 +370,12 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     A part reached without a failure is recorded as holding the wanted values
     even when nothing in it changed: SolidWorks was found to hold them already
     (an earlier update, or values set by hand), and the record follows
-    SolidWorks. ``digest`` is set when the update ran without a failure, since
-    SolidWorks then matches this read.
+    SolidWorks. ``digest`` is the read SolidWorks wholly matches, so it is set
+    only when the update ran with no failure and nothing skipped. An update
+    that stopped part-way keeps the digest it had, even though it changed
+    something: the header would otherwise say "built from this version" of a
+    gearbox whose layout, say, was never moved (found by the window wiring,
+    2026-11-13). What it did change is still recorded, part by part.
     """
     stamp = stamp or store.now()
     rec = copy.deepcopy(record)
@@ -427,6 +431,6 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
                              "not saved.")
     if changed:
         rec.last_updated = stamp
-    if changed or not (result.failures or result.skipped):
+    if not (result.failures or result.skipped):
         rec.digest = digest
     return out
