@@ -183,6 +183,40 @@ def components_resolved_after_reopen(records: Records) -> Optional[bool]:
     return None if not states else all(state == 2 for state in states.values())
 
 
+# Tier 7, item 6 (phase W4's open fault): the routes of rebuilding an assembly, in order of preference.
+ASSEMBLY_REBUILD_ROUTES = ("ForceRebuild3(True)", "EditRebuild3", "ForceRebuild3(False)", "none")
+
+
+def first_rebuild_route(verdicts: Mapping[str, Mapping[str, Any]]) -> str:
+    """The first route of ``ASSEMBLY_REBUILD_ROUTES`` whose every criterion is True, else STOP.
+
+    Each verdict says whether, after the route, a put's new frame and the
+    clash it caused showed, the layout part's moved axis showed in the
+    assembly, a changed part showed, a part that failed to rebuild made the
+    route return False, and only the documents changed on purpose read
+    ``GetSaveFlag`` True. A criterion not reached (None) is not met.
+    """
+    for route in ASSEMBLY_REBUILD_ROUTES:
+        verdict = verdicts.get(route)
+        if verdict and all(value is True for value in verdict.values()):
+            return route
+    return STOP
+
+
+def assembly_rebuild_route(records: Records) -> str:
+    """The rebuild Update SolidWorks uses on an assembly, off probe assembly_rebuild_scope's pass; else STOP."""
+    verdicts = _fact(records, "assembly_rebuild_scope", "rebuild_verdicts")
+    return first_rebuild_route(verdicts) if verdicts else STOP
+
+
+def assembly_rebuild_keeps_components_unmodified(records: Records) -> Optional[bool]:
+    """Whether the route decided marked only the documents changed on purpose; None when nothing was decided."""
+    route = assembly_rebuild_route(records)
+    if route == STOP:
+        return None
+    return _fact(records, "assembly_rebuild_scope", "rebuild_verdicts")[route]["only_changed_marked"]
+
+
 def same_name_elsewhere_inserted(records: Records) -> Optional[bool]:
     """Whether a part of the same file name from another folder went into an assembly beside the first."""
     found = _fact(records, "add_component_same_name_elsewhere", "same_name_elsewhere")
@@ -296,6 +330,12 @@ def decide(records: Records) -> Dict[str, Any]:
         "reuse_add_route": _fact(records, "add_component_opened_part", "reuse_add_route"),
         "interference_names_route": _fact(records, "interference_components", "interference_components_route"),
         "same_name_elsewhere_inserted": same_name_elsewhere_inserted(records),
+        "assembly_rebuild_route": assembly_rebuild_route(records),
+        "assembly_rebuild_keeps_components_unmodified": assembly_rebuild_keeps_components_unmodified(records),
+        "put_needs_rebuild": _fact(records, "assembly_rebuild_scope", "put_needs_rebuild"),
+        "full_rebuild_marks_components_modified": _fact(records, "assembly_rebuild_scope",
+                                                        "full_rebuild_marks_components_modified"),
+        "opened_reads_unmodified": _fact(records, "assembly_rebuild_scope", "opened_reads_unmodified"),
         "motion_route": motion_route(records),
         "axis_mate_route": _fact(records, "shaft_axis_mates", "axis_mate_route"),
         "axis_concentric_refused": axis_concentric_refused(records),

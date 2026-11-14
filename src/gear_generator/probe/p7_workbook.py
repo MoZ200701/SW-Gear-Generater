@@ -29,6 +29,14 @@ none of them is the same thing, so each is settled here on scratch documents:
    opened by path while another document is active, made active, and changed by
    the tool's own ``swbuild.update_variables``; then the same for a part that is
    loaded only as a component of an open assembly.
+6. ``assembly_rebuild_scope`` — which rebuild of an assembly Update SolidWorks
+   may use (``ForceRebuild3(True)``, ``EditRebuild3``, ``ForceRebuild3(False)``,
+   or none): each on a two-gear gearbox of its own built by the app, reopened,
+   then after a raw ``Transform2`` put, the layout part's S2 X moved in its own
+   document, G2 given 69 teeth by ``update_variables`` and G2 made to fail,
+   whether the assembly shows each and reports the failure, and which
+   documents read ``GetSaveFlag`` True. Added after the W4 rerun on 2026 found
+   ``ForceRebuild3(False)`` marking every component modified.
 
 ``layout_plane_negative_global`` (extra, last) asks what a plane's offset does
 when its global goes below zero, which the plan assumes it cannot follow.
@@ -54,6 +62,7 @@ from ..gears.base import GlobalVariable
 from ..store import same_path
 from ..swcom import _out_bool, call
 from . import scaffold as sc
+from .decide import ASSEMBLY_REBUILD_ROUTES, first_rebuild_route
 from .harness import Px, Require, probe
 from .p1_equations import adder
 from .p2_bevel import plane_frame
@@ -1231,7 +1240,431 @@ def add_component_opened_part(px: Px) -> None:
     px.check(not left, "everything this probe opened is closed")
 
 
-# -- extra: an offset's global below zero ------------------------------------
+# -- 6: which assembly rebuild Update SolidWorks may use ---------------------
+#
+# The W4 rerun on SolidWorks 2026 (docs/notes-workbook/W4-RERUN-2026.md) found
+# ForceRebuild3(False) on an assembly marking every component modified, parts
+# nothing changed among them. Each route is tried on an assembly of its own,
+# built by the app's own code, after a put, a layout move, a part change and a
+# failed part, reading every document's GetSaveFlag after each step.
+
+REBUILD_ROUTES = ASSEMBLY_REBUILD_ROUTES   # in order of preference; "none" shows whether a put needs a rebuild
+REBUILD_FOLDERS = ("top", "edit", "full", "none")      # one subfolder per route, in the same order
+REBUILD_DOCS = ("assembly", "layout", "G1", "G2")
+REBUILD_CENTRE = 63.75       # mm: m 1.5, 17 + 68 teeth
+REBUILD_LAYOUT_MOVE = 5.0    # mm added to S2's X in the layout part alone
+REBUILD_TEETH = "69"         # G2's new tooth count: at its old frame it runs into G1
+REBUILD_FAILURES = (("Face Width", 0.0), ("Bore Diameter", 500.0))   # tried in turn until G2's rebuild fails
+# What each step changed on purpose, cumulatively from the reopen (nothing is saved between steps).
+REBUILD_WANTED = {
+    "put": ("assembly",),
+    "put_back": ("assembly",),
+    "layout": ("assembly", "layout"),
+    "part": ("assembly", "layout", "G2"),
+    "failure": ("assembly", "layout", "G2"),
+}
+REBUILD_CRITERIA = ("frame_after_put", "interference_after_put", "layout_move_shown", "part_change_shown",
+                    "failure_reported", "only_changed_marked")
+
+
+def rebuild_spec(index: int, folder: str) -> Any:
+    """The two-gear gearbox one route is tried on: 17 teeth on S1 at 0 and 68 on S2 at 63.75, module 1.5.
+
+    Each route's parts, layout and assembly have names of their own, so no
+    two documents of one file name are ever open together.
+    """
+    from ..workbook.model import Box, Gear, GearboxSpec, Mesh, Shaft  # noqa: PLC0415
+
+    tag = f"Probe W7 Rebuild {index + 1}"
+    return GearboxSpec(
+        box=Box(name=tag, output_folder=folder.rstrip("\\/") + "\\"),
+        shafts=(Shaft("S1", "frame", "0", "0", "0", "Z+", "input", speed="1500", torque="10"),
+                Shaft("S2", "frame", f"{REBUILD_CENTRE:g}", "0", "0", "Z+", "output")),
+        gears=(Gear("G1", "S1", "7.5", "spur", "external", "17", "1.5", face_width="15", bore="8",
+                    part_name=f"{tag} G1"),
+               Gear("G2", "S2", "7.5", "spur", "external", "68", "1.5", face_width="15", bore="12",
+                    part_name=f"{tag} G2")),
+        meshes=(Mesh("G1", "G2"),))
+
+
+def rows_matrix(rotation: Sequence[float]) -> Matrix:
+    """A rotation of nine numbers by rows (``workbook.layout`` frames) as the probe's 3 × 3 matrix."""
+    r = [float(v) for v in rotation]
+    return ((r[0], r[1], r[2]), (r[3], r[4], r[5]), (r[6], r[7], r[8]))
+
+
+def marked_as_wanted(flags: Optional[Mapping[str, Any]], wanted: Sequence[str]) -> Optional[bool]:
+    """Whether exactly the ``wanted`` documents read ``GetSaveFlag`` True; None when a flag could not be read."""
+    if not flags or any(flags.get(name) is None for name in REBUILD_DOCS):
+        return None
+    return all(bool(flags[name]) is (name in wanted) for name in REBUILD_DOCS)
+
+
+def rebuild_verdict(case: Mapping[str, Any]) -> Dict[str, Optional[bool]]:
+    """What one route showed, criterion by criterion (``REBUILD_CRITERIA``); None where the step was not reached.
+
+    ``only_changed_marked`` is read after the route ran in every step, and again
+    after the step's measurements (interference detection among them), against
+    ``REBUILD_WANTED``.
+    """
+    put, back = case.get("put") or {}, case.get("put_back") or {}
+    layout, part, failure = case.get("layout") or {}, case.get("part") or {}, case.get("failure") or {}
+    marks: List[Optional[bool]] = []
+    for step in ("put", "put_back", "layout", "part", "failure"):
+        reached = case.get(step) or {}
+        for key in ("flags", "flags_after_reads"):
+            marks.append(marked_as_wanted(reached.get(key), REBUILD_WANTED[step]))
+    returned = (failure.get("rebuild") or {}).get("returned", "missing") if failure else "missing"
+    return {
+        "frame_after_put": put.get("frame_shown"),
+        "interference_after_put": (bool(put.get("clash_shown")) and bool(back.get("clean"))) if put and back else None,
+        "layout_move_shown": layout.get("shown"),
+        "part_change_shown": part.get("shown"),
+        "failure_reported": None if returned == "missing" or not failure.get("part_failed") else returned is False,
+        "only_changed_marked": None if any(m is None for m in marks) else all(marks),
+    }
+
+
+def rebuild_route(cases: Mapping[str, Mapping[str, Any]]) -> str:
+    """The first route of ``REBUILD_ROUTES`` that met every criterion, else ``STOP`` (``decide.first_rebuild_route``)."""
+    return first_rebuild_route({route: rebuild_verdict(case) for route, case in cases.items()})
+
+
+def _doc_at(px: Px, path: str) -> Any:
+    doc = call(sc.app(px), "GetFirstDocument")
+    guard = 0
+    while doc is not None and guard < 500:
+        guard += 1
+        if same_path(str(call(doc, "GetPathName") or ""), path):
+            return doc
+        doc = call(doc, "GetNext")
+    return None
+
+
+def _save_flags(px: Px, paths: Mapping[str, str]) -> Dict[str, Optional[bool]]:
+    """``GetSaveFlag`` of each labelled document; None for one not in memory."""
+    out: Dict[str, Optional[bool]] = {}
+    for label, path in paths.items():
+        doc = _doc_at(px, path)
+        out[label] = None if doc is None else bool(call(doc, "GetSaveFlag"))
+    return out
+
+
+def _marked(flags: Mapping[str, Optional[bool]]) -> List[str]:
+    return [name for name in REBUILD_DOCS if flags.get(name)]
+
+
+def _apply_route(px: Px, asm: Any, route: str, label: str) -> Dict[str, Any]:
+    """Rebuild the assembly by one route; what it returned (``None`` for no rebuild at all)."""
+    if route == "none":
+        return {"returned": None}
+    thunks = {"ForceRebuild3(True)": lambda: call(asm, "ForceRebuild3", True),
+              "EditRebuild3": lambda: call(asm, "EditRebuild3"),
+              "ForceRebuild3(False)": lambda: call(asm, "ForceRebuild3", False)}
+    got, value = px.attempt(f"{route} on the assembly, {label}", thunks[route])
+    return {"returned": plain(value) if got else "raised"}
+
+
+def _feature_errors(px: Px, doc: Any) -> Dict[str, Any]:
+    """Every top-level feature whose ``GetErrorCode2`` is not 0 (probe compound_lock's reading)."""
+    from .p8_motion import error_code  # noqa: PLC0415 - p8 imports this module
+
+    out = {}
+    for feature in sc.top_features(doc):
+        found = error_code(px, feature)
+        if found.get("code") not in (0, None) or "error" in found:
+            out[str(call(feature, "Name"))] = found
+    return out
+
+
+def _axis_from_right(px: Px, asm: Any, axis_ref: str) -> Dict[str, Any]:
+    """``IModelDocExtension.CreateMeasure`` between a layout axis in the assembly and the assembly's Right plane.
+
+    The axis is selected by ``SelectByID2 "<axis>@<component>@<assembly>"``
+    (probe layout_part_without_body), the plane by tree order (the third plane).
+    """
+    out: Dict[str, Any] = {"axis": axis_ref}
+    ext = sc.extension(asm)
+    call(asm, "ClearSelection2", True)
+    try:
+        out["axis_selected"] = bool(call(ext, "SelectByID2", axis_ref, "AXIS", 0.0, 0.0, 0.0, False, 0, sc.null(), 0)
+                                    and sc.selected_count(asm) == 1)
+        out["plane_selected"] = bool(out["axis_selected"] and sc.select_plane(asm, 3, append=True)
+                                     and sc.selected_count(asm) == 2)
+        if not out["plane_selected"]:
+            return out
+        got, measure = px.attempt("CreateMeasure", lambda: call(ext, "CreateMeasure"))
+        if not got or measure is None:
+            out["measure"] = None
+            return out
+        for label, argument in (("Calculate(None)", None), ("Calculate(null dispatch)", sc.null())):
+            ok, value = px.attempt(f"IMeasure.{label}", lambda a=argument: call(measure, "Calculate", a))
+            if ok and value:
+                out["calculate"] = label
+                break
+        if "calculate" not in out:
+            return out
+        for name in ("Distance", "NormalDistance"):
+            ok, value = px.attempt(f"IMeasure.{name}", lambda n=name: call(measure, n))
+            out[f"{name}_mm"] = round(float(value) * sc.MM, 9) if ok and isinstance(value, (int, float)) else None
+    finally:
+        call(asm, "ClearSelection2", True)
+    return out
+
+
+def _clash(found: Sequence[Tuple[Sequence[str], float]], pair: Sequence[str]) -> bool:
+    """Whether interference detection found G1 and G2 in each other: by name, or unnamed with a volume."""
+    return bool(found) and all((not names or set(names) == set(pair)) and volume > 0 for names, volume in found)
+
+
+def _session_asm(px: Px, asm_path: str, names: Mapping[str, str]) -> None:
+    """The app's own ``open_document`` (already open: brought forward) and ``find_component`` for G1 and G2."""
+    px.session.open_document(asm_path)
+    for label in ("G1", "G2"):
+        px.session.find_component(label, names[label])
+
+
+def _rebuild_case(px: Px, index: int, route: str, folder: str) -> Dict[str, Any]:
+    """Build one route's assembly with the app's code, reopen it, and take it through steps a-d."""
+    from .. import findings, swbuild  # noqa: PLC0415 - as p5_end_to_end does
+    from ..gears import KINDS  # noqa: PLC0415
+    from ..workbook import assess as wb_assess  # noqa: PLC0415
+    from ..workbook import gearbox as wb_gearbox  # noqa: PLC0415
+    from .p8_motion import whats_wrong  # noqa: PLC0415 - p8 imports this module
+
+    started = time.monotonic()
+    os.makedirs(folder, exist_ok=True)
+    spec = rebuild_spec(index, folder)
+    assessed = wb_assess.assess(spec, [], spec.box.output_folder, "")
+    px.require(assessed.lay_out_refusal() == "", f"{route}: the gearbox lays out: {assessed.lay_out_refusal()!r}")
+    plan = wb_gearbox.plan_gearbox(assessed, None)
+    px.require(not plan.refusal, f"{route}: plan_gearbox plans it: {plan.refusal!r}")
+    jobs = {job.gear_ids[0]: job for job in plan.build}
+    paths = {"assembly": plan.assembly_path, "layout": plan.layout_path, "G1": jobs["G1"].path, "G2": jobs["G2"].path}
+    s2 = next(s for s in plan.shafts if s.shaft == "S2")
+    case: Dict[str, Any] = {"paths": {k: os.path.basename(v) for k, v in paths.items()}}
+
+    before = sc.open_titles(px)
+    try:
+        result = swbuild.build_gearbox(px.session, **plan.build_kwargs())
+    finally:
+        made = [t for t in sc.open_titles(px) if t not in before]
+        px.shared.setdefault("created", []).extend(t for t in made if t not in px.shared["created"])
+    for line in result.log_lines():
+        px.note(f"{route}: {line}")
+    px.require(result.ok and not result.clashes and not result.interference_error,
+               f"{route}: build_gearbox built the parts, the layout and the assembly with no clash",
+               {"failures": plain(result.failures), "clashes": plain(result.clashes)})
+    names = {gear: result.components.get(handle, "") for handle, gear in plan.handles.items()}
+    names["layout"] = result.components.get("layout", "")
+    px.require(all(names.get(k) for k in ("G1", "G2", "layout")), f"{route}: every component is named: {names}")
+    case["components"] = dict(names)
+    case["after_build"] = _save_flags(px, paths)
+
+    # Closed and opened again: the baseline.
+    asm = _doc_at(px, paths["assembly"])
+    if asm is not None and call(asm, "GetSaveFlag"):
+        _save_in_place(px, asm, paths["assembly"], f"{route}'s assembly before closing")
+    left = close_paths(px, list(paths.values()))
+    px.require(not left, f"{route}: everything the build opened is closed: left {left}")
+    g2_frame = plan.frames["G2"]
+    home = rows_matrix(g2_frame.rotation), tuple(g2_frame.at)
+    order = findings.TRANSFORM_ARRAY_ORDER
+    pitch = 360.0 / 68.0
+    asm_title = ""
+    try:
+        px.session.begin_build()
+        try:
+            _session_asm(px, paths["assembly"], names)
+        finally:
+            px.session.end_build()
+        asm = _doc_at(px, paths["assembly"])
+        px.require(asm is not None, f"{route}: the assembly is open again")
+        asm_title = str(call(asm, "GetTitle"))
+        case["flags_on_open"] = _save_flags(px, paths)
+        asm_name = os.path.splitext(asm_title)[0]
+        axis_ref = f"{s2.axis_name}@{names['layout']}@{asm_name}"
+
+        # (a) a raw Transform2 put turning G2 half a pitch, the route, then put back and the route again.
+        for step, (matrix, at) in (("put", (turned(home[0], pitch / 2.0), home[1])), ("put_back", home)):
+            entry: Dict[str, Any] = {}
+            px.session.begin_build()
+            try:
+                _session_asm(px, paths["assembly"], names)
+                component = px.session._handles["G2"]["component"]  # noqa: SLF001 - the probe puts it raw
+                transform = make_transform(px, array_data(matrix, at, order))
+                px.attempt(f"{route}: Transform2 put on G2 ({step})", lambda: setattr(component, "Transform2", transform))
+                entry["rebuild"] = _apply_route(px, asm, route, step)
+                entry["flags"] = _save_flags(px, paths)
+                rotation, origin = frame_error(component, matrix, at)
+                entry["frame_off"] = {"rotation": rotation, "origin_mm": origin}
+                entry["frame_shown"] = rotation < TOLERANCE_ROTATION and origin < TOLERANCE_MM
+                entry["frame_read_by_the_app"] = plain(px.session.component_frame("G2"))
+                found = px.session.interferences()
+                entry["interferences"] = [[list(n), round(v, 3)] for n, v in found]
+                if step == "put":
+                    entry["clash_shown"] = _clash(found, (names["G1"], names["G2"]))
+                else:
+                    entry["clean"] = found == []
+                entry["flags_after_reads"] = _save_flags(px, paths)
+            finally:
+                px.session.end_build()
+            case[step] = entry
+
+        # (b) the layout part opened by path, S2 X moved in its own document and rebuilt; then the route.
+        entry = {}
+        px.require(activate(px, asm_title), f"{route}: the assembly is active")
+        entry["measure_before"] = _axis_from_right(px, asm, axis_ref)
+        layout_doc, _ = open_by_path(px, paths["layout"])
+        px.require(activate(px, str(call(layout_doc, "GetTitle"))), f"{route}: the layout part is active")
+        moved_x = REBUILD_CENTRE + REBUILD_LAYOUT_MOVE
+        entry["set"] = _set_global(call(layout_doc, "GetEquationMgr"), s2.x_global, moved_x)
+        got, rebuilt = px.attempt(f"{route}: ForceRebuild3(False) on the layout part",
+                                  lambda: call(layout_doc, "ForceRebuild3", False))
+        entry["layout_rebuild"] = plain(rebuilt) if got else "raised"
+        entry["axis_in_layout"] = _check_axis(px, sc.feature_by_name(layout_doc, s2.axis_name), moved_x, 0.0,
+                                              f"{route}: {s2.axis_name} in the layout part")
+        entry["flags_before_route"] = _save_flags(px, paths)
+        px.require(activate(px, asm_title), f"{route}: the assembly is active again")
+        entry["rebuild"] = _apply_route(px, asm, route, "layout move")
+        entry["flags"] = _save_flags(px, paths)
+        entry["measure"] = _axis_from_right(px, asm, axis_ref)
+        distance = entry["measure"].get("Distance_mm")
+        entry["shown"] = None if distance is None else abs(distance - moved_x) < TOLERANCE_MM
+        entry["flags_after_reads"] = _save_flags(px, paths)
+        case["layout"] = entry
+
+        # (c) G2 given 69 teeth through the app's update_variables in its own document; then the route.
+        entry = {}
+        entry["volume_before_mm3"] = sc.volume_mm3(asm)
+        entry["flags_after_volume_before"] = _save_flags(px, paths)
+        g2_doc, _ = open_by_path(px, paths["G2"])
+        g2_title = str(call(g2_doc, "GetTitle"))
+        px.require(activate(px, g2_title), f"{route}: G2's part is active")
+        job = jobs["G2"]
+        kind = KINDS[job.spec.kind]
+        wanted = job.spec.with_values(teeth=REBUILD_TEETH)
+        update = _update_with(px, swbuild, paths["G2"], kind.variables(wanted, kind.derive(wanted)))
+        entry["update"] = update
+        px.require(update.get("ok") and "No. of Teeth" in update.get("changed", []),
+                   f"{route}: update_variables gave G2 {REBUILD_TEETH} teeth: {update}")
+        entry["flags_before_route"] = _save_flags(px, paths)
+        px.require(activate(px, asm_title), f"{route}: the assembly is active again")
+        px.session.begin_build()
+        try:
+            _session_asm(px, paths["assembly"], names)
+            entry["rebuild"] = _apply_route(px, asm, route, "part change")
+            entry["flags"] = _save_flags(px, paths)
+            rotation, origin = frame_error(px.session._handles["G2"]["component"], *home)  # noqa: SLF001
+            entry["frame_off"] = {"rotation": rotation, "origin_mm": origin}
+            found = px.session.interferences()
+            entry["interferences"] = [[list(n), round(v, 3)] for n, v in found]
+            entry["shown"] = _clash(found, (names["G1"], names["G2"]))
+            entry["flags_after_reads"] = _save_flags(px, paths)
+            # Evidence only, read last: a mass property might rebuild what it measures.
+            entry["volume_after_mm3"] = sc.volume_mm3(asm)
+            entry["flags_after_volume"] = _save_flags(px, paths)
+        finally:
+            px.session.end_build()
+        case["part"] = entry
+
+        # (d) G2's rebuild made to fail in its own document; the route; then G2 put right again.
+        entry = {}
+        eqm = call(g2_doc, "GetEquationMgr")
+        tried = []
+        for name, value in REBUILD_FAILURES:
+            px.require(activate(px, g2_title), f"{route}: G2's part is active")
+            kept = _global_value(eqm, name)
+            px.require(kept is not None, f'{route}: G2 has a global "{name}"')
+            _set_global(eqm, name, value)
+            got, rebuilt = px.attempt(f"{route}: ForceRebuild3(False) on G2 with {name} = {value:g}",
+                                      lambda: call(g2_doc, "ForceRebuild3", False))
+            errors = _feature_errors(px, g2_doc)
+            attempt = {"global": name, "value": value, "kept": kept, "part_rebuild": plain(rebuilt) if got else "raised",
+                       "part_errors": errors}
+            tried.append(attempt)
+            if (got and rebuilt is False) or errors:
+                entry.update(how=f"{name} = {value:g}", restore=(name, kept), part_failed=True)
+                break
+            _set_global(eqm, name, kept)
+            call(g2_doc, "ForceRebuild3", False)
+        entry["tried"] = tried
+        if entry.get("part_failed"):
+            px.require(activate(px, asm_title), f"{route}: the assembly is active again")
+            entry["rebuild"] = _apply_route(px, asm, route, "a failed part")
+            entry["whats_wrong"] = whats_wrong(px, asm)
+            entry["flags"] = _save_flags(px, paths)
+            name, kept = entry.pop("restore")
+            px.require(activate(px, g2_title), f"{route}: G2's part is active to put it right")
+            _set_global(eqm, name, kept)
+            got, rebuilt = px.attempt(f"{route}: ForceRebuild3(False) on G2 put right",
+                                      lambda: call(g2_doc, "ForceRebuild3", False))
+            entry["restored"] = {"part_rebuild": plain(rebuilt) if got else "raised",
+                                 "part_errors": _feature_errors(px, g2_doc)}
+            px.require(activate(px, asm_title), f"{route}: the assembly is active again")
+            entry["restored"]["rebuild"] = _apply_route(px, asm, route, "the part put right")
+            entry["flags_after_reads"] = _save_flags(px, paths)
+        case["failure"] = entry
+    finally:
+        asm = _doc_at(px, paths["assembly"])
+        if asm is not None and call(asm, "GetSaveFlag"):
+            _save_in_place(px, asm, paths["assembly"], f"{route}'s assembly before closing")
+        left = close_paths(px, list(paths.values()))
+        if left:
+            px.note(f"CLEANUP still open after closing: {left}")
+    px.check(not left, f"{route}: its assembly, layout and parts are all closed")
+    case["seconds"] = round(time.monotonic() - started, 1)
+    return case
+
+
+def _update_with(px: Px, swbuild: Any, path: str, variables: Sequence[GlobalVariable]) -> Dict[str, Any]:
+    """The tool's own ``swbuild.update_variables`` on the active document, with a gear's whole set of globals."""
+    got, result = px.attempt(f"swbuild.update_variables({os.path.basename(path)})",
+                             lambda: swbuild.update_variables(px.session, list(variables), path))
+    if not got:
+        return {"ok": False, "error": result}
+    return {"ok": bool(result.ok), "changed": list(result.changed), "failures": [list(f) for f in result.failures],
+            "rebuilt": bool(result.rebuilt)}
+
+
+@probe("assembly_rebuild_scope", needs=("layout_assembly_reopen", "end_to_end"), tier=7,
+       members=("IModelDoc2.ForceRebuild3", "IModelDoc2.EditRebuild3", "IModelDoc2.GetSaveFlag",
+                "IComponent2.Transform2", "IModelDocExtension.CreateMeasure", "IMeasure.Calculate",
+                "IMeasure.Distance", "IModelDocExtension.CreateMassProperty", "swbuild.build_gearbox",
+                "swbuild.update_variables"))
+def assembly_rebuild_scope(px: Px) -> None:
+    """Which assembly rebuild shows a put, a layout move and a part change, reports a failure, and marks only what changed."""
+    folder = sc.env_scratch_folder(px)
+    px.require(bool(folder) and folder[1:3] == ":\\", f"the scratch folder is on a drive: {folder!r}")
+    cases: Dict[str, Dict[str, Any]] = {}
+    for index, (route, sub) in enumerate(zip(REBUILD_ROUTES, REBUILD_FOLDERS)):
+        where = os.path.join(folder, "rebuild", sub)
+        px.require(not os.path.exists(where), f"{where} does not exist yet")
+        cases[route] = _rebuild_case(px, index, route, where)
+        verdict = rebuild_verdict(cases[route])
+        cases[route]["verdict"] = verdict
+        px.note(f"{route}: {verdict}; marked after the put {_marked(cases[route]['put']['flags'])}, after the part "
+                f"change {_marked(cases[route]['part'].get('flags') or {})}")
+    px.fact("rebuild_cases", cases)
+    verdicts = {route: case["verdict"] for route, case in cases.items()}
+    px.fact("rebuild_verdicts", verdicts)
+    marked = {route: {step: _marked((case.get(step) or {}).get("flags") or {})
+                      for step in ("put", "put_back", "layout", "part", "failure")} for route, case in cases.items()}
+    px.fact("rebuild_marked", marked)
+    px.fact("flags_on_open", {route: case["flags_on_open"] for route, case in cases.items()})
+    none = verdicts.get("none") or {}
+    px.fact("put_needs_rebuild", None if none.get("frame_after_put") is None or none.get("interference_after_put") is None
+            else not (none["frame_after_put"] and none["interference_after_put"]))
+    full = cases.get("ForceRebuild3(False)") or {}
+    px.fact("full_rebuild_marks_components_modified",
+            bool(full) and any(bool(((full.get(step) or {}).get("flags") or {}).get("G1"))
+                               for step in ("put", "put_back", "layout", "part", "failure")))
+    opened = [case["flags_on_open"] for case in cases.values()]
+    px.fact("opened_reads_unmodified", all(all(v is False for v in flags.values()) for flags in opened))
+    route = rebuild_route(cases)
+    px.fact("assembly_rebuild_route", route)
+    px.check(route != "STOP", f"some route showed every change, reported the failure and marked only what changed: "
+                              f"{verdicts}")
 
 
 @probe("layout_plane_negative_global", needs=("layout_planes",), tier=7, extra=True,
