@@ -100,6 +100,22 @@ ASSEMBLY_REBUILD_CALLS = {"ForceRebuild3(True)": ("ForceRebuild3", (True,)),
 COMPONENT_SUPPRESSED = 0
 COMPONENT_LIGHTWEIGHT = (1, 4)
 
+# What a folder in the MateGroup may be skipped by (Session.mate_states): its entries' type name, and every finding that
+# says skipping it loses no mate — the walk sees the mates inside a folder as ordinary siblings (probe round P0c,
+# mate_folders). A later probe's finding for another case (a reopened assembly, a nested folder) is one more name here.
+MATE_FOLDER_TYPE_FINDING = "MATE_FOLDER_TYPE_NAME"
+MATE_FOLDER_SKIP_REQUIRES = ("MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER",)
+
+
+def mate_folder_type() -> Optional[str]:
+    """The type name a MateGroup folder's entries are skipped by, or None (nothing skipped) while that finding or
+    any of :data:`MATE_FOLDER_SKIP_REQUIRES` is missing or not True."""
+    if any(getattr(findings, name, None) is not True for name in MATE_FOLDER_SKIP_REQUIRES):
+        return None
+    folder = getattr(findings, MATE_FOLDER_TYPE_FINDING, None)
+    return str(folder) if folder else None
+
+
 # Whether a component is fully resolved (Session.component_resolved), as probe round P0d will settle it: the finding
 # naming the read, the routes this code can make, and the finding giving the fully-resolved value(s). Placeholder
 # names until P0d is committed: rename here, in one place.
@@ -2083,8 +2099,9 @@ class Session:
         caller can refuse what no probe has read — except a folder's two entries, ``GetTypeName2`` equal to
         ``findings.MATE_FOLDER_TYPE_NAME`` (probe round P0c, mate_folders: the folder and its "…___EndTag___"
         marker, the mates inside it listed as ordinary following siblings, so this walk still sees each one).
-        With that finding missing a folder is listed like any other entry that is not a mate."""
-        folder = getattr(findings, "MATE_FOLDER_TYPE_NAME", None)
+        Skipping is safe only because the walk still sees the mates inside (:func:`mate_folder_type`); with any
+        finding it needs missing, a folder is listed like any other entry that is not a mate."""
+        folder = mate_folder_type()
         out: List[MateState] = []
         for feature in self._mate_group():
             if not self._is_mate(feature):

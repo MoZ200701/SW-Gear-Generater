@@ -1769,15 +1769,19 @@ def test_statuses_are_this_builds_only(mated):
     assert session.mate_status("G3 locked to G2") is None
 
 
-@pytest.mark.parametrize("folder, listed", [("FtrFolder", ["Mystery1"]), (None, ["Folder1", "Mystery1",
-                                                                             "Folder1___EndTag___"])])
+@pytest.mark.parametrize("folder, sees, listed", [
+    ("FtrFolder", True, ["Mystery1"]),
+    (None, True, ["Folder1", "Mystery1", "Folder1___EndTag___"]),
+    ("FtrFolder", None, ["Folder1", "Mystery1", "Folder1___EndTag___"]),
+])
 def test_what_in_the_mate_group_is_not_a_mate_is_named_when_asked_but_a_folders_two_entries(mated, monkeypatch,
-                                                                                           folder, listed):
+                                                                                           folder, sees, listed):
     """Probe round P0c, mate_folders: a folder shows in the MateGroup walk as two "FtrFolder" entries around the mates
     it holds, which follow as ordinary siblings. With the finding, both are skipped and every mate is still read;
     without it they are listed as anything else that is not a mate is."""
     session, doc = mated
     monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", folder)
+    monkeypatch.setattr(findings, "MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER", sees)
     doc.mates = [MateFeature(doc, "G1 on S1 Axis"), MateFeature(doc, "Folder1", "FtrFolder"),
                  MateFeature(doc, "G1 meshes G2", "MateGearDim"), MateFeature(doc, "Mystery1", "SomethingElse"),
                  MateFeature(doc, "Folder1___EndTag___", "FtrFolder")]

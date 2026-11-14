@@ -650,7 +650,7 @@ class FakeSolidWorks:
         self._log("mate_states")
         if others is not None and self.current:
             # As swcom.Session.mate_states: a folder's entries are skipped by findings.MATE_FOLDER_TYPE_NAME.
-            folder = getattr(findings, "MATE_FOLDER_TYPE_NAME", None)
+            folder = swcom.mate_folder_type()
             others.extend(name for name, type_name in self.mate_folders.get(_key(self.current), [])
                           if not (folder is not None and type_name == folder))
         out = []
@@ -2396,7 +2396,7 @@ def _train_layout_values(s3x="63.75"):
                                              GlobalVariable("S3 Y", "51")), T_LAYOUT_FEATURES)
 
 
-def _train_plan(path=T_ASM, follower_on_axis=False):
+def _train_plan(path=T_ASM, follower_on_axis=False, idler=False):
     frames = _train_frames()
     steps = [ops.NewAssembly(""), ops.AddGlobal("G4 Face Z", "20"),
              ops.AddComponent("layout", T_LAYOUT), ops.Place("layout", IDENTITY, (0.0, 0.0, 0.0)), ops.Fix("layout")]
@@ -2420,6 +2420,9 @@ def _train_plan(path=T_ASM, follower_on_axis=False):
               ops.LinkDimension("D1@G4 along S3", '"G4 Face Z"'),
               ops.Mate("mesh1", "gear", "gear1:Gear Axis", "gear2:Gear Axis", name="G1 meshes G2", ratio=(17.0, 68.0)),
               ops.Mate("mesh2", "gear", "gear3:Gear Axis", "gear4:Gear Axis", name="G3 meshes G4", ratio=(17.0, 51.0))]
+    if idler:                               # G4 carries two gear mates, as an idler does (made up: no geometry here)
+        steps.append(ops.Mate("mesh3", "gear", "gear2:Gear Axis", "gear4:Gear Axis", name="G2 meshes G4",
+                              ratio=(68.0, 51.0)))
     return BuildPlan("gearbox", "", tuple(steps) + (ops.Rebuild(), ops.SaveAs(path)), path)
 
 
@@ -3250,6 +3253,7 @@ def test_a_remake_that_fails_still_lists_the_assembly_as_changed(monkeypatch, re
 
 def test_an_entry_among_the_mates_that_is_neither_a_mate_nor_a_folder_refuses_the_update(monkeypatch):
     monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", "FtrFolder")
+    monkeypatch.setattr(findings, "MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER", True)
     fake = _built_train()
     fake.user_entry(T_ASM, "Train mates", "SomethingNew")
     with pytest.raises(swbuild.BuildError) as raised:
@@ -3263,8 +3267,12 @@ def test_an_entry_among_the_mates_that_is_neither_a_mate_nor_a_folder_refuses_th
     assert not any(n in CHANGING for n in names(fake))
 
 
-def test_without_the_folder_finding_a_folder_among_the_mates_refuses_as_before(monkeypatch):
-    monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", None)
+@pytest.mark.parametrize("missing", ["MATE_FOLDER_TYPE_NAME", "MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER"])
+def test_without_a_folder_finding_a_folder_among_the_mates_refuses_as_before(monkeypatch, missing):
+    """Skipping a folder is safe only because the walk still sees the mates in it: either finding missing, refused."""
+    monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", "FtrFolder")
+    monkeypatch.setattr(findings, "MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER", True)
+    monkeypatch.setattr(findings, missing, None)
     fake = _built_train()
     fake.user_folder(T_ASM, "Folder1")
     with pytest.raises(swbuild.BuildError, match='^T.SLDASM holds "Folder1", "Folder1___EndTag___" among its mates, '
@@ -3278,6 +3286,7 @@ def test_gear_mates_in_a_folder_are_found_read_and_remade_and_the_update_goes_ah
     found as any other. A gear mate remade lands at the end of the mate group, outside the folder: left so, since no
     probe covers putting it back."""
     monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", "FtrFolder")
+    monkeypatch.setattr(findings, "MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER", True)
     fake = _built_train()
     fake.user_folder(T_ASM, "Folder1")
     _drag(fake, 10.0)
@@ -3616,3 +3625,48 @@ def test_without_the_resolved_read_the_update_reads_nothing_new_and_goes_on_as_t
     fake.lightweight = {"gear3-1"}                        # find_component's own check, as today
     with pytest.raises(swbuild.BuildError, match="^gear3-1 is loaded lightweight in T.SLDASM"):
         _update_train(fake)
+
+
+
+# -- an idler through Update: a gear carrying two recorded gear mates (probe round P0c, idler_update)
+
+IDLER_REF = MateRef("G2 meshes G4", "mesh", ("G2", "G4"))
+
+
+def _idler_motion(teeth4, ratios):
+    meshes = (MESHES[0], MeshLink("G3", "G4", -17.0 / teeth4, 360.0 / teeth4),
+              MeshLink("G2", "G4", -68.0 / teeth4, 360.0 / teeth4))
+    recorded = (MESHES[0], MESHES[1], MeshLink("G2", "G4", -68.0 / 51, 360.0 / 51))
+    return _motion(mates=MATE_REFS + (IDLER_REF,), meshes=meshes, recorded_meshes=recorded, ratios=ratios)
+
+
+def _built_idler():
+    fake, result = _build_train(assembly=_train_plan(idler=True))
+    assert result.ok, result.log_lines()
+    fake.calls.clear()
+    return fake
+
+
+def test_a_remake_on_an_idler_is_refused_through_update_while_its_finding_is_missing(remake_route, monkeypatch):
+    monkeypatch.setattr(findings, "IDLER_UPDATE_HOLDS", None)
+    fake = _built_idler()
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake, motion=_idler_motion(51, (("G3 meshes G4", 17, 50),)))
+    assert str(raised.value) == ("Giving a new ratio to a gear mate of G4, which carries two gear mates, has not been "
+                                 "settled on SolidWorks (findings.IDLER_UPDATE_HOLDS is None), so nothing is changed; "
+                                 "run probe tier 8 first, or build the gearbox again.")
+    assert not any(n in CHANGING for n in names(fake))         # nothing suppressed, set, remade or put
+    assert fake.mate("G3 meshes G4", T_ASM).ratio == (17.0, 51.0)
+
+
+def test_with_the_idler_finding_both_of_an_idlers_gear_mates_are_remade(remake_route, monkeypatch):
+    monkeypatch.setattr(findings, "IDLER_UPDATE_HOLDS", True)
+    fake = _built_idler()
+    result = _update_train(fake, motion=_idler_motion(50, (("G3 meshes G4", 17, 50), ("G2 meshes G4", 68, 50))))
+    assert result.ok, result.log_lines()
+    assert sorted(result.ratios) == ["G2 meshes G4", "G3 meshes G4"]
+    assert len([n for n in names(fake) if n == "set_gear_ratio"]) == 2
+    assert fake.mate("G3 meshes G4", T_ASM).ratio == (17.0, 50.0)
+    assert fake.mate("G2 meshes G4", T_ASM).ratio == (68.0, 50.0)
+    assert result.placed == list(TRAIN_ORDER) and fake.locked_puts == []
+    assert not fake.mate("G3 locked to G2", T_ASM).suppressed
