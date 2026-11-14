@@ -89,7 +89,7 @@ The sections, each in its own folder under the output folder (default order m1 m
 - ``a3`` (the second W4 review, N4 and N2): the journal of a build interrupted after two parts; then the
   demonstration edit and Update, closed unsaved; the edit typed back: Update loads every document from its file,
   finds the gear mate already at 17 : 68 (its live ratio, read in the check phase) and remakes nothing, so nothing
-  is changed; the drive at 17 : 68; the sentence logged, not pinned (package C's wording, ruled on 2026-11-14).
+  is changed and the record takes 17 : 68; the drive at 17 : 68; package C's sentence pinned.
 - ``b``: a workbook written by ``write_new``, S2 placed by formulas: build; §4.1; the angle changed; a part-only
   Update (G2's bore 8 -> 10).
 - ``c``: the risky placements written by ``write_new``: build; §4.1.
@@ -176,12 +176,18 @@ DRIVE_TOLERANCE = 1e-6               # relative, on each gear's turn in degrees 
 FRAME_TOLERANCE = 1e-6               # on every origin coordinate (mm) and rotation entry
 TURNED_SENTENCE = "The gears stand where they were turned in SolidWorks."
 LOST_SENTENCE = "was not saved before Reducer_12to1.SLDASM was closed, so its changes were made again"
+# Package C's sentences (43527b4), as ui_text gives them for m5 and a3 (pinned from the dry harness, 2026-11-14).
+REMADE_SENTENCE = ("set the gear mate G1 meshes G2 back to the workbook's ratio, which SolidWorks held at another, "
+                   "re-placed G1, G2, G3 and G4")
+TYPED_BACK_SENTENCE = ("SolidWorks already matches the workbook: nothing was changed. The last Update SolidWorks was not "
+                       "saved before Reducer_12to1.SLDASM was closed; SolidWorks already holds the workbook as it now "
+                       "is, so nothing needed making again. The gear mate G1 meshes G2 was already 17 : 68 in "
+                       "SolidWorks, so it was left as it is.")
 
-# W5-PLAN §4.3 m1 and the user's answer 2 ("Update returns a train the user turned to its built position whenever it
-# has to move any gear") say G4 At 27 -> 30 puts the turned train back at its built turn. The app as it stands (its
-# fake, 2026-11-14) sets "G4 Face Z", lets the mates carry G4 along S3 and leaves the train turned, while
-# ui_text.update_summary says it will "re-place G1, G2, G3 and G4". Asked of the coordinator before the run; set
-# this to follow the ruling. Either way the step logs what Update did and measures what stands.
+# W5-PLAN §4.3 m1 and the user's answer 2: G4 At 27 -> 30 puts the turned train back at its built turn. Ruled on
+# 2026-11-14 (an app fault the dry run found, fixed in ba2bc1f): whenever Update moves a gear of a train in any way —
+# a put, a Face Z set, a shaft moved under it, a remake — the whole train is put, and ``restored`` names the gears
+# that were turned. (So a Face Z change on an UNTURNED train puts every gear too, with ``restored`` empty.)
 AXIAL_RESTORES = True
 
 
@@ -1431,22 +1437,41 @@ def all_mated(desk):
     return sorted(c.gear for c in box.components if c.gear not in box.fixed)
 
 
+def gearbox_flags(worker, desk):
+    box = desk.record.gearbox
+    paths = [box.assembly, box.layout] + sorted({c.part for c in box.components})
+    return run(worker, lambda s: save_flags(s, paths))
+
+
+def log_quiet_update_flags(before, after, desk, label):
+    """An Update with nothing to do now reads each gear mate's definition (ba2bc1f); whether that leaves the assembly
+    unmarked is still a probe's to settle, so it is LOGGED, never asserted (ruled on 2026-11-14)."""
+    asm = os.path.basename(desk.record.gearbox.assembly)
+    say(f"fact    {label}: GetSaveFlag before the Update with nothing to do: {before}")
+    say(f"fact    {label}: GetSaveFlag after it: {after}")
+    if after.get(asm):
+        say(f"fact    !!! {label}: {asm} READS MODIFIED after an Update that changed nothing (reading the gear "
+            "mates' definitions?) — logged for the probe, not failed")
+        NOTES.append(f"{label}: {asm} reads GetSaveFlag True after an Update that changed nothing")
+
+
 def update_nothing_turned(worker, desk, label, folder):
     """Update pressed with nothing changed on a train the user turned: no put, nothing changed, the sentence."""
     desk.say_update()
     desk.say_footer(f"{label}, before the press")
     recorded = frames_on_record(desk)
+    before = gearbox_flags(worker, desk)
     guard()
     _, result, _ = desk.update_solidworks()
     if result is None:
         return check(False, f"{label}: Update refused: {desk.note[0]}")
+    log_quiet_update_flags(before, gearbox_flags(worker, desk), desk, label)
     say_found(result, recorded, label)
     check(result.ok and result.placed == [] and result.turned and not result.restored and result.changed == [],
           f"{label}: nothing put, nothing changed, the train found turned: placed {result.placed}, turned "
           f"{result.turned}, restored {result.restored}, changed {[os.path.basename(p) for p in result.changed]}")
     check(desk.record.unsaved == {}, f"{label}: the record marks nothing unsaved: {list(desk.record.unsaved)}")
     check(TURNED_SENTENCE in desk.note[0], f"{label}: the sentence ends {TURNED_SENTENCE!r}")
-    update_marks(worker, desk, result, label, folder)
     desk.say_footer(f"{label}, after the press")
     return result
 
@@ -1660,9 +1685,12 @@ def m7_unknown_mate(worker, desk, folder):
         s.rebuild(kind=swcom.ASSEMBLY_TRAIN)
     run(worker, in_assembly(box.assembly, suppress))
     say(f"        {name} suppressed in SolidWorks, as the sentence asks")
+    save_assembly(worker, desk, f"with {name} suppressed, so the flags after the Update are its own")
     desk.plan_solidworks()
+    before = gearbox_flags(worker, desk)
     guard()
     _, result, _ = desk.update_solidworks()
+    log_quiet_update_flags(before, gearbox_flags(worker, desk), desk, "M7, suppressed")
     check(result is not None and result.ok and result.extra_mates == [name],
           f"M7: suppressed, Update goes through and lists it: extra mates {result and result.extra_mates}")
     check(result is not None and name in " ".join(result.log_lines()), f"M7: the log names {name} as left alone")
@@ -1732,8 +1760,10 @@ def section_m1(worker, excel):
         restored = bool(result.restored)
         say(f"fact    G4 At: Update {'put the turned train back at its built turn' if restored else 'left the train turned'}"
             f": placed {result.placed}, restored {result.restored}, turned {result.turned}")
-        check(restored == AXIAL_RESTORES, f"G4 At: the train {'is' if AXIAL_RESTORES else 'is not'} put back at its "
-              f"built turn, as AXIAL_RESTORES expects (W5-PLAN §4.3, answer 2; asked of the coordinator)")
+        check(restored == AXIAL_RESTORES and sorted(result.placed) == all_mated(desk)
+              and sorted(g for r in result.restored for g in r) == all_mated(desk),
+              f"G4 At: every gear of the turned train put back at its built turn, and restored names them (ruled on "
+              f"2026-11-14): placed {result.placed}, restored {result.restored}")
         face = run(worker, lambda s: live_globals(s, desk.record.gearbox.assembly)).get("G4 Face Z")
         check(face is not None and abs(face - 20.0) < 1e-9, f"G4 At: the assembly's \"G4 Face Z\" reads {face} "
               "for 20 (At 30, face width 20)")
@@ -2082,8 +2112,11 @@ def section_m5(worker, excel):
     if result is not None:
         check(result.ok and LOST_SENTENCE in desk.note[0], f"m5: the sentence says the lost Update was made again: "
               f"{desk.note[0]!r}")
-        check(result.ratios == ["G1 meshes G2"], f"m5: the gear mate, back at 17 : 68 in the file, is remade at "
-              f"17 : 69 (ratios {result.ratios}; the app's fake leaves it, 2026-11-14)")
+        check(result.ratios == ["G1 meshes G2"] and result.ratios_found == ["G1 meshes G2"],
+              f"m5: the gear mate, found live at 17 : 68 (the file's), remade once at 17 : 69: ratios {result.ratios}, "
+              f"ratios_found {result.ratios_found}")
+        check(REMADE_SENTENCE in desk.note[0], f"m5: the sentence says the gear mate was set back to the workbook's "
+              f"ratio: {REMADE_SENTENCE!r}")
         measure_frames(worker, desk, "m5 pressed again")
         measure_mates(worker, desk, "m5 pressed again")
         drive_proof(worker, desk, "m5 pressed again, at the record's 17 : 69")
@@ -2372,13 +2405,14 @@ def section_a3(worker, excel):
     # and the frames all hold what the file holds, so nothing is changed. The sentence for "the earlier Update was
     # lost and nothing needed making again" is package C's to write after A's fix: logged, not pinned.
     changed = sorted(os.path.basename(x) for x in result.changed)
-    check(result.ratios == [] and changed == [],
+    check(result.ratios == [] and result.ratios_already == ["G1 meshes G2"] and changed == [],
           f"Update found the gear mate already at 17 : 68 and every document holding the workbook's values: no remake, "
-          f"nothing changed: ratios {result.ratios}, changed {changed}")
+          f"nothing changed: ratios {result.ratios}, ratios_already {result.ratios_already}, changed {changed}")
+    entry = next(m for m in desk.record.gearbox.mates if m.name == "G1 meshes G2")
+    check(list(entry.ratio) == [17, 68], f"the record takes the ratio SolidWorks holds: G1 meshes G2 {entry.ratio}")
+    check(desk.note[0] == TYPED_BACK_SENTENCE, f"the sentence (package C, 43527b4): {desk.note[0]!r}")
     check(sorted(os.path.basename(x) for x in result.opened) == sorted(os.path.basename(x) for x in current),
           f"it loaded every document from its file: {[os.path.basename(x) for x in result.opened]}")
-    say(f"fact    the sentence after the lost Update typed back (not pinned until package C's wording): "
-        f"{desk.note[0]!r}")
     say(f"fact    the marks: unsaved {[os.path.basename(p) for p in desk.record.unsaved]}, mismatched "
         f"{[os.path.basename(p) for p in desk.record.mismatched]}")
     sidecar = store.read_sidecar(n68)
