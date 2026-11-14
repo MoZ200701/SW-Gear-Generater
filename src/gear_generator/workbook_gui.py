@@ -1208,6 +1208,7 @@ class WorkbookWindow(tk.Toplevel):
         except Exception:  # noqa: BLE001
             pass
         gearbox = job.record.gearbox if job.record is not None else None
+        finished: Optional[wb_gearbox.Finished] = None
         try:
             record, may_write, notes = self._open_record()
             base = record if record is not None else job.record     # gone or set aside since the press: as planned
@@ -1220,8 +1221,11 @@ class WorkbookWindow(tk.Toplevel):
             changed = bool(getattr(result, "changed", None) or getattr(result, "placed", None))
             dragged, notes, faults = [], [], [ui_text.finish_failed(exc, updating=True, changed=changed)]
         try:
+            # The finish says when an earlier Update's changes to the assembly were never saved, so the sentence never
+            # lays to the user what that Update left (Finished.earlier_update; None when the finish raised).
             text, ok = ui_text.gearbox_update_status(job.update, result, dragged,
-                                                     meshes=gearbox.meshes if gearbox is not None else None)
+                                                     meshes=gearbox.meshes if gearbox is not None else None,
+                                                     finished=finished)
         except Exception as exc:  # noqa: BLE001
             text, ok = ui_text.collect_failed(exc, updating=True), False
         return ui_text.Note(" ".join([text] + notes + faults), ok and not faults)

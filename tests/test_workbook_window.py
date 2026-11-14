@@ -1642,10 +1642,10 @@ def test_an_update_of_a_turning_gearbox_lost_with_solidworks_is_made_again_by_th
     assert desk.sw.locked_puts == [] and window.update_plan.record_matches
 
 
-@pytest.mark.xfail(strict=True, reason="update.finish_update calls a gear off its recorded frame dragged even when "
-                                       "the frames on record are the lost Update's: G4 is said to have been moved "
-                                       "in SolidWorks (W4's static path says the same; packages B and C)")
-def test_a_lost_update_is_not_said_to_be_a_gear_moved_by_hand(desk):
+def test_a_lost_update_made_again_is_said_so_and_never_said_to_be_a_gear_moved_by_hand(desk):
+    """After an Update lost when SolidWorks closed unsaved, the next press finds the gears where the lost Update
+    had not yet put them: that is the lost Update's, never the user's doing (B's Finished.earlier_update, which the
+    window passes on), on a turning gearbox and on one W4 built alike."""
     window = built(desk)
     save_in_excel(window, TURNING_EDIT)
     window.press_update()
@@ -1653,7 +1653,38 @@ def test_a_lost_update_is_not_said_to_be_a_gear_moved_by_hand(desk):
     desk.sw.close_all()
     window.press_update()
     desk.finish(window)
-    assert "had been moved in SolidWorks" not in window.status.get()
+    assert window.status.get() == (
+        "Updated SolidWorks: changed 1 variable in Gear_m2_N17 (it is now module 2.5; its file keeps its name), "
+        f"changed 1 variable in OutputGear, moved S3 in {NAME}_Layout, moved G4 along S3, re-placed G1, G2, G3 and G4; "
+        f"no interference between the gears where they stand. The last Update SolidWorks was not saved before "
+        f"{NAME}.SLDASM was closed, so its changes were made again: G4 is back where the workbook has it. Save "
+        f"Gear_m2_N17, OutputGear, {NAME}_Layout and {NAME} in SolidWorks to keep them.")
+
+
+def test_a_lost_update_on_a_gearbox_w4_built_is_said_so_too(desk, monkeypatch):
+    static = built_w4(desk, monkeypatch)
+    save_in_excel(static, DEMONSTRATION)
+    static.press_update()
+    desk.finish(static)
+    desk.sw.close_all()
+    static.press_update()
+    desk.finish(static)
+    assert static.status.get() == (
+        f"Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved "
+        f"S2 and S3 in {NAME}_Layout, re-placed G2, G3 and G4; no interference between the gears. The last Update "
+        f"SolidWorks was not saved before {NAME}.SLDASM was closed, so its changes were made again: G2, G3 and G4 are "
+        f"back where the workbook has them. Save Gear_m1.5_N68, {NAME}_Layout and {NAME} in SolidWorks to keep them.")
+
+
+def test_a_gear_dragged_by_hand_with_no_update_unsaved_is_still_said_to_be_moved(desk):
+    window = built(desk)
+    rotation, at = desk.sw.frames[name2(window, "G4")]
+    desk.sw.frames[name2(window, "G4")] = (rotation, (at[0] + 3.0, at[1] - 2.0, at[2]))
+    window.press_update()
+    desk.finish(window)
+    assert window.status.get() == (
+        "Updated SolidWorks: re-placed G1, G2 and G3; no interference between the gears where they stand. G4 had been "
+        f"moved in SolidWorks; put back where the workbook has it. Save {NAME} in SolidWorks to keep it.")
 
 
 def test_an_update_of_a_turning_gearbox_that_stops_part_way_turns_the_locks_back_on_and_the_next_press_finishes(
@@ -1678,31 +1709,21 @@ def test_an_update_of_a_turning_gearbox_that_stops_part_way_turns_the_locks_back
         "Gear_m2_N17.SLDPRT", "OutputGear.SLDPRT", f"{NAME}_Layout.SLDPRT", f"{NAME}.SLDASM"}
     assert desk.sw.locked_puts == [] and not [m.name for m in desk.sw.mates if m.suppressed]
     desk.sw.raises = {}
+    window.note = None
+    window._refresh_state()
+    assert window.status.get().startswith(f"Update SolidWorks will re-place G1, G2, G3 and G4. {TURNS} Gear_m2_N17, "
+                                          f"OutputGear, {NAME}_Layout and {NAME} have changes from Update SolidWorks "
+                                          "that are not saved")
     window.press_update()
     desk.finish(window)
-    assert window.footer().ok and window.status.get().startswith("Updated SolidWorks: re-placed G1, G2 and G3")
+    # What the stopped job left is never laid to the user (B's Finished.earlier_update, passed on by the window).
+    assert window.footer().ok and window.status.get() == (
+        "Updated SolidWorks: re-placed G1, G2, G3 and G4; no interference between the gears where they stand. G3 and "
+        "G4 were not where the last Update SolidWorks, which is not saved, has them on record; they are in place "
+        "again. G2 and G3 were not in step as that Update has them on record either; they are in step again. Save "
+        f"{NAME} in SolidWorks to keep it.")
     assert desk.sw.locked_puts == [] and not [m.name for m in desk.sw.mates if m.suppressed]
     assert window.update_plan.record_matches and record_of(window).digest == window.reading.digest
-
-
-@pytest.mark.xfail(strict=True, reason="after an Update that stopped part way, the next one blames the user for what "
-                                       "the stopped job left: 'G4 had been moved in SolidWorks' and 'G2 and G3 had "
-                                       "been turned out of step with each other in SolidWorks' (update.finish_update "
-                                       "and ui_text; packages B and C)")
-def test_the_press_after_a_stopped_update_never_says_the_user_moved_what_the_job_left(desk):
-    from gear_generator import swcom
-    window = built(desk)
-    turn_train(desk, window, 30.0)
-    save_in_excel(window, TURNING_EDIT)
-    desk.sw.raises = {"place_component": (desk.sw.counts.get("place_component", 0) + 3,
-                                          swcom.SolidWorksError("gear3-1 did not take its frame."))}
-    window.press_update()
-    desk.finish(window)
-    desk.sw.raises = {}
-    window.press_update()
-    desk.finish(window)
-    text = window.status.get()
-    assert "had been moved in SolidWorks" not in text and "out of step" not in text
 
 
 def test_the_structural_step_with_update_unsaved_on_a_turning_gearbox_asks_for_the_save_once(desk):
