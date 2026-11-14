@@ -290,6 +290,22 @@ def mate_find_route(records: Records) -> Optional[str]:
     return next((route for route in ("mate group", "FeatureByName") if found.get(route)), None)
 
 
+def gear_mate_ratio_route(records: Records) -> Optional[str]:
+    """How a saved gear mate's ratio is changed, for an Update (W5-PLAN D7): ``"remake"`` only when probe
+    gear_mate_ratio's remake held and probe gear_mate_update carried a whole tooth change in the shape an Update
+    needs; otherwise None. Never ``"modify definition"``: on SolidWorks 2024 an assembly whose gear mate
+    ModifyDefinition changed could not be closed (W5-DECISIONS, "Rulings on package P0's findings")."""
+    if _fact(records, "gear_mate_ratio", "gear_mate_ratio_route") != "remake":
+        return None
+    return "remake" if _fact(records, "gear_mate_update", "gear_mate_update_holds") is True else None
+
+
+def modified_gear_mate_closes(records: Records) -> Optional[bool]:
+    """Whether every copy probe gear_mate_definition changed through its definition could be closed afterwards."""
+    closes = _fact(records, "gear_mate_definition", "definition_closes")
+    return None if not closes else all(closes.values())
+
+
 def mated_assembly_rebuild_route(records: Records) -> Optional[str]:
     """The rebuild a mated assembly needs, off probe mated_rebuild_scope's verdicts; None when no route met them all
     (a decision, not a STOP: W5 then accepts the full rebuild's marks, which is the user's call)."""
@@ -395,10 +411,14 @@ def decide(records: Records) -> Dict[str, Any]:
         "suppression_route": suppression_route(records),
         "lock_select_route": lock_select_route(records),
         "mate_delete_route": mate_delete_route(records),
-        "gear_mate_ratio_route": _fact(records, "gear_mate_ratio", "gear_mate_ratio_route"),
-        "gear_mate_ratio_recipe": _fact(records, "gear_mate_ratio", "gear_mate_ratio_recipe"),
-        "gear_mate_definition_numerator_is_second": _fact(records, "gear_mate_ratio",
+        "gear_mate_ratio_route": gear_mate_ratio_route(records),
+        "gear_mate_update_holds": _fact(records, "gear_mate_update", "gear_mate_update_holds"),
+        "gear_mate_definition_recipe": _fact(records, "gear_mate_definition", "definition_recipe"),
+        "gear_mate_definition_numerator_is_second": _fact(records, "gear_mate_definition",
                                                           "definition_numerator_is_second_teeth"),
+        "modified_gear_mate_closes": modified_gear_mate_closes(records),
+        "remake_on_twice_meshed_gear_holds": _fact(records, "put_on_twice_meshed_gear",
+                                                   "remake_on_twice_meshed_gear_holds"),
         "lock_retakes_an_offset": _fact(records, "lock_retake_offset", "lock_retakes_an_offset"),
         "mate_rename_route": _fact(records, "lock_mate_rename", "mate_rename_route"),
         "mate_find_route": mate_find_route(records),
@@ -409,5 +429,8 @@ def decide(records: Records) -> Dict[str, Any]:
         "mated_assembly_rebuild_route": mated_assembly_rebuild_route(records),
         "mated_rebuild_keeps_components_unmodified": _fact(records, "mated_rebuild_scope",
                                                            "mated_rebuild_keeps_components_unmodified"),
+        "mated_build_rebuild_route": _fact(records, "mated_rebuild_scope", "mated_build_rebuild_route"),
+        "mated_build_keeps_components_unmodified": _fact(records, "mated_rebuild_scope",
+                                                         "mated_build_keeps_components_unmodified"),
         "manual_steps": manual_steps(records, recipe),
     }

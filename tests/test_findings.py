@@ -541,7 +541,7 @@ def test_a_saved_gear_mates_ratio_two_routes_and_the_versions_split(gear_ratio):
     assert crossed_over["definition"]["before"]["GearRatioNumerator"] == 51.0
     assert crossed_over["definition"]["after"]["GearRatioNumerator"] == 60.0
     assert findings.GEAR_MATE_RATIO_PUT_NUMERATOR_FIRST is True
-    assert decided["gear_mate_definition_numerator_is_second"] is findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND
+    assert ratio["definition_numerator_is_second_teeth"] is findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND
     for how, attempt in tries.items():
         assert attempt["right"] is True, how
         assert attempt["turns_before"]["TG4"] == pytest.approx(2.5)
@@ -549,7 +549,9 @@ def test_a_saved_gear_mates_ratio_two_routes_and_the_versions_split(gear_ratio):
     closes = ratio["gear_mate_ratio_closes"]
     assert closes["remake"] is True and ratio["gear_mate_ratio_routes"]["remake"] is findings.GEAR_MATE_RATIO_REMAKE_WORKS
     assert closes[p8.RATIO_CROSSED] is (True if version == "2026" else findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024)
-    assert decided["gear_mate_ratio_route"] == ("modify definition" if version == "2026" else "remake")
+    # What that version of the item decided; decide now also needs P1b (gear_mate_update), which these files lack.
+    assert ratio["gear_mate_ratio_route"] == ("modify definition" if version == "2026" else "remake")
+    assert decided["gear_mate_ratio_route"] is None
 
 
 def test_the_first_runs_of_gear_mate_ratio_on_2026_and_2024(package_p0):
@@ -619,8 +621,10 @@ def test_the_rebuild_a_mated_assembly_needs(package_p0):
     assert decided["mated_rebuild_keeps_components_unmodified"] is findings.MATED_REBUILD_KEEPS_COMPONENTS_UNMODIFIED
     scope = facts(records, "mated_rebuild_scope")
     verdicts = scope["mated_rebuild_verdicts"]
+    # The first version's criteria (P0); round P0b reads a change before its route too (p8.MATED_CRITERIA).
+    first = ("axial_shown", "drive_shown", "put_held", "layout_shown", "part_shown", "failure_shown", "failure_cleared")
     for route, verdict in verdicts.items():
-        assert all(verdict[c] for c in p8.MATED_CRITERIA if c != "only_changed_marked"), route
+        assert all(verdict[c] for c in first), route
     assert verdicts["ForceRebuild3(False)"]["only_changed_marked"] is False
     assert scope["mated_rebuild_marked"]["ForceRebuild3(False)"]["axial"] == ["assembly", "layout", "part"]
     # A mate error does not make any route return False.

@@ -17,8 +17,8 @@ from gear_generator.probe import decide, harness
 from gear_generator.probe import p8_motion as p8
 
 TIER_8 = ["motion_enums", "shaft_axis_mates", "gear_mate_sense", "compound_lock", "mated_train", "motion_update",
-          "gear_mate_ratio", "lock_retake_offset", "lock_mate_rename", "demonstration_drive", "put_on_twice_meshed_gear",
-          "axial_datum_plane", "mated_rebuild_scope"]
+          "gear_mate_ratio", "gear_mate_update", "lock_retake_offset", "lock_mate_rename", "demonstration_drive",
+          "put_on_twice_meshed_gear", "axial_datum_plane", "mated_rebuild_scope", "gear_mate_definition"]
 
 
 @pytest.fixture(scope="module")
@@ -54,14 +54,15 @@ def test_every_tier_eight_need_is_registered_and_documented(registry):
             assert p.members and p.doc, p.name
 
 
-def test_running_tier_eight_alone_pulls_in_tier_seven_and_the_gear_mate_but_no_builds(registry):
+def test_running_tier_eight_alone_pulls_in_tier_seven_the_gear_mate_and_only_the_spur_build(registry):
     # The registry's order is import order, which a test session does not control; load_probes, which the
     # host run uses, imports p8_motion last. So only the tier's own order is pinned here.
     chosen = [p.name for p in harness.select(registry, TIER_8)]
     assert [n for n in chosen if n in TIER_8] == TIER_8
     assert {"gear_mate", "layout_planes", "axis_through_named_planes", "layout_part_without_body",
             "nonparallel_mates", "equation_add"} <= set(chosen)
-    assert not any(p.tier == 5 for p in registry if p.name in chosen)
+    # gear_mate_update (P1b) builds real gears through the app, so it needs the spur end-to-end build; no other.
+    assert [p.name for p in registry if p.tier == 5 and p.name in chosen] == ["end_to_end"]
 
 
 def test_only_tier_eight_stops_before_solidworks(monkeypatch):
@@ -284,14 +285,26 @@ def test_a_drag_is_a_turn_about_the_gears_own_axis_through_its_origin():
 # -- package P0 (W5-PLAN §0.3, the review's M4 and M5, and the mated rebuild) -----------
 
 
-def test_the_new_items_run_on_mated_trains_copy_or_their_own_and_none_pulls_in_a_build(registry):
+def test_the_new_items_run_on_mated_trains_copy_or_their_own(registry):
     by_name = {p.name: p for p in registry}
     for name in ("gear_mate_ratio", "lock_retake_offset", "lock_mate_rename", "demonstration_drive",
-                 "put_on_twice_meshed_gear", "mated_rebuild_scope"):
+                 "put_on_twice_meshed_gear", "gear_mate_definition"):
         assert by_name[name].needs == ("motion_update",), name
+    assert by_name["mated_rebuild_scope"].needs == ("mated_train",)
     assert by_name["axial_datum_plane"].needs == ("shaft_axis_mates",)
+    # P1b builds real gears with the app's own code, as assembly_rebuild_scope does, so it needs what that needs.
+    assert set(by_name["gear_mate_update"].needs) == {"motion_update", "end_to_end", "layout_assembly_reopen"}
     chosen = {p.name for p in harness.select(registry, ["axial_datum_plane"])}
     assert "gear_mate_sense" not in chosen and "mated_train" not in chosen
+
+
+def test_the_definition_route_is_registered_last(registry):
+    """On SolidWorks 2024 the definition route strands the assembly it changes, holding the train's layout and part,
+    so it is the last probe of all: in one run nothing comes after it (the P0 review's first finding). That it is
+    not run in the same session as anything else is the run's to keep (2024: a separate invocation)."""
+    names = [p.name for p in registry if p.tier == 8]
+    assert names[-1] == "gear_mate_definition"     # p8_motion is imported last by load_probes, so last of all
+    assert names.index("gear_mate_ratio") < names.index("gear_mate_definition")
 
 
 def test_a_followers_pose_against_its_anchor_reads_angle_offset_and_axis():
@@ -317,6 +330,10 @@ def test_the_two_trains_joined_by_one_more_gear_mate_turn_as_one():
     assert turns[:4] == pytest.approx([1.0, -0.25, -0.25, 1 / 12])
     # The first output (51 teeth) drives the second input (17): -3 times it, and the second train 1/12 of that.
     assert turns[4] == pytest.approx(-0.25) and turns[7] == pytest.approx(-0.25 / 12)
+    # The first train's second gear mate remade at 17 : 60, the joining mate still 51 : 17, the second train as built.
+    remade = p8.joined_turns((17, 68, 17, 60), (51, 17), second=p8.TRAIN_TEETH)
+    assert remade[3] == pytest.approx(17 / 68 * 17 / 60) and remade[4] == pytest.approx(-remade[3] * 3)
+    assert remade[7] == pytest.approx(remade[4] / 12)
 
 
 def test_a_datum_plane_far_behind_front_keeps_every_distance_positive():
@@ -343,31 +360,127 @@ def test_the_worst_frame_error_is_the_largest_of_either_kind():
 
 
 def _mated_case(**changes):
-    case = {}
+    case = {"matches_reference": True}
     for step, wanted in p8.MATED_WANTED.items():
         marks = {d: d in wanted for d in p8.MATED_DOCS}
-        case[step] = {"shown": True, "flags": dict(marks), "flags_after_reads": dict(marks)}
+        case[step] = {"shown": True, "drive_right": True, "flags": dict(marks), "flags_after_reads": dict(marks)}
     case["failure"]["cleared"] = True
     for step, values in changes.items():
-        case[step].update(values)
+        if isinstance(values, dict):
+            case[step].update(values)
+        else:
+            case[step] = values
     return case
 
 
-def test_a_mated_rebuild_route_must_show_everything_and_mark_only_what_changed():
+def test_a_step_shown_before_its_route_is_recorded_and_is_not_evidence():
+    assert p8.shown(False, True) is True and p8.shown(False, False) is False
+    assert p8.shown(True, True) == p8.BEFORE and p8.shown(True, False) is False
+
+
+def test_a_mated_rebuild_route_must_show_what_only_it_can_and_mark_only_what_changed():
     good = p8.mated_verdict(_mated_case())
     assert all(good[c] is True for c in p8.MATED_CRITERIA)
+    # SolidWorks showing a put, a layout move, a part change or a mate error before any route is not held against
+    # a route, and not counted for it.
+    before = p8.mated_verdict(_mated_case(put={"shown": p8.BEFORE}, layout={"shown": p8.BEFORE},
+                                          part={"shown": p8.BEFORE}, failure={"shown": p8.BEFORE, "cleared": p8.BEFORE}))
+    assert p8.first_mated_route({"ForceRebuild3(True)": before}) == "ForceRebuild3(True)"
+    # The axial global and the drive must be shown by the route itself; before it is not enough.
+    for step, criterion in (("axial", "axial_shown"), ("drive", "drive_shown")):
+        early = p8.mated_verdict(_mated_case(**{step: {"shown": p8.BEFORE}}))
+        assert early[criterion] == p8.BEFORE and p8.first_mated_route({"EditRebuild3": early}) is None
+    # The drive after a put, a layout move or a part change, and the frames against the full rebuild's, must hold.
+    for step in ("put", "layout", "part"):
+        undriven = p8.mated_verdict(_mated_case(**{step: {"drive_right": False}}))
+        assert p8.first_mated_route({"ForceRebuild3(True)": undriven}) is None, step
+    elsewhere = p8.mated_verdict({**_mated_case(), "matches_reference": False})
+    assert elsewhere["matches_reference"] is False and p8.first_mated_route({"ForceRebuild3(True)": elsewhere}) is None
     every = {d: True for d in p8.MATED_DOCS}
     full = p8.mated_verdict(_mated_case(axial={"flags": every}))
     assert full["only_changed_marked"] is False and full["axial_shown"] is True
     unread = p8.mated_verdict(_mated_case(part={"flags": {"assembly": True, "layout": True, "part": None}}))
     assert unread["only_changed_marked"] is None
     missed = p8.mated_verdict(_mated_case(drive={"shown": False}))
-    assert missed["drive_shown"] is False
     verdicts = {"ForceRebuild3(True)": missed, "EditRebuild3": good, "ForceRebuild3(False)": full}
     assert p8.first_mated_route(verdicts) == "EditRebuild3"
     assert p8.first_mated_route({"ForceRebuild3(True)": missed, "ForceRebuild3(False)": full}) is None
     assert p8.mated_marked({"assembly": True, "layout": False, "part": False}, ("assembly",)) is True
     assert p8.mated_marked({"assembly": True, "layout": True, "part": False}, ("assembly",)) is False
+
+
+def _build(**changes):
+    out = {"placed_off": 0.0, "moved_by_mating": 0.0, "turns_right": True, "matches_reference": True,
+           "check": {"statuses": [1, 1, 1], "errors": {}, "constrained": {"TG1": 2, "TG2": 2}},
+           "constrained_driven": {"TG1": 3, "TG2": 3}}
+    out.update(changes)
+    return out
+
+
+def test_a_train_built_under_a_route_must_pass_w5s_mate_check_and_turn_as_the_full_rebuilds_does():
+    assert all(p8.build_verdict(_build()).values())
+    bad = {"over-defined": _build(check={"statuses": [1, 5], "errors": {}, "constrained": {"TG1": 2}}),
+           "a mate error": _build(check={"statuses": [1], "errors": {"Lock1": {"code": 46}}, "constrained": {"TG1": 2}}),
+           "fully defined undriven": _build(check={"statuses": [1], "errors": {}, "constrained": {"TG1": 3}}),
+           "jumped": _build(moved_by_mating=0.1), "misplaced": _build(placed_off=0.1),
+           "two freedoms": _build(constrained_driven={"TG1": 2}), "wrong ratio": _build(turns_right=False),
+           "elsewhere": _build(matches_reference=False)}
+    for label, build in bad.items():
+        verdict = p8.build_verdict(build)
+        assert not all(verdict.values()), label
+        assert p8.first_build_route({"ForceRebuild3(True)": verdict}) is None, label
+    assert p8.first_build_route({"ForceRebuild3(True)": p8.build_verdict(_build(turns_right=False)),
+                                 "ForceRebuild3(False)": p8.build_verdict(_build())}) == "ForceRebuild3(False)"
+
+
+def test_frame_tables_compare_gear_by_gear():
+    a = {"G1": [p8.w4_rotation(1, 10.0), [0.0, 0.0, 0.0]], "G2": [p8.w4_rotation(-1, 5.0), [1.0, 2.0, 3.0]]}
+    assert p8.frame_table_diff(a, a) == 0.0
+    b = {**a, "G2": [p8.w4_rotation(-1, 5.0), [1.0, 2.0, 3.5]]}
+    assert p8.frame_table_diff(a, b) == pytest.approx(0.5)
+    assert p8.frame_table_diff(a, {"G1": a["G1"]}) == math.inf and p8.frame_table_diff({}, {}) == math.inf
+
+
+def test_the_update_fixture_keeps_its_centre_distance_and_changes_its_ratio():
+    old = p8.update_spec("C:\\X")
+    new = p8.update_spec("C:\\X", p8.UPDATE_TEETH)
+    teeth = lambda spec: {g.id: int(g.teeth) for g in spec.gears}   # noqa: E731
+    assert teeth(old) == {"G1": 17, "G2": 68, "G3": 17, "G4": 51}
+    assert teeth(new)["G3"] + teeth(new)["G4"] == teeth(old)["G3"] + teeth(old)["G4"]      # module 2: still 68 mm apart
+    assert p8.update_turns(teeth(old))[3] == pytest.approx(1 / 12)
+    assert p8.update_turns(teeth(new))[3] == pytest.approx(17 / 68 * 18 / 50)
+    frames_old, frames_new = p8.update_frames("C:\\X"), p8.update_frames("C:\\X", p8.UPDATE_TEETH)
+    assert frames_old["G1"] == frames_new["G1"] and frames_old["G2"] == frames_new["G2"]
+    assert frames_old["G4"][1] == frames_new["G4"][1] and frames_old["G4"][0] != frames_new["G4"][0]   # a new phase
+    assert p8.frames_identity(frames_old["G1"][0])                  # the input at its built phase: the 90° drive holds
+    assert [a for a, _s in p8.UPDATE_ANCHORS] == ["G1", "G2", "G4"] and p8.UPDATE_LOCKS == (("G2", "G3"),)
+
+
+def _update_pass(**changes):
+    p = {"teeth": {"G3": {"ok": True, "changed": ["No. of Teeth"]}, "G4": {"ok": True, "changed": ["No. of Teeth"]}},
+         "remake": {"name": "G3 meshes G4"}, "off_built": {"G1": {"rotation": 0.0, "origin_mm": 0.0}},
+         "check": {"statuses": {"G3 meshes G4": 1}, "errors": {}, "constrained": {"G1": 2}},
+         "moved_by_the_full_rebuild": 0.0,
+         "drive": {"turns": {"G1": 30.0, "G2": -7.5, "G3": -7.5, "G4": 7.5 * 18 / 50}, "back_at_built": 0.0},
+         "interference": {"count": 0}}
+    p.update(changes)
+    return p
+
+
+def test_an_update_pass_holds_only_when_every_step_did():
+    teeth = {"G1": 17, "G2": 68, "G3": 18, "G4": 50}
+    assert p8.update_pass_holds(_update_pass(), teeth)
+    for label, change in {
+            "teeth refused": {"teeth": {"G3": {"ok": False, "changed": []}}},
+            "renamed otherwise": {"remake": {"name": "GearMate5"}},
+            "off its frame": {"off_built": {"G4": {"rotation": 0.01, "origin_mm": 0.0}}},
+            "a mate error": {"check": {"statuses": {}, "errors": {"Lock1": {"code": 51}}, "constrained": {}}},
+            "the full rebuild moves it": {"moved_by_the_full_rebuild": 0.1},
+            "the old ratio": {"drive": {"turns": {"G1": 30.0, "G2": -7.5, "G3": -7.5, "G4": 2.5}, "back_at_built": 0.0}},
+            "not back": {"drive": {"turns": {"G1": 30.0, "G2": -7.5, "G3": -7.5, "G4": 7.5 * 18 / 50},
+                                   "back_at_built": 0.1}},
+            "interference": {"interference": {"count": 2}}}.items():
+        assert not p8.update_pass_holds(_update_pass(**change), teeth), label
 
 
 def test_package_p0_decisions_come_off_a_pass_only():
@@ -379,21 +492,29 @@ def test_package_p0_decisions_come_off_a_pass_only():
                                                                                          "select": "M"},
                                            "c": {"how": "angle", "select": True}},
                           "over_defined": {"deleted_by": "D"}},
-        "gear_mate_ratio": {"gear_mate_ratio_route": "modify definition", "definition_numerator_is_second_teeth": True,
-                            "gear_mate_ratio_recipe": "r"},
+        "gear_mate_ratio": {"gear_mate_ratio_route": "remake"},
+        "gear_mate_update": {"gear_mate_update_holds": True},
+        "gear_mate_definition": {"definition_numerator_is_second_teeth": True, "definition_recipe": "r",
+                                 "definition_closes": {"r": True, "s": False}},
         "lock_retake_offset": {"lock_retakes_an_offset": True},
         "lock_mate_rename": {"mate_rename_route": "IFeature.Name put",
                              "mate_find_routes": {"mate group": True, "FeatureByName": True}},
         "demonstration_drive": {"demonstration_drive_holds": True},
-        "put_on_twice_meshed_gear": {"put_on_twice_meshed_gear_holds": True},
+        "put_on_twice_meshed_gear": {"put_on_twice_meshed_gear_holds": True, "remake_on_twice_meshed_gear_holds": True},
         "axial_datum_plane": {"axial_datum_route": "origin distance from a datum plane", "axial_datum_flip": False},
         "mated_rebuild_scope": {"mated_assembly_rebuild_route": "ForceRebuild3(True)",
-                                "mated_rebuild_keeps_components_unmodified": True},
+                                "mated_rebuild_keeps_components_unmodified": True,
+                                "mated_build_rebuild_route": "ForceRebuild3(True)",
+                                "mated_build_keeps_components_unmodified": True},
     }
     passed = decide.decide(records(facts=facts))
     assert (passed["feature_suppress"], passed["feature_unsuppress"], passed["this_configuration"]) == (0, 1, 1)
     assert (passed["suppression_route"], passed["lock_select_route"], passed["mate_delete_route"]) == ("S", "M", "D")
-    assert passed["gear_mate_ratio_route"] == "modify definition" and passed["gear_mate_ratio_recipe"] == "r"
+    assert passed["gear_mate_ratio_route"] == "remake" and passed["gear_mate_update_holds"] is True
+    assert passed["gear_mate_definition_recipe"] == "r" and passed["modified_gear_mate_closes"] is False
+    assert passed["remake_on_twice_meshed_gear_holds"] is True
+    assert (passed["mated_build_rebuild_route"], passed["mated_build_keeps_components_unmodified"]) == \
+        ("ForceRebuild3(True)", True)
     assert passed["gear_mate_definition_numerator_is_second"] is True
     assert passed["lock_retakes_an_offset"] is True
     assert (passed["mate_rename_route"], passed["mate_find_route"]) == ("IFeature.Name put", "mate group")
@@ -406,8 +527,9 @@ def test_package_p0_decisions_come_off_a_pass_only():
         failed[name]["facts"].update(values)
     decided = decide.decide(failed)
     for key in ("feature_suppress", "feature_unsuppress", "this_configuration", "suppression_route",
-                "lock_select_route", "mate_delete_route", "gear_mate_ratio_route", "gear_mate_ratio_recipe",
-                "lock_retakes_an_offset",
+                "lock_select_route", "mate_delete_route", "gear_mate_ratio_route", "gear_mate_definition_recipe",
+                "gear_mate_update_holds", "modified_gear_mate_closes", "remake_on_twice_meshed_gear_holds",
+                "mated_build_rebuild_route", "mated_build_keeps_components_unmodified", "lock_retakes_an_offset",
                 "mate_rename_route", "mate_find_route", "demonstration_drive_holds", "put_on_twice_meshed_gear_holds",
                 "axial_datum_route", "axial_datum_flip", "mated_assembly_rebuild_route",
                 "mated_rebuild_keeps_components_unmodified"):
@@ -418,6 +540,11 @@ def test_package_p0_decisions_come_off_a_pass_only():
     renamed_not = records(facts={**facts, "lock_mate_rename": {"mate_rename_route": None,
                                                                "mate_find_routes": {"mate group": True}}})
     assert decide.decide(renamed_not)["mate_find_route"] is None
+    # The remake is the route only once P1b has carried a whole tooth change; "modify definition" never is.
+    no_update = records(facts={**facts, "gear_mate_update": {"gear_mate_update_holds": False}})
+    assert decide.decide(no_update)["gear_mate_ratio_route"] is None
+    definition = records(facts={**facts, "gear_mate_ratio": {"gear_mate_ratio_route": "modify definition"}})
+    assert decide.decide(definition)["gear_mate_ratio_route"] is None
 
 
 def test_each_ratio_recipe_puts_what_it_says():

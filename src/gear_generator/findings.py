@@ -650,8 +650,9 @@ MATE_DELETE_ROUTE = "Select2 then EditDelete()"
 #   the same recipe and closed unsaved. On 2024 it could NOT be closed: CloseDoc raised
 #   0x80010105 ("the server threw an exception") and from then on CloseDoc and QuitDoc both
 #   left it open without a word, whether it had been saved or not, until that SolidWorks was
-#   killed: in every 2024 session it was tried, six, each started fresh (three with the new
-#   count alone, unsaved; three with the right recipe, saved first; QuitDoc tried once).
+#   killed. The committed files show it twice: sw2024/probe-results-20261114-040636 (the new
+#   count alone, unsaved) and -051023 (the right recipe, saved first); scratch runs, not
+#   committed, showed the same each time in a fresh session (QuitDoc tried once, also no).
 # - Deleted (MATE_DELETE_ROUTE) and made again by AddMate5 between the two components found
 #   by GetComponentByName, at (17, 60), Flip False, renamed: right, saved, closed, reopened,
 #   right again and closed, on both versions.
@@ -708,9 +709,9 @@ DEMONSTRATION_DRIVE_SENSE = 1    # the input (on Z+) turns +θ about +Z as the a
 # mate, so it carries two, put 9° round held and nothing else turned; no mate error, every
 # gear under-defined, and one drive then made all eight fully defined and turned them as
 # one train. Recorded beside it (lock_on_put_turns): a put on TG2 with its lock ON held too,
-# TG3 did not follow and no mate reported an error, so a lock does not hold against a
-# Transform2 put: it silently re-takes the new relative angle, and a put on one gear of a
-# compound pair changes the pair's relation whether or not the lock is suppressed.
+# TG3 did not follow and no mate reported an error, after the put's rebuild. That is all that
+# was read: no drive followed, so what the lock does on its next solve was not measured
+# (probe round P0b drives the train after such a put: lock_on_put_after_drive).
 PUT_ON_TWICE_MESHED_GEAR_HOLDS = True
 
 # axial_datum_plane (M5): a plane in the layout part offset 1000 mm from Front with the
@@ -734,18 +735,23 @@ AXIAL_DATUM_FLIP = False
 # its suppressed lock, the output shaft moved 5 mm in the layout part's own document, the
 # gears' part's OD +4 mm in its own document, and an angle mate fighting the compound lock
 # then deleted. ForceRebuild3(True) and EditRebuild3 re-solved every one (the axial move
-# and the drive read nothing before the route and the whole change after it; the moved
-# shaft showed once ActivateDoc3 brought the assembly back, before the route) and marked
-# exactly the documents changed on purpose; ForceRebuild3(False) re-solved every one too
+# and the drive read nothing before the route and the whole change after it; on 2026 the
+# moved shaft showed once ActivateDoc3 brought the assembly back, before the route, and on
+# 2024 it did not show before the route) and marked exactly the documents changed on purpose; ForceRebuild3(False) re-solved every one too
 # but marked the layout and the part at the first step, as assembly_rebuild_scope found
 # on a static assembly. With the conflicting mate no route returned False: AddMate5's
 # status was 5 and the mate errors (2026: 47 for it, 46 for the lock and an axis mate)
 # showed before and after the route; deleted, they cleared. IModelDocExtension.NeedsRebuild
 # and NeedsRebuild2 (the members sldworks.tlb lists for it) read True and 1 after an
 # assembly global changed (the axial global, the drive) and False and 0 after every route,
-# the top-only one included; after a change made in the layout's or the part's own
-# document they read False and 0 already before the route (ActivateDoc3 had brought the
-# assembly back), so they do not show a component changed elsewhere.
+# the top-only one included, on both versions. After a change made in the layout's or the
+# part's own document they read False and 0 before the route on 2026, True and 1 on 2024.
+# Caveats the P0 review found, for probe round P0b to settle: the three routes' copies
+# shared one layout part and one gear part; the 2024 file (sw2024/...-040636) ran with an
+# assembly gear_mate_ratio had stranded open, holding that layout and part, so its two
+# differences from 2026 above may be the stranded assembly's rather than the version's; the
+# put, the part change and the conflicting mate were not read before the route, and the
+# train was built with the full rebuild, not under the route.
 # What it was measured on, and so what it covers: the workbook TRAIN as W5 builds it, nine
 # components, every gear's Gear Axis coincident with its layout "<Shaft> Axis", each anchor's
 # origin a distance from the layout's Front plane (the output's linked to an assembly global),
