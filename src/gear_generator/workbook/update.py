@@ -1011,7 +1011,8 @@ def _teeth_held(plan: UpdatePlan, result: GearboxUpdate) -> Dict[str, int]:
 
 def _follow_mates(box: GearboxRecord, plan: UpdatePlan, result: GearboxUpdate) -> None:
     """The record's mates follow what Update set: a MESH entry's ``ratio`` for each gear mate in
-    ``result.ratios`` (the ratio given, in the mate's own gear order), and an ALONG entry's ``z_front`` for each
+    ``result.ratios`` or ``result.ratios_already`` that the plan asked to change (the ratio given, in the mate's
+    own gear order), and an ALONG entry's ``z_front`` for each
     gear in ``result.axial`` (where its wanted frame puts its front face). A MESH whose gears' parts now hold teeth
     at the same ratio as the mate (17 : 68 → 34 : 136: no remake needed) takes those counts too, so a later
     classify does not read it as a change, and its pitch is the teeth the parts hold."""
@@ -1023,7 +1024,11 @@ def _follow_mates(box: GearboxRecord, plan: UpdatePlan, result: GearboxUpdate) -
         if a in teeth and b in teeth and (teeth[a], teeth[b]) != tuple(entry.ratio) and \
                 entry.ratio[0] * teeth[b] == entry.ratio[1] * teeth[a]:
             entry.ratio = [teeth[a], teeth[b]]
-    set_ratios = set(getattr(result, "ratios", []) or [])
+    # A gear mate remade (``ratios``), or one the plan asked to change that SolidWorks already held at the wanted
+    # ratio and so was not remade (``ratios_already``: a lost Update's record typed back, say), takes the plan's
+    # ratio. One found at another ratio and remade though the plan asked no change (``ratios_found``, also in
+    # ``ratios``) is not in the plan's ratios: the record already holds the wanted ratio for it.
+    set_ratios = set(getattr(result, "ratios", []) or []) | set(getattr(result, "ratios_already", []) or [])
     moved = set(getattr(result, "axial", []) or [])
     given = {name: [int(n), int(d)] for name, n, d in plan.motion.ratios}
     at = {p.gear: p.at for p in plan.placements}

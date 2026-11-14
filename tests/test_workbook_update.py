@@ -1036,6 +1036,8 @@ def test_round_trip_an_anchors_face_z_moves_it_and_the_record_follows(on_fake):
     spec = gears(reducer(), G4=dict(at="30"))
     plan, result, finished = press(sw, record, spec)
     assert plan.axial == ("G4",) and result.ok and result.axial == ["G4"]
+    # Rule 1 (package A, ba2bc1f): a gear of a train that moves puts the whole train; unturned, nothing restored.
+    assert sorted(result.placed) == ["G1", "G2", "G3", "G4"] and result.restored == [] and no_lock_left_off(sw, record)
     assert sw.frames[name2(record, "G4")][1][2] == pytest.approx(20.0) and at_wanted(sw, record, spec)
     assert {e.name: e for e in finished.record.gearbox.mates}["G4 along S3"].z_front == 20.0
     assert nothing(update.classify(finished.record, assessed(spec), exists=lambda p: True))
@@ -1235,3 +1237,49 @@ def test_an_earlier_updates_mark_on_the_assembly_saved_since_lays_a_drag_to_the_
     plain = update.finish_update(plan, worker_answer(plan, found=found, placed=("G4",), changed_parts=()), record,
                                  digest="d2", read_sidecar=disk.read_sidecar, mtime=lambda p: 1.0)
     assert (plain.earlier_update, plain.dragged, plain.off_after_update) == ("", ["G4"], [])
+
+
+# -- gear mates judged by their live ratio (package A, ba2bc1f): m5 and a3 -------------------------------------------
+
+TEETH_69 = gears(reducer(), G2=dict(teeth="69"))
+
+
+def lost_tooth_change(sw, record, monkeypatch):
+    """A tooth-change Update by remake (G2 68 -> 69) recorded 17 : 69, then SolidWorks closed without saving."""
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    _, first, finished = press(sw, record, TEETH_69)
+    assert first.ok and first.ratios == ["G1 meshes G2"]
+    assert {e.name: e.ratio for e in finished.record.gearbox.mates}["G1 meshes G2"] == [17, 69]
+    sw.close_all()
+    return finished.record
+
+
+def live_ratio(sw, record):
+    sw.open_document(record.gearbox.assembly)
+    return tuple(sw.mate("G1 meshes G2", record.gearbox.assembly).ratio)
+
+
+def test_round_trip_a_lost_tooth_change_pressed_again_is_remade_and_both_hold_17_to_69(on_fake, monkeypatch):
+    """m5: the record says 17 : 69, the reopened mate 17 : 68; the plan asks no change and the live check remakes."""
+    sw, record = on_fake
+    lost = lost_tooth_change(sw, record, monkeypatch)
+    plan, result, again = press(sw, lost, TEETH_69, digest="d3")
+    assert plan.ratios == () and result.ok and result.ratios == ["G1 meshes G2"]
+    assert result.ratios_found == ["G1 meshes G2"]
+    assert {e.name: e.ratio for e in again.record.gearbox.mates}["G1 meshes G2"] == [17, 69]
+    assert live_ratio(sw, record) == (17, 69)
+    assert nothing(update.classify(again.record, assessed(TEETH_69), exists=lambda p: True))
+
+
+def test_round_trip_a_lost_tooth_change_typed_back_takes_the_ratio_solidworks_already_holds(on_fake, monkeypatch):
+    """a3: the user types G2 back to 68; the plan asks 17 : 68; the reopened mate already is 17 : 68, so nothing is
+    remade and the record takes 17 : 68 rather than keep the lost 17 : 69 for ever."""
+    sw, record = on_fake
+    lost = lost_tooth_change(sw, record, monkeypatch)
+    plan, result, again = press(sw, lost, reducer(), digest="d3")
+    assert plan.ratios == ("G1 meshes G2",) and plan.motion.ratios == (("G1 meshes G2", 17, 68),)
+    assert result.ok and result.ratios == [] and result.ratios_already == ["G1 meshes G2"]
+    assert {e.name: e.ratio for e in again.record.gearbox.mates}["G1 meshes G2"] == [17, 68]
+    assert live_ratio(sw, record) == (17, 68)
+    after = update.classify(again.record, assessed(reducer()), exists=lambda p: True)
+    assert nothing(after) and after.ratios == ()
