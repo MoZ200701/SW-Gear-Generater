@@ -578,7 +578,16 @@ record says), unless the file was saved since. So an Update left unsaved and
 lost with SolidWorks never holds a part back for ever: the next Update reads
 the files and settles it. While a document of the current revision is marked
 mismatched the header reads *· SolidWorks no longer holds all of this
-version*.
+version*. Which documents were open is read to the end of SolidWorks' list
+(third review; it stopped at 200, and one large assembly loads more), and a
+document the job opens counts as loaded from its file only when SolidWorks
+also reads it holding no unsaved changes (`GetSaveFlag`); one that does was
+open all along, whatever the list said, so its marks stay. A list that never
+ends refuses the job with a sentence. **Known limit:** with two SolidWorks
+sessions running (2024 and 2026, say), the job sees only the session it is
+connected to, so a document left unsaved in the other one cannot be seen: it
+reads as closed here, and a mark on it can be settled as if SolidWorks had
+closed it.
 
 An Export that left the Results sheet out for a formula cell adds, once Excel
 has saved since, *Export again to write the Results sheet: it waited for Excel
@@ -698,16 +707,17 @@ unless the job's sentence is a fault, which it stays open to show.
 is guarded the same way (`gui.CloseGuard`; the worker is a daemon thread, so
 the app ending mid-job would leave what SolidWorks saved off the record):
 each such window is closed as above, the strip says *Gear Generator closes
-once a workbook's job in SolidWorks has finished and what it saved is on
-record; it stays open if something needs saying.*, and the app closes once
+once a workbook's job in SolidWorks has finished and what it did is on
+record; it stays open if a Workbook window has something to say.*, and the app closes once
 no job is pending and every one of those windows has closed. If one stayed
 open to show a fault, the app stays too: *Gear Generator stayed open: a
 workbook's job has something to say in its window. Close this window again to
 quit.* With nothing pending it closes at once. Since the second review the
-strip's own build is waited for the same way (*Gear Generator closes once the
-strip's build in SolidWorks has finished and what it saved is on record; it
-stays open if something needs saying.*): its poll collects it and writes its
-`.gear.json`, then the app closes. A Workbook window with a question open —
+strip's own job — a build or an update of a part's values — is waited for the
+same way (*Gear Generator closes once the strip's job in SolidWorks has
+finished and the strip has collected it.*): its poll collects it and writes
+its `.gear.json`, then the app closes, whatever the job said (the strip does
+not stay open to show it). A Workbook window with a question open —
 *Build again?*, or *Moved, or a copy?* — is never destroyed under it: *Gear
 Generator closes once the question open in a Workbook window is answered.*,
 and the window closes once the answer is acted on (after a job, if the answer
@@ -717,24 +727,35 @@ started one).
 can cancel a call it does not answer — closing a window a second time asks,
 titled *Close anyway?*, defaulting to No: *SolidWorks has not answered yet:
 the build is still running there, perhaps held up by a dialog open in
-SolidWorks. Close this window anyway? Files SolidWorks saves from now are not
-put on record by this window, and nothing will be overwritten: the next Build
-finds them, checks them in SolidWorks and reuses what it can.* (for an
-update: *… What it changes from now is not put on record, so this window will
-not ask for those documents to be saved, and nothing will be overwritten.*).
-Closing the strip's window a second time asks *Quit anyway?*: *SolidWorks has
-not answered yet: a job is still running there, perhaps held up by a dialog
-open in SolidWorks. Quit anyway? Files SolidWorks saves from now, and
-documents it changes, are not put on record by this session, and nothing will
-be overwritten.* (adding *The workbook's next Build finds the files its build
-saved, checks them in SolidWorks and reuses what it can.* when a workbook's
-build is among the jobs). Yes closes; No goes on waiting.
+SolidWorks. Close this window anyway? Nothing the build saves is put on record
+by this window, and nothing will be overwritten: the build listed what it is
+about to make in the record before it began, so the next Build finds those
+files, checks them in SolidWorks and reuses what it can.* — or, when that
+journal could not be written, *… so the next Build goes beside the files it
+saves rather than over them.* (for an update: *… Nothing the update changes is
+put on record by this window, so it will not ask for those documents to be
+saved, and nothing will be overwritten.*). Closing the strip's window a second
+time asks *Quit anyway?*: *SolidWorks has not answered yet: a job is still
+running there, perhaps held up by a dialog open in SolidWorks. Quit anyway?
+Nothing that job saves or changes is put on record by this session, and
+nothing will be overwritten.* (adding *A workbook's build lists what it is
+about to make in that workbook's record before it begins, unless the record
+cannot be written, so the workbook's next Build finds the files it saved,
+checks them in SolidWorks and reuses what it can.* when a workbook's build is
+among the jobs). Yes closes; No goes on waiting. While a job a window was
+closed on is still running, no Workbook window starts a build or an update;
+pressing either says *A job from a Workbook window that was closed while
+SolidWorks had not answered is still running in SolidWorks; build when it has
+finished.*
 
 **The journal.** Before a build's job is submitted, the record gains what it
 is about to make (`pending`: each new part with its gears and form, the
 layout part, the assembly), written through the same guarded write as a
-finish; the finish takes it out, and so does collecting a job the worker
-refused. So a build interrupted after SolidWorks saved some of it — the app
+finish and merged by path into what an earlier journal still holds. It is
+never cleared wholesale (third review): an entry leaves only once it is on
+record (its `.gear.json` written, or listed among the record's parts or a
+gearbox) or its file is not on disk — at a finish, or when the worker refuses
+a job. So a build interrupted after SolidWorks saved some of it — the app
 killed, a crash, a power cut, or *Close anyway?* — leaves files the next plan
 knows: a pending part on disk with no `.gear.json` is planned for reuse when
 it is the same part (the same plan), checked live like any reused part, and
@@ -743,7 +764,9 @@ live check finds it holding the shafts' globals, planes and axes; a pending
 assembly is gone beside, with *Reducer_12to1.SLDASM was saved by a build that
 was interrupted before it was put on record, and a build never overwrites a
 file. So this build is Reducer_12to1_r2, beside it; nothing is overwritten.*
-A pending path that is not on disk is dropped. A finish that raises writes
+A pending path that is not on disk is dropped. A pending part a live check
+finds not as it should be stays in the journal, this workbook's, with its
+mismatched mark, and is made new. A finish that raises writes
 nothing, but the journal is still on record: *What the build saved could not
 all be put on record — …. What SolidWorks saved stays on disk, and the next
 Build finds it from the journal written before the build, checks it in
@@ -922,18 +945,33 @@ but asks once, after the plan that found it, titled *Moved, or a copy?*,
 defaulting to No: *The record of what was built beside this workbook was
 written for C:\Parts\Reducer_12to1.xlsx, which is not there any more. Was
 this workbook moved or renamed from it? Yes: the record is this workbook's,
-and Update SolidWorks and Build carry on from what it lists. No: this workbook
-is a copy, so Build makes its own gearbox beside those files, sharing and
-overwriting nothing. The answer is kept in the record.* Until it is answered
+and Update SolidWorks and Build carry on from what it lists; the answer is kept
+in the record. No: this workbook is a copy, so Build makes its own gearbox
+beside those files, sharing and overwriting nothing; until it has, you are
+asked again the next time Gear Generator opens this workbook. If that workbook
+may be on a drive that is not connected now, answer No: nothing is shared or
+overwritten.* Until it is answered
 the record is planned as a copy's, and the footer says so (*The record that
 came with this workbook was written for …, which is not there any more: until
 you say whether this workbook was moved or renamed from it, Build makes this
 workbook's own gearbox beside the files it lists, sharing and overwriting
 nothing.*). Yes adopts the record — the old path kept in `moved_from`, so the
 parts' `.gear.json`, which name it, are still this workbook's; No keeps it the
-other workbook's (`copy_of`). The answer holds for the session even if the
-record cannot be written. The Gears table shows each part to build under the
-name the build will give it (`plan.part_of`).
+other workbook's for the session (`copy_of`, in memory only, never written),
+and the footer says *The record that came with this workbook was written for
+…, which you said this workbook is a copy of, so that record, and the
+SolidWorks files it lists, are that workbook's: Build makes this workbook's own
+gearbox beside them, sharing and overwriting nothing. If this workbook was in
+fact moved or renamed from it, quit Gear Generator and open this workbook again
+before you build, and you are asked again.* — the way back from a mistaken No
+(third review): until this workbook's first build writes a record of its own,
+a new session asks again. Yes holds for the session even if the record cannot
+be written. Paths are compared as files only when both can be read and each
+has a file id that is not 0 (some network redirectors report 0 for every
+file); otherwise as text, and each path is read once per planning pass, so an
+offline share holds the window up once, not at every comparison. The Gears
+table shows each part to build under the name the build will give it
+(`plan.part_of`).
 
 ### The record, `Reducer_12to1.workbook.json`
 
@@ -946,8 +984,7 @@ globals, planes and axis, the listed meshes, and each gear's component name and
 frame; earlier revisions (paths only); the documents Update left unsaved, with
 their times; the documents found not as recorded — by a live check, or
 marked unsaved and found closed — (`mismatched`, with their times); the
-workbook's earlier paths (`moved_from`); the answer *No: a copy* (`copy_of`);
-a build's journal (`pending`, and `pending_for`, the workbook whose build wrote
+workbook's earlier paths (`moved_from`); a build's journal (`pending`, and `pending_for`, the workbook whose build wrote
 it); and the app's own last Export (`own_digest`, `recalc`). Each
 part also gets its `.gear.json`, naming the workbook and the rows it serves;
 Update marks the one of a part it changed `unsaved_since`, so it never claims

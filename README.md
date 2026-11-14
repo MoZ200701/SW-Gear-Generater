@@ -350,11 +350,13 @@ and a part whose file name is taken gets its own `_r2` (never the name another
 row's Part name asks for). A workbook copied with its folder builds a gearbox
 of its own beside the original's files and leaves them alone; when the
 workbook its record was written for is gone, the window asks once whether this
-one was moved there or is a copy, and remembers the answer in the record.
+one was moved there or is a copy. "Moved" is remembered in the record; "a copy"
+holds until Gear Generator closes, so until the copy builds a gearbox of its own
+a mistaken answer is taken back by opening the workbook again in a new session.
 While a build runs, the record keeps a journal of what it is about to make, so
 if the app is killed, crashes or is quit while SolidWorks does not answer, the
 next Build checks what SolidWorks saved and reuses it rather than go beside
-it. After
+it; a file stays in the journal until it is on record or gone. After
 a build SolidWorks marks the inserted parts and the layout part as modified, so
 it may ask to save them when you close the assembly: saving them is harmless,
 since they hold what they were built with.
@@ -426,7 +428,10 @@ The W4 demonstration (`probe/workbook_assembly_check.py`, `probe/workbook_window
   goes wrong, the footer's sentences, the app's close), and the second
   review's (whose a record is when its workbook is gone or reached by another
   path, marks a job can prove cleared, the journal, quitting while SolidWorks
-  does not answer, a value check on the angle unit), are tested against the
+  does not answer, a value check on the angle unit), and the third's (the
+  whole list of open documents read, and a document holding unsaved changes
+  never counted as loaded from its file; the journal never cleared
+  wholesale; a copy's "No" for the session only), are tested against the
   test suite's fake SolidWorks only, and await a rerun of both scripts on
   SolidWorks — the assembly check's new section `a3` shows the journal and the
   marks clearing there.

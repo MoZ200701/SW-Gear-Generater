@@ -1080,7 +1080,8 @@ boards["WorkbookMoved"] = ("Workbook · its record's workbook gone: moved, or a 
                            WINDOW_WIDTH)
 boards["WorkbookCloseAnyway"] = ("Workbook · closed twice while SolidWorks does not answer",
                                  workbook_board(reducer, building=swbuild.Step(swbuild.STAGE_PART, "Gear_m1.5_N68", 2, 4),
-                                                dialog=(ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question())),
+                                                dialog=(ui_text.CLOSE_ANYWAY_TITLE,
+                                                        ui_text.close_anyway_question(journaled=True))),
                                  WINDOW_WIDTH)
 
 layout = []
