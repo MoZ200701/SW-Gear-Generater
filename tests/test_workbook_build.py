@@ -434,8 +434,11 @@ def test_the_window_says_what_a_later_phase_builds(tmp_path):
     try:
         window.withdraw()
         status = window.status.get()
-        assert status.startswith("Ready: Build makes 2 parts in ") and "Left for a later phase: Shafts!A4: P1 " \
-            "is mounted on C, with 3 copies round it" in status
+        # The parts build (W2's batch, now Build parts: the layout and assembly wait for the carrier's phase).
+        assert status.startswith("Ready: Build parts makes 2 parts in ") and "; the layout and assembly wait for " \
+            "a later phase: Shafts!A4: P1 is mounted on C, with 3 copies round it" in status
+        assert window.footer().build_action == ui_text.BUILD_PARTS
+        assert window.build_button.label.cget("text") == "Build parts"
         assert window.build_button._enabled  # noqa: SLF001 - the button's own flag; it is never pressed here
         shown = [w.cget("text") for w in window.checks_body.winfo_children() if isinstance(w, tk.Label)]
         assert shown == [window.parts.refused[0].message]
@@ -463,8 +466,8 @@ def test_a_link_record_sits_beside_its_workbook(tmp_path):
                               parts=[store.PartEntry(path="C:\\P\\Gear_m1.5_N17.SLDPRT", gears=["G1", "G5"])])
     where = store.save_link_record(record)
     assert where == str(tmp_path / "Reducer_12to1.workbook.json")
-    assert store.load_link_record(workbook) == record
-    assert store.load_link_record(str(tmp_path / "other.xlsx")) is None
+    assert store.read_link_record(workbook) == record
+    assert store.read_link_record(str(tmp_path / "other.xlsx")) is None
 
 
 def test_a_parts_record_says_which_workbook_it_came_from():
@@ -553,10 +556,14 @@ def test_one_gears_error_leaves_the_others_planned(tmp_path):
 
 
 
-def test_a_damaged_link_record_is_no_record(tmp_path):
+def test_a_damaged_link_record_is_said_and_left_where_it_is(tmp_path):
+    """No longer read as "no record", which the next write then overwrote: the window says it, and only the next
+    write sets it aside (test_workbook_window)."""
     workbook = str(tmp_path / "R.xlsx")
     (tmp_path / "R.workbook.json").write_text('{"workbook": "R.xlsx", "parts": "notalist"}')
-    assert store.load_link_record(workbook) is None
+    with pytest.raises(store.StoreError, match="R.workbook.json, cannot be read"):
+        store.read_link_record(workbook)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["R.workbook.json"]
 
 
 # -- the window's one decision: what the footer says and whether Build may run ---------------

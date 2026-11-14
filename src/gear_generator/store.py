@@ -794,18 +794,3 @@ def carry_link_record(old_workbook: str, new_workbook: str) -> Optional[str]:
         return None
     record.workbook = new_workbook
     return save_link_record(record, link_record_path(new_workbook))
-
-
-def load_link_record(workbook_path: str) -> Optional[LinkRecord]:
-    """The record beside a workbook, or None when there is none or it cannot be read.
-
-    Kept for the window as it stands before W4 is wired (its Export and
-    Build parts paths), and for nothing new: it hides a newer record as None,
-    which a write would then overwrite (:func:`save_link_record` now refuses
-    that write). The window wiring moves to :func:`read_link_record` and
-    :func:`open_link_record` and removes this.
-    """
-    try:
-        return read_link_record(workbook_path)
-    except Exception:  # noqa: BLE001 - a missing or broken record means "not built from here yet"
-        return None

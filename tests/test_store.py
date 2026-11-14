@@ -298,7 +298,7 @@ def test_a_planning_read_never_moves_or_changes_the_file(tmp_path, text, error):
     with pytest.raises(error, match="R.workbook.json"):
         store.read_link_record(str(tmp_path / "R.xlsx"))
     assert target.read_text() == text and sorted(p.name for p in tmp_path.iterdir()) == ["R.workbook.json"]
-    assert store.load_link_record(str(tmp_path / "R.xlsx")) is None     # the window's read until it is rewired
+    assert not hasattr(store, "load_link_record")     # the legacy read that hid both as "no record" is gone
 
 
 @pytest.mark.parametrize("raw", NEWER)
