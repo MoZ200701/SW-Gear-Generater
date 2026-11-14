@@ -2163,8 +2163,11 @@ class Session:
             if suppressed:
                 raise SolidWorksError(f"SolidWorks would not suppress the mate {name} in {title}: it still reads it "
                                       "turned on.")
+            # A mate inside a suppressed folder is suppressed with it (MATE_FOLDER_SUPPRESSION_SUPPRESSES_ITS_MATES);
+            # unsuppressing the mate itself there is not probed, and is caught here by the read-back.
             raise SolidWorksError(f"SolidWorks would not turn the mate {name} back on in {title}: it still reads it "
-                                  "suppressed.")
+                                  "suppressed; if it sits in a suppressed folder, unsuppress the folder in SolidWorks "
+                                  "and press Update SolidWorks again.")
 
     def gear_mate_ratio(self, handle: str) -> Tuple[float, float]:
         """A kept gear mate's ratio as SolidWorks holds it now, as ``(teeth of its first selection, of its second)``
@@ -2503,8 +2506,11 @@ class Session:
     def component_resolved(self, handle: str) -> bool:
         """Whether a kept component is fully resolved, read by the route probe round P0d settles
         (:data:`RESOLVED_ROUTE_FINDING`, one of :data:`RESOLVED_ROUTES`) and judged by its fully-resolved values
-        (:data:`RESOLVED_VALUES_FINDING`). P0c drove a train whose components were lightweight and one gear turned
-        -24° where 2.5° was right, so a turning Update reads this before anything changes. Either finding missing,
+        (:data:`RESOLVED_VALUES_FINDING`). Probe round P0d: every gear of a train opened lightweight read 1; the
+        first drive turned one gear -24.17° where 2.5° is right, and afterwards every gear read 2; the remake and the
+        drive after it ran resolved and were right (``findings.LIGHTWEIGHT_FIRST_DRIVE_RIGHT`` False,
+        ``LIGHTWEIGHT_RESOLVED_BY`` "the first drive"). So a turning Update reads this before anything changes, and a
+        plain open reads 2 on every gear on both versions. Either finding missing,
         or a route this code does not know: a sentence (callers read it only when the route finding is set)."""
         route = getattr(findings, RESOLVED_ROUTE_FINDING, None)
         values = getattr(findings, RESOLVED_VALUES_FINDING, None)

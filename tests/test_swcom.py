@@ -1636,7 +1636,8 @@ def test_a_suppression_that_does_not_take_names_the_mate(mated):
     with pytest.raises(SolidWorksError) as raised:
         session.set_mate_suppressed("lock", False)
     assert str(raised.value) == ("SolidWorks would not turn the mate G3 locked to G2 back on in R.SLDASM: it still "
-                                 "reads it suppressed.")
+                                 "reads it suppressed; if it sits in a suppressed folder, unsuppress the folder in "
+                                 "SolidWorks and press Update SolidWorks again.")
 
 
 def test_a_mate_renamed_since_it_was_found_is_gone_when_it_is_suppressed(mated):

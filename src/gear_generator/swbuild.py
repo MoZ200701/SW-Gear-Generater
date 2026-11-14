@@ -2608,9 +2608,11 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
     try:
         sw.open_document(assembly)
         _note_opened(sw, assembly, result)
-        # Lightweight gears (a user whose SolidWorks loads assemblies lightweight): P0c drove such a train and a gear
-        # turned wrongly before anything resolved it, so with the read settled each gear is read and one that is
-        # not fully resolved refuses the Update here. Without the finding, find_component's own check stands.
+        # Lightweight gears (a user whose SolidWorks loads assemblies lightweight). Probe round P0d: every gear of a
+        # train opened lightweight read 1; the first drive turned one gear -24.17° where 2.5° is right, and afterwards
+        # every gear read 2; the remake and the drive after it ran resolved and were right. So with the read settled
+        # each gear is read and one that is not fully resolved refuses the Update here. Without the finding,
+        # find_component's own check stands.
         resolving = getattr(findings, RESOLVED_ROUTE_FINDING, None) is not None
         for index, placement in enumerate(placements, 1):
             if resolving:

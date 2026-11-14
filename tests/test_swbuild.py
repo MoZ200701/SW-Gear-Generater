@@ -223,6 +223,7 @@ class FakeSolidWorks:
         self.raises_after = {}         # call name -> (n, exception): raised by the n-th call, after its effect
         self.counts_after = {}
         self.lightweight = set()       # Name2s loaded lightweight (component_resolved reads False for them)
+        self.held_suppressed = set()   # mate names an unsuppress does not take on (in a suppressed folder, say)
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -680,7 +681,14 @@ class FakeSolidWorks:
 
     def set_mate_suppressed(self, handle, suppressed):
         self._log("set_mate_suppressed", handle, suppressed)
-        self.mate(self.mate_handles[handle]).suppressed = bool(suppressed)
+        name = self.mate_handles[handle]
+        if not suppressed and name in self.held_suppressed:
+            # As swcom.Session.set_mate_suppressed's read-back: the call returned, the mate still reads suppressed.
+            title = self.active.title if self.active else "the assembly"
+            raise SolidWorksError(f"SolidWorks would not turn the mate {name} back on in {title}: it still reads it "
+                                  "suppressed; if it sits in a suppressed folder, unsuppress the folder in SolidWorks "
+                                  "and press Update SolidWorks again.")
+        self.mate(name).suppressed = bool(suppressed)
         self.counts_after["set_mate_suppressed"] = self.counts_after.get("set_mate_suppressed", 0) + 1
         planned = self.raises_after.get("set_mate_suppressed")
         if planned is not None and planned[0] == self.counts_after["set_mate_suppressed"]:
@@ -3670,3 +3678,21 @@ def test_with_the_idler_finding_both_of_an_idlers_gear_mates_are_remade(remake_r
     assert fake.mate("G2 meshes G4", T_ASM).ratio == (68.0, 50.0)
     assert result.placed == list(TRAIN_ORDER) and fake.locked_puts == []
     assert not fake.mate("G3 locked to G2", T_ASM).suppressed
+
+
+
+def test_a_recorded_mate_that_stays_suppressed_after_it_is_turned_back_on_stops_the_update_naming_it():
+    """D10 on a mate inside a suppressed folder (probe round P0d: suppressing a folder suppresses its mates; turning
+    the mate itself back on there is not probed): the read-back finds it still suppressed and the Update stops with
+    a sentence naming it, before any lock is suppressed or any gear put."""
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    fake.mate("G4 along S3", T_ASM).suppressed = True
+    fake.held_suppressed = {"G4 along S3"}
+    result = _update_train(fake)
+    assert result.failures == [("T.SLDASM", "SolidWorks would not turn the mate G4 along S3 back on in T.SLDASM: it "
+                                            "still reads it suppressed; if it sits in a suppressed folder, unsuppress "
+                                            "the folder in SolidWorks and press Update SolidWorks again.")]
+    assert result.unsuppressed == [] and result.placed == [] and fake.locked_puts == []
+    assert not fake.mate("G3 locked to G2", T_ASM).suppressed and result.changed == [T_ASM]
+    assert "interferences" not in names(fake)
