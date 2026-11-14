@@ -431,3 +431,137 @@ COMPONENTS_RESOLVED_AFTER_REOPEN = True
 # Items 1-4 of PLAN-WORKBOOK §4.2 and the body-less layout part all passed, so the
 # layout part and the static assembly are built.
 WORKBOOK_LAYOUT_ROUTE = "layout"
+
+# -- the workbook gearbox that turns (tier 8) --------------------------------
+#
+# Probe tier 8 (p8_motion), PLAN-WORKBOOK §4.4 / phase W5, which needs PLAN-GEARBOX's
+# tier 6 items 3-5. Observed on SolidWorks 2026 (34.0.0, a full run, latest.json) and
+# 2024 (32.5.0, tier 8 in a freshly restarted session, sw2024/probe-results-20261113-223412)
+# on 2026-11-13, with every decision the same; the one difference (the mate error codes
+# GetErrorCode2 gives) is noted where it bites. tests/test_findings.py pins each finding
+# against both files.
+
+# motion_enums, read from swconst.tlb after the reader gave back coincident 0,
+# distance 5, angle 6 and gear 10.
+MATE_CONCENTRIC = 1              # swMateType_e.swMateCONCENTRIC
+MATE_LOCK = 16                   # swMateType_e.swMateLOCK
+MATE_ALIGN_ALIGNED = 0           # swMateAlign_e
+MATE_ALIGN_ANTI_ALIGNED = 1
+ADD_MATE_NO_ERROR = 1            # swAddMateError_e.swAddMateError_NoError
+
+# shaft_axis_mates: eight cylinders placed turned and fixed as W4 leaves them, on
+# shafts along Z+ and Z-, then unfixed (UnfixComponent) and mated to their shaft's
+# "<Shaft> Axis" in the body-less layout part. AddMate5(swMateCOINCIDENT, closest)
+# between the gear's "Gear Axis" and the layout axis held it: no gear moved or turned
+# over (closest kept a Z- gear anti-aligned: IMate2.Alignment read 0 on Z+, 1 on Z-),
+# a Transform2 put turning it 25° about its axis stayed, and one moving it 5 mm off
+# the axis, 5 mm along it, or tilting it 10° came back on the rebuild; the mates and
+# frames came back unchanged after a save and reopen, with no mate error. The axes
+# selected by FeatureByName + Select2, by SelectByID2 "<axis>@<component>@<assembly>"
+# and by GetCorresponding of the part's feature + Select4 alike. A CONCENTRIC mate
+# between the two axes was refused: AddMate5 returned nothing with status 0
+# (swAddMateError_ErrorUknown), on Z+ and Z-. The cylinder's outside face concentric
+# with the layout axis held too. Given explicitly, swMateAlignANTI_ALIGNED turned a Z+
+# gear over and swMateAlignALIGNED a Z- one, so closest is what keeps W4's placing.
+AXIS_MATE_ROUTE = "axis coincident"
+AXIS_CONCENTRIC_REFUSED = True
+# Along the shaft: a distance from the gear's origin (Point1@Origin, its front-face
+# centre) to the layout's Front plane, |z| with Flip set when z < 0 (a point's distance
+# is along the plane's normal, as nonparallel_mates found), held a gear at z = 5, -12
+# and 8 on Z+ and Z-, and a coincident one at z = 0. The gear's Front plane at a distance
+# from the layout's Front, Flip off, put it on the wrong side (12 and 14 mm off).
+AXIAL_MATE_ROUTE = "origin distance"
+
+# gear_mate_sense: nineteen pairs of cylinders and annuli on layout axes, mated as
+# above, each joined by AddMate5(swMateGEAR) and its first gear driven 30° by an angle
+# mate on one global. With Flip False every external pair turned opposite ways about
+# +Z, at the ratio, whichever way the two shafts pointed (Z+ Z+, Z+ Z-, Z- Z+, Z- Z-),
+# whichever number of the ratio was the bigger, and whether the gears' axes, their
+# outside faces or one of each were selected; with Flip True, the same way. An annulus
+# round a cylinder (a ring round its pinion) turned the SAME way as it with Flip False,
+# ring selected first or second, on Z+ or Z-, axes or faces. AddMate5's alignment
+# (aligned, anti-aligned or closest) changed nothing, and IMate2.Alignment read 2
+# (closest) whatever was passed. So Flip False is the mesh's own sense, read from where
+# the gears sit, and every mesh a workbook lists - outside or inside a ring, on any
+# shafts - takes Flip False. What the mate keeps as IGearMateFeatureData.Reverse is
+# about the selected axes' own senses instead: Flip, reversed once for opposed axes
+# and once for a ring (with a face, its own sense). Two of the layout's own axes
+# were refused as a gear mate's entities (AddMate5 returned nothing, status 0).
+# What would break this: a pair SolidWorks cannot tell is inside a ring, which a
+# meshing pair is not (the pinion's axis is inside the ring's bore, an external
+# partner's outside the other gear); geometry not loaded (lightweight components) is
+# untried.
+GEAR_MATE_FLIP_RULE = "mesh"
+GEAR_MATE_FLIP = False
+
+# compound_lock: two cylinders on one layout axis, the second placed turned 37° (or
+# 137°) from the first, the first driven 30° then 90° more. A LOCK mate
+# (AddMate5(swMateLOCK) on the two components, each selected by IComponent2.Select4
+# with a mark-1 select data) between the second and the first, the second not mated to
+# the axis itself, held 37° through both drives on Z+ and on Z-, the second on the axis
+# and with no mate error. With the second ALSO on the axis and along it, the lock held
+# too, but its axial mates (and on Z- its axis mate) were flagged (GetErrorCode2 46,
+# swFeatureErrorMateOverdefined, as a warning; on Z- both components read
+# GetConstrainedStatus 4), so a locked gear is not mated to its shaft as well. An
+# angle mate between the two Top planes at the placed angle held 37° and 137° without
+# error; a 1 : 1 gear mate between the two axes held with Flip off and slipped with it
+# on (a coaxial pair is read as one gear inside the other).
+COMPOUND_LOCK_ROUTE = "lock alone"
+# How an over-defined assembly shows (the same pair given a second angle mate 10°
+# off the first): AddMate5's status out-parameter is 5
+# (swAddMateError_OverDefinedAssembly) but the mate IS made; that mate's
+# GetErrorCode2 is 47 (swFeatureErrorMateIlldefined, not a warning) and the mates it
+# fights read 46 (overdefined, warning); the over-defined component's
+# GetConstrainedStatus is 4; IModelDocExtension.GetWhatsWrongCount rose (6 to 8, and
+# GetWhatsWrong, given three by-reference variants, named them); and ForceRebuild3
+# still returns True. Deleted (Select2, then DeleteSelection2(0)), its errors went and
+# the status was 3 again. SolidWorks 2024 flagged exactly the same mates, the same
+# warnings and the same status, but GetErrorCode2 gave 51 for every one of them (the
+# number swconst calls swSketchErrorExtRefFail) where 2026 gave 46, 47 and 1. So a
+# build checks AddMate5's status, treats any non-zero GetErrorCode2 as a mate problem
+# and IsWarning False as the mate at fault, and never reads meaning into the number;
+# the rebuild's result says nothing.
+ADD_MATE_OVER_DEFINED = 5        # swAddMateError_e.swAddMateError_OverDefinedAssembly
+MATE_ERROR_OVER_DEFINED = 46     # swFeatureError_e.swFeatureErrorMateOverdefined (a warning); 2026 only
+MATE_ERROR_ILL_DEFINED = 47      # swFeatureError_e.swFeatureErrorMateIlldefined; 2026 only
+MATE_ERROR_2024 = 51             # what 2024 gave for each of the same mates
+COMPONENT_OVER_DEFINED = 4       # IComponent2.GetConstrainedStatus, swConstrainedStatus_e
+COMPONENT_FULLY_DEFINED = 3
+COMPONENT_UNDER_DEFINED = 2
+
+# mated_train: the 12 : 1 reducer (17/68 + 17/51) twice, all shafts Z+ and the middle
+# shaft Z-, nine components: placed turned and fixed as W4 leaves them, then each gear
+# unfixed and mated by the routes above (the second gear of each compound shaft locked
+# to the first and not mated to its axis), the two gear mates with Flip False, and no
+# gear moved (0 mm, 0 rotation). Every gear read GetConstrainedStatus 2 (under-defined)
+# until one angle mate drove the input, which made all of them 3 (fully defined): the
+# train has one degree of freedom. Driven 30°, each output turned 2.5° the same way as
+# its input, 1/12, on both trains; saved, reopened (the same mates, no errors, every
+# gear where it was) and driven again, the same. A gear mate follows the SOLVER, not a
+# transform: turning the input by a Transform2 put, SetTransformAndSolve2 or
+# IDragOperator (Drag or DragAsUI, every call answering True) turned the input alone,
+# and a Transform2 put on the output turned it alone while the input stayed driven;
+# IDragOperator's TransformType 1 and 2 and DragMode 0, 1 and 2 did no better. So no
+# API drag reproduces a mouse drag, and W5's demonstrable (drag the input in
+# SolidWorks) is seen by a person; the one degree of freedom and the 1/12 are
+# measured here through the solver. The same on 2024.
+MOTION_ROUTE = "mates"
+
+# motion_update: the saved train, its output shaft swung 20° round the compound shaft
+# by the layout part's two globals (the layout opened by path, activated, rebuilt; then
+# the assembly rebuilt): the output gear went with its axis, nothing else moved, no
+# mate error, and the train still turned 1/12. SolidWorks turned the output about +Z
+# by -(1 + 17/51)·20° as its shaft swung, the opposite of the +(1 + 17/51)·20° staying
+# in mesh needs, so after any move the app puts each gear back to the frame
+# workbook.layout.frames gives. A Transform2 put turning the output with its gear mate
+# on was kept (the rest of the train did not move) and the train then turned 1/12 from
+# there: the gear mate takes the new phase. Suppressing the gear mate around the put,
+# then unsuppressing it, kept the new phase too. A compound lock suppressed
+# (SetSuppression2, this configuration), its second gear turned 11° by a put, and
+# unsuppressed, held the new 11° through a drive. The output's axial distance mate
+# (D1) linked to an assembly global and the global changed moved the gear along its
+# shaft alone.
+LAYOUT_MOVE_CARRIES_MATES = True
+MESH_PHASE_ROUTE = "Transform2 put with the gear mate on"
+LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE = True
+AXIAL_GLOBAL_MOVES_GEAR = True

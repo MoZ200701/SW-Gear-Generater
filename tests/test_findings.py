@@ -305,3 +305,126 @@ def test_layout_part_and_reused_parts(tier_seven):
         entries = facts(records, "interference_components")["interference_entries"]
         assert decided["interference_names_route"] == findings.INTERFERENCE_NAMES_ROUTE
         assert [e["names"] for e in entries] == [["Probe W7 Clash A-1", "Probe W7 Clash B-1"]]
+
+
+# -- tier 8, on both versions: W5's motion must work on 2024 and 2026 alike
+
+# The 2024 tier-8 run, in the user's freshly restarted session; sw2024/latest.json stays the last FULL 2024 run.
+SW2024_TIER8 = LATEST.parent / "sw2024" / "probe-results-20261113-223412.json"
+
+
+@pytest.fixture(scope="module", params=["2026", "2024"])
+def tier_eight(request):
+    path = LATEST if request.param == "2026" else SW2024_TIER8
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["meta"]["version"].startswith(f"SolidWorks {request.param} ")
+    records = {r["name"]: r for r in data["records"]}
+    return records, decide.decide(records), request.param
+
+
+def test_motion_route_and_its_enums(tier_eight):
+    """Tier 8 (PLAN-WORKBOOK §4.4): PLAN-GEARBOX tier 6 items 3-5 passed, so W5 builds the gearbox to turn."""
+    records, decided, _version = tier_eight
+    assert decided["motion_route"] == findings.MOTION_ROUTE
+    for name in decide.MOTION_NEEDS + ("motion_enums", "motion_update"):
+        assert records[name]["status"] == "pass", name
+    values = facts(records, "motion_enums")["motion_enum_values"]
+    assert (values["concentric"], values["lock"]) == (findings.MATE_CONCENTRIC, findings.MATE_LOCK)
+    assert (values["aligned"], values["anti_aligned"], values["closest"]) == \
+        (findings.MATE_ALIGN_ALIGNED, findings.MATE_ALIGN_ANTI_ALIGNED, findings.MATE_ALIGN_CLOSEST)
+    assert values["no_error"] == findings.ADD_MATE_NO_ERROR
+
+
+def test_a_gear_held_on_its_layout_axis(tier_eight):
+    """Probe shaft_axis_mates: Gear Axis coincident with the layout axis; origin a distance from the layout's Front."""
+    records, decided, _version = tier_eight
+    axes = facts(records, "shaft_axis_mates")
+    assert decided["axis_mate_route"] == findings.AXIS_MATE_ROUTE
+    assert decided["axis_concentric_refused"] is findings.AXIS_CONCENTRIC_REFUSED
+    assert decided["axial_mate_route"] == findings.AXIAL_MATE_ROUTE
+    assert axes["axis_cases_holding"] == {"g1": True, "g2": True, "g3": False, "g4": False, "g5": True, "g6": True}
+    assert axes["axial_cases_holding"] == {"g1": True, "g2": True, "g3": True, "g4": True, "g5": False, "g6": False}
+    assert all(r["status"] == 0 for r in axes["axis_mates_refused"].values())
+    assert all(v["turned_over"] for v in axes["explicit_alignment"].values())
+    assert all(axes["closest_keeps_the_side"].values())
+    reopened = axes["axis_reopened"]
+    assert not reopened["errors_on_open"] and not reopened["errors_after_rebuild"]
+    entities = axes["axis_mate_entities"]
+    assert (entities["g1 axis"]["alignment"], entities["g2 axis"]["alignment"]) == (0, 1)
+
+
+def test_the_gear_mate_turns_its_gears_the_way_they_mesh(tier_eight):
+    """Probe gear_mate_sense: Flip False is the mesh's own sense on every pair, so every listed mesh takes it."""
+    records, decided, _version = tier_eight
+    sense = facts(records, "gear_mate_sense")
+    assert decided["gear_mate_flip_rule"] == findings.GEAR_MATE_FLIP_RULE
+    assert sense["sense_rules_consistent"] == sense["sense_rules_consistent_with_faces_too"] == ["mesh"]
+    assert decided["gear_mate_sense_depends_on_entities"] is False
+    assert sense["alignment_changes_sense"] is False and sense["kept_reverse_follows_the_axes"] is True
+    for case in sense["sense_cases"]:
+        assert case["turned_by_ratio"], case["name"]
+        if not case["placement"]:
+            assert case["world_same"] is (case["internal"] != case["flip"]), case["name"]
+    # Where it stops: a pinion inside a ring's bore but clear of its face is read as outside it.
+    assert sense["sense_boundary_cases"]["ring ++ F apart"]["world_same"] is False
+    from gear_generator.probe.p8_motion import needed_flip
+    for sa in (1, -1):
+        for sb in (1, -1):
+            for internal in (False, True):
+                assert needed_flip(findings.GEAR_MATE_FLIP_RULE, sa, sb, internal) is findings.GEAR_MATE_FLIP
+    assert sense["gear_mate_on_layout_axes"]["mate"]["name"] is None
+
+
+def test_compound_gears_are_locked_and_an_over_definition_shows(tier_eight):
+    """Probe compound_lock: a lock alone holds the placed angle; a conflicting mate is made but shows in four ways."""
+    records, decided, version = tier_eight
+    lock = facts(records, "compound_lock")
+    assert decided["compound_lock_route"] == findings.COMPOUND_LOCK_ROUTE
+    holding = lock["lock_holding"]
+    for name in ("lock alone", "lock alone, Z-", "angle 37", "angle 137"):
+        assert holding[name]["held"] and holding[name]["no_errors"], name
+    # The codes differ by version (2026: 46 for a redundant mate, 47 for the one at fault; 2024: 51 for both),
+    # the warning flag does not: the mate at fault is the one that is not a warning.
+    redundant = findings.MATE_ERROR_OVER_DEFINED if version == "2026" else findings.MATE_ERROR_2024
+    at_fault = findings.MATE_ERROR_ILL_DEFINED if version == "2026" else findings.MATE_ERROR_2024
+    for name in ("lock, both on the shaft", "lock, both on the shaft, Z-"):          # held, but over-defined
+        assert holding[name]["held"] and not holding[name]["no_errors"], name
+        assert redundant in [e["code"] for e in holding[name]["errors"].values()]
+        assert all(e["warning"] for e in holding[name]["errors"].values())
+    over = lock["over_defined"]
+    assert over["mate"]["status"] == findings.ADD_MATE_OVER_DEFINED and over["mate"]["name"]   # made all the same
+    fault = over["errors"][over["mate"]["name"]]
+    assert fault["code"] == at_fault and fault["warning"] is False
+    assert all(e["warning"] for n, e in over["errors"].items() if n != over["mate"]["name"])
+    assert over["constrained"]["q"] == findings.COMPONENT_OVER_DEFINED
+    assert over["rebuild"]["returned"] is True                                                  # the rebuild says nothing
+    assert over["mate"]["name"] not in over["errors_after_delete"]
+
+
+def test_the_twelve_to_one_train_mated_from_w4s_state(tier_eight):
+    """Probe mated_train: nine components, no jump, output 1/12 the same way, one degree of freedom, kept on reopen."""
+    records, decided, _version = tier_eight
+    train = facts(records, "mated_train")
+    assert train["train_right_way"] == {"all Z+": True, "middle Z-": True}
+    t = train["train"]
+    assert t["components"] == 9 and t["rule"] == findings.GEAR_MATE_FLIP_RULE
+    assert t["lock"] == findings.COMPOUND_LOCK_ROUTE
+    for name, turns in list(t["turns"].items()) + list(t["reopened"]["turns"].items()):
+        values = [turns[k] for k in sorted(turns)]
+        assert values[0] == pytest.approx(30.0) and values[3] / values[0] == pytest.approx(1 / 12), name
+    assert train["one_drive_fully_defines_the_train"] is True
+    assert set(t["constrained_mated"].values()) == {findings.COMPONENT_UNDER_DEFINED}
+    assert set(t["constrained_driven"].values()) == {findings.COMPONENT_FULLY_DEFINED}
+    assert train["put_turns_a_gear_mated_gear_alone"] is True
+    assert max(max(v.values()) for v in t["jumps_after_mating"].values()) < 1e-6
+
+
+def test_update_after_motion(tier_eight):
+    """Probe motion_update: the layout's globals carry the mated gears; a put with the gear mate on re-phases it."""
+    records, decided, _version = tier_eight
+    assert decided["layout_move_carries_mates"] is findings.LAYOUT_MOVE_CARRIES_MATES
+    assert decided["mesh_phase_route"] == findings.MESH_PHASE_ROUTE
+    assert decided["lock_unsuppress_keeps_the_new_angle"] is findings.LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE
+    assert decided["axial_global_moves_gear"] is findings.AXIAL_GLOBAL_MOVES_GEAR
+    move = facts(records, "motion_update")["turn_on_a_shaft_move"]
+    assert move["as_a_multiple_of_the_need"] == pytest.approx(-1.0)          # SolidWorks turns it the wrong way
