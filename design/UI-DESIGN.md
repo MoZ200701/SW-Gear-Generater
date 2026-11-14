@@ -248,14 +248,15 @@ All in `ui_text.py`, tested without a window:
 | File | Holds |
 |---|---|
 | `gui.py` | layout, the variable tables, the poll, the build and update flow |
-| `workbook_gui.py` | the Workbook window (§9): its layout, the live link's poll, Export and Build parts |
+| `workbook_gui.py` | the Workbook window (§9): its layout, the live link's poll, Export, and the build and update jobs and their finishes |
+| `workbook/` | everything the window decides: `assess` (the one pipeline the window and the boards share), `gearbox` (what Build makes and reuses, revisions, the record a build leaves), `update` (what Update carries, and the record it leaves), `layout` (the layout part, the assembly, each gear's frame) |
 | `ui_text.py` | every readout, status sentence and explainer |
 | `preview.py` | where the Derived panel's gears, and the dimension under them, go; and the Workbook window's end view (`layout_gearbox`) |
 | `theme.py` | Airfoil Converter's, unchanged |
 | `widgets.py` | Airfoil Converter's, plus `Explainer` and `draw_diagram` |
 | `swbuild.py` | the build, run against the `SolidWorks` protocol |
 | `store.py` | `.gear.json` records and `recent.json` |
-| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field); and the Workbook window, 1080 px wide, as `WorkbookReady`, `WorkbookError`, `WorkbookFix` and `WorkbookChosen` (§9). `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
+| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field); and the Workbook window, 1080 px wide, as `WorkbookReady`, `WorkbookError`, `WorkbookFix`, `WorkbookChosen`, `WorkbookBuilt`, `WorkbookUpdate`, `WorkbookUpdated` and `WorkbookAgain` (§9); the built ones run the worker against `tests/test_swbuild.py`'s fake SolidWorks, so `gen.py` needs the tests folder beside it. `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
 | `design/renders/` | each artboard as a PNG at 2×, `<Board>.png`, made by `.venv/bin/python design/canvas/render.py` with headless Chrome (no window opens; a throwaway profile) and trimmed of the empty window ground. Its `CHROME` is the Mac's path; on Windows or WSL point it at `chrome.exe` and add `--disable-lcd-text`, or the text comes out with colour fringes |
 
 ## 7. Where it differs from the plan
@@ -322,12 +323,16 @@ And where the window differs from the artboards, because Tk would not do it:
   gear B turned Σ, dimensioned `R 67.082 mm · Σ 90°`. A crossed pair is drawn as
   a parallel one with `· Σ 90°` after the centre distance.
 
-## 9. The Workbook window (W2–W3, docs/PLAN-WORKBOOK.md §5)
+## 9. The Workbook window (W2–W4, docs/PLAN-WORKBOOK.md §4.2–§4.5, §5)
 
 A second window for a whole gearbox written in an `.xlsx` workbook, linked to
-the file: it reads it, checks it, re-reads it on every save, and builds its
-gears as parts. It is a `Toplevel`, `Workbook — Reducer_12to1.xlsx`, sharing
-the strip's theme, widgets and SolidWorks worker; the strip is untouched.
+the file: it reads it, checks it, re-reads it on every save, and builds it in
+SolidWorks — its parts, a layout part with an axis per shaft and a static
+assembly with the gears placed meshed — then carries later edits of the
+workbook into what it built (**Update SolidWorks**), or builds the next
+revision beside it (**Build again…**). It is a `Toplevel`, `Workbook —
+Reducer_12to1.xlsx`, sharing the strip's theme, widgets and SolidWorks worker;
+the strip is untouched.
 
 **Opening one.** **Import workbook…** in the Gear panel's header opens a menu:
 *Open a workbook…* (a file dialog), *New workbook…*, and below a rule the last
@@ -338,13 +343,22 @@ schema — the Box sheet filled, its Name the file's, every other sheet a header
 row with drop-down lists for the fixed words — opens it in Excel and links it.
 Opening a workbook whose window is already open brings that window forward.
 
-Artboards `WorkbookReady` (after a save that made G4 wider), `WorkbookError`
-(a save that broke a cell and added a bevel gear), `WorkbookFix` (S2 and S3
-typed 0.25 mm on, so G1–G2 is off its centres, both fixes offered) and `WorkbookChosen` (the move
-chosen, waiting for Export), each with its render in `design/renders/`. `gen.py`
-draws them from a real workbook written, read, planned and checked by the app,
-with the window's own sizes from `workbook_gui`, the end view from
-`preview.layout_gearbox` and every line from `ui_text`.
+Artboards, each with its render in `design/renders/`: `WorkbookReady` (after
+a save that made G4 wider), `WorkbookError` (a save that broke a cell and added
+a bevel gear), `WorkbookFix` (S2 and S3 typed 0.25 mm on, so G1–G2 is off its
+centres, both fixes offered), `WorkbookChosen` (the move chosen, waiting for
+Export), `WorkbookBuilt` (Build pressed: the build's sentence, **Build again…**
+and **Update SolidWorks**), `WorkbookUpdate` (PLAN-WORKBOOK §6's edit, S2 X
+63.75 → 64.5 with G2's teeth 68 → 69 and S3 X following to 132.5, before the
+press), `WorkbookUpdated` (after it, not yet saved) and `WorkbookAgain` (G1's
+flank changed to arcs, which needs a new part, with the *Build again?*
+question). `gen.py` draws them from a real workbook written, read and worked
+through by the app, with the window's own sizes and colours from
+`workbook_gui`, the end view from `preview.layout_gearbox` and every line from
+`ui_text` — the footer is `workbook_footer` whole. The built boards run
+`swbuild.build_gearbox` and `update_gearbox` against the test suite's fake
+SolidWorks and finish into a real record, on a disk that is a set of paths;
+nothing is saved anywhere real.
 
 ### The layout
 
@@ -360,10 +374,14 @@ left or up rather than off the screen.
 - **Header.** The file's name in bold (13 px; the artboards draw it at 15);
   under it a dot and `linked · read 14:02:31 · open in Excel`
   (`ui_text.workbook_read_line`; *open in Excel* while
-  Excel's `~$` lock file is beside it), then *· parts built from this version*
-  or *· changed since its parts were built* once the `.workbook.json` beside the
-  file records a build. The dot is green, red while the file is gone or will not
-  read. At the right **Open in Excel** and **Re-read**, and **Locate…** before
+  Excel's `~$` lock file is beside it), then the record's word on what is built
+  (`ui_text.workbook_built_tag`): *· built from this version* or *· changed
+  since it was built* once a layout part or assembly is on record, *· parts
+  built from this version* / *· changed since its parts were built* for parts
+  alone, nothing before anything is built. *This version* is the read the record
+  says SolidWorks was last built or updated from; a build that stopped part-way
+  leaves it as it was, so the header then says changed. The dot is green, red
+  while the file is gone or will not read. At the right **Open in Excel** and **Re-read**, and **Locate…** before
   them only while the file has gone.
 - **Workbook** (readout `3 shafts · 4 gears · 2 meshes · no modes`): File, Name,
   Output folder with where it came from (*from the Box sheet*, *the strip's
@@ -374,12 +392,25 @@ left or up rather than off the screen.
   *Parallel train · 1 mesh · no overall ratio: G2 meshes but is not laid out*
   (the reasons are the Results sheet's; a box with no input and output says
   nothing).
-- **Gears** (readout `4 parts to build · 1 later`): Gear, Shaft, Kind, Teeth,
-  Module, Face, Part (the file's stem; this column takes the room left), and a
-  dot with what will happen — *to build*, *the same part as G1* (identical rows
-  share one file), *later · phase W6* in grey, or *see Checks* in red. Values are
-  shown as typed, a bad one included (`68.5`); a ring's kind reads *Ring*. No
-  gears: *No gears yet: add rows to the Gears sheet and save.*
+- **Gears** (readout `4 parts to build · 1 later`, once built `4 parts built`
+  or `3 parts built · 1 to build`): Gear, Shaft, Kind, Teeth, Module, Face, Part
+  (the file's stem, the recorded file's once built; this column takes the room
+  left; the others are as wide as they need, at least their minimum), and a
+  dot with what will happen (`ui_text.workbook_gear_rows`, given the record and
+  what Update would do):
+
+  | State | Dot | Words |
+  |---|---|---|
+  | to build | green | *to build* |
+  | the same part as another row | green | *the same part as G1* (identical rows share one file) |
+  | a later phase builds it | grey `#8f8f8f` | *later · phase W6* |
+  | an error of its own | red | *see Checks*, in red |
+  | built, and Update leaves it | green | *built* |
+  | built, and Update changes its values | near-black `#2b2b2b` | *built · changes on Update* |
+  | built, but its change needs a new part, or its file is gone | red | *needs a new part*, in red |
+
+  Values are shown as typed, a bad one included (`68.5`); a ring's kind reads
+  *Ring*. No gears: *No gears yet: add rows to the Gears sheet and save.*
 - **Checks** (readout `1 error · 2 warnings`, or *no problems*): first any fix
   chosen and not yet written, *Chosen, not yet written: Move S2 and S3 beyond it
   by -0.25 mm* with **Undo**; then the errors in red and the warnings in grey,
@@ -446,49 +477,82 @@ left or up rather than off the screen.
   for a shaft nothing reaches. A gearbox a later phase drives gets one grey
   sentence instead.
 - **Footer.** A dot and one sentence (wrapped at 660 px), green when all is
-  well, then **Export**, **Export as…** and **Build parts** (primary).
+  well, then **Export**, **Export as…**, the build button and, once anything is
+  on record, **Update SolidWorks**. The build button is one button whose label
+  follows the record and the read: **Build** (primary), **Build parts**
+  (primary) while rows a later phase builds hold the layout back, or **Build
+  again…** (secondary) once an assembly is on record — Update SolidWorks is then
+  the primary. A button that changes weight is made again, since a
+  `widgets.Button`'s weight is set when it is made; a disabled primary is grey
+  `#b5b5b5` with white text.
 
 ### What the footer says, and what is enabled
 
-The sentence and whether **Build parts** is enabled are one decision,
-`ui_text.workbook_state`, asked after every read, failed read, choice, export,
-build start and build end. In order:
+The sentence, its colour, and what both buttons say and allow are one
+decision, `ui_text.workbook_footer`, asked on every re-plan (a read, a failed
+read, a fix chosen or undone, an export, a press, each poll while a job runs,
+a job collected). In order, the first that holds:
 
-| State | Sentence | Build parts |
-|---|---|---|
-| a build running | *Building 4 parts in SolidWorks…* | off |
-| the file gone or unreadable | the read's own sentence, red | off |
-| a fix chosen | *1 fix chosen: Export writes it into the workbook, and Build waits for that, so the workbook and the parts agree.* | off |
-| after Export wrote cells into a workbook with formulas | *Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they recalculate; Build and Export wait for that save.* | off |
-| an error | *Fix the workbook before building: Gears!F3: … (2 more under Checks)* | off |
-| nothing buildable | *Nothing in this workbook can be built yet: InDog is a dog ring: dog rings are built in phase W8, with modes.* (or *… it has no gears.*) | off |
-| no output folder, or one that does not exist | *Choose an output folder …* / *The output folder … does not exist; …* | off |
-| ready, with rows a later phase builds | *Ready: Build makes 2 parts in C:\Parts\Planetary. Left for a later phase: Shafts!A4: P1 is mounted on C, with 3 copies round it: carriers and copies are laid out in phase W7, and the gearbox is not checked until then. (1 more under Checks)* | on |
-| ready | *Ready: Build makes 4 parts in C:\Parts\Reducer_12to1\.* | on |
+| State | Sentence | Build button | Update SolidWorks |
+|---|---|---|---|
+| a build running | *Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…* (§9, *A job in SolidWorks*) | off | off |
+| an update running | *Updating SolidWorks: Gear_m1.5_N68…* | off | off |
+| the file gone or unreadable, or planning failed | the read's own sentence, red | off | off |
+| a refused Export, a fix still chosen | the refusal, red | off | off |
+| a fix chosen | *1 fix chosen: Export writes it into the workbook, and Build and Update SolidWorks wait for that, so the workbook and SolidWorks agree.* (*Build waits* when nothing is on record) | off | off |
+| after Export wrote cells into a workbook with formulas | *Export wrote cells that formulas in the workbook may depend on: open and save it in Excel so they recalculate; Build and Export wait for that save.* (with a record: *Build, Update SolidWorks and Export wait*) | off | off |
+| a record from a newer Gear Generator | *The record of what was built, Reducer_12to1.workbook.json, cannot be read: it was written by a newer Gear Generator (schema 3, this one reads 2). It is left alone, so Build and Update SolidWorks wait.*, red | off | hidden |
+| an error, a gearbox not checked, or a gear not placed | *Fix the workbook before building: Gears!F3: … (2 more under Checks)*, or the gate's own sentence, red | off | off |
+| nothing buildable | *Nothing in this workbook can be built yet: InDog is a dog ring: dog rings are built in phase W8, with modes.* | off | — |
+| no output folder, or one that does not exist | *Choose an output folder …* / *The output folder C:\Parts\Reducer_12to1 does not exist; make it, or change it on the Box sheet.*, red | off | not held by it |
+| the plan refused | its sentence, red (a file in the way of every revision up to `_r99`; two files of one name; a part Update left unsaved) | off | — |
+| ready | *Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\Parts\Reducer_12to1.* | **Build**, on | hidden |
+| ready, parts already built | *Ready: Build makes Reducer_12to1_Layout and Reducer_12to1.SLDASM in …, reusing the 4 parts already built.* (and *reusing Reducer_12to1_Layout and …* after an assembly that failed) | **Build**, on | shown |
+| ready at a later revision | the ready sentence and why: *Reducer_12to1.SLDASM is already in C:\Parts\Reducer_12to1, and a build never overwrites a file. So this build is Reducer_12to1_r2, beside it; nothing is overwritten.* | **Build**, on | — |
+| rows a later phase builds | *Ready: Build parts makes 2 parts in …; the layout and assembly wait for a later phase: Shafts!A4: P1 is mounted on C, …* (*The 4 parts are built already, so Build parts has nothing to make; …* when all are) | **Build parts**, on (off when nothing to make) | shown once parts are |
+| built, the workbook changed since | *Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.* | **Build again…**, on | on, primary |
+| built, nothing on record differs | *SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything changed there.* | **Build again…**, on | on, primary |
+| built, a change Update cannot carry | *Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B'; build it again as a new part: Update SolidWorks offers to build again as Reducer_12to1_r2.* (*(and 1 other change Update SolidWorks cannot carry)* with more) — red if the build it offers is refused, with its reason | **Build again…**, on | on (off if that build is refused) |
+| built, a recorded file gone | *Gear_m1.5_N68.SLDPRT is no longer in C:\Parts\Reducer_12to1: it was moved or renamed since it was built, so Update SolidWorks offers to build again as Reducer_12to1_r2.*, red | **Build again…**, on | on |
+
+A record that cannot be read (broken, not newer) adds its sentence, red, to
+whichever of the last rows holds — *… The next Build sets it aside and starts a
+new one.* — with Build on and Update hidden; the next build's finish moves it to
+`Reducer_12to1.workbook.json.bad-<stamp>` and starts a fresh one. Documents
+Update SolidWorks changed and that are not saved add *Gear_m1.5_N68,
+Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks that
+are not saved: save them in SolidWorks to keep them.* while no job's sentence
+is showing, and Build again… waits until they are saved (a part Update left
+unsaved is not what its file holds, so it is not reused). The poll looks at
+those files' times every second, so the sentence goes once SolidWorks saves
+them.
 
 An Export that left the Results sheet out for a formula cell adds, once Excel
 has saved since, *Export again to write the Results sheet: it waited for Excel
 to recalculate.* to whichever sentence then shows.
 
+A finished job's sentence — the build's, the update's, or what went wrong —
+takes the state's place, in its own colour (a clash is red), until the file
+next changes; while a row a later phase builds is there it is followed by
+*Left for a later phase: …*. If the state has gone wrong since, the two are
+joined: *Built 4 parts, … Since then: Fix the workbook before building: …*. An
+answer that marks no moment is joined plainly: after No to *Build again?*,
+*Nothing was changed in SolidWorks. Gear_m1.5_N68.SLDPRT is no longer in …*;
+after an Export, *Exported 2 cells and the Results sheet. Fix the workbook
+before building: …*.
+
 Warnings never hold Build back, and nor do rows a later phase builds (bevel
 gears, shafts on a carrier and their copies, turned axes, sleeves, dog rings,
-sliding gears, modes): they are not errors, but the footer is never a bare
-*Ready* while one is there — it names the first, as Checks names them all. A
-bevel, sleeve or dog row's part is left out and listed as *later*; a gear on a
-carrier, on a turned axis or that slides is an ordinary part and builds, but
-nothing places or checks it as a gearbox before its phase (a carrier or a
-turned axis stops the gearbox checks altogether, and the checks' report says
-it was not checked rather than leaving an empty list to read as clean). Whether
-Build parts may go ahead is `workbook.assess.build_refusal`, from every
-diagnostic — the read's, each gear's own and the gearbox's — not from the parts
-alone. After a build or an export its own sentence stays until the file next
-changes (*Built 4 parts.* and the steps by hand, from `ui_text.many_status`),
-followed by *Left for a later phase: …* while such a row is there; if the
-workbook has gone wrong since, it reads *… Since then: …* and Build is off. A
-refused export shows even with a fix still chosen.
+sliding gears, modes) for **Build parts**: a bevel, sleeve or dog row's part is
+left out and listed as *later*; a gear on a carrier, on a turned axis or that
+slides is an ordinary part and builds. The layout part and assembly wait for
+every such row's phase: `workbook.assess.Assessment.lay_out_refusal()` refuses,
+with its sentence, a provisional read, a fix not yet exported, any error, no
+output folder, a gearbox not checked, any row a later phase builds, and any gear
+not placed and planned, and `build_refusal()` is Build parts' gate.
 
-**Export** is enabled whenever a good read is on screen, nothing is building
-and Excel is not yet to recalculate an Export, and **Export as…** with it: both
+**Export** is enabled whenever a good read is on screen, no job is running in
+SolidWorks, and Excel is not yet to recalculate an Export, and **Export as…** with it: both
 are greyed otherwise, since anything written from a provisional read — Results
 included — would be worked out from old formula values. If a read fails, or the
 wait starts, while Export as…'s file dialog is open, it writes nothing and the
@@ -545,28 +609,157 @@ prompt to Export Results again does not). An outside save
 re-checks any fix still chosen against the new read: one no longer offered
 exactly as chosen is set aside, *The workbook changed, so the fix you chose no
 longer applies as it was and was set aside; choose again from Checks.* Nothing
-reaches SolidWorks until **Build parts** is pressed.
+reaches SolidWorks until a footer button is pressed: the poll plans what a press
+would do, but never asks SolidWorks.
 
-### Build parts
+### A job in SolidWorks: Build, Build parts, Update SolidWorks, Build again…
 
-Every gear a part, planned by the strip's own planner (`workbook.build`), one
-file for identical rows, and submitted as one batch, `swbuild.build_many`, to
-the strip's worker. Refused before anything is made: a part file that already
-exists, no SolidWorks to reach, or the strip mid-build (and the strip will not
-start a build while a workbook's runs). Each part gets its `.gear.json`, naming
-the workbook and the rows it serves; the `.workbook.json` records the parts and
-the version they were built from. The window will not close while a build is
-running.
+Each press is planned again first (the strip's output folder or templates may
+have changed, or a file on disk), and then submitted as **one** job to the
+strip's worker: `swbuild.build_gearbox` for Build, Build parts and Build
+again…, `swbuild.update_gearbox` for Update. Refused before anything is made,
+in the footer: no SolidWorks to reach (*SolidWorks cannot be reached from here,
+so nothing was built.* and why), or the strip mid-build (*The strip is building
+in SolidWorks; build the workbook when it has finished.*); and the strip will
+not start a build while a workbook's job runs. The worker itself refuses,
+naming both paths, a document of the same file name already open in
+SolidWorks from another folder (*C:\Old\Gear_m1.5_N68.SLDPRT is open in
+SolidWorks, and it has the same file name as …; SolidWorks keeps one document
+per file name, so close Gear_m1.5_N68.SLDPRT in SolidWorks and try again.*).
 
-Today Build makes **parts only**: the layout part, the assembly and Update
-SolidWorks (PLAN-WORKBOOK §4.2–§4.5) are phase W4, and this window has no
-button for them yet. Their gate exists and is tested:
-`workbook.assess.Assessment.lay_out_refusal()` refuses, with its sentence, a
-provisional read, a fix not yet exported, any error, no output folder, a
-gearbox not checked, any row a later phase builds, and any gear not placed and
-planned. What only the window knows it does not ask — the file gone or
-half-saved, a build running, the output folder missing on disk — and the read
-is provisional only if the window says so; the button asks those first.
+**While it runs** both footer buttons, Export and Export as… are off, and the
+footer gives the worker's last step each second (`ui_text.progress_text`):
+*Building in SolidWorks: checking Gear_m1.5_N17 (1 of 3 already built)…*,
+*… part 2 of 4, Gear_m1.5_N68…*, *… the layout part, Reducer_12to1_Layout…*,
+*… the assembly, Reducer_12to1…*, *… checking interference…*;
+*Updating SolidWorks: checking Gear_m1.5_N17 (1 of 4)…*, *… Gear_m1.5_N68…*,
+*… placing the gears in Reducer_12to1…*. **Closing the window** then does not stop the job or
+drop what it saves: the window stays, adds *This window closes once the build
+has finished and what it saved is on record; it stays open if something needs
+saying.*, collects the answer, writes the sidecars and the record, and closes —
+unless the job's sentence is a fault, which it stays open to show.
+
+**Build** makes, in this order, reusing whatever is already built:
+
+1. Each part (the strip's own plan for its row; one file for identical rows).
+   A part already built — on record, or a `.gear.json` beside its path naming
+   this workbook — is reused only after it is opened and found, live, to hold
+   exactly the values the row asks (otherwise the job stops, naming the part
+   and what differs, before anything is made).
+2. The layout part, `Reducer_12to1_Layout.SLDPRT`: for each shaft, the planes
+   offset from Right by X and from Top by Y — the base plane itself at 0 — and an
+   axis through them named `S2 Axis`. Only a non-zero coordinate gets a plane
+   and a global (`"S2 X"`, signed); the shafts' sides are recorded. A layout
+   saved by a build whose assembly then failed is reused, checked live.
+3. The assembly, `Reducer_12to1.SLDASM` (both named for the Box's Name): the
+   layout part inserted and fixed at the origin, then each gear inserted,
+   placed with its face's middle on its shaft and turned to its phase, and
+   fixed. It is static: nothing turns until W5. SolidWorks names the components
+   (`Gear_m1.5_N68-1`); the record maps each gear to the name SolidWorks kept,
+   and they are never renamed.
+4. Interference, as for a pair: *…; no interference between the gears.*, or a
+   red *Check: G1 and G2 interfere, 12.345 mm³; look at their mesh in
+   Reducer_12to1.SLDASM.* — *at their mesh* only when the two are a listed mesh,
+   else *look where they meet* (a widened gear touching its neighbour on the
+   same shaft); *an interference of 1.2 mm³ that SolidWorks could not name*;
+   or *Interference could not be checked: … Look at each mesh in
+   Reducer_12to1.SLDASM by eye.*
+
+The sentence after (`ui_text.gearbox_status`): *Built 4 parts,
+Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the
+gears. 1 thing to do by hand: Assign a material to each of the 4 parts; the
+build leaves it unset.* A step that fails leaves what was saved saved, and says
+how to carry on: *… The layout and assembly were not attempted. Press Build to
+carry on: what was built is reused.*, *Built 4 parts and Reducer_12to1_Layout;
+the assembly Assem1 was left open, unsaved. …: … Press Build to try the
+assembly again: the parts and layout are reused.* **Build parts** is the same
+job with no layout or assembly, through the same reuse, so it resumes a
+batch that stopped.
+
+**Update SolidWorks** carries the latest read into what the current revision
+built (`workbook.update.classify`, then the worker): the values of each part
+whose variables changed (it opens the part and sets only the globals
+SolidWorks holds differently, in one rebuild), the layout part's globals for a
+shaft that moved on the same side of the origin's planes, and every gear whose
+frame changed re-placed in the assembly (a Z, Z± or At change is a move while
+the assembly is static); then interference again. It compares with SolidWorks
+live, so it stays enabled when the record says nothing differs, and puts right
+an update lost or a component dragged by hand (*G4 had been moved in
+SolidWorks; put back where the workbook has it*). It writes nothing into the
+output folder, so a missing folder does not hold it. **It does not save**, as
+the strip's Update values does not: *Updated SolidWorks: changed 1 variable in
+Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3
+in Reducer_12to1_Layout, re-placed G2, G3 and G4; no interference between the
+gears. Save in SolidWorks to keep it.* A part keeps its file name after a value
+update — N68 holding 69 teeth — and the sentence says so; a Part name of the
+user's own never goes stale. The record marks each document it changed as
+unsaved, with the file's time, until the file on disk is newer. Stopped part
+way, it says what it had already changed, not saved, and that pressing it
+again once that is put right finishes the job (*Nothing was changed.* if
+nothing had). Speeds, torques and efficiencies change nothing in SolidWorks.
+
+**A change Update cannot carry** needs the next revision: a gear, shaft or mesh
+added, removed or renamed; a coordinate that changes side, or reaches or
+leaves 0 (a layout plane cannot follow a global across its base plane); a part
+whose stem changes (a built part's file is never renamed); a structural change
+to a part (`swbuild.structural_change`: another recipe or kind, a bore or a
+shift that appears or goes, …), once fields a kind ignores are set aside (a
+spur gear's Hand, a Part name equal to the default); two rows that shared a
+part and now differ; a recorded file no longer on disk. Such a gear's row
+reads *needs a new part*. Update SolidWorks then asks instead of updating, and
+**Build again…** always asks: a `messagebox.askyesno` titled *Build again?*,
+defaulting to No (`ui_text.build_again_question`):
+
+*Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B'; build it again as a
+new part. Build again as Reducer_12to1_r2? That makes a new part for G1
+(Gear_m1.5_N17_r2), reuses 3 parts that have not changed and makes a new layout
+part and assembly (Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM).
+Nothing is overwritten, and Reducer_12to1.SLDASM stays as it is on disk, but it
+shares the 3 reused parts: a later Update SolidWorks that changes one of them
+changes Reducer_12to1.SLDASM too.*
+
+Pressed with nothing Update cannot carry, it opens *Update SolidWorks can bring
+SolidWorks up to date as it is, so a new revision is not needed.* No leaves
+everything as it was (*Nothing was changed in SolidWorks.*); Yes builds, unless
+the workbook changed while the question was open (*The workbook changed while
+Build again? was open, so nothing was built; press Build again… once more if it
+still applies.*).
+
+**Revisions.** The first build is revision 0, `<Name>_Layout.SLDPRT` and
+`<Name>.SLDASM`; the next is 2, `<Name>_r2_Layout.SLDPRT` and `<Name>_r2.SLDASM`
+beside them, then 3, and so on. A build takes the smallest revision whose
+layout and assembly paths are both free on disk and that no revision on record
+used — so files on disk with no record, or a layout or assembly left by hand,
+move a first build to `_r2` with the reason in the ready sentence, never to a
+dead end — except that a revision whose assembly failed is carried on. A new
+part whose file name is taken by anything else is `<stem>_r<n>` at that
+revision (`Gear_m1.5_N17_r2`). Nothing is ever overwritten: the earlier
+revision's files stay, and its record moves to `earlier`.
+
+### The record, `Reducer_12to1.workbook.json`
+
+Beside the workbook, named for its file (`store.link_record_path`): what
+SolidWorks holds, not the workbook's cells — the read it was last built or
+updated from (`digest`), each part of the current revision with its gears, the
+revision that made it, its spec and the variables last put in it; the current
+revision's name, layout part, assembly, each shaft's position and side and its
+globals, planes and axis, the listed meshes, and each gear's component name and
+frame; earlier revisions (paths only); the documents Update left unsaved, with
+their times; and the app's own last Export (`own_digest`, `recalc`). Each part
+also gets its `.gear.json`, naming the workbook and the rows it serves.
+
+Nothing trusts it alone: planning checks every path exists, reuse and Update
+compare with SolidWorks live, and *unsaved* is cleared by the files' times. It
+is read on every re-plan without ever being moved or written; just before a
+job's finish writes it, it is read again, and written atomically. A record
+from a newer Gear Generator is left byte for byte as it is (both buttons wait);
+one that cannot be read is set aside as `.bad-<stamp>` by the next build, never
+deleted. On disk `schema_version` stays 1, with the real schema in
+`link_schema_version` (2), so a build from before W4 that rewrites the file
+keeps its parts. **Locate…** carries the record: a copy is written beside the
+workbook's new place with its `workbook` updated, unless one is already there,
+and the old one is left where it was (*The record of what was built stays
+beside the workbook's old place: …* when it cannot be carried).
 
 ### Where it differs from PLAN-WORKBOOK §5
 
@@ -580,9 +773,29 @@ is provisional only if the window says so; the button asks those first.
   1.5 mm off`, not the plan's `1.50 off`; with several cells changed it is a line
   of its own rather than following one cell; and it also counts new and cleared
   problems by cell, which the plan's example does not show.
-- No **Update SolidWorks** yet: it comes with the assembly in W4.
 - "Refused at Build" (§3.4) is read against what Build makes: with parts
   only, a bevel, sleeve or dog row's part is refused and the other parts
   build, a planet's and a sliding gear's included; the footer names the first
-  refused row with its phase rather than a bare *Ready*. The whole-gearbox
-  gate, for W4's button, refuses such a workbook outright.
+  refused row with its phase rather than a bare *Ready*. The layout part and
+  assembly refuse such a workbook outright.
+- **One build button** (§5's Build and the build-again of §4.5): its label
+  follows the gate and the record — Build, Build parts, Build again… — with
+  Update SolidWorks beside it, primary once an assembly is built.
+- **Update SolidWorks does not save** (§4.5 does not say): as the strip's Update
+  values does not; the record marks what it changed as unsaved, the footer asks
+  for a save in SolidWorks, and since reuse and Update compare with SolidWorks
+  live, an update lost or not saved is put right by the next press.
+- **A part keeps its file name after a value update** (`Gear_m1.5_N68` holding
+  69 teeth); the sentence says so. A Part name change is structural only when
+  the file name it makes changes.
+- **Components are not renamed** (§4.3 finds them "by name"): SolidWorks names
+  them, and the record maps each gear to the name it kept.
+- **Layout globals only for non-zero coordinates** (§4.2): a shaft at X = 0 or
+  Y = 0 uses the base plane, with no global, so a coordinate that changes side
+  or reaches or leaves 0 is structural; a Z, Z± or At change is a move while the
+  assembly is static. The revision's files are `<Name>_r<n>_Layout.SLDPRT`
+  beside `<Name>_r<n>.SLDASM`.
+- **§6's demonstration edit** is S2 X 63.75 → 64.5 *with* G2's teeth 68 → 69
+  (and S3 X following by its formula). S2 X alone, with S3 following, fails the
+  checks: G3–G4 stays on centres, but G1–G2 is then 0.75 mm off, and the window
+  will not update a gearbox that does not check.
