@@ -742,6 +742,111 @@ def test_a_mate_entry_of_the_wrong_type_is_refused(field, value):
         store.link_record_from_json(json.dumps(raw))
 
 
+@pytest.mark.parametrize("index,changes,match", [
+    (3, {"kind": "gear"}, r"gearbox\.mates\[3\] \('G1 meshes G5'\) has kind 'gear', not one of axis, along, lock, "
+                          r"mesh\)"),
+    (3, {"kind": ""}, r"has kind '', not one of"),
+    (0, {"gears": []}, r"gearbox\.mates\[0\] \('G5 on S2 Axis'\) is an axis mate with 0 gears, where it holds 1\)"),
+    (1, {"gears": ["G5", "G6"]}, r"is an along mate with 2 gears, where it holds 1\)"),
+    (2, {"gears": ["G6"]}, r"gearbox\.mates\[2\] \('G6 locked to G5'\) is a lock mate with 1 gear, where it holds 2\)"),
+    (3, {"gears": ["G1", "G5", "G7"]}, r"is a mesh mate with 3 gears, where it holds 2\)"),
+    (3, {"ratio": [17]}, r"\('G1 meshes G5'\) is a mesh mate whose ratio is \[17\], not two whole numbers above 0\)"),
+    (3, {"ratio": []}, r"whose ratio is \[\], not two"),
+    (3, {"ratio": [17, 68, 51]}, r"whose ratio is \[17, 68, 51\], not two"),
+    (3, {"ratio": [0, 68]}, r"whose ratio is \[0, 68\], not two whole numbers above 0"),
+    (3, {"ratio": [17, -68]}, r"whose ratio is \[17, -68\], not two"),
+    (3, {"name": "", "kind": "gear"}, r"gearbox\.mates\[3\] has kind 'gear'"),
+])
+def test_a_mate_entry_update_could_not_act_on_is_refused_with_a_sentence(tmp_path, index, changes, match):
+    """C's part of the parse (W5-INTERFACES §3, store.py): a recorded mate whose kind, gear count or mesh ratio is
+    wrong is refused when the record is read, in the sentence the window shows, never met later as an IndexError;
+    and the planning read leaves the file as it was."""
+    raw = _gearbox_raw(turning_record("R.xlsx"))
+    raw["gearbox"]["mates"][index].update(changes)
+    with pytest.raises(StoreError, match=match):
+        store.link_record_from_json(json.dumps(raw))
+    target = tmp_path / "R.workbook.json"
+    text = json.dumps(raw)
+    target.write_text(text)
+    with pytest.raises(StoreError, match=r"^The record of what was built, R\.workbook\.json, cannot be read: its "
+                                         r"contents are not a link record \(gearbox\.mates\[" + str(index) + r"\].*\)\. "
+                                         r"The next Build sets it aside and starts a new one\.$"):
+        store.read_link_record(str(tmp_path / "R.xlsx"))
+    assert target.read_text() == text and sorted(p.name for p in tmp_path.iterdir()) == ["R.workbook.json"]
+
+
+def test_every_kind_the_turning_assembly_makes_reads_back_and_the_store_knows_the_same_kinds():
+    from gear_generator.workbook import motion
+    assert tuple(store._MATE_GEARS) == motion.MATE_KINDS
+    record = turning_record("R.xlsx")
+    again = store.link_record_from_json(store.link_record_to_json(record))
+    assert [m.kind for m in again.gearbox.mates] == ["axis", "along", "lock", "mesh"] and again == record
+    record.gearbox.mates = []                       # a turning gearbox with no mates on record still reads
+    assert store.link_record_from_json(store.link_record_to_json(record)) == record
+
+
+def test_a_v2_file_reads_as_static_and_a_read_never_writes_it(tmp_path):
+    """D11: a W4 record (link schema 2, no kind, no mates) reads as a static gearbox, and reading it — the planning
+    read or the read before a write — leaves the file byte-identical: only a finish writes schema 3."""
+    raw = json.loads(store.link_record_to_json(link_record(str(tmp_path / "R.xlsx"))))
+    raw["link_schema_version"] = 2
+    for key in ("kind", "mates", "unmated", "fixed", "drag", "static_reason", "mate_problems",
+                "mate_problems_digest"):
+        del raw["gearbox"][key]
+    target = tmp_path / "R.workbook.json"
+    target.write_bytes(json.dumps(raw, indent=1).encode() + b"\r\n")
+    before = target.read_bytes()
+    for read in (store.read_link_record, store.open_link_record):
+        record = read(str(tmp_path / "R.xlsx"))
+        assert record.gearbox.kind == store.GEARBOX_STATIC and record.gearbox.mates == []
+        assert record.schema_version == 3
+    assert target.read_bytes() == before and sorted(p.name for p in tmp_path.iterdir()) == ["R.workbook.json"]
+    store.save_link_record(record)                  # the finish's write: now schema 3, a static gearbox
+    written = json.loads(target.read_text())
+    assert written["link_schema_version"] == 3 and written["gearbox"]["kind"] == "static"
+
+
+def test_a_v3_record_is_written_byte_for_byte_the_same_however_often_it_round_trips(tmp_path):
+    record = turning_record(str(tmp_path / "R.xlsx"))
+    record.gearbox.mate_problems, record.gearbox.mate_problems_digest = ["G2 is over-defined in SolidWorks."], "d"
+    record.gearbox.static_reason = "how gears are mated to turn is not settled for this version (findings.X)."
+    record = store.link_record_from_json(store.link_record_to_json(record))   # numbers as read (frames as floats)
+    first = store.link_record_to_json(record)
+    second = store.link_record_to_json(store.link_record_from_json(first))
+    assert first == second == store.link_record_to_json(store.link_record_from_json(second))
+    path = store.save_link_record(record)
+    stamp = os.stat(path).st_mtime_ns
+    with open(path, "rb") as handle:
+        on_disk = handle.read()
+    assert on_disk == first.encode("utf-8")
+    store.save_link_record(store.read_link_record(str(tmp_path / "R.xlsx")))   # unchanged: the file is left alone
+    assert os.stat(path).st_mtime_ns == stamp
+
+
+def test_a_v4_record_with_mates_is_refused_and_left_byte_identical(tmp_path):
+    raw = _gearbox_raw(turning_record(str(tmp_path / "R.xlsx")))
+    raw["link_schema_version"] = 4
+    raw["gearbox"]["mates"][0]["kind"] = "a kind schema 4 knows"
+    target = tmp_path / "R.workbook.json"
+    target.write_bytes(json.dumps(raw).encode())
+    before = target.read_bytes()
+    for read in (store.read_link_record, store.open_link_record):
+        with pytest.raises(UnknownSchema, match=r"newer Gear Generator \(schema 4, this one reads 3\)"):
+            read(str(tmp_path / "R.xlsx"))
+    with pytest.raises(UnknownSchema, match=store.LINK_WAITS):
+        store.save_link_record(turning_record(str(tmp_path / "R.xlsx")))
+    assert target.read_bytes() == before and sorted(p.name for p in tmp_path.iterdir()) == ["R.workbook.json"]
+
+
+@pytest.mark.parametrize("field,value", [("kind", 3), ("shaft", None), ("face_global", ["G5 Face Z"]),
+                                         ("gears", ["G1", 5]), ("ratio", "17:68"), ("z_front", True)])
+def test_more_mate_entries_of_the_wrong_type_are_refused(field, value):
+    raw = _gearbox_raw(turning_record("R.xlsx"))
+    raw["gearbox"]["mates"][3][field] = value
+    with pytest.raises(StoreError, match=f"MateEntry.{field} is not"):
+        store.link_record_from_json(json.dumps(raw))
+
+
 @pytest.mark.parametrize("changes,match", [({"kind": "turning"}, "gearbox.kind is 'turning'"),
                                            ({"mates": "G1 meshes G2"}, "MateEntry entries are not a list"),
                                            ({"unmated": [["G1", 2]]}, r"GearboxRecord.unmated is not"),

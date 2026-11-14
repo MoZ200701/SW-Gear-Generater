@@ -767,6 +767,27 @@ def _checked(item: Any) -> Any:
     return item
 
 
+_MATE_GEARS = {"axis": 1, "along": 1, "lock": 2, "mesh": 2}
+# How many gears each kind of mate holds (``workbook.motion.MATE_KINDS``, which imports this module, so the kinds are
+# spelled here too; a test keeps the two the same).
+
+
+def _mate_checked(entry: MateEntry, index: int) -> MateEntry:
+    """``entry`` (already type-checked) as a mate Update can act on, else a ValueError phrase naming it: a kind not
+    one of the four, gears not as many as its kind holds, or a mesh whose ratio is not two whole numbers above 0.
+    Read here so a damaged record is refused when it is read, never met as an IndexError while planning."""
+    where = f"gearbox.mates[{index}]" + (f" ({entry.name!r})" if entry.name else "")
+    wanted = _MATE_GEARS.get(entry.kind)
+    if wanted is None:
+        raise ValueError(f"{where} has kind {entry.kind!r}, not one of {', '.join(_MATE_GEARS)}")
+    if len(entry.gears) != wanted:
+        raise ValueError(f"{where} is {'an' if entry.kind[0] in 'aeiou' else 'a'} {entry.kind} mate with "
+                         f"{len(entry.gears)} gear{'' if len(entry.gears) == 1 else 's'}, where it holds {wanted}")
+    if entry.kind == "mesh" and (len(entry.ratio) != 2 or any(n <= 0 for n in entry.ratio)):
+        raise ValueError(f"{where} is a mesh mate whose ratio is {entry.ratio!r}, not two whole numbers above 0")
+    return entry
+
+
 def link_record_from_json(text: str) -> LinkRecord:
     """Parse a link record of any schema up to :data:`LINK_SCHEMA_VERSION`; a v1 or v2 record is read as v3.
 
@@ -776,7 +797,8 @@ def link_record_from_json(text: str) -> LinkRecord:
     record has parts with ``path`` and ``gears`` only, and no gearbox; a v2
     record's gearbox has no ``kind``, so it reads as :data:`GEARBOX_STATIC`,
     with no mates. Every
-    field is checked against its type. Raises :class:`UnknownSchema` for a
+    field is checked against its type, and every mate against its kind
+    (:func:`_mate_checked`). Raises :class:`UnknownSchema` for a
     newer schema and :class:`StoreError` for anything else wrong, each a phrase
     to follow "cannot be read: "; never touches a file.
     """
@@ -801,7 +823,8 @@ def link_record_from_json(text: str) -> LinkRecord:
             record.gearbox.shafts = [_checked(s) for s in _entries(ShaftEntry, gearbox.get("shafts", []))]
             record.gearbox.components = [_checked(c) for c in _entries(ComponentEntry,
                                                                         gearbox.get("components", []))]
-            record.gearbox.mates = [_checked(m) for m in _entries(MateEntry, gearbox.get("mates", []))]
+            record.gearbox.mates = [_mate_checked(_checked(m), i)
+                                    for i, m in enumerate(_entries(MateEntry, gearbox.get("mates", [])))]
             if record.gearbox.kind not in GEARBOX_KINDS:
                 raise ValueError(f"gearbox.kind is {record.gearbox.kind!r}, not one of {', '.join(GEARBOX_KINDS)}")
         record.earlier = [_checked(e) for e in _entries(EarlierRevision, raw.get("earlier", []))]
