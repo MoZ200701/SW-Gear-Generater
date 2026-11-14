@@ -122,11 +122,46 @@ stranded beside it (`sw2024/probe-results-20261114-071324`), with the definition
   the relative angle the put left — the lock took the new angle and held it. The app still never puts with a
   lock on (M1, M8).
 
-## Open until probe round P0c is committed and reviewed
+## Rulings on probe rounds P0c and P0d (2026-11-14, after their independent review)
 
-Round P0c probes what package A's code does that no probe had done (its review, 2026-11-14): mates made with
-`CommandInProgress` on; a lock renamed straight after it is made in an unsaved assembly; folders in the mate
-group (until then a turning Update refuses when the mate group holds anything that is not a mate); the error
-code of a suppressed mate; unsuppressing a lock that is already on (the app skips that call); the remake on
-lightweight components; a second new assembly made while a refused one stands open and unsaved; and the tooth
-change by remake on a gear in two gear mates. The demonstration on SolidWorks (package E) runs after it.
+P0c is commits `59910e0` to `c66d321`; its review found no must-fix and asked for three things to be read
+again and four comments reworded, which round P0d did (`5667999`, `ed2fdc4`, `b2162a5`, `26cbf9c`). Both rounds
+ran on SolidWorks 2026 and 2024, each started fresh, and read the same on both.
+
+- **A tooth change on a gear that carries two gear mates is an Update** (`IDLER_UPDATE_HOLDS`). This closes the
+  gap P0b's ruling left: on a train with an idler, the teeth changed through the parts' globals, both of the
+  idler's gear mates were deleted, made again and renamed, every gear put, and the train drove at the new ratios,
+  closed unsaved as saved, and reopened saved with the new teeth. Package A's Update refuses such a remake,
+  before anything changes, while that finding is missing.
+- **Interference is judged against a control.** At the old phase a changed train can happen to show no clash, so
+  the demonstration's control is a gear put half a pitch off its new phase (`UPDATE_INTERFERENCE_CONTROL_HOLDS`).
+- **The Update check may read every gear mate's ratio.** Reading a gear mate's definition marks no document
+  (`GEAR_MATE_DEFINITION_READ_MARKS`), so an Update with nothing to do still changes nothing. The check reads it
+  only while that finding says "nothing".
+- **Mates may sit in folders.** A folder shows in the mate group's walk as two entries of type "FtrFolder" with
+  the mates between them as ordinary entries, found by name; this held with a folder inside a folder, after a
+  save and reopen, and with the folder suppressed (which suppresses the mates inside). A turning Update skips
+  entries of that type and still refuses any other entry that is not a mate. A remade mate lands at the end of
+  the mate group, outside its folder, and is left there. Not probed: turning a mate back on by itself while its
+  folder is suppressed; the app must stop with a sentence if the mate still reads suppressed.
+- **A turning Update refuses while a gear is loaded lightweight.** Forced lightweight, a train's first drive
+  turned one gear wrongly and only then were its components resolved (`LIGHTWEIGHT_FIRST_DRIVE_RIGHT`,
+  `LIGHTWEIGHT_RESOLVED_BY`). The app does not resolve components itself; it reads each gear
+  (`COMPONENT_RESOLVED_ROUTE`, `COMPONENT_FULLY_RESOLVED_STATES`) in the check phase and says how to resolve
+  them in SolidWorks. A plain open on this machine reads every gear resolved.
+- **Mates are made with `CommandInProgress` on and renamed straight after they are made**
+  (`MATES_UNDER_COMMAND_IN_PROGRESS`, `MATE_RENAME_AT_ONCE`); a train Build reads both findings first.
+- **A lock that already reads on is never turned on again:** the call marks the assembly modified
+  (`UNSUPPRESS_ON_LOCK_ALREADY_ON_MARKS_MODIFIED`). A suppressed mate reads error code 0 whatever it would
+  report when on, so nothing judges a suppressed mate by its code.
+- **The refused assembly stays open and is named** (answer 1 as built). A second new assembly beside it holds
+  (`SECOND_ASSEMBLY_BESIDE_UNSAVED_HOLDS`), but no probe closed a new, never-saved, refused assembly on 2024
+  under a watch for a dialog, so the job does not close it.
+- **An unsaved Update can be closed without a question on both versions** (`UNSAVED_UPDATE_CLOSE_ASKS`), with
+  the changed parts open in their own windows as Update leaves them. The app still closes nothing itself.
+- **The "moved" tolerance of 1e-6 mm stands:** origins read 0.0 mm apart around a top-only rebuild and 2.8e-14 mm
+  across a temporary drive (`ORIGIN_NOISE_MM`).
+- **The demonstration keeps its temporary driving mate.** The drag operator, called as the macro database's
+  entry calls it, turned only the dragged gear on these trains (`DRAG_OPERATOR_TURNS_TRAIN`); what differs from
+  that entry's own success (the mate kind holding each gear, an internal mesh, the angle) was not varied. The
+  person's drag in SolidWorks remains the check that a mouse turns the train (W5-PLAN §4.4).
