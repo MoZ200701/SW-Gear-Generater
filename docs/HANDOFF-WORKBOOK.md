@@ -79,19 +79,23 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    `sw2024/probe-results-20261114-014813`), every decision the same (`9b9f546`): every route, even no rebuild,
    showed the put, the layout move and the changed part; `ForceRebuild3(True)` marked only what changed and
    returned False on a failed component; `ForceRebuild3(False)` marked every component. Findings in `e57aca7`
-   (`ASSEMBLY_REBUILD_ROUTE` and the rest). The fix is `9c39fb8`: `swcom.rebuild_call` is the one place that
-   decides (a part as always, an assembly by the finding, refused with a sentence when unsettled), used by
-   `Session.rebuild` and `place_component`; builds and Update refuse an unsettled finding before changing
-   anything; the fake rebuilds as SolidWorks did. **What the SolidWorks rerun (step 3) must still confirm:**
-   the three checks the 2026 rerun failed now pass (section a "SolidWorks marks modified exactly the
-   documents Update changed" and "the superseded G1 part, which Update never changed, is not marked
-   modified"; section b "SolidWorks marks modified only the layout and the assembly"); after a fresh build
-   no part or layout part reads `GetSaveFlag` True; a pair's mates (the gear-pair builds) solve under the
-   top-only rebuild, which the probe did not try. Two things the fix did not change, for the rerun to
-   show: the interference check marks the assembly itself modified (the probe saw it), so after a fresh
-   build the saved assembly reads modified; and an Update that changes a part but re-places no gear still
-   rebuilds the assembly, which marks it, while `GearboxUpdate.changed` lists the assembly only when a gear
-   was re-placed.
+   (`ASSEMBLY_REBUILD_ROUTE` and the rest). The fix is `9c39fb8`, narrowed after its review: `swcom.rebuild_call`
+   is the one place that decides, and the CALLER says what kind of assembly it is. A part rebuilds as always; a
+   static assembly (the workbook gearbox: fixed components, no mates) by `ASSEMBLY_REBUILD_ROUTE`, top-only,
+   refused with a sentence when unsettled, before a build or Update changes anything; a MATED assembly (every
+   pair, crossed and bevel build, and any plan with a `Mate` op) keeps the full `ForceRebuild3(False)` it always
+   had, until `MATED_ASSEMBLY_REBUILD_ROUTE` is set by the W5 probe batch, because the probe tried no mate and no
+   assembly equation. The fake marks what the probe saw for the static route (a full rebuild marks every
+   component, top-only the assembly, a put nothing, the interference check the assembly); it models nothing
+   unprobed. **What the SolidWorks rerun (step 3) must still confirm:** the three checks the 2026 rerun failed
+   now pass under the demonstration's corrected invariant (marked modified = `GearboxUpdate.changed` ∪ the
+   assembly when Update rebuilt it or ran the interference check: `changed` keeps meaning content changed);
+   the new part-only Update step in b; after a fresh build no part or layout part reads `GetSaveFlag` True and
+   the assembly does (the interference check marks it, with nothing to lose by not saving it); a document just
+   opened from its file reads False. Still unprobed for the static route, and shown only by that rerun: a put
+   and its top-only rebuild under `set_rebuild_suppressed(True)` (Update places with `CommandInProgress` on); an
+   assembly BUILT with the top-only route; whether the assembly still reports needing a rebuild after the
+   route; and a part opened alone by path reading `GetSaveFlag` False.
 2. **A brief independent verification of pass 4** (`git diff 8b1ef15..f335379`).
 3. **Rerun both demonstration scripts** (`probe/workbook_assembly_check.py`,
    `probe/workbook_window_check.py`) on SolidWorks 2026, and on 2024 in a fresh session — there, for the

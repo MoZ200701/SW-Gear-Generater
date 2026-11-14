@@ -356,12 +356,15 @@ a mistaken answer is taken back by opening the workbook again in a new session.
 While a build runs, the record keeps a journal of what it is about to make, so
 if the app is killed, crashes or is quit while SolidWorks does not answer, the
 next Build checks what SolidWorks saved and reuses it rather than go beside
-it; a file stays in the journal until it is on record or gone. A build (and
-Update SolidWorks) rebuilds the assembly top-only, so the parts and the layout
-part it inserts are left as saved. Until 2026-11-14 it rebuilt every component,
-which left them all marked modified, so SolidWorks asked to save them on
-closing the assembly (saving them was harmless: they held what they were built
-with).
+it; a file stays in the journal until it is on record or gone. A workbook
+build (and Update SolidWorks) rebuilds its assembly top-only, so the parts and
+the layout part it inserts are expected to be left as saved (the next run on
+SolidWorks is to confirm it); until 2026-11-14 it rebuilt every component, which
+left them all marked modified. The assembly itself always reads modified after
+a build, because the interference check run after it is saved marks it;
+nothing is lost by closing it without saving, since the file on disk is the
+one the build saved. A gear pair's assembly, whose gears are held by mates, is
+rebuilt in full as before.
 
 **Update SolidWorks** carries a later edit of the workbook into what was built:
 the values of a part whose row changed (it keeps its file name, so

@@ -31,8 +31,10 @@ The sections, each in its own folder under the output folder:
   Gears!F3 G2 Teeth 68 -> 69 (S3 X follows by its formula to 132.5); ``Link.poll``; ``classify`` (no structural
   change); Update SolidWorks; measure, including that G2's part holds 69 teeth and that the ASSEMBLY shows the
   69-tooth gear (back at its old frame it now clashes with G1). Nothing saved by Update, the record marks the
-  documents unsaved, and SolidWorks marks modified only the documents Update changed (W4 review S2: the parts it
-  did not change are left unmodified). Then a structural edit (G1's bore cleared) with those documents still
+  documents unsaved, and SolidWorks marks modified only the documents Update changed and the assembly it
+  rebuilt (W4 review S2: the parts it did not change are left unmodified; the assembly is rebuilt top-only,
+  ``findings.ASSEMBLY_REBUILD_ROUTE``). Right after the build, no part and no layout part reads modified and the
+  assembly does (its interference check marks it); after every reopen, every document reads unmodified. Then a structural edit (G1's bore cleared) with those documents still
   unsaved: the build-again plan does not wait for a save (review B2) — G2's part, changed by Update and not
   saved, is made new as Gear_m1.5_N69 instead of reused, G1's as Gear_m1.5_N17_r2 — and ``_r2`` is built
   without saving anything, reusing G3's and G4's parts; every earlier file's sha256 and mtime are compared with
@@ -52,7 +54,9 @@ The sections, each in its own folder under the output folder:
   build-again plan reuses Gear_m1.5_N68.
 - ``b``: a workbook written by the app's own ``write_new``, opened and saved in Excel with S2 placed by formulas
   from an angle cell, off both axes, and S3 following S2 by formula. Built; the angle changed in Excel; Update
-  moves the shafts and re-places the gears without touching a part.
+  moves the shafts and re-places the gears without touching a part. Then a part-only Update (G2's bore 8 ->
+  10, no gear re-placed): SolidWorks marks G2's part, and the assembly only because Update rebuilt it; the
+  record marks the part alone (``GearboxUpdate.changed`` is what Update changed the content of).
 - ``c``: the risky placements: a helical pair across Z+ and Z-, herringbones of unequal face widths on Z- and
   Z+, and a helical pinion in a helical ring whose shaft is Z-. Built, measured, every mesh's negative control.
 
@@ -312,6 +316,33 @@ def save_flags(session, paths):
             if store.same_path(path, wanted):
                 out[os.path.basename(wanted)] = bool(call(doc, "GetSaveFlag"))
     return out
+
+
+def marked(flags):
+    """The documents SolidWorks reads ``GetSaveFlag`` True in (one not open reads nothing, so it is not marked)."""
+    return sorted(n for n, f in flags.items() if f)
+
+
+def expected_marks(result, assembly):
+    """What SolidWorks should mark modified after an Update: every document whose content it changed
+    (``GearboxUpdate.changed``), and the assembly whenever Update rebuilt it, which also runs the interference
+    check — each of which marks the assembly (probe assembly_rebuild_scope) though it holds nothing new."""
+    names = {os.path.basename(p) for p in result.changed}
+    if result.rebuilt:
+        names.add(os.path.basename(assembly))
+    return sorted(names)
+
+
+def check_fresh_build_marks(worker, paths, assembly, label):
+    """Right after a build and its saves: no part and no layout part reads GetSaveFlag True (the assembly is rebuilt
+    top-only, findings.ASSEMBLY_REBUILD_ROUTE), and the assembly does: its interference check, run after it is
+    saved, marks it, with nothing to lose by not saving it."""
+    flags = run(worker, lambda s: save_flags(s, paths))
+    say(f"        marked modified in SolidWorks right after the build: {flags}")
+    others = [os.path.basename(p) for p in paths if not store.same_path(p, assembly)]
+    check(all(flags.get(n) is False for n in others) and flags.get(os.path.basename(assembly)) is True,
+          f"{label}: after the build and its saves no part and no layout part is marked modified, and the assembly "
+          f"is (its interference check): marked {marked(flags)}")
 
 
 def stamps(folder, solidworks_only=False):
@@ -725,6 +756,12 @@ def reopen(worker, desk, label):
     check(not left, f"{label}: saved and closed this run's documents: left {left}")
     say(f"        open now: {run(worker, open_titles)}")
     measure_frames(worker, desk, f"{label}, reopened")
+    box = desk.record.gearbox
+    paths = [box.assembly, box.layout] + sorted({c.part for c in box.components})
+    flags = run(worker, lambda s: save_flags(s, paths))
+    check(len(flags) == len(paths) and not marked(flags),
+          f"{label}, reopened: every document just opened from its file reads GetSaveFlag False (the record clears "
+          f"a mark on that reading): {flags}")
 
 
 def measure(worker, desk, label, controls=True, again=True):
@@ -878,6 +915,7 @@ def section_a(worker, excel):
                                               "Reducer_12to1.SLDASM")]
     check(result.ok and all(os.path.isfile(p) for p in made), "4 parts, the layout part and the assembly saved")
     check(result.clashes == [] and not result.interference_error, f"no interference: {result.clashes}")
+    check_fresh_build_marks(worker, made, made[-1], "a")
     check(desk.record is not None and desk.record.digest == desk.reading.digest and desk.record.gearbox.assembly,
           "the record holds the gearbox, built from this read")
     desk.say_footer("after the build")
@@ -904,7 +942,7 @@ def section_a(worker, excel):
           "classify: no structural change; G2's values, S2 and S3 moved, G2, G3 and G4 re-placed")
     desk.say_footer("after the edit")
     guard()
-    desk.update_solidworks()
+    _, update_result, _ = desk.update_solidworks()
     after_update = stamps(folder, solidworks_only=True)
     changed_files = [n for n in before_update if before_update[n] != after_update.get(n)]
     check(changed_files == [], f"Update SolidWorks saved nothing: SolidWorks files changed on disk {changed_files} "
@@ -918,9 +956,10 @@ def section_a(worker, excel):
           f"Gear_m1.5_N68.gear.json says 69 teeth, marked unsaved since {marked and marked.record.unsaved_since}")
     flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in before_update]))
     say(f"        marked modified in SolidWorks right after the update: {flags}")
-    check(sorted(n for n, f in flags.items() if f) == unsaved,
-          "SolidWorks marks modified exactly the documents Update changed (review S2: the trig check no longer "
-          f"touches the parts it leaves alone): {sorted(n for n, f in flags.items() if f)}")
+    wanted_marks = expected_marks(update_result, desk.record.gearbox.assembly)
+    check(marked(flags) == wanted_marks,
+          "SolidWorks marks modified exactly the documents Update changed and the assembly it rebuilt (review S2, "
+          f"and the top-only rebuild): marked {marked(flags)}, expected {wanted_marks}")
     desk.say_footer("after the update")
     say(f"tag     {ui_text.workbook_built_tag(desk.record, desk.reading.digest)!r}")
     measure_frames(worker, desk, "a updated")
@@ -1183,6 +1222,9 @@ def section_b(worker, excel):
     guard()
     plan, result = desk.build()
     check(result.ok and result.clashes == [], f"built: parts, layout, assembly, no interference {result.clashes}")
+    box = desk.record.gearbox
+    check_fresh_build_marks(worker, [box.layout, box.assembly] + sorted({c.part for c in box.components}),
+                            box.assembly, "b")
     measure(worker, desk, "b built")
     guard()
     before = stamps(folder, solidworks_only=True)
@@ -1202,14 +1244,46 @@ def section_b(worker, excel):
           f"re-placed {result.placed}")
     flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in before]))
     say(f"        marked modified in SolidWorks right after the update: {flags}")
-    check(sorted(n for n, f in flags.items() if f) == ["Arc_Move.SLDASM", "Arc_Move_Layout.SLDPRT"],
+    check(marked(flags) == ["Arc_Move.SLDASM", "Arc_Move_Layout.SLDPRT"]
+          and marked(flags) == expected_marks(result, desk.record.gearbox.assembly),
           "SolidWorks marks modified only the layout and the assembly: Update left every part as it was (review "
-          f"S2): {sorted(n for n, f in flags.items() if f)}")
+          f"S2, and the top-only rebuild): {marked(flags)}")
     check(result.clashes == [] and not result.interference_error, f"no interference after the move: {result.clashes}")
     after = stamps(folder, solidworks_only=True)
     check([n for n in before if before[n] != after.get(n)] == [], f"Update saved nothing ({len(before)} SolidWorks "
           "files, sha256 and mtime)")
     measure(worker, desk, "b moved")
+
+    say("-- b   a part-only Update, no gear re-placed: G2's bore 8 -> 10")
+    guard()
+    before = stamps(folder, solidworks_only=True)
+    book.set("Gears", "J3", 10)
+    book.save()
+    desk.poll()
+    desk.say_update()
+    u = desk.update
+    check(u is not None and not u.needs_new_revision and [p.gear_ids for p in u.changed_parts] == [("G2",)]
+          and not u.moved_shafts and not u.replaced,
+          "classify: G2's values alone, no shaft moved, no gear re-placed")
+    guard()
+    _, result, _ = desk.update_solidworks()
+    g2_part = next(c.part for c in desk.record.gearbox.components if c.gear == "G2")
+    check(result.ok and result.placed == [] and [os.path.basename(p) for p in result.changed]
+          == [os.path.basename(g2_part)],
+          f"Update: G2's part changed and nothing else: changed {[os.path.basename(p) for p in result.changed]}, "
+          f"re-placed {result.placed}")
+    unsaved = sorted(os.path.basename(p) for p in desk.record.unsaved)
+    check(unsaved == [os.path.basename(g2_part)], f"the record marks G2's part unsaved and not the assembly, which "
+          f"holds nothing new: {unsaved}")
+    flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in before]))
+    say(f"        marked modified in SolidWorks right after the update: {flags}")
+    wanted_marks = expected_marks(result, desk.record.gearbox.assembly)
+    check(marked(flags) == wanted_marks,
+          f"SolidWorks marks modified G2's part, and the assembly only if Update rebuilt it (rebuilt "
+          f"{result.rebuilt}): marked {marked(flags)}, expected {wanted_marks}")
+    after = stamps(folder, solidworks_only=True)
+    check([n for n in before if before[n] != after.get(n)] == [], "Update saved nothing")
+    measure(worker, desk, "b bore", controls=False)
     book.close()
 
 
