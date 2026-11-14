@@ -439,5 +439,13 @@ def decide(records: Records) -> Dict[str, Any]:
                                                 "second_assembly_beside_unsaved_holds"),
         "mated_build_keeps_components_unmodified": _fact(records, "mated_rebuild_scope",
                                                          "mated_build_keeps_components_unmodified"),
+        "idler_update_holds": _fact(records, "idler_update", "idler_update_holds"),
+        "update_interference_control_discriminates": _fact(records, "gear_mate_update",
+                                                           "update_interference_control_discriminates"),
+        "idler_interference_control_discriminates": _fact(records, "idler_update",
+                                                          "idler_interference_control_discriminates"),
+        "unsaved_update_close_asks": _fact(records, "unsaved_update_close", "unsaved_update_close_asks"),
+        "unsaved_update_close_discards": _fact(records, "unsaved_update_close", "unsaved_update_close_discards"),
+        "drag_operator_turns_train": _fact(records, "drag_operator_turns_train", "drag_operator_turns_train"),
         "manual_steps": manual_steps(records, recipe),
     }

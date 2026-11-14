@@ -17,9 +17,10 @@ from gear_generator.probe import decide, harness
 from gear_generator.probe import p8_motion as p8
 
 TIER_8 = ["motion_enums", "shaft_axis_mates", "gear_mate_sense", "compound_lock", "mated_train", "motion_update",
-          "gear_mate_ratio", "gear_mate_update", "lock_retake_offset", "lock_mate_rename", "demonstration_drive",
+          "gear_mate_ratio", "gear_mate_update", "idler_update", "lock_retake_offset", "lock_mate_rename", "demonstration_drive",
           "put_on_twice_meshed_gear", "axial_datum_plane", "mated_rebuild_scope", "mates_under_command_in_progress",
-          "mate_folders", "lightweight_remake", "second_assembly_beside_unsaved", "gear_mate_definition"]
+          "mate_folders", "lightweight_remake", "second_assembly_beside_unsaved", "unsaved_update_close",
+          "drag_operator_turns_train", "gear_mate_definition"]
 
 
 @pytest.fixture(scope="module")
@@ -625,3 +626,79 @@ def test_package_p0c_decisions_come_off_a_pass_only():
     for key in ("mates_under_command_in_progress", "mate_rename_at_once", "mate_group_walk_sees_mates_in_a_folder",
                 "second_assembly_beside_unsaved"):
         assert decided[key] is None, key
+
+
+def test_the_idler_fixture_remakes_both_of_the_idlers_gear_mates_and_moves_no_shaft():
+    fx = p8.IDLER
+    old, new = fx.spec("C:\\X"), fx.spec("C:\\X", dict(fx.change))
+    teeth = lambda spec: {g.id: int(g.teeth) for g in spec.gears}   # noqa: E731
+    assert teeth(old) == fx.old_teeth() and teeth(new) == fx.new_teeth() == {"G1": 15, "G2": 32, "G3": 38}
+    for a, b in fx.meshes:                                            # module 2: every centre distance holds
+        assert teeth(new)[a] + teeth(new)[b] == teeth(old)[a] + teeth(old)[b]
+    assert fx.remade() == [("G1", "G2"), ("G2", "G3")]               # the idler is in both
+    assert fx.turns(fx.old_teeth()) == pytest.approx([1, -17 / 30, 17 / 40])
+    assert fx.turns(fx.new_teeth()) == pytest.approx([1, -15 / 32, 15 / 38])
+    frames_old, frames_new = p8.update_frames("C:\\X", fx=fx), p8.update_frames("C:\\X", dict(fx.change), fx=fx)
+    assert all(frames_old[g][1] == frames_new[g][1] for g in fx.gears)
+    assert frames_old["G2"][0] != frames_new["G2"][0] and p8.frames_identity(frames_new["G1"][0])
+    # The reducer's turns by the general rule are the compound train's.
+    assert p8.REDUCER.turns(p8.REDUCER.old_teeth()) == pytest.approx(p8.update_turns(p8.REDUCER.old_teeth()))
+    assert p8.REDUCER.remade() == [("G3", "G4")] and p8.update_spec("C:\\X").box.name == p8.UPDATE_TAG
+
+
+def test_an_idler_update_holds_only_with_both_gear_mates_remade_by_name():
+    teeth = p8.IDLER.new_teeth()
+    turns = {g: 30.0 * t for g, t in zip(p8.IDLER.gears, p8.IDLER.turns(teeth))}
+    both = {"G1 meshes G2": {"name": "G1 meshes G2"}, "G2 meshes G3": {"name": "G2 meshes G3"}}
+    p = _update_pass(teeth={g: {"ok": True, "changed": ["No. of Teeth"]} for g in p8.IDLER.gears}, remakes=both,
+                     drive={"turns": turns, "back_at_built": 0.0})
+    p.pop("remake")
+    assert p8.update_pass_holds(p, teeth, p8.IDLER)
+    assert not p8.update_pass_holds({**p, "remakes": {"G1 meshes G2": both["G1 meshes G2"]}}, teeth, p8.IDLER)
+    assert not p8.update_pass_holds({**p, "remakes": {**both, "G2 meshes G3": {"name": "GearMate4"}}}, teeth, p8.IDLER)
+    assert p8.remakes_of({"remake": {"name": "G3 meshes G4"}}) == {"G3 meshes G4": {"name": "G3 meshes G4"}}
+    assert p8.interference_control({"interference_before_put": {"count": 3}, "interference": {"count": 0}}) == \
+        {"before_put": 3, "after": 0}
+
+
+def test_a_mate_not_made_is_said_in_a_sentence():
+    said = p8.not_made("G1 on S1 Axis", {"returned": None, "status": 5, "status_name": "swAddMateError_x",
+                                         "made": [], "name": None})
+    assert said.endswith(".") and "{" not in said and "status 5" in said
+
+
+def test_the_dialog_watch_is_made_on_linux_and_touches_no_window_until_entered():
+    watch = p8.DialogWatch(1234)
+    assert watch.report() == {"windows": [], "watch_error": None}
+
+
+def test_the_round_p0c_review_additions_decide_off_a_pass_only():
+    facts = {"idler_update": {"idler_update_holds": True, "idler_interference_control_discriminates": True},
+             "gear_mate_update": {"gear_mate_update_holds": True, "update_interference_control_discriminates": False},
+             "unsaved_update_close": {"unsaved_update_close_asks": {"CloseDoc": False, "QuitDoc": False},
+                                      "unsaved_update_close_discards": {"CloseDoc": True, "QuitDoc": True}}}
+    passed = decide.decide(records(facts=facts))
+    assert passed["idler_update_holds"] is True and passed["update_interference_control_discriminates"] is False
+    assert passed["unsaved_update_close_asks"] == {"CloseDoc": False, "QuitDoc": False}
+    failed = records(failing=tuple(facts))
+    for name, values in facts.items():
+        failed[name]["facts"].update(values)
+    decided = decide.decide(failed)
+    for key in ("idler_update_holds", "idler_interference_control_discriminates", "unsaved_update_close_asks",
+                "unsaved_update_close_discards"):
+        assert decided[key] is None, key
+
+
+def test_a_drag_follows_only_when_the_whole_train_turns_its_share_in_place():
+    keys = ["TG1", "TG2", "TG3", "TG4"]
+    expected = p8.train_turns(p8.TRAIN_TEETH, (1, 1, 1, 1))
+    before = {k: (p8.crossed.rot_z(0.0), (10.0 * i, 0.0, 0.0)) for i, k in enumerate(keys)}
+    asked = p8.DRAG_DEGREES
+    assert abs(asked / expected[3]) < 180.0                           # the input's turn must read as itself
+    turned = {k: (p8.crossed.rot_z(asked * e / expected[3]), before[k][1]) for k, e in zip(keys, expected)}
+    res = p8.drag_residuals(before, turned, keys, expected, "TG4")
+    assert res["turns"]["TG4"] == pytest.approx(asked) and max(res["residual_deg"].values()) < 1e-6
+    assert p8.drag_follows(res, "TG4", asked)
+    alone = {**before, "TG4": turned["TG4"]}                         # only the dragged gear turned (tier 8's reading)
+    assert not p8.drag_follows(p8.drag_residuals(before, alone, keys, expected, "TG4"), "TG4", asked)
+    assert p8.DRAG_CASES[0][1:] == (3, 10)                            # the entry's success comes first, as given

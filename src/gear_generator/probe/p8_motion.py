@@ -122,6 +122,7 @@ import math
 import os
 import shutil
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .. import findings
@@ -624,7 +625,7 @@ def drive_mate(px: Px, asm: Any, gear: Any, gear_top: str, layout: Any, layout_t
         return None
     made = add_mate(px, asm, f"{label}: drive angle", _enums(px)["angle"], align, angle=angle)
     if made["name"] is None:
-        px.fail(f"{label}: the drive angle mate was not made: {made}")
+        px.fail(not_made(f"{label}: the drive angle mate", made))
         return None
     feature = mate_feature(asm, made["name"])
     name = _rename(px, feature, f"{global_name} {label}")
@@ -2560,30 +2561,108 @@ UPDATE_STEP = 30.0
 UPDATE_DRIVE = "Update Drive"
 
 
-def update_spec(folder: str, teeth: Optional[Mapping[str, str]] = None) -> Any:
-    """W4's 12 : 1 reducer (tests/fixtures/excel-windows/Reducer_12to1.xlsx) with the probe's own part names, and
-    any gear's teeth given instead."""
-    from ..workbook.model import Box, Gear, GearboxSpec, Mesh, Shaft  # noqa: PLC0415
+def mesh_turns(gears: Sequence[str], locks: Sequence[Tuple[str, str]], meshes: Sequence[Tuple[str, str]],
+               teeth: Mapping[str, int]) -> List[float]:
+    """Each gear's turn about +Z per degree of the first, every shaft Z+: a lock turns its pair together and an
+    external mesh turns its second gear ``-z_a / z_b`` of its first."""
+    out: Dict[str, float] = {gears[0]: 1.0}
+    for _ in range(len(gears)):
+        for a, f in locks:
+            for x, y in ((a, f), (f, a)):
+                if x in out and y not in out:
+                    out[y] = out[x]
+        for a, b in meshes:
+            if a in out and b not in out:
+                out[b] = -out[a] * teeth[a] / teeth[b]
+            elif b in out and a not in out:
+                out[a] = -out[b] * teeth[b] / teeth[a]
+    if set(out) != set(gears):
+        raise ValueError(f"The meshes and locks do not reach every gear: {sorted(set(gears) - set(out))}")
+    return [out[g] for g in gears]
 
-    t = {"G1": "17", "G2": "68", "G3": "17", "G4": "51", **dict(teeth or {})}
-    rows = (("G1", "S1", "7.5", "1.5", "15", "8"), ("G2", "S2", "7.5", "1.5", "15", "12"),
-            ("G3", "S2", "27", "2", "20", "12"), ("G4", "S3", "27", "2", "20", "16"))
-    return GearboxSpec(
-        box=Box(name=UPDATE_TAG, output_folder=folder.rstrip("\\/") + "\\"),
-        shafts=(Shaft("S1", "frame", "0", "0", "0", "Z+", "input", speed="1500", torque="10"),
-                Shaft("S2", "frame", "63.75", "0", "0", "Z+", ""),
-                Shaft("S3", "frame", "131.75", "0", "0", "Z+", "output")),
-        gears=tuple(Gear(g, s, at, "spur", "external", t[g], m, face_width=w, bore=b, part_name=f"{UPDATE_TAG} {g}")
-                    for g, s, at, m, w, b in rows),
-        meshes=(Mesh("G1", "G2"), Mesh("G3", "G4")))
+
+@dataclass(frozen=True)
+class UpdateFixture:
+    """A gearbox P1b builds by the app, mates as W5 will and changes by an Update: its shafts (id, x, role), its
+    gears (id, shaft, at, module, face width, bore), the teeth it is built with, the tooth change, and its W5 mates
+    (anchors on their shafts, locks, gear mates). No shaft moves in the change: every centre distance holds."""
+    tag: str
+    folder: str
+    shafts: Tuple[Tuple[str, str, str], ...]
+    rows: Tuple[Tuple[str, str, str, str, str, str], ...]
+    teeth: Tuple[Tuple[str, int], ...]
+    change: Tuple[Tuple[str, str], ...]
+    anchors: Tuple[Tuple[str, str], ...]
+    locks: Tuple[Tuple[str, str], ...]
+    meshes: Tuple[Tuple[str, str], ...]
+
+    @property
+    def gears(self) -> List[str]:
+        return [r[0] for r in self.rows]
+
+    def old_teeth(self) -> Dict[str, int]:
+        return dict(self.teeth)
+
+    def new_teeth(self, change: Optional[Mapping[str, str]] = None) -> Dict[str, int]:
+        return {**dict(self.teeth), **{g: int(v) for g, v in dict(change or dict(self.change)).items()}}
+
+    def remade(self, change: Optional[Mapping[str, str]] = None) -> List[Tuple[str, str]]:
+        """The gear mates a tooth change remakes: every one with a changed gear in it."""
+        changed = set(dict(change or dict(self.change)))
+        return [(a, b) for a, b in self.meshes if a in changed or b in changed]
+
+    def turns(self, teeth: Mapping[str, int]) -> List[float]:
+        return mesh_turns(self.gears, self.locks, self.meshes, teeth)
+
+    def spec(self, folder: str, teeth: Optional[Mapping[str, str]] = None) -> Any:
+        from ..workbook.model import Box, Gear, GearboxSpec, Mesh, Shaft  # noqa: PLC0415
+
+        t = {**{g: str(v) for g, v in self.teeth}, **dict(teeth or {})}
+        return GearboxSpec(
+            box=Box(name=self.tag, output_folder=folder.rstrip("\\/") + "\\"),
+            shafts=tuple(Shaft(s, "frame", x, "0", "0", "Z+", role,
+                               **({"speed": "1500", "torque": "10"} if role == "input" else {}))
+                         for s, x, role in self.shafts),
+            gears=tuple(Gear(g, s, at, "spur", "external", t[g], m, face_width=w, bore=b,
+                             part_name=f"{self.tag} {g}") for g, s, at, m, w, b in self.rows),
+            meshes=tuple(Mesh(a, b) for a, b in self.meshes))
 
 
-def update_frames(folder: str, teeth: Optional[Mapping[str, str]] = None) -> Dict[str, Tuple[Matrix, Vec]]:
+#: W4's 12 : 1 reducer (tests/fixtures/excel-windows/Reducer_12to1.xlsx) with the probe's own part names: its second
+#: stage 17/51 -> 18/50, the same centre distance (module 2, 68 mm), so only the parts, one gear mate and the phases
+#: change. The W5 mates: anchors G1, G2, G4; G3 locked to G2; two gear mates (W5-PLAN §1.2, D12).
+REDUCER = UpdateFixture(
+    tag=UPDATE_TAG, folder="update",
+    shafts=(("S1", "0", "input"), ("S2", "63.75", ""), ("S3", "131.75", "output")),
+    rows=(("G1", "S1", "7.5", "1.5", "15", "8"), ("G2", "S2", "7.5", "1.5", "15", "12"),
+          ("G3", "S2", "27", "2", "20", "12"), ("G4", "S3", "27", "2", "20", "16")),
+    teeth=(("G1", 17), ("G2", 68), ("G3", 17), ("G4", 51)), change=tuple(UPDATE_TEETH.items()),
+    anchors=(("G1", "S1"), ("G2", "S2"), ("G4", "S3")), locks=(("G2", "G3"),), meshes=(("G1", "G2"), ("G3", "G4")))
+
+#: A simple train with an idler: G2 sits in two gear mates and its teeth change, so both are remade. Module 2,
+#: 17/30/40 -> 15/32/38: both centre distances (47 mm, 70 mm) hold, so no shaft moves; every gear takes new teeth
+#: and a new phase. Each gear an anchor on its own shaft; no lock.
+IDLER = UpdateFixture(
+    tag="Probe W8 Idler", folder="idler",
+    shafts=(("S1", "0", "input"), ("S2", "47", ""), ("S3", "117", "output")),
+    rows=(("G1", "S1", "7.5", "2", "15", "8"), ("G2", "S2", "7.5", "2", "15", "10"),
+          ("G3", "S3", "7.5", "2", "15", "12")),
+    teeth=(("G1", 17), ("G2", 30), ("G3", 40)), change=(("G1", "15"), ("G2", "32"), ("G3", "38")),
+    anchors=(("G1", "S1"), ("G2", "S2"), ("G3", "S3")), locks=(), meshes=(("G1", "G2"), ("G2", "G3")))
+
+
+def update_spec(folder: str, teeth: Optional[Mapping[str, str]] = None, fx: UpdateFixture = REDUCER) -> Any:
+    """The fixture's gearbox spec (W4's 12 : 1 reducer unless told otherwise), with any gear's teeth given instead."""
+    return fx.spec(folder, teeth)
+
+
+def update_frames(folder: str, teeth: Optional[Mapping[str, str]] = None,
+                  fx: UpdateFixture = REDUCER) -> Dict[str, Tuple[Matrix, Vec]]:
     """Each gear's built frame (``workbook.layout.frames``), as the probe's matrix and origin."""
     from ..workbook import assess as wb_assess, layout as wb_layout  # noqa: PLC0415
     from .p7_workbook import rows_matrix  # noqa: PLC0415
 
-    spec = update_spec(folder, teeth)
+    spec = update_spec(folder, teeth, fx)
     assessed = wb_assess.assess(spec, [], spec.box.output_folder, "")
     if assessed.lay_out_refusal():
         raise Require(f"The update fixture does not lay out: {assessed.lay_out_refusal()}")
@@ -2596,14 +2675,20 @@ def frames_identity(matrix: Matrix) -> bool:
 
 
 #: The W5 mates of the 12 : 1 reducer (W5-PLAN §1.2, D12): anchors G1, G2, G4; G3 locked to G2; two gear mates.
-UPDATE_ANCHORS = (("G1", "S1"), ("G2", "S2"), ("G4", "S3"))
-UPDATE_LOCKS = (("G2", "G3"),)
-UPDATE_MESHES = (("G1", "G2"), ("G3", "G4"))
+UPDATE_ANCHORS = REDUCER.anchors
+UPDATE_LOCKS = REDUCER.locks
+UPDATE_MESHES = REDUCER.meshes
+
+
+def not_made(name: str, result: Mapping[str, Any]) -> str:
+    """The sentence for a mate AddMate5 did not make."""
+    return (f"{name} was not made: AddMate5 returned {result.get('returned')} with status {result.get('status')} "
+            f"({result.get('status_name') or 'unnamed'}), and {len(result.get('made') or [])} new mates appeared.")
 
 
 def mate_w5_train(px: Px, doc: Any, comps: Mapping[str, Any], layout: Any, frames: Mapping[str, Tuple[Matrix, Vec]],
-                  teeth: Mapping[str, int], add: Callable[[str], int]) -> Dict[str, Any]:
-    """Unfix and mate a static 12 : 1 assembly as W5 will: each anchor on its shaft's axis (AXIS_MATE_ROUTE) and
+                  teeth: Mapping[str, int], add: Callable[[str], int], fx: UpdateFixture = REDUCER) -> Dict[str, Any]:
+    """Unfix and mate a static assembly (the 12 : 1 unless told otherwise) as W5 will: each anchor on its shaft's axis (AXIS_MATE_ROUTE) and
     along it (AXIAL_MATE_ROUTE, the distance on "<Gear> Face Z"), G3 locked to G2, each mesh a gear mate with
     GEAR_MATE_FLIP; every mate named as D12 says. What each AddMate5 answered, by name."""
     enums = _enums(px)
@@ -2612,11 +2697,11 @@ def mate_w5_train(px: Px, doc: Any, comps: Mapping[str, Any], layout: Any, frame
 
     def named(result: Dict[str, Any], name: str) -> None:
         if result.get("name") is None:
-            raise Require(f"{name} was not made: {result}")
+            raise Require(not_made(name, result))
         _rename(px, mate_feature(doc, result["name"]), name)
         made[name] = result
 
-    for gear, shaft in UPDATE_ANCHORS:
+    for gear, shaft in fx.anchors:
         px.require(unfix(px, doc, comps[gear]), f"{gear} floats")
         picked = select_in(px, doc, comps[gear], "Gear Axis", "AXIS", False) and \
             select_in(px, doc, layout, f"{shaft} Axis", "AXIS", True)
@@ -2637,12 +2722,12 @@ def mate_w5_train(px: Px, doc: Any, comps: Mapping[str, Any], layout: Any, frame
             px.require(len(match) == 1 and add(f'"{gear} Face Z"= {abs(z):g}') >= 0 and
                        add(f'"{call(match[0], "Name")}@{gear} along {shaft}"= "{gear} Face Z"') >= 0,
                        f'{gear}\'s axial distance is linked to "{gear} Face Z"')
-    for anchor, follower in UPDATE_LOCKS:
+    for anchor, follower in fx.locks:
         px.require(unfix(px, doc, comps[follower]), f"{follower} floats")
         px.require(bool(select_components(px, doc, (comps[anchor], comps[follower]))), f"{anchor} and {follower} select")
         named(add_mate(px, doc, f"{follower} locked to {anchor}", enums["lock"], enums["closest"]),
               f"{follower} locked to {anchor}")
-    for a, b in UPDATE_MESHES:
+    for a, b in fx.meshes:
         picked = select_in(px, doc, comps[a], "Gear Axis", "AXIS", False) and \
             select_in(px, doc, comps[b], "Gear Axis", "AXIS", True)
         px.require(bool(picked), f"{a}'s and {b}'s axes select")
@@ -2734,34 +2819,41 @@ def _unsuppress_all(px: Px, doc: Any, locks: Sequence[str]) -> Dict[str, Any]:
 
 def _update_pass(px: Px, swbuild: Any, doc: Any, asm_title: str, comps: Mapping[str, Any], layout: Any,
                  jobs: Mapping[str, Any], wanted: Mapping[str, Tuple[Matrix, Vec]],
-                 compare_full: bool = False) -> Dict[str, Any]:
-    """One Update of the tooth change, in the order W5-PLAN §1.6 and the rulings give: the parts' teeth through
-    their globals; every lock suppressed; the gear mate deleted, made again at the new ratio and given its old name;
-    every gear put to its new built frame; every lock unsuppressed (in a finally); a top-only rebuild; the mate
-    check; the drive and interference at the built phase; and, with ``compare_full``, the frames after a full
-    rebuild beside it (last, so nothing above is measured on what the full rebuild made)."""
+                 compare_full: bool = False, fx: UpdateFixture = REDUCER,
+                 change: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+    """One Update of the tooth change (the fixture's own, or ``change``), in the order W5-PLAN §1.6 and the rulings
+    give: the parts' teeth through their globals; every lock suppressed; every gear mate with a changed gear deleted,
+    made again at the new ratio and given its old name; an interference reading at the old frames (the control: a
+    changed gear stands off its new phase there); every gear put to its new built frame; every lock unsuppressed (in
+    a finally); a top-only rebuild; the mate check; the drive and interference at the built phase; and, with
+    ``compare_full``, the frames after a full rebuild beside it (last, so nothing above is measured on what the full
+    rebuild made)."""
     from .p4_interference import interferences  # noqa: PLC0415
     from .p7_workbook import activate  # noqa: PLC0415
 
-    out: Dict[str, Any] = {"teeth": {g: _set_teeth(px, swbuild, jobs, g, t) for g, t in UPDATE_TEETH.items()}}
+    change = dict(change or dict(fx.change))
+    new = fx.new_teeth(change)
+    out: Dict[str, Any] = {"teeth": {g: _set_teeth(px, swbuild, jobs, g, t) for g, t in change.items()}}
     px.require(activate(px, asm_title), "the assembly is active again")
-    locks = [f"{f} locked to {a}" for a, f in UPDATE_LOCKS]
+    locks = [f"{f} locked to {a}" for a, f in fx.locks]
     out["mates_before"] = mate_names(doc)
     try:
         out["suppressed_by"] = {lock: suppress(px, doc, lock, True) for lock in locks}
         out["rebuild_suppressed"] = rebuild(px, doc, "locks suppressed", top_only=TOP_ONLY)
-        name = "G3 meshes G4"
         names = {k: str(call(c, "Name2")) for k, c in comps.items()}
-        out["remake"] = remake_gear_mate(px, doc, names, name, "G3", "G4",
-                                         (float(UPDATE_TEETH["G3"]), float(UPDATE_TEETH["G4"])), name)
+        out["remakes"] = {}
+        for a, b in fx.remade(change):
+            name = f"{a} meshes {b}"
+            out["remakes"][name] = remake_gear_mate(px, doc, names, name, a, b, (float(new[a]), float(new[b])), name)
         out["mates_after_remake"] = mate_names(doc)
+        out["interference_before_put"] = interferences(px, doc, "at the old frames, before the put")
         for gear, (matrix, at) in wanted.items():
             put(px, doc, comps[gear], matrix, at, top_only=TOP_ONLY)
     finally:
         out["unsuppressed_by"] = _unsuppress_all(px, doc, locks)
     out["rebuild"] = rebuild(px, doc, "after the Update", top_only=TOP_ONLY)
     out["off_built"] = _off(comps, wanted)
-    out["check"] = mate_check(px, doc, comps, {"G3 meshes G4": (out.get("remake") or {}).get("made") or {}})
+    out["check"] = mate_check(px, doc, comps, {n: (r or {}).get("made") or {} for n, r in out["remakes"].items()})
     out["drive"] = _drive_measure(px, doc, comps, layout, wanted, "after the Update")
     out["interference"] = interferences(px, doc, "at the built phase after the Update")
     if compare_full:
@@ -2807,49 +2899,73 @@ def update_turns(teeth: Mapping[str, int]) -> List[float]:
     return train_turns((teeth["G1"], teeth["G2"], teeth["G3"], teeth["G4"]), (1, 1, 1, 1))
 
 
-def update_pass_holds(p: Mapping[str, Any], teeth: Mapping[str, int]) -> bool:
-    """An Update pass did what it must: the parts took their teeth, the remade gear mate kept its name, every gear
+def remakes_of(p: Mapping[str, Any]) -> Dict[str, Any]:
+    """An Update pass's remade gear mates by name (P0b's files kept the one remake as ``remake``)."""
+    if "remakes" in p:
+        return dict(p["remakes"] or {})
+    return {"G3 meshes G4": p["remake"]} if "remake" in p else {}
+
+
+def update_pass_holds(p: Mapping[str, Any], teeth: Mapping[str, int], fx: UpdateFixture = REDUCER) -> bool:
+    """An Update pass did what it must: the parts took their teeth, every remade gear mate kept its name, every gear
     stands at its new built frame after the rebuild, the mate check is clean, a full rebuild moves nothing, the
     drive turns the train at the new ratio in the right sense and returns every gear, and no gear interferes."""
     drive = p.get("drive") or {}
     turns = drive.get("turns") or {}
-    return bool(all(r.get("ok") and "No. of Teeth" in r.get("changed", []) for r in p["teeth"].values())
-                and (p.get("remake") or {}).get("name") == "G3 meshes G4"
+    remakes = remakes_of(p)
+    wanted = [f"{a} meshes {b}" for a, b in fx.remade({g: str(v) for g, v in teeth.items()
+                                                      if fx.old_teeth().get(g) != v} or None)]
+    return bool(p["teeth"] and all(r.get("ok") and "No. of Teeth" in r.get("changed", []) for r in p["teeth"].values())
+                and set(remakes) == set(wanted) and all((remakes[n] or {}).get("name") == n for n in wanted)
                 and worst(p["off_built"]) < TOLERANCE_MM and mate_check_clean(p["check"])
                 and p.get("moved_by_the_full_rebuild", 0.0) < TOLERANCE_MM and turns
-                and _train_ok(turns, ["G1", "G2", "G3", "G4"], update_turns(teeth), UPDATE_STEP)
+                and _train_ok(turns, fx.gears, fx.turns(teeth), UPDATE_STEP)
                 and drive.get("back_at_built", 1.0) < TOLERANCE_MM
                 and (p.get("interference") or {}).get("count") == 0)
 
 
-@probe("gear_mate_update", needs=("motion_update", "end_to_end", "layout_assembly_reopen"), tier=8,
-       members=("swbuild.build_gearbox", "swbuild.update_variables", "IAssemblyDoc.AddMate5", "IModelDoc2.EditDelete",
-                "IFeature.SetSuppression2", "IComponent2.Transform2", "IAssemblyDoc.InterferenceDetectionManager"))
-def gear_mate_update(px: Px) -> None:
-    """A tooth change carried as an Update must carry it: the 12 : 1 reducer built by the app, mated as W5 will,
-    saved; then G3 17 -> 18 and G4 51 -> 50 by the parts' globals, the gear mate remade under suppressed locks, every
-    gear put to its built frame; checked, driven, interference; closed unsaved and reopened as it was saved; and
-    again, saved, reopened, driven."""
+def remade_positions(p: Mapping[str, Any]) -> Dict[str, Any]:
+    """Where each remade gear mate stood in the mate group before the Update and stands after it."""
+    before, after = list(p.get("mates_before") or []), list(p.get("mates_after_remake") or [])
+    return {n: [before.index(n) if n in before else None, after.index(n) if n in after else None, len(after)]
+            for n in remakes_of(p)}
+
+
+def interference_control(p: Mapping[str, Any]) -> Dict[str, Any]:
+    """The interference reading at the old frames (before the put) beside the one at the new built phase."""
+    return {"before_put": (p.get("interference_before_put") or {}).get("count"),
+            "after": (p.get("interference") or {}).get("count")}
+
+
+def run_update(px: Px, fx: UpdateFixture) -> Tuple[Dict[str, Any], Dict[str, bool]]:
+    """P1b on a fixture: built by the app, mated as W5 will, saved; then the tooth change by the parts' globals,
+    every gear mate with a changed gear remade under suppressed locks, every gear put to its built frame; checked,
+    driven, interference; closed unsaved and reopened as it was saved; and again, saved, reopened, driven. Returns
+    the facts and what held, step by step. Leaves the saved, updated train on disk (``px.shared["w8_" + folder]``)."""
     from .. import swbuild  # noqa: PLC0415
     from ..workbook import assess as wb_assess  # noqa: PLC0415
     from .p4_interference import interferences  # noqa: PLC0415
+    from .p7_workbook import activate  # noqa: PLC0415
 
-    folder = os.path.join(_folder(px), "update")
+    folder = os.path.join(_folder(px), fx.folder)
     px.require(not os.path.exists(folder), f"{folder} does not exist yet")
     os.makedirs(folder)
-    spec = update_spec(folder)
+    spec = update_spec(folder, fx=fx)
     assessed = wb_assess.assess(spec, [], spec.box.output_folder, "")
-    px.require(assessed.lay_out_refusal() == "", f"the 12 : 1 reducer lays out: {assessed.lay_out_refusal()!r}")
+    px.require(assessed.lay_out_refusal() == "", f"{fx.tag} lays out: {assessed.lay_out_refusal()!r}")
     plan = static_plan(px, assessed)
     jobs = {job.gear_ids[0]: job for job in plan.build}
+    px.require(sorted(jobs) == sorted(fx.gears), f"every gear of {fx.tag} is a part of its own: {sorted(jobs)}")
     paths = [plan.assembly_path, plan.layout_path] + [j.path for j in jobs.values()]
-    built = update_frames(folder)
-    wanted = update_frames(folder, UPDATE_TEETH)
-    px.require(frames_identity(built["G1"][0]) and frames_identity(wanted["G1"][0]),
+    change = dict(fx.change)
+    built = update_frames(folder, fx=fx)
+    wanted = update_frames(folder, change, fx=fx)
+    px.require(frames_identity(built[fx.gears[0]][0]) and frames_identity(wanted[fx.gears[0]][0]),
                "the input stands at its built phase θ = 0, where the demonstration's 90° drive starts")
-    old_teeth = {g: int(v) for g, v in (("G1", 17), ("G2", 68), ("G3", 17), ("G4", 51))}
-    new_teeth = {**old_teeth, **{g: int(v) for g, v in UPDATE_TEETH.items()}}
-    facts: Dict[str, Any] = {"teeth_before": old_teeth, "teeth_after": new_teeth}
+    old_teeth, new_teeth = fx.old_teeth(), fx.new_teeth()
+    gears = fx.gears
+    facts: Dict[str, Any] = {"teeth_before": old_teeth, "teeth_after": new_teeth,
+                             "remade": [f"{a} meshes {b}" for a, b in fx.remade()]}
     before = sc.open_titles(px)
     try:
         try:
@@ -2875,19 +2991,24 @@ def gear_mate_update(px: Px) -> None:
         px.require(all(c is not None for c in comps.values()) and layout is not None, "every component is found")
         return doc, comps, layout, title
 
+    px.shared[f"w8_{fx.folder}"] = {"fx": fx, "plan": plan, "jobs": jobs, "paths": paths, "names": names,
+                                    "layout_name": layout_name, "built": built, "wanted": wanted,
+                                    "open_train": open_train}
+    first_remade = facts["remade"][0]
     try:
         # The static assembly mated as W5 will, checked, and saved: the turning train an Update finds.
         doc, comps, layout, title = open_train()
         px.require(not mate_names(doc), "build_gearbox made a static assembly, with no mates for the probe to "
                                         "double (a turning one would need the probe taught to mate nothing itself)")
-        made = mate_w5_train(px, doc, comps, layout, built, old_teeth, adder(px, call(doc, "GetEquationMgr")))
+        made = mate_w5_train(px, doc, comps, layout, built, old_teeth, adder(px, call(doc, "GetEquationMgr")), fx)
         facts["rebuild_mated"] = rebuild(px, doc, "mated", top_only=TOP_ONLY)
         facts["mated_off_built"] = worst(_off(comps, built))
         facts["mated_check"] = mate_check(px, doc, comps, made)
         facts["mated_drive"] = _drive_measure(px, doc, comps, layout, built, "as built")
         facts["mated_interference"] = interferences(px, doc, "at the built phase, mated")
         facts["mates_saved"] = mate_names(doc)
-        facts["definition_saved"] = gear_mate_definition(px, doc, "G3 meshes G4")
+        facts["definitions_saved"] = {n: gear_mate_definition(px, doc, n) for n in facts["remade"]}
+        facts["definition_saved"] = facts["definitions_saved"][first_remade]
         px.require(_save_in_place(px, doc, plan.assembly_path, "the mated train"), "the mated train saves")
     finally:
         _close_quietly(px, paths)
@@ -2897,18 +3018,18 @@ def gear_mate_update(px: Px) -> None:
     try:
         doc, comps, layout, title = open_train()
         saved_frames = _frames(comps)
-        facts["unsaved"] = _update_pass(px, swbuild, doc, title, comps, layout, jobs, wanted, compare_full=True)
-        from .p7_workbook import activate  # noqa: PLC0415
-        facts["unsaved"]["teeth_back"] = {g: _set_teeth(px, swbuild, jobs, g, str(old_teeth[g])) for g in UPDATE_TEETH}
+        facts["unsaved"] = _update_pass(px, swbuild, doc, title, comps, layout, jobs, wanted, compare_full=True, fx=fx)
+        facts["unsaved"]["teeth_back"] = {g: _set_teeth(px, swbuild, jobs, g, str(old_teeth[g])) for g in change}
         px.require(activate(px, title), "the assembly is active again")
     finally:
         facts.setdefault("unsaved", {})["left_open"] = _close_quietly(px, paths)
     try:
         doc, comps, layout, title = open_train()
+        definitions = {n: gear_mate_definition(px, doc, n) for n in facts["remade"]}
         facts["unsaved"]["reopened"] = {
-            "mates": mate_names(doc), "definition": gear_mate_definition(px, doc, "G3 meshes G4"),
+            "mates": mate_names(doc), "definitions": definitions, "definition": definitions[first_remade],
             "frames_off_saved": worst(_off(comps, saved_frames)),
-            "teeth": {g: _teeth_global(px, jobs[g].path) for g in UPDATE_TEETH},
+            "teeth": {g: _teeth_global(px, jobs[g].path) for g in change},
             "errors": errors_only(mate_errors(px, doc))}
     finally:
         _close_quietly(px, paths)
@@ -2916,16 +3037,17 @@ def gear_mate_update(px: Px) -> None:
     # B: the Update again, saved this time, reopened and driven.
     try:
         doc, comps, layout, title = open_train()
-        facts["saved"] = _update_pass(px, swbuild, doc, title, comps, layout, jobs, wanted)
-        from .p7_workbook import activate  # noqa: PLC0415
+        facts["saved"] = _update_pass(px, swbuild, doc, title, comps, layout, jobs, wanted, fx=fx)
         px.require(activate(px, title), "the assembly is active again")
         facts["saved"]["saved"] = _save_in_place(px, doc, plan.assembly_path, "the updated train")
     finally:
         facts.setdefault("saved", {})["left_open"] = _close_quietly(px, paths)
     try:
         doc, comps, layout, title = open_train()
-        r: Dict[str, Any] = {"mates": mate_names(doc), "definition": gear_mate_definition(px, doc, "G3 meshes G4"),
-                             "teeth": {g: _teeth_global(px, jobs[g].path) for g in UPDATE_TEETH}}
+        definitions = {n: gear_mate_definition(px, doc, n) for n in facts["remade"]}
+        r: Dict[str, Any] = {"mates": mate_names(doc), "definitions": definitions,
+                             "definition": definitions[first_remade],
+                             "teeth": {g: _teeth_global(px, jobs[g].path) for g in change}}
         r["rebuild"] = rebuild(px, doc, "reopened", top_only=TOP_ONLY)
         r["off_built"] = _off(comps, wanted)
         r["check"] = mate_check(px, doc, comps)
@@ -2934,43 +3056,77 @@ def gear_mate_update(px: Px) -> None:
         facts["saved"]["reopened"] = r
     finally:
         _close_quietly(px, paths)
-    px.fact("gear_mate_update", facts)
 
     # -- what it says
     mated_ok = facts["mated_off_built"] < TOLERANCE_MM and mate_check_clean(facts["mated_check"]) and \
-        _train_ok((facts["mated_drive"].get("turns") or {}), ["G1", "G2", "G3", "G4"], update_turns(old_teeth),
-                  UPDATE_STEP) and facts["mated_interference"].get("count") == 0
+        _train_ok((facts["mated_drive"].get("turns") or {}), gears, fx.turns(old_teeth), UPDATE_STEP) and \
+        facts["mated_interference"].get("count") == 0
     px.check(mated_ok, f"mated as W5 will, nothing moved ({facts['mated_off_built']:.1e}), the mate check is clean "
-                       f"({facts['mated_check']}), it turns 1/12 ({facts['mated_drive'].get('turns')}) and nothing "
-                       f"interferes ({facts['mated_interference'].get('count')})")
+                       f"({facts['mated_check']}), it turns at its ratio ({facts['mated_drive'].get('turns')}) and "
+                       f"nothing interferes ({facts['mated_interference'].get('count')})")
     a, b = facts["unsaved"], facts["saved"]
     for label, p in (("unsaved", a), ("saved", b)):
-        px.check(update_pass_holds(p, new_teeth),
+        px.check(update_pass_holds(p, new_teeth, fx),
                  f"{label}: the Update carried the tooth change: frames {worst(p['off_built']):.1e} off, check "
                  f"{p['check']}, full rebuild moved {p.get('moved_by_the_full_rebuild')}, turns "
-                 f"{(p.get('drive') or {}).get('turns')}, interference {(p.get('interference') or {}).get('count')}, "
-                 f"remade mate {list(p['mates_before']).index('G3 meshes G4') if 'G3 meshes G4' in p['mates_before'] else None}"
-                 f" -> {list(p['mates_after_remake']).index('G3 meshes G4') if 'G3 meshes G4' in p['mates_after_remake'] else None}"
-                 f" of {len(p['mates_after_remake'])}")
+                 f"{(p.get('drive') or {}).get('turns')}, interference {interference_control(p)}, remade mates "
+                 f"(before, after, of) {remade_positions(p)}")
     ra = a.get("reopened") or {}
-    as_saved = ra.get("mates") == facts["mates_saved"] and ra.get("definition") == facts["definition_saved"] and \
+    as_saved = ra.get("mates") == facts["mates_saved"] and ra.get("definitions") == facts["definitions_saved"] and \
         ra.get("frames_off_saved", 1.0) < TOLERANCE_MM and not ra.get("errors") and \
-        ra.get("teeth") == {g: float(old_teeth[g]) for g in UPDATE_TEETH}
+        ra.get("teeth") == {g: float(old_teeth[g]) for g in change}
     px.check(as_saved and not a.get("left_open"), f"closed without saving and reopened, the train is as it was saved: {ra}")
     rb = b.get("reopened") or {}
     rdrive = rb.get("drive") or {}
     reopened_ok = bool(b.get("saved")) and not b.get("left_open") and \
-        rb.get("teeth") == {g: float(v) for g, v in UPDATE_TEETH.items()} and worst(rb.get("off_built") or {"x": {
+        rb.get("teeth") == {g: float(v) for g, v in change.items()} and worst(rb.get("off_built") or {"x": {
             "rotation": 1.0, "origin_mm": 1.0}}) < TOLERANCE_MM and not rb["check"]["errors"] and \
         all(v == findings.COMPONENT_UNDER_DEFINED for v in rb["check"]["constrained"].values()) and \
-        _train_ok(rdrive.get("turns") or {}, ["G1", "G2", "G3", "G4"], update_turns(new_teeth), UPDATE_STEP) and \
+        _train_ok(rdrive.get("turns") or {}, gears, fx.turns(new_teeth), UPDATE_STEP) and \
         (rb.get("interference") or {}).get("count") == 0
     px.check(reopened_ok, f"saved, reopened: the new teeth, the frames, a clean check, the new ratio and no "
                           f"interference: {rb}")
+    control = {k: interference_control(p) for k, p in (("unsaved", a), ("saved", b))}
+    px.check(True, f"the interference control: at the old frames, then at the new built phase: {control}")
+    held = {"mated": bool(mated_ok), "unsaved": update_pass_holds(a, new_teeth, fx), "as_saved": bool(as_saved),
+            "saved": update_pass_holds(b, new_teeth, fx), "reopened": bool(reopened_ok),
+            "interference_control": all((c["before_put"] or 0) > 0 and c["after"] == 0 for c in control.values())}
+    facts["interference_control"] = control
+    return facts, held
+
+
+@probe("gear_mate_update", needs=("motion_update", "end_to_end", "layout_assembly_reopen"), tier=8,
+       members=("swbuild.build_gearbox", "swbuild.update_variables", "IAssemblyDoc.AddMate5", "IModelDoc2.EditDelete",
+                "IFeature.SetSuppression2", "IComponent2.Transform2", "IAssemblyDoc.InterferenceDetectionManager"))
+def gear_mate_update(px: Px) -> None:
+    """A tooth change carried as an Update must carry it: the 12 : 1 reducer built by the app, mated as W5 will,
+    saved; then G3 17 -> 18 and G4 51 -> 50 by the parts' globals, the gear mate remade under suppressed locks, every
+    gear put to its built frame; checked, driven, interference (and a reading at the old frames before the put, the
+    control); closed unsaved and reopened as it was saved; and again, saved, reopened, driven."""
+    facts, held = run_update(px, REDUCER)
+    px.fact("gear_mate_update", facts)
+    b = facts["saved"]
     px.fact("remade_mate_moves_to_the_end", bool(b["mates_after_remake"]) and
             b["mates_after_remake"][-1] == "G3 meshes G4" and b["mates_before"][-1] != "G3 meshes G4")
-    px.fact("gear_mate_update_holds", bool(mated_ok and update_pass_holds(a, new_teeth) and as_saved
-                                           and update_pass_holds(b, new_teeth) and reopened_ok))
+    px.fact("update_interference_control", facts["interference_control"],
+            "interference counts at the old frames before the put, and at the new built phase")
+    px.fact("update_interference_control_discriminates", held["interference_control"])
+    px.fact("gear_mate_update_holds", all(v for k, v in held.items() if k != "interference_control"))
+
+
+@probe("idler_update", needs=("motion_update", "end_to_end", "layout_assembly_reopen"), tier=8,
+       members=("swbuild.build_gearbox", "swbuild.update_variables", "IAssemblyDoc.AddMate5", "IModelDoc2.EditDelete",
+                "IComponent2.Transform2", "IAssemblyDoc.InterferenceDetectionManager"))
+def idler_update(px: Px) -> None:
+    """P1b on a gear that carries two gear mates, in the whole Update shape: a train with an idler (17/30/40 -> 15/32/38,
+    module 2, no shaft moves) built by the app and mated as W5 will; the idler's teeth change, so BOTH of its gear
+    mates are remade; every gear put to its built frame; checked, driven, interference before and after the put;
+    closed unsaved and reopened as saved; and again, saved, reopened, driven."""
+    facts, held = run_update(px, IDLER)
+    px.fact("idler_update", facts)
+    px.fact("idler_update_steps", held)
+    px.fact("idler_interference_control_discriminates", held["interference_control"])
+    px.fact("idler_update_holds", all(v for k, v in held.items() if k != "interference_control"))
 
 
 # -- 8: a lock re-taken after its gear moves along the shaft as well as round it ---
@@ -4632,25 +4788,35 @@ def lightweight_remake(px: Px) -> None:
     keys = [g["key"] for g in t["gears"]]
     others = [g["key"] for g in info["trains"]["middle Z-"]["gears"]]
     name = info["mates"][f"{g3['key']}-{g4['key']}"]["name"]
-    facts: Dict[str, Any] = {}
+    facts: Dict[str, Any] = {"attempts": []}
+    names_of = {v: k for k, v in states.items()}
+    silent = int(findings.OPEN_DOC_SILENT or 1)
+    light = int(options.get("swOpenDocOptions_LoadLightweight") or 0)
+    override = int(options.get("swOpenDocOptions_OverrideDefaultLoadLightweight") or 0)
+    tries = [("silent and lightweight", silent | light)]
+    if override:
+        tries.append(("silent, lightweight, overriding the default", silent | light | override))
     try:
-        errors, warnings = sc.out_long(), sc.out_long()
-        flags = int(findings.OPEN_DOC_SILENT or 1) | int(options.get("swOpenDocOptions_LoadLightweight") or 0)
-        got, result = px.attempt(f"OpenDoc6({os.path.basename(path)}, options {flags}: silent and lightweight)",
-                                 lambda: call(sc.app(px), "OpenDoc6", path, sc.SW_DOC_ASSEMBLY, flags, "", errors,
-                                              warnings))
-        doc = result[0] if got and isinstance(result, tuple) else result
-        px.require(got and doc is not None, "the train opens")
-        title = str(call(doc, "GetTitle"))
-        if title not in px.shared.setdefault("created", []):
-            px.shared["created"].append(title)
-        components = {k: call(doc, "GetComponentByName", n) for k, n in info["names"].items()}
-        names_of = {v: k for k, v in states.items()}
-        facts["suppression"] = {k: names_of.get(int(call(c, "GetSuppression2")), int(call(c, "GetSuppression2")))
-                                for k, c in components.items()}
-        lightweight = {k: "ightweight" in str(v) for k, v in facts["suppression"].items()}
-        facts["lightweight"] = lightweight
-        if any(lightweight.values()):
+        for label, flags in tries:
+            errors, warnings = sc.out_long(), sc.out_long()
+            got, result = px.attempt(f"OpenDoc6({os.path.basename(path)}, options {flags}: {label})",
+                                     lambda flags=flags: call(sc.app(px), "OpenDoc6", path, sc.SW_DOC_ASSEMBLY, flags,
+                                                              "", errors, warnings))
+            doc = result[0] if got and isinstance(result, tuple) else result
+            px.require(got and doc is not None, "the train opens")
+            title = str(call(doc, "GetTitle"))
+            if title not in px.shared.setdefault("created", []):
+                px.shared["created"].append(title)
+            components = {k: call(doc, "GetComponentByName", n) for k, n in info["names"].items()}
+            facts["suppression"] = {k: names_of.get(int(call(c, "GetSuppression2")), int(call(c, "GetSuppression2")))
+                                    for k, c in components.items()}
+            lightweight = {k: "ightweight" in str(v) for k, v in facts["suppression"].items()}
+            facts["lightweight"] = lightweight
+            facts["attempts"].append({"how": label, "options": flags, "suppression": facts["suppression"]})
+            if any(lightweight.values()):
+                break
+            _close_quietly(px, paths)
+        if any(facts["lightweight"].values()):
             for k in (g3["key"], g4["key"]):
                 got, feature = px.attempt(f"FeatureByName('Gear Axis') on {k}, lightweight",
                                           lambda k=k: call(components[k], "FeatureByName", "Gear Axis"))
@@ -4667,8 +4833,9 @@ def lightweight_remake(px: Px) -> None:
         _close_quietly(px, paths)
     px.fact("lightweight_remake", facts)
     if not any(facts.get("lightweight", {}).values()):
-        px.fact("lightweight_remake_holds", None, f"not probed: OpenDoc6 with LoadLightweight left every component "
-                                                 f"{set(facts.get('suppression', {}).values())}")
+        px.fact("lightweight_remake_holds", None, f"not probed: OpenDoc6 left every component "
+                                                 f"{set(facts.get('suppression', {}).values())}, by "
+                                                 f"{[a['how'] for a in facts['attempts']]}")
         return
     new_expected = train_turns((g1["teeth"], g2["teeth"], g3["teeth"], RATIO_NEW), (1, 1, 1, 1))
     holds = bool((facts.get("remake") or {}).get("name")) and not facts.get("errors") and \
@@ -4715,6 +4882,8 @@ def second_assembly_beside_unsaved(px: Px) -> None:
         facts["second"]["saved"] = _save_in_place(px, docs["second"].doc, path, "the second assembly")
         facts["second"]["path"] = str(call(docs["second"].doc, "GetPathName") or "")
         facts["second"]["title_after_save"] = str(call(docs["second"].doc, "GetTitle"))
+        if facts["second"]["title_after_save"] not in px.shared["created"]:
+            px.shared["created"].append(facts["second"]["title_after_save"])   # SaveAs3 gave it the file's name
         facts["open_with_both"] = sc.open_titles(px)
     finally:
         facts["close_second"] = _close_quietly(px, [path])
@@ -4736,6 +4905,389 @@ def second_assembly_beside_unsaved(px: Px) -> None:
                                    f"parts, its mate, and saved to its path: {facts['second']}")
     px.check(closed, f"both closed afterwards: left {facts['open_after']}")
     px.fact("second_assembly_beside_unsaved_holds", bool(saved and both_mated and closed))
+
+
+# -- 14c: an unsaved Update closed with its parts left modified (round P0c, review addition 2) ------------------
+#
+# On SolidWorks 2024 CloseDoc on an assembly whose saved parts had changed opened a modal "Save Modified Documents"
+# dialog (scaffold.save_created_parts), and a modal dialog blocks every COM call. So every close here is watched
+# from a thread of its own, which uses no COM: it records any window SolidWorks opens while the call is blocked,
+# and after a few seconds closes it (WM_CLOSE, then Escape, then a "Cancel" button), the least destructive answer.
+
+WM_CLOSE, WM_KEYDOWN, WM_KEYUP, VK_ESCAPE, BM_CLICK = 0x0010, 0x0100, 0x0101, 0x1B, 0x00F5
+
+
+class DialogWatch:
+    """Windows of one process that appear while a blocking call runs: their title, class and child texts, how long
+    they stood, and how they were answered. Uses user32 only (no COM), from its own thread."""
+
+    def __init__(self, pid: int, dismiss_after: float = 5.0) -> None:
+        import threading  # noqa: PLC0415
+        self.pid, self.dismiss_after = int(pid), dismiss_after
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._seen: Dict[int, Dict[str, Any]] = {}
+        self._before: set = set()
+        self.error: Optional[str] = None
+
+    @staticmethod
+    def _user32() -> Any:
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+        u = ctypes.windll.user32
+        u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        u.IsWindowVisible.argtypes = [wintypes.HWND]
+        u.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        u.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        u.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        u.IsWindow.argtypes = [wintypes.HWND]
+        return u
+
+    def _windows(self) -> List[int]:
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+        u = self._user32()
+        found: List[int] = []
+        proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def each(hwnd: Any, _l: Any) -> bool:
+            pid = wintypes.DWORD()
+            u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == self.pid and u.IsWindowVisible(hwnd):
+                found.append(int(hwnd))
+            return True
+
+        u.EnumWindows(proc(each), 0)
+        return found
+
+    def _text(self, hwnd: int) -> Tuple[str, str]:
+        import ctypes  # noqa: PLC0415
+        u = self._user32()
+        title, cls = ctypes.create_unicode_buffer(512), ctypes.create_unicode_buffer(256)
+        u.GetWindowTextW(hwnd, title, 512)
+        u.GetClassNameW(hwnd, cls, 256)
+        return title.value, cls.value
+
+    def _children(self, hwnd: int) -> List[Tuple[int, str, str]]:
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+        u = self._user32()
+        out: List[Tuple[int, str, str]] = []
+        proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def each(child: Any, _l: Any) -> bool:
+            if len(out) < 60:
+                out.append((int(child), *self._text(int(child))))
+            return True
+
+        u.EnumChildWindows(hwnd, proc(each), 0)
+        return out
+
+    def _run(self) -> None:
+        try:
+            u = self._user32()
+            while not self._stop.wait(0.25):
+                now = time.monotonic()
+                for hwnd in self._windows():
+                    if hwnd in self._before:
+                        continue
+                    seen = self._seen.setdefault(hwnd, {"first": now, "answered": []})
+                    title, cls = self._text(hwnd)
+                    seen.update(title=title, cls=cls, last=now,
+                                children=[[c, t] for _h, t, c in self._children(hwnd) if t][:30])
+                    age = now - seen["first"]
+                    if age >= self.dismiss_after and not seen["answered"]:
+                        u.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                        seen["answered"].append(f"WM_CLOSE at {age:.1f} s")
+                    elif age >= 2 * self.dismiss_after and len(seen["answered"]) == 1:
+                        u.PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE, 0)
+                        u.PostMessageW(hwnd, WM_KEYUP, VK_ESCAPE, 0)
+                        seen["answered"].append(f"Escape at {age:.1f} s")
+                    elif age >= 3 * self.dismiss_after and len(seen["answered"]) == 2:
+                        cancel = [h for h, t, _c in self._children(hwnd) if t.replace("&", "").strip() == "Cancel"]
+                        for h in cancel[:1]:
+                            u.PostMessageW(h, BM_CLICK, 0, 0)
+                        seen["answered"].append(f"Cancel clicked at {age:.1f} s" if cancel else
+                                                f"no Cancel button at {age:.1f} s")
+        except Exception as exc:  # noqa: BLE001 - the watch failing is evidence, never a crash of the probe
+            self.error = repr(exc)
+
+    def __enter__(self) -> "DialogWatch":
+        try:
+            self._before = set(self._windows())
+        except Exception as exc:  # noqa: BLE001
+            self.error = repr(exc)
+        self._started = time.monotonic()
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self._stop.set()
+        self._thread.join(5.0)
+
+    def report(self) -> Dict[str, Any]:
+        windows = [{"title": s.get("title"), "class": s.get("cls"), "children": s.get("children"),
+                    "stood_s": round(s.get("last", s["first"]) - s["first"], 2), "answered": s["answered"]}
+                   for s in self._seen.values()]
+        return {"windows": windows, "watch_error": self.error}
+
+
+def watched_close(px: Px, how: str, title: str, pid: int) -> Dict[str, Any]:
+    """``ISldWorks.CloseDoc`` or ``ISldWorks.QuitDoc`` on one of the probe's own documents, watched for a dialog:
+    what it returned or raised, how long it took, and what windows stood meanwhile."""
+    if title not in px.shared.get("created", []):
+        raise Require(f"Refusing to close {title}: the probe did not create it.")
+    started = time.monotonic()
+    with DialogWatch(pid) as watch:
+        got, result = px.attempt(f"{how}({title}) with its parts modified", lambda: call(sc.app(px), how, title))
+    out = {"how": how, "title": title, "returned": plain(result) if got else None,
+           "raised": None if got else plain(result), "seconds": round(time.monotonic() - started, 2),
+           **watch.report()}
+    out["dialog"] = bool(out["windows"])
+    return out
+
+
+def _disk(paths: Sequence[str]) -> Dict[str, Optional[float]]:
+    return {os.path.basename(p): (os.path.getmtime(p) if os.path.isfile(p) else None) for p in paths}
+
+
+def _open_probe_docs(px: Px, paths: Sequence[str]) -> Dict[str, Any]:
+    """The probe's documents at these paths still open, with their save flags."""
+    from .p7_workbook import _doc_at  # noqa: PLC0415
+    out: Dict[str, Any] = {}
+    for p in paths:
+        doc = _doc_at(px, p)
+        if doc is not None:
+            out[os.path.basename(p)] = {"modified": bool(call(doc, "GetSaveFlag")), "visible": bool(call(doc, "Visible"))}
+    return out
+
+
+CLOSE_ROUTES = ("CloseDoc", "QuitDoc")
+
+
+@probe("unsaved_update_close", needs=("gear_mate_update",), tier=8,
+       members=("ISldWorks.CloseDoc", "ISldWorks.QuitDoc", "ISldWorks.GetProcessID", "IModelDoc2.GetSaveFlag"))
+def unsaved_update_close(px: Px) -> None:
+    """The app's own state after an unsaved Update, closed: the 12 : 1 train gear_mate_update left saved, given a tooth
+    change by the Update's whole sequence and NOT saved, its parts left modified; then the assembly closed by
+    CloseDoc (and, on a second Update, by QuitDoc), and every part still open closed the same way. For each: what
+    the call answered, any dialog, what stayed open, and what is on disk afterwards (file times and the teeth)."""
+    from .. import swbuild  # noqa: PLC0415
+    from .p7_workbook import _update_with, activate  # noqa: PLC0415
+
+    info = px.shared.get("w8_update")
+    px.require(bool(info), "gear_mate_update left its train")
+    fx: UpdateFixture = info["fx"]
+    jobs, paths, plan = info["jobs"], info["paths"], info["plan"]
+    got, pid = px.attempt("ISldWorks.GetProcessID", lambda: call(sc.app(px), "GetProcessID"))
+    px.require(got and isinstance(pid, int) and pid > 0, f"GetProcessID answered the session's process ({pid!r})")
+    gears = [g for g, _ in fx.change]
+    facts: Dict[str, Any] = {}
+    for how in CLOSE_ROUTES:
+        r: Dict[str, Any] = {}
+        facts[how] = r
+        try:
+            doc, comps, layout, title = info["open_train"]()
+            r["teeth_on_disk"] = {g: _teeth_global(px, jobs[g].path) for g in gears}
+            back = r["teeth_on_disk"] == {g: float(fx.new_teeth()[g]) for g in gears}
+            change = {g: str(fx.old_teeth()[g] if back else fx.new_teeth()[g]) for g in gears}
+            r["change"] = change
+            wanted = info["built"] if back else info["wanted"]
+            r["update"] = _update_pass(px, swbuild, doc, title, comps, layout, jobs, wanted, fx=fx, change=change)
+            px.require(activate(px, title), "the assembly is active again")
+            r["teeth_in_memory"] = {g: _teeth_global(px, jobs[g].path) for g in gears}
+            r["open_before"] = _open_probe_docs(px, paths)
+            r["disk_before"] = _disk(paths)
+            r["assembly"] = watched_close(px, how, title, pid)
+            r["open_after_assembly"] = _open_probe_docs(px, paths)
+            r["parts"] = []
+            from .p7_workbook import _doc_at  # noqa: PLC0415
+            for p in paths[1:]:
+                part = _doc_at(px, p)
+                if part is not None:
+                    r["parts"].append(watched_close(px, how, str(call(part, "GetTitle")), pid))
+            r["open_after"] = _open_probe_docs(px, paths)
+            r["disk_after"] = _disk(paths)
+            r["written"] = sorted(k for k in r["disk_after"] if r["disk_after"][k] != r["disk_before"][k])
+        finally:
+            # Anything still open is set back to what is on disk before the cleanup saves it, so the next route
+            # starts from the saved train.
+            left = _open_probe_docs(px, paths)
+            r["cleanup_left"] = left
+            if left and r.get("teeth_on_disk"):
+                from ..gears import KINDS  # noqa: PLC0415
+                for g in gears:
+                    if os.path.basename(jobs[g].path) in left:
+                        kind = KINDS[jobs[g].spec.kind]
+                        want = jobs[g].spec.with_values(teeth=str(int(r["teeth_on_disk"][g])))
+                        try:
+                            _update_with(px, swbuild, jobs[g].path, kind.variables(want, kind.derive(want)))
+                        except Exception as exc:  # noqa: BLE001 - noted; the close evidence is what matters
+                            px.note(f"CLEANUP could not set {g} back: {exc}")
+            _close_quietly(px, paths)
+        # On disk afterwards: the parts' teeth, each part opened on its own and closed.
+        r["teeth_on_disk_after"] = {}
+        for g in gears:
+            try:
+                part, _ = open_by_path(px, jobs[g].path, prefer="OpenDoc6")
+                t = str(call(part, "GetTitle"))
+                if t not in px.shared["created"]:
+                    px.shared["created"].append(t)
+                r["teeth_on_disk_after"][g] = _teeth_global(px, jobs[g].path)
+            finally:
+                _close_quietly(px, [jobs[g].path])
+        r["discarded"] = r["teeth_on_disk_after"] == r["teeth_on_disk"]
+        r["all_closed"] = not r.get("open_after")
+        r["dialog"] = bool(r.get("assembly", {}).get("dialog")) or any(c.get("dialog") for c in r.get("parts", []))
+    px.fact("unsaved_update_close", facts)
+    summary = {how: {"dialog": r.get("dialog"), "assembly_closed": os.path.basename(plan.assembly_path) not in
+                     (r.get("open_after_assembly") or {}), "all_closed": r.get("all_closed"),
+                     "discarded": r.get("discarded"), "written": r.get("written")} for how, r in facts.items()}
+    px.check(True, f"an unsaved Update closed with its parts modified: {summary}")
+    px.fact("unsaved_update_close_summary", summary)
+    px.fact("unsaved_update_close_asks", {how: s["dialog"] for how, s in summary.items()})
+    px.fact("unsaved_update_close_discards", {how: bool(s["discarded"] and s["all_closed"] and not s["written"])
+                                              for how, s in summary.items()})
+
+
+# -- 14d: the drag operator by the SW-Macro-Database recipe (round P0c, optional) --------------------------------
+#
+# SW-Macro-Database entries/assemblies/05 (verified on 2024 SP5): IDragOperator with AddComponent(component, False),
+# TransformType = 0, UseAbsoluteTransform = False, DragMode left as it came, BeginDrag, then Drag given each of
+# ``steps`` steps as a RELATIVE transform turning deg / steps about a fixed line, EndDrag; a Transform2 put of every
+# snapshot and EditRebuild3 to restore. Its one success dragged the DRIVEN gear 30 degrees in 10 steps; tier 8 had
+# dragged only the driving gear, in one call. Here the recipe exactly, then one thing varied at a time.
+
+DRAG_ASSEMBLY = "Probe W8 Drag"
+#: The entry turned its output 30 degrees; on the 12 : 1 that turns the input 360 degrees, which reads as no turn at
+#: all, so every drag here is 10 degrees (the entry's second assembly used 5 x 2 = 10): the input then turns 120.
+DRAG_DEGREES = 10.0
+#: (label, which gear of the "all Z+" train by index, steps): the entry's recipe first, then one change each
+DRAG_CASES = (("the output, 10 steps (the entry's success, 10 degrees)", 3, 10), ("the input, 10 steps", 0, 10),
+              ("the compound follower, 10 steps", 2, 10), ("the output, 1 step", 3, 1),
+              ("the output, 30 steps", 3, 30))
+DRAG_TOLERANCE_DEG = 0.05
+
+
+def drag_by_recipe(px: Px, doc: Any, component: Any, degrees: float, steps: int) -> Dict[str, Any]:
+    """The entry's drag: every call and argument as it gives them, the line being the gear's own axis through its
+    origin as it stood when the drag began. What each call answered."""
+    out: Dict[str, Any] = {}
+    got, op = px.attempt("IAssemblyDoc.GetDragOperator", lambda: member(doc, "GetDragOperator")[0])
+    if not got or op is None:
+        return {"operator": None}
+    for key in ("TransformType", "DragMode", "UseAbsoluteTransform"):
+        ok, value = px.attempt(f"IDragOperator.{key} as it came", lambda k=key: member(op, k)[0])
+        out[f"{key} as it came"] = plain(value) if ok else "raised"
+    out["AddComponent"] = plain(px.attempt("IDragOperator.AddComponent(component, False)",
+                                           lambda: call(op, "AddComponent", component, False))[1])
+    out["TransformType = 0"] = px.attempt("IDragOperator.TransformType = 0", lambda: setattr(op, "TransformType", 0))[0]
+    out["UseAbsoluteTransform = False"] = px.attempt("IDragOperator.UseAbsoluteTransform = False",
+                                                     lambda: setattr(op, "UseAbsoluteTransform", False))[0]
+    out["BeginDrag"] = plain(px.attempt("IDragOperator.BeginDrag", lambda: member(op, "BeginDrag")[0])[1])
+    m, o = frame_of(component)
+    r, t = turn_about_point(column(m, 2), degrees / steps, o)
+    oks = []
+    try:
+        for _ in range(steps):
+            xform = make_transform(px, array_data(r, t, findings.TRANSFORM_ARRAY_ORDER or "columns"))
+            ok, value = px.attempt("IDragOperator.Drag(relative step)", lambda x=xform: call(op, "Drag", x))
+            oks.append(plain(value) if ok else "raised")
+    finally:
+        out["EndDrag"] = plain(px.attempt("IDragOperator.EndDrag", lambda: member(op, "EndDrag")[0])[1])
+    out["Drag"] = oks
+    return out
+
+
+def drag_residuals(before: Mapping[str, Tuple[Matrix, Vec]], after: Mapping[str, Tuple[Matrix, Vec]],
+                   keys: Sequence[str], expected: Sequence[float], dragged: str) -> Dict[str, Any]:
+    """Each gear's turn about +Z, origin move (mm) and axis tilt (degrees), against the kinematics: every gear turns
+    its share (``expected``, per degree of the first) of what the dragged gear turned."""
+    turns = {k: world_turn(before[k][0], after[k][0]) for k in keys}
+    share = dict(zip(keys, expected))
+    out: Dict[str, Any] = {"turns": {k: round(v, 6) for k, v in turns.items()}, "residual_deg": {}, "origin_mm": {},
+                           "axis_tilt_deg": {}}
+    for k in keys:
+        want = turns[dragged] * share[k] / share[dragged]
+        out["residual_deg"][k] = round(abs(turns[k] - want), 6)
+        out["origin_mm"][k] = round(math.dist(before[k][1], after[k][1]), 6)
+        a, b = column(before[k][0], 2), column(after[k][0], 2)
+        out["axis_tilt_deg"][k] = round(math.degrees(math.acos(max(-1.0, min(1.0, _dot(a, b))))), 6)
+    return out
+
+
+def drag_follows(res: Mapping[str, Any], dragged: str, asked: float) -> bool:
+    """The dragged gear turned what was asked and the whole train followed at its ratio, on its axes, in place."""
+    return bool(res["turns"] and abs(abs(res["turns"][dragged]) - abs(asked)) < DRAG_TOLERANCE_DEG
+                and max(res["residual_deg"].values()) < DRAG_TOLERANCE_DEG
+                and max(res["origin_mm"].values()) < TOLERANCE_MM and max(res["axis_tilt_deg"].values()) < 1e-3)
+
+
+@probe("drag_operator_turns_train", needs=("motion_update",), tier=8,
+       members=("IAssemblyDoc.GetDragOperator", "IDragOperator.AddComponent", "IDragOperator.TransformType",
+                "IDragOperator.UseAbsoluteTransform", "IDragOperator.BeginDrag", "IDragOperator.Drag",
+                "IDragOperator.EndDrag", "IComponent2.Transform2", "IModelDoc2.EditRebuild3"))
+def drag_operator_turns_train(px: Px) -> None:
+    """The saved 12 : 1 train, its drives suppressed so it can turn, dragged by the SW-Macro-Database recipe: the
+    output 10 degrees in 10 relative steps (the entry's success, scaled to the 12 : 1), then the input, the compound follower, 1 step and
+    30 steps. For each: every gear's frame against the kinematics, the mates' errors, the save flag, the selection
+    and CommandInProgress afterwards; every gear put back by its snapshot and EditRebuild3 between cases."""
+    info, path = _train_copy(px, DRAG_ASSEMBLY)
+    paths = [path, info["layout"], info["part"]]
+    t = info["trains"]["all Z+"]
+    keys = [g["key"] for g in t["gears"]]
+    others = [g["key"] for g in info["trains"]["middle Z-"]["gears"]]
+    expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    drives = [f"{DRIVE} {name}" for name in info["trains"]]
+    facts: Dict[str, Any] = {"recipe": "SW-Macro-Database entries/assemblies/05: AddComponent(c, False), "
+                                       "TransformType 0, UseAbsoluteTransform False, DragMode as it came, relative "
+                                       "Drag steps about the gear's axis, EndDrag; restore by Transform2 and "
+                                       "EditRebuild3", "mate_kind": "axis coincident (AXIS_MATE_ROUTE), not varied",
+                             "cases": {}}
+    try:
+        doc, comps = _open_train(px, path, info["names"])
+        facts["drives_suppressed_by"] = {d: suppress(px, doc, d, True) for d in drives}
+        facts["rebuild_undriven"] = rebuild(px, doc, "drives suppressed")
+        facts["errors_undriven"] = errors_only(mate_errors(px, doc))
+        snapshot = _frames(comps)
+
+        def restore() -> float:
+            for k, c in comps.items():
+                matrix, at = snapshot[k]
+                transform = make_transform(px, array_data(matrix, at, findings.TRANSFORM_ARRAY_ORDER or "columns"))
+                px.attempt(f"Transform2 put on {k} (restore)", lambda c=c, x=transform: setattr(c, "Transform2", x))
+            px.attempt("EditRebuild3 (restore)", lambda: call(doc, "EditRebuild3"))
+            return worst(_off(comps, snapshot))
+
+        for label, index, steps in DRAG_CASES:
+            case: Dict[str, Any] = {"dragged": keys[index], "steps": steps, "asked_deg": DRAG_DEGREES}
+            facts["cases"][label] = case
+            case["restored_before_mm"] = restore()
+            call(doc, "ClearSelection2", True)
+            case["save_flag_before"] = bool(call(doc, "GetSaveFlag"))
+            before = _frames(comps)
+            case["calls"] = drag_by_recipe(px, doc, comps[keys[index]], DRAG_DEGREES, steps)
+            after = _frames(comps)
+            case["train"] = drag_residuals(before, after, keys, expected, keys[index])
+            case["other_train_moved_deg"] = max(abs(world_turn(before[k][0], after[k][0])) for k in others)
+            case["errors"] = errors_only(mate_errors(px, doc))
+            case["save_flag_after"] = bool(call(doc, "GetSaveFlag"))
+            ok, count = px.attempt("selections after the drag",
+                                   lambda: call(call(doc, "SelectionManager"), "GetSelectedObjectCount2", -1))
+            case["selected_after"] = plain(count) if ok else "raised"
+            ok, cip = px.attempt("CommandInProgress after the drag", lambda: call(sc.app(px), "CommandInProgress"))
+            case["command_in_progress_after"] = plain(cip) if ok else "raised"
+            case["follows"] = drag_follows(case["train"], keys[index], DRAG_DEGREES) and not case["errors"] and \
+                case["other_train_moved_deg"] < DRAG_TOLERANCE_DEG
+        facts["restored_after_mm"] = restore()
+    finally:
+        _close_quietly(px, paths)
+    px.fact("drag_operator", facts)
+    held = [label for label, case in facts["cases"].items() if case["follows"]]
+    px.check(True, "the drag operator by the entry's recipe: " + "; ".join(
+        f"{label}: turns {c['train']['turns']}, residual {max(c['train']['residual_deg'].values()):.3g} deg, "
+        f"Drag {c['calls'].get('Drag')}" for label, c in facts["cases"].items()))
+    px.fact("drag_operator_turns_train", {"holds": bool(held), "recipes_that_held": held})
 
 
 # -- 15 (last): a gear mate's ratio changed through its definition, recorded and never chosen ------------------
