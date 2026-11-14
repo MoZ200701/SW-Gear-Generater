@@ -2244,3 +2244,80 @@ def test_with_no_earlier_update_every_update_sentence_is_as_before():
     assert "G1 and G2 had been turned out of step with each other in SolidWorks" in plain[0]
     static = ui_text.gearbox_update_status(_update(), _updated(), dragged=["G4"], finished=_finished(""))
     assert static == ui_text.gearbox_update_status(_update(), _updated(), dragged=["G4"])
+
+
+# gear mates judged by their live ratio (package A, ba2bc1f)
+
+
+def test_a_gear_mate_found_at_another_ratio_is_said_to_be_set_back_never_given_a_new_ratio():
+    """``ratios_found``: no change was asked, SolidWorks held another ratio; the ratio it held is not in the result,
+    so it is not named."""
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], ratios=["G1 meshes G2"],
+                    ratios_found=["G1 meshes G2"])
+    text, ok = ui_text.gearbox_update_status(_motion_update(ratios=()), result)
+    assert (_clean(text), ok) == (
+        "Updated SolidWorks: set the gear mate G1 meshes G2 back to the workbook's ratio, which SolidWorks held at "
+        "another, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save "
+        "Reducer_12to1 in SolidWorks to keep it.", True)
+    assert "new ratio" not in text
+    both = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], ratios=["G1 meshes G2", "G3 meshes G4"],
+                  ratios_found=["G3 meshes G4"])
+    assert ui_text.gearbox_update_status(_motion_update(), both)[0].startswith(
+        "Updated SolidWorks: set the gear mate G1 meshes G2 to 17 : 69, set the gear mate G3 meshes G4 back to the "
+        "workbook's ratio, which SolidWorks held at another, re-placed")
+    two = _moved(changed=[ASM], ratios=["G1 meshes G2", "G3 meshes G4"], ratios_found=["G1 meshes G2", "G3 meshes G4"])
+    assert "set the gear mates G1 meshes G2 and G3 meshes G4 back to the workbook's ratios, which SolidWorks held at " \
+           "another;" in ui_text.gearbox_update_status(_motion_update(), two)[0]
+
+
+def test_a_gear_mate_already_at_the_asked_ratio_is_said_so_after_the_summary_promised_the_set():
+    """``ratios_already``: the summary said *set the gear mate … to 17 : 69*; after the press it says it was already
+    so, rather than a bare *nothing was changed*."""
+    update = _motion_update(ratios=("G1 meshes G2",))
+    assert ui_text.update_summary(update) == (
+        "Update SolidWorks will set the gear mate G1 meshes G2 to 17 : 69, and re-place G1, G2, G3 and G4.")
+    result = _moved(ratios_already=["G1 meshes G2"])
+    assert ui_text.gearbox_update_status(update, result) == (
+        "SolidWorks already matches the workbook: nothing was changed. The gear mate G1 meshes G2 was already 17 : 69 "
+        "in SolidWorks, so it was left as it is.", True)
+    two = _moved(ratios_already=["G1 meshes G2", "G3 meshes G4"], changed=[ASM], placed=["G4"])
+    assert ("The gear mates G1 meshes G2 and G3 meshes G4 were already 17 : 69 and 17 : 52 in SolidWorks, so they "
+            "were left as they are. Save") in _clean(ui_text.gearbox_update_status(_motion_update(), two)[0])
+    unknown = _moved(ratios_already=["G9 meshes G10"])
+    assert ui_text.gearbox_update_status(_motion_update(), unknown)[0].endswith(
+        "The gear mate G9 meshes G10 was already at the ratio the workbook wants in SolidWorks, so it was left as it "
+        "is.")
+
+
+def test_after_a_lost_update_that_needed_nothing_making_again_it_never_says_made_again():
+    from gear_generator.workbook.gearbox import UPDATE_LOST
+    nothing = _moved()
+    assert ui_text.gearbox_update_status(_motion_update(), nothing, finished=_finished(UPDATE_LOST)) == (
+        "SolidWorks already matches the workbook: nothing was changed. The last Update SolidWorks was not saved before "
+        "Reducer_12to1.SLDASM was closed; SolidWorks already holds the workbook as it now is, so nothing needed making "
+        "again.", True)
+    static = _updated(parts=[], layout=None, placed=[], changed=[])
+    text, _ = ui_text.gearbox_update_status(_update(), static, finished=_finished(UPDATE_LOST))
+    assert "made again" not in text and text.endswith("so nothing needed making again.")
+    changed = _moved(placed=["G4"], changed=[ASM])
+    assert "so its changes were made again" in ui_text.gearbox_update_status(
+        _motion_update(), changed, finished=_finished(UPDATE_LOST))[0]
+
+
+def test_a_gear_mate_ratio_that_cannot_be_given_refuses_the_update_in_the_workers_own_words():
+    said = ("The gear mate G1 meshes G2 in T.SLDASM is at 17 : 68 and the workbook wants 17 : 69, and giving a gear "
+            "mate a new ratio has not been settled on SolidWorks (findings.GEAR_MATE_RATIO_ROUTE is None), so nothing "
+            "is changed; build the gearbox again.")
+    assert ui_text.job_failed(swbuild.BuildError(said), updating=True) == said
+
+
+def test_the_summary_names_the_whole_train_for_a_face_z_set_or_a_shaft_moved_under_it():
+    assert ui_text.update_summary(_motion_update(axial=("G4",))) == (
+        "Update SolidWorks will move G4 along S3, and re-place G1, G2, G3 and G4.")
+    shaft = _motion_update(moved_shafts=("S3",), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")))
+    assert ui_text.update_summary(shaft) == (
+        "Update SolidWorks will move S3 in Reducer_12to1_Layout, and re-place G1, G2, G3 and G4.")
+    lone = _turning(extra_shafts={"S4": "G7"}, locks=(("G2", "G3"), ("G7", "G8"))).motion
+    moved = _summary_motion(lone, moved_shafts=("S4",), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")))
+    assert ui_text.update_summary(moved) == (
+        "Update SolidWorks will move S4 in Reducer_12to1_Layout, and re-place G7 and G8.")

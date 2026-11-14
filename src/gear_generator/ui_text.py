@@ -1487,9 +1487,11 @@ def _again_sentence(update, name: str = "", *, turning: str = "") -> str:
 
 def _to_replace(update) -> List[str]:
     """The gears Update SolidWorks will put: ``update.replaced`` on W4's static path. On a turning gearbox
-    (``update.motion``), a mated gear the plan must put — its frame changes, or a gear mate of its train takes a new
-    ratio — takes every mated gear of its train with it (review M1), the train read from the recorded meshes and
-    locks (``MotionUpdate.meshes``, ``locks``; a mated gear with neither is a train of its own); a gear on no mate
+    (``update.motion``), a mated gear the plan must move — its frame changes, its Face Z is set (``update.axial``),
+    its shaft moves (``update.moved_shafts``, through its axis and along mates), or a gear mate of its train takes a
+    new ratio — takes every mated gear of its train with it (review M1, and package A's rule since ba2bc1f), the
+    train read from the recorded meshes and locks (``MotionUpdate.meshes``, ``locks``; a mated gear with neither is
+    a train of its own); a gear on no mate
     (left fixed, re-placed W4's way) is named as it is. In ``placements`` order, then in the gears' own order (G2
     before G10)."""
     replaced = [g for g in update.replaced if g]
@@ -1502,9 +1504,11 @@ def _to_replace(update) -> List[str]:
         joined = group.setdefault(a, {a}) | group.setdefault(b, {b})
         for g in joined:
             group[g] = joined
-    wanted = set(replaced)
+    wanted = set(replaced) | {g for g in getattr(update, "axial", ()) or () if g}
     for name in getattr(update, "ratios", ()) or ():
         wanted.update(g for m in motion.mates if m.name == name for g in m.gears if g)
+    moved = set(getattr(update, "moved_shafts", ()) or ())
+    wanted.update(g for m in motion.mates if m.shaft and m.shaft in moved for g in m.gears if g)
     out = set()
     for gear in wanted:
         out |= group.get(gear, {gear})
@@ -1654,9 +1658,6 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
     if motion:
         pieces.extend(_motion_pieces(update, result))
     after = _motion_after(update, result, earlier) if motion else []
-    if earlier:
-        told = _earlier_update_sentence(update, result if motion else None, earlier, off_after, pairs_after)
-        after = ([told] if told else []) + after
     dragged = list(dragged)
     placed = [g for g in result.placed if g not in dragged]
     if placed:
@@ -1664,6 +1665,10 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
 
     assembly = _file(update.assembly) if update.assembly else ""
     nothing = not pieces and not dragged and not result.changed
+    if earlier:
+        told = _earlier_update_sentence(update, result if motion else None, earlier, off_after, pairs_after,
+                                        changed=not nothing)
+        after = ([told] if told else []) + after
     if nothing:
         text = ALREADY_MATCHES
         if assembly and (result.clashes or result.interference_error):
@@ -2713,13 +2718,18 @@ def _along(update, gears: Sequence[str]) -> str:
     return _and(f"{g} along {_shaft_of(update, g) or 'its shaft'}" for g in gears)
 
 
-def _ratio_of(update, name: str) -> str:
-    """``G1 meshes G2 to 17 : 69`` from ``update.motion.ratios``; ``G1 meshes G2 to its new ratio`` if not there."""
+def _asked_ratio(update, name: str) -> str:
+    """``17 : 69``, the ratio ``update.motion.ratios`` asks of the gear mate ``name``; ``""`` if it asks none."""
     motion = getattr(update, "motion", None)
     for mate, a, b in getattr(motion, "ratios", ()) or ():
         if mate == name:
-            return f"{name} to {a} : {b}"
-    return f"{name} to its new ratio"
+            return f"{a} : {b}"
+    return ""
+
+
+def _ratio_of(update, name: str) -> str:
+    """``G1 meshes G2 to 17 : 69`` from ``update.motion.ratios``; ``G1 meshes G2 to its new ratio`` if not there."""
+    return f"{name} to {_asked_ratio(update, name) or 'its new ratio'}"
 
 
 def _gear_mates(update, names: Sequence[str]) -> str:
@@ -2731,7 +2741,8 @@ def _gear_mates(update, names: Sequence[str]) -> str:
 def _motion_pieces(update, result) -> List[str]:
     """What the motion path did, as pieces of *Updated SolidWorks: …*, in the order it did them: *turned the mate
     G1 meshes G2 back on (it was suppressed in SolidWorks)* (D10), *moved G4 along S3* (``result.axial``), *set the
-    gear mate G1 meshes G2 to 17 : 69* (``result.ratios``)."""
+    gear mate G1 meshes G2 to 17 : 69* (``result.ratios``), *set the gear mate G1 meshes G2 back to the workbook's
+    ratio, which SolidWorks held at another* (``result.ratios_found``: no change was asked, SolidWorks had another)."""
     pieces = []
     back = [n for n in result.unsuppressed if n]
     if back:
@@ -2741,9 +2752,16 @@ def _motion_pieces(update, result) -> List[str]:
     axial = [g for g in result.axial if g]
     if axial:
         pieces.append(f"moved {_along(update, axial)}")
-    ratios = [n for n in result.ratios if n]
+    found = [n for n in getattr(result, "ratios_found", ()) or () if n]
+    ratios = [n for n in result.ratios if n and n not in found]
     if ratios:
         pieces.append(f"set {_gear_mates(update, ratios)}")
+    if found:
+        # Found at another ratio though the plan asked no change (a remake lost with an unsaved close, say): set back.
+        # The ratio SolidWorks held is not in the result, so it is not named.
+        one = len(found) == 1
+        pieces.append(f"set the gear mate{'' if one else 's'} {_and(found)} back to the workbook's "
+                      f"ratio{'' if one else 's'}, which SolidWorks held at another")
     return pieces
 
 
@@ -2797,6 +2815,17 @@ def _motion_after(update, result, earlier: str = "") -> List[str]:
         elif put != mated:
             how = "as it was found" if earlier else "where it was turned"
             out.append(f"Any gear it did not put back stands {how} in SolidWorks.")
+    already = [n for n in getattr(result, "ratios_already", ()) or () if n]
+    if already:
+        # Asked to change, found already at the wanted ratio, so not remade: said, as the summary promised the set.
+        one = len(already) == 1
+        ratios = [_asked_ratio(update, n) for n in already]
+        if all(ratios):
+            what = f"{_and(already)} {'was' if one else 'were'} already {_and(ratios)}"
+        else:
+            what = f"{_and(already)} {'was' if one else 'were'} already at the ratio the workbook wants"
+        out.append(f"The gear mate{'' if one else 's'} {what} in SolidWorks, so "
+                   f"{'it was' if one else 'they were'} left as {'it is' if one else 'they are'}.")
     extra = [n for n in result.extra_mates if n]
     if extra:
         one = len(extra) == 1
@@ -2815,7 +2844,7 @@ def _pairs_text(pairs: Sequence[Tuple[str, str]]) -> str:
 
 
 def _earlier_update_sentence(update, result, earlier: str, off: Sequence[str],
-                             pairs: Sequence[Tuple[str, str]]) -> str:
+                             pairs: Sequence[Tuple[str, str]], changed: bool = True) -> str:
     """What an Update says when an earlier one's changes to the assembly were never saved (``Finished
     .earlier_update``): the frames on record are that Update's, so a gear found off them, or a relation out of
     step, is never said to be the user's doing.
@@ -2842,6 +2871,10 @@ def _earlier_update_sentence(update, result, earlier: str, off: Sequence[str],
     one = len(gears) == 1
     if earlier == UPDATE_LOST:
         asm = _file(update.assembly) if update.assembly else "the assembly"
+        if not changed:
+            # This Update changed nothing: the workbook as it now is was already what SolidWorks holds.
+            return (f"The last Update SolidWorks was not saved before {asm} was closed; SolidWorks already holds the "
+                    "workbook as it now is, so nothing needed making again.")
         found = []
         if gears:
             found.append(f"{_and(gears)} {'is' if one else 'are'} back where the workbook has "
