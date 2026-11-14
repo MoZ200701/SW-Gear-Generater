@@ -1464,11 +1464,13 @@ def _cannot_carry(update) -> str:
     return _reason(update.structural[0])[:-1] + also + "."
 
 
-def _again_sentence(update, name: str = "") -> str:
+def _again_sentence(update, name: str = "", *, turning: str = "") -> str:
     """Why Update cannot carry it, and the offer: *Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B', so it
-    needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2.* — "build again" once."""
+    needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2.* — "build again" once.
+    ``turning`` (W5, D5): what the offer adds for a static gearbox whose new revision turns, *; it was built
+    static, …, and the new revision's gears turn*, so that is said in the one offer rather than a second."""
     target = name or "a new revision"
-    offer = f"Update SolidWorks offers to build again as {target}."
+    offer = f"Update SolidWorks offers to build again as {target}{turning}."
     if update.missing:
         more = len(update.structural)
         also = f" (and {_plural(more, 'other change')} Update SolidWorks cannot carry)" if more else ""
@@ -1767,6 +1769,8 @@ def build_again_question(update, again, *, record=None) -> str:
     from .store import GEARBOX_STATIC
     from .workbook.gearbox import MISMATCHED, UNSAVED
     reasons = []
+    if update is not None and update.refusal:
+        reasons.append(_sentence(update.refusal))   # e.g. classify refusing a recorded mate it cannot act on (W5)
     if update is not None and update.missing:
         reasons.append(_missing_sentence(update.missing))
     if update is not None:
@@ -1963,7 +1967,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     the footer never invites a retry of an unchanged workbook). ``""``, as
     every W4 caller passes, never matches.
     """
-    from .store import LINK_WAITS
+    from .store import GEARBOX_STATIC, LINK_WAITS
     a = assessment
     note = _as_note(note)
     gearbox = getattr(record, "gearbox", None)
@@ -2022,6 +2026,7 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     superseded = [p.path for p in record.parts] if record is not None else []
 
     held = ""              # why Build again… or Update SolidWorks is greyed, when the sentence does not say it
+    folded = ""            # W5: the static record's turning revision, said inside Update's own offer
     subject = ""           # who makes the plan's parts new, when this state offers the plan's build
     if action == BUILD_AGAIN:
         build_on = not build_block
@@ -2037,14 +2042,21 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
             text, ok, update_on = (f"{_cannot_carry(update)} The new revision it needs{name} cannot be built yet: "
                                    f"{build_block}"), False, False
         elif update.needs_new_revision:
-            text, ok = _again_sentence(update, plan.name if plan is not None else ""), not update.missing
+            # W5 (D5): a static gearbox whose new revision turns is told so in the one offer (W4 review S4.1).
+            if (gearbox.kind == GEARBOX_STATIC and plan is not None and not plan.refusal
+                    and getattr(plan, "motion", None) is not None):
+                folded = ("; it was built static, and the new revision's gears turn" if gearbox.static_reason else
+                          "; it was built static, before gears could be mated to turn, and the new revision's gears "
+                          "turn")
+            text = _again_sentence(update, plan.name if plan is not None else "", turning=folded)
+            ok = not update.missing
             occupied = _occupied(plan, superseded=superseded) if plan is not None else ""
             if occupied:
                 text += " " + occupied
             subject = "the new revision"
         else:
             text, ok, held = update_summary(update), True, build_block
-        if ok:
+        if ok and not folded:
             # W5: what kind of assembly is on record; W4's static one is offered a turning revision only when Build
             # again… is on and its plan turns (D5: never forced), so a W4 sentence otherwise stays as it was.
             line = motion_record_line(record, digest, offer=bool(
@@ -2135,7 +2147,10 @@ def workbook_built_tag(record, digest: str) -> str:
     are not saved (``record.unsaved``) this version is in SolidWorks only: `` · updated from this version, not
     yet saved`` (W4 review S4.7); an earlier revision's are not counted (second review N2). While a document of
     the current revision is marked mismatched (a check found it not holding what the record says, or a job found
-    Update's changes in it lost) it is `` · SolidWorks no longer holds all of this version``."""
+    Update's changes in it lost) it is `` · SolidWorks no longer holds all of this version``. After a build whose
+    assembly SolidWorks refused a mate of (W5: no assembly, ``mate_problems`` on record) it is compared with the
+    read the refusal came from: `` · its assembly was refused for this version``, `` · changed since its assembly
+    was refused``, or ``""`` when either read is not known."""
     if record is None or not (record.parts or record.gearbox is not None):
         return ""
     same = bool(digest) and record.digest == digest
@@ -2147,6 +2162,15 @@ def workbook_built_tag(record, digest: str) -> str:
             return (" · parts updated from this version, not yet saved" if unsaved
                     else " · parts built from this version")
         return " · changed since its parts were built"
+    box = record.gearbox
+    if not box.assembly and any(str(p).strip() for p in box.mate_problems):
+        # W5: the last build's assembly was refused, so no build is on record to have changed since; the read the
+        # refusal came from is ``mate_problems_digest``, and with neither read known nothing is claimed.
+        if not (digest and box.mate_problems_digest):
+            return ""
+        if box.mate_problems_digest == digest:
+            return " · its assembly was refused for this version"
+        return " · changed since its assembly was refused"
     if same:
         return " · updated from this version, not yet saved" if unsaved else " · built from this version"
     return " · changed since it was built"

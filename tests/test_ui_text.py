@@ -1771,10 +1771,31 @@ def test_a_w4_static_gearbox_is_offered_a_turning_revision_never_forced(ready):
         ui_text.BUILD_AGAIN, True, False, True, True)
     structural = _footer(ready, record=_record(), plan=dataclasses.replace(_again(), motion=_motion()),
                          update=_update(structural=("G2's bore was added, which its built part cannot take.",)))
+    # A structural edit: Update already offers the new revision, so the D5 fact is said in that one offer, and
+    # "build again" is said once (W4 review S4.1).
     assert structural.text == (
         "G2's bore was added, which its built part cannot take. Update SolidWorks offers to build again as "
-        "Reducer_12to1_r2. It was built static, before gears could be mated to turn: Build again… makes a new "
-        "revision whose gears turn.")
+        "Reducer_12to1_r2; it was built static, before gears could be mated to turn, and the new revision's gears "
+        "turn.")
+    assert structural.text.lower().count("build again") == 1
+    missing = _footer(ready, record=_record(), plan=dataclasses.replace(_again(), motion=_motion()),
+                      update=_update(missing=(_path("Gear_m1.5_N68"),)))
+    assert missing.text == (
+        f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved, renamed or deleted since it was built, so Update "
+        "SolidWorks offers to build again as Reducer_12to1_r2; it was built static, before gears could be mated to "
+        "turn, and the new revision's gears turn.")
+    reason = _record()
+    reason.gearbox.static_reason = STATIC_REASON
+    folded = _footer(ready, record=reason, plan=dataclasses.replace(_again(), motion=_motion()),
+                     update=_update(structural=("G2's bore was added, which its built part cannot take.",)))
+    assert folded.text == (
+        "G2's bore was added, which its built part cannot take. Update SolidWorks offers to build again as "
+        "Reducer_12to1_r2; it was built static, and the new revision's gears turn.")
+    # A next revision that would not turn: W4's offer, word for word.
+    w4 = _footer(ready, record=_record(), plan=_again(),
+                 update=_update(structural=("G2's bore was added, which its built part cannot take.",)))
+    assert w4.text == ("G2's bore was added, which its built part cannot take. Update SolidWorks offers to build "
+                       "again as Reducer_12to1_r2.")
 
 
 def test_a_w4_static_gearbox_whose_next_revision_would_not_turn_or_cannot_go_is_told_nothing_new(ready):
@@ -2063,3 +2084,35 @@ def test_no_w5_sentence_says_fallback_or_static_instead():
     for phrase in ("static instead", "fallback record", "tries again as a new revision", "would not mate them",
                    "close it without saving"):
         assert phrase not in source
+
+
+# what the Workbook window found (package D): the question after a refusal, the header after a refused mate
+
+
+BAD_MATE_REFUSAL = ("gearbox.mates[3] on record is a mesh mate with 1 gear, so Update SolidWorks cannot act on the "
+                    "gearbox the record describes: Build again… makes a new revision from the workbook instead.")
+
+
+def test_the_build_again_question_gives_classifys_refusal_as_its_reason(ready):
+    question = ui_text.build_again_question(_update(refusal=BAD_MATE_REFUSAL), _again(), record=_turning_record())
+    assert question.startswith(f"{BAD_MATE_REFUSAL} Build again as Reducer_12to1_r2? That makes a new part for G2 ")
+    assert "Nothing on record needs a new revision" not in question
+    f = _footer(ready, record=_turning_record(), plan=_again(), update=_update(refusal=BAD_MATE_REFUSAL))
+    assert f.text == BAD_MATE_REFUSAL and f.build_enabled
+
+
+def test_the_header_after_a_refused_mate_compares_with_the_read_the_refusal_came_from():
+    record = _refused_record(digest="d1")
+    record.digest = ""                          # no assembly was built, so no build read is on record
+    assert ui_text.workbook_built_tag(record, "d1") == " · its assembly was refused for this version"
+    assert ui_text.workbook_built_tag(record, "d2") == " · changed since its assembly was refused"
+    assert ui_text.workbook_built_tag(record, "") == ""
+    unknown = _refused_record(digest="")
+    assert ui_text.workbook_built_tag(unknown, "d1") == ""
+    blank = _refused_record(digest="d1", problems=(" ",))
+    blank.digest = ""
+    assert ui_text.workbook_built_tag(blank, "d1") == " · changed since it was built"     # W4's, unchanged
+    built = _turning_record()
+    built.digest = "d1"
+    assert ui_text.workbook_built_tag(built, "d1") == " · built from this version"
+    assert ui_text.workbook_built_tag(built, "d2") == " · changed since it was built"
