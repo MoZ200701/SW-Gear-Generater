@@ -195,6 +195,31 @@ def update_open_route(records: Records) -> str:
     return "open and activate" if _passed(records, "open_and_activate_part") else "ask"
 
 
+# Tier 8 (PLAN-WORKBOOK §4.4, phase W5): PLAN-GEARBOX's tier 6 items 3–5 — a gear held on a layout axis,
+# five or more components mated and not fixed, a lock between free gears — and the gear mate's sense on
+# every kind of pair W5 builds. If any fails, motion STOPs and the static assembly stays.
+MOTION_NEEDS = ("shaft_axis_mates", "gear_mate_sense", "compound_lock", "mated_train")
+
+
+def motion_route(records: Records) -> str:
+    """``mates`` iff a gear held on its layout axis and along its shaft on Z+ and Z−, one rule explained every gear
+    mate's sense, a lock held two free gears at a placed angle, and the 12 : 1 train, mated from W4's fixed state,
+    turned its output 1/12 of the input the same way on every train tried, before and after a reopen. Otherwise
+    STOP and ask, as PLAN-WORKBOOK §4.4 says."""
+    if not all(_passed(records, name) for name in MOTION_NEEDS):
+        return STOP
+    right = _fact(records, "mated_train", "train_right_way") or {}
+    return "mates" if right and all(right.values()) else STOP
+
+
+def axis_concentric_refused(records: Records) -> Optional[bool]:
+    """Whether AddMate5 refused a concentric mate between a gear's axis and a layout axis (axis to axis)."""
+    refused = _fact(records, "shaft_axis_mates", "axis_mates_refused")
+    if refused is None:
+        return None
+    return any(key in refused for key in ("g3", "g4"))
+
+
 def decide(records: Records) -> Dict[str, Any]:
     recipe = flank_recipe(records)
     units = _fact(records, "document_units", "default_template_is_mm")
@@ -271,5 +296,16 @@ def decide(records: Records) -> Dict[str, Any]:
         "reuse_add_route": _fact(records, "add_component_opened_part", "reuse_add_route"),
         "interference_names_route": _fact(records, "interference_components", "interference_components_route"),
         "same_name_elsewhere_inserted": same_name_elsewhere_inserted(records),
+        "motion_route": motion_route(records),
+        "axis_mate_route": _fact(records, "shaft_axis_mates", "axis_mate_route"),
+        "axis_concentric_refused": axis_concentric_refused(records),
+        "axial_mate_route": _fact(records, "shaft_axis_mates", "axial_mate_route"),
+        "gear_mate_flip_rule": _fact(records, "gear_mate_sense", "gear_mate_flip_rule"),
+        "gear_mate_sense_depends_on_entities": _fact(records, "gear_mate_sense", "sense_depends_on_entities"),
+        "compound_lock_route": _fact(records, "compound_lock", "compound_lock_route"),
+        "layout_move_carries_mates": _fact(records, "motion_update", "layout_move_carries_mates"),
+        "mesh_phase_route": _fact(records, "motion_update", "mesh_phase_route"),
+        "axial_global_moves_gear": _fact(records, "motion_update", "axial_global_moves_gear"),
+        "lock_unsuppress_keeps_the_new_angle": _fact(records, "motion_update", "lock_unsuppress_keeps_the_new_angle"),
         "manual_steps": manual_steps(records, recipe),
     }

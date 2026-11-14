@@ -1,0 +1,279 @@
+"""Probe tier 8 (PLAN-WORKBOOK §4.4, phase W5) on Linux: its registration, its pure measurements, and its decisions.
+
+What SolidWorks does is the probe's to find; these pin how the probe reads a
+measurement — a turn about a gear's own axis and about +Z, the candidate rules
+for a gear mate's Flip, the 12 : 1 train's expected turns — and how its results
+become decisions, so a run on the host is read the way the plan says.
+"""
+
+import math
+
+import pytest
+
+from gear_generator import swcom
+from gear_generator.gears import crossed
+from gear_generator.probe import __main__ as probe_main
+from gear_generator.probe import decide, harness
+from gear_generator.probe import p8_motion as p8
+
+TIER_8 = ["motion_enums", "shaft_axis_mates", "gear_mate_sense", "compound_lock", "mated_train", "motion_update"]
+
+
+@pytest.fixture(scope="module")
+def registry():
+    probe_main.load_probes()
+    return list(harness.REGISTRY)
+
+
+def records(passing=(), failing=(), facts=None):
+    out = {name: {"status": "pass", "facts": {}} for name in passing}
+    out.update({name: {"status": "fail", "facts": {}} for name in failing})
+    for name, values in (facts or {}).items():
+        out.setdefault(name, {"status": "pass", "facts": {}})["facts"].update(values)
+    return out
+
+
+# -- registration -----------------------------------------------------------
+
+
+def test_tier_eight_is_registered_after_tier_seven_in_order(registry):
+    names = [p.name for p in registry if p.tier == 8]
+    assert names == TIER_8
+    tiers = [p.tier for p in registry]
+    assert tiers.index(8) > max(i for i, t in enumerate(tiers) if t == 7)
+    assert not any(p.extra for p in registry if p.tier == 8)
+
+
+def test_every_tier_eight_need_is_registered_and_documented(registry):
+    known = {p.name for p in registry}
+    for p in registry:
+        if p.tier == 8:
+            assert set(p.needs) <= known, p.name
+            assert p.members and p.doc, p.name
+
+
+def test_running_tier_eight_alone_pulls_in_tier_seven_and_the_gear_mate_but_no_builds(registry):
+    # The registry's order is import order, which a test session does not control; load_probes, which the
+    # host run uses, imports p8_motion last. So only the tier's own order is pinned here.
+    chosen = [p.name for p in harness.select(registry, TIER_8)]
+    assert [n for n in chosen if n in TIER_8] == TIER_8
+    assert {"gear_mate", "layout_planes", "axis_through_named_planes", "layout_part_without_body",
+            "nonparallel_mates", "equation_add"} <= set(chosen)
+    assert not any(p.tier == 5 for p in registry if p.name in chosen)
+
+
+def test_only_tier_eight_stops_before_solidworks(monkeypatch):
+    monkeypatch.setattr(swcom, "is_available", lambda: False)
+    monkeypatch.setattr(swcom, "unavailable_reason", lambda: "not here")
+    assert probe_main.main(["--only-tier", "8"]) == swcom.EXIT_NOT_AVAILABLE
+
+
+# -- turns --------------------------------------------------------------------
+
+
+def test_a_turn_is_read_about_the_gears_own_axis_on_either_shaft():
+    for sigma in (1, -1):
+        before = p8.w4_rotation(sigma, 10.0)
+        after = p8.w4_rotation(sigma, 40.0)
+        assert p8.own_turn(before, after) == pytest.approx(30.0)
+        assert p8.world_turn(before, after) == pytest.approx(30.0 * sigma)
+        assert p8.axis_z(before) == pytest.approx(sigma)
+
+
+def test_a_turn_is_signed_and_unwrapped():
+    before = p8.w4_rotation(1, 170.0)
+    after = p8.w4_rotation(1, -170.0)
+    assert p8.own_turn(before, after) == pytest.approx(20.0)
+    assert p8.unwrap(350.0) == pytest.approx(-10.0)
+
+
+def test_w4s_frame_on_minus_z_is_x_turned_over():
+    m = p8.w4_rotation(-1, 0.0)
+    assert m == ((1.0, 0.0, 0.0), (0.0, -1.0, pytest.approx(0.0)), (0.0, pytest.approx(0.0), -1.0))
+    # The workbook layout's own formula, diag(1, -1, -1) · rot_z(θ), agrees.
+    from gear_generator.workbook.layout import _rotation
+    rows = _rotation(-1, math.radians(33.0))
+    mine = p8.w4_rotation(-1, 33.0)
+    assert [v for row in mine for v in row] == pytest.approx(list(rows), abs=1e-12)
+
+
+def test_a_face_point_is_on_the_cylinder_half_way_along_it():
+    x, y, z = p8.face_point((40.0, 30.0, 10.0), -1)
+    assert math.hypot(x - 40.0, y - 30.0) == pytest.approx(p8.BLANK_R)
+    assert z == pytest.approx(10.0 - p8.BLANK_W / 2.0)
+
+
+# -- the flip rules -----------------------------------------------------------
+
+CASE = dict(sigma_a=1, sigma_b=1, internal=False, bigger_first=False)
+
+
+def case(flip, world_same, **kw):
+    return {**CASE, **kw, "flip": flip, "world_same": world_same}
+
+
+def test_the_measured_parallel_pair_fits_every_rule_that_says_flip_off_is_opposite():
+    # probe gear_mate: two cylinders on parallel +Z axes, Flip off turned them opposite ways.
+    rules = p8.consistent_rules([case(False, False), case(True, True)])
+    assert "own axes" in rules and "plus z" in rules and "mesh" in rules
+
+
+def test_anti_parallel_axes_tell_own_axes_from_plus_z():
+    # Flip off, axes opposed, and the gears turned the same way about +Z: opposite about their own axes.
+    cases = [case(False, False), case(False, True, sigma_b=-1)]
+    assert "own axes" in p8.consistent_rules(cases)
+    assert "plus z" not in p8.consistent_rules(cases)
+    assert p8.needed_flip("own axes", 1, -1, internal=False) is True
+    assert p8.needed_flip("own axes", 1, 1, internal=False) is False
+    assert p8.needed_flip("own axes", -1, -1, internal=True) is True
+
+
+def test_a_ring_that_turned_the_same_way_with_flip_off_says_the_mesh_is_read():
+    cases = [case(False, False), case(False, True, internal=True, bigger_first=True)]
+    rules = p8.consistent_rules(cases)
+    assert "own axes" not in rules and "plus z" not in rules
+    assert "mesh" in rules and "plus z, bigger first" in rules       # one more case is needed to tell these apart
+    assert p8.decide_rule(cases) is None
+    cases.append(case(False, False, internal=False, bigger_first=True))
+    assert p8.decide_rule(cases) is None                              # all on parallel axes: mesh about +Z or own axes?
+    cases.append(case(False, False, sigma_b=-1))
+    assert p8.decide_rule(cases) == "mesh"
+    assert p8.needed_flip("mesh", 1, -1, internal=True) is False
+
+
+def test_every_rule_gives_a_flip_that_turns_a_mesh_as_it_meshes():
+    for rule in p8.RULES:
+        for sa in (1, -1):
+            for sb in (1, -1):
+                for internal in (False, True):
+                    for bigger in (False, True):
+                        flip = p8.needed_flip(rule, sa, sb, internal, bigger)
+                        assert p8.predicted_world_same(rule, flip, sa, sb, internal, bigger) is internal
+
+
+def test_cases_not_turned_are_left_out_and_nothing_measured_decides_nothing():
+    assert p8.consistent_rules([{**CASE, "flip": False, "world_same": None}]) == []
+    assert p8.decide_rule([]) is None
+    with pytest.raises(ValueError, match="no rule"):
+        p8.predicted_world_same("guess", False, 1, 1, False, False)
+
+
+# -- the train ----------------------------------------------------------------
+
+
+def test_the_twelve_to_one_train_turns_its_output_a_twelfth_the_same_way():
+    turns = p8.train_turns(p8.TRAIN_TEETH, (1, 1, 1, 1))
+    assert turns == pytest.approx([1.0, -0.25, -0.25, 1.0 / 12.0])
+    with pytest.raises(ValueError):
+        p8.train_turns((17, 68, 17), (1, 1, 1))
+
+
+def test_each_train_sits_its_meshes_on_two_planes_whichever_way_the_middle_shaft_points():
+    for _name, prefix, sigmas, origin in p8.TRAINS:
+        geometry = p8.train_geometry(prefix, sigmas, origin)
+        (_, x1, y1), (_, x2, y2), (_, x3, y3) = geometry["shafts"]
+        assert math.hypot(x2 - x1, y2 - y1) == pytest.approx((17 + 68) / 2.0)
+        assert math.hypot(x3 - x2, y3 - y2) == pytest.approx((17 + 51) / 2.0)
+        mids = [g["at"][2] + g["sigma"] * p8.BLANK_W / 2.0 for g in geometry["gears"]]
+        assert mids == pytest.approx([5.0, 5.0, 20.0, 20.0])
+        assert [g["shaft"] for g in geometry["gears"]] == [f"{prefix}1", f"{prefix}2", f"{prefix}2", f"{prefix}3"]
+        assert geometry["gears"][0]["theta"] == p8.DRIVE_FROM       # the drive starts where the input was placed
+
+
+def test_a_shaft_swung_round_keeps_its_centre_distance_and_the_phase_it_needs():
+    x, y = p8.swung((82.5, 40.0), 34.0, 20.0)
+    assert math.hypot(x - 82.5, y - 40.0) == pytest.approx(34.0)
+    assert p8.swung((0.0, 0.0), 10.0, 0.0) == pytest.approx((0.0, 10.0))
+    assert p8.phase_change(20.0, 17, 51) == pytest.approx(20.0 * 4.0 / 3.0)
+
+
+def test_the_sense_pairs_sit_clear_and_a_pinion_inside_its_ring():
+    rows = set()
+    for index, c in enumerate(p8.SENSE_CASES):
+        where = p8.sense_layout(index, c)
+        rows.add(where["a"][1])
+        centre = math.dist(where["a"][:2], where["b"][:2])
+        if where["placement"] == "outside":
+            assert centre - p8.BLANK_R > p8.RING_OUTER                    # clear outside the annulus
+        elif where["internal"]:
+            assert centre + p8.BLANK_R < p8.RING_INNER
+        else:
+            assert centre > 2 * p8.BLANK_R
+        for side in ("a", "b"):
+            sigma = (c[1] if side == "a" else c[2])[1]
+            apart = p8.SENSE_APART if side == "b" and where["placement"] == "apart" else 0.0
+            assert where[side][2] + sigma * p8.BLANK_W / 2.0 == pytest.approx(p8.BLANK_W / 2.0 + apart)
+    assert len(rows) == len(p8.SENSE_CASES) and p8.SENSE_ROW > 2 * p8.RING_OUTER
+
+
+def test_the_sense_cases_cover_what_the_review_asked():
+    names = [c[0] for c in p8.SENSE_CASES]
+    sigmas = {(c[1][1], c[2][1]) for c in p8.SENSE_CASES}
+    assert sigmas == {(1, 1), (1, -1), (-1, 1), (-1, -1)}
+    assert any(c[1][0] == "ring" and c[1][1] == -1 for c in p8.SENSE_CASES)      # a ring on Z-
+    assert {c[3] for c in p8.SENSE_CASES} == {"axis", "face", "mixed"}
+    assert {c[6] for c in p8.SENSE_CASES} == {"closest", "aligned", "anti_aligned"}
+    assert len(names) == len(set(names))
+
+
+# -- decisions --------------------------------------------------------------
+
+MOTION = tuple(decide.MOTION_NEEDS)
+RIGHT = {"mated_train": {"train_right_way": {"all Z+": True, "middle Z-": True}}}
+
+
+def test_motion_is_built_only_when_every_needed_probe_passed_and_the_train_turned_right():
+    assert decide.motion_route(records(MOTION, facts=RIGHT)) == "mates"
+    for name in MOTION:
+        rest = tuple(n for n in MOTION if n != name)
+        assert decide.motion_route(records(rest, failing=(name,), facts=RIGHT)) == "STOP", name
+        assert decide.motion_route({k: v for k, v in records(rest, facts=RIGHT).items() if k != name}) == "STOP", name
+    wrong = {"mated_train": {"train_right_way": {"all Z+": True, "middle Z-": False}}}
+    assert decide.motion_route(records(MOTION, facts=wrong)) == "STOP"
+
+
+def test_tier_eight_facts_become_decisions_only_off_a_pass():
+    facts = {
+        "shaft_axis_mates": {"axis_mate_route": "axis coincident", "axial_mate_route": "origin distance",
+                             "axis_mates_refused": {"g3": {}, "g4": {}}},
+        "gear_mate_sense": {"gear_mate_flip_rule": "own axes", "sense_depends_on_entities": False},
+        "compound_lock": {"compound_lock_route": "lock alone"},
+        "motion_update": {"layout_move_carries_mates": True, "mesh_phase_route": "x", "axial_global_moves_gear": True,
+                          "lock_unsuppress_keeps_the_new_angle": True},
+    }
+    passed = decide.decide(records(facts=facts))
+    assert (passed["axis_mate_route"], passed["axial_mate_route"], passed["axis_concentric_refused"]) == \
+        ("axis coincident", "origin distance", True)
+    assert passed["gear_mate_flip_rule"] == "own axes" and passed["gear_mate_sense_depends_on_entities"] is False
+    assert passed["compound_lock_route"] == "lock alone"
+    assert (passed["layout_move_carries_mates"], passed["mesh_phase_route"], passed["axial_global_moves_gear"],
+            passed["lock_unsuppress_keeps_the_new_angle"]) == (True, "x", True, True)
+    failed = records(failing=tuple(facts))
+    for name, values in facts.items():
+        failed[name]["facts"].update(values)
+    decided = decide.decide(failed)
+    for key in ("axis_mate_route", "axial_mate_route", "axis_concentric_refused", "gear_mate_flip_rule",
+                "compound_lock_route", "layout_move_carries_mates", "mesh_phase_route", "axial_global_moves_gear",
+                "lock_unsuppress_keeps_the_new_angle"):
+        assert decided[key] is None, key
+    assert decided["motion_route"] == "STOP"
+    assert decide.decide({})["motion_route"] == "STOP"
+
+
+def test_what_a_gear_mate_keeps_as_reverse_follows_the_axes_and_the_ring():
+    # SolidWorks 2026, gear_mate_sense: Flip off kept Reverse False on parallel axes, True on opposed ones,
+    # and the other way round for an annulus round its pinion.
+    assert p8.stored_reverse(False, 1, 1, False) is False
+    assert p8.stored_reverse(False, 1, -1, False) is True
+    assert p8.stored_reverse(True, 1, 1, False) is True
+    assert p8.stored_reverse(False, 1, 1, True) is True
+    assert p8.stored_reverse(False, -1, 1, True) is False
+
+
+def test_a_drag_is_a_turn_about_the_gears_own_axis_through_its_origin():
+    r, t = p8.turn_about_point((0.0, 0.0, 1.0), 90.0, (10.0, 0.0, 5.0))
+    moved = [sum(r[i][j] * v for j, v in enumerate((10.0, 0.0, 5.0))) + t[i] for i in range(3)]
+    assert moved == pytest.approx([10.0, 0.0, 5.0])                     # the origin stays
+    flat = lambda m: [v for row in m for v in row]   # noqa: E731
+    assert flat(p8.rotation_about((0.0, 0.0, -1.0), 30.0)) == pytest.approx(flat(crossed.rot_z(-30.0)))
+    assert flat(p8.rotation_about((0.0, 0.0, 1.0), 30.0)) == pytest.approx(flat(crossed.rot_z(30.0)))

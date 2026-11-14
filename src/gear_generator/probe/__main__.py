@@ -35,6 +35,7 @@ def load_probes() -> None:
     from . import p3_files, p3_properties, p4_assembly, p4_interference, p4_nonparallel, p4_gear_mate  # noqa: F401
     from . import p5_end_to_end, p5_helical, p5_internal, p5_bevel  # noqa: F401
     from . import p7_workbook  # noqa: F401
+    from . import p8_motion  # noqa: F401
 
 
 def default_scratch() -> str:
