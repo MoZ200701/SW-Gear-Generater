@@ -447,5 +447,8 @@ def decide(records: Records) -> Dict[str, Any]:
         "unsaved_update_close_asks": _fact(records, "unsaved_update_close", "unsaved_update_close_asks"),
         "unsaved_update_close_discards": _fact(records, "unsaved_update_close", "unsaved_update_close_discards"),
         "drag_operator_turns_train": _fact(records, "drag_operator_turns_train", "drag_operator_turns_train"),
+        "gear_mate_definition_read_marks": _fact(records, "gear_mate_definition_read", "gear_mate_definition_read_marks"),
+        "origin_noise_mm": _fact(records, "origin_noise", "origin_noise_mm"),
+        "origin_noise_within_moved_tolerance": _fact(records, "origin_noise", "origin_noise_within_moved_tolerance"),
         "manual_steps": manual_steps(records, recipe),
     }

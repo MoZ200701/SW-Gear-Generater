@@ -19,7 +19,8 @@ from gear_generator.probe import p8_motion as p8
 TIER_8 = ["motion_enums", "shaft_axis_mates", "gear_mate_sense", "compound_lock", "mated_train", "motion_update",
           "gear_mate_ratio", "gear_mate_update", "idler_update", "lock_retake_offset", "lock_mate_rename", "demonstration_drive",
           "put_on_twice_meshed_gear", "axial_datum_plane", "mated_rebuild_scope", "mates_under_command_in_progress",
-          "mate_folders", "lightweight_remake", "second_assembly_beside_unsaved", "unsaved_update_close",
+          "mate_folders", "lightweight_remake", "second_assembly_beside_unsaved", "gear_mate_definition_read",
+          "origin_noise", "unsaved_update_close",
           "drag_operator_turns_train", "gear_mate_definition"]
 
 
@@ -704,3 +705,20 @@ def test_a_drag_follows_only_when_the_whole_train_turns_its_share_in_place():
     alone = {**before, "TG4": turned["TG4"]}                         # only the dragged gear turned (tier 8's reading)
     assert not p8.drag_follows(p8.drag_residuals(before, alone, keys, expected, "TG4"), "TG4", asked)
     assert p8.DRAG_CASES[0][1:] == (3, 10)                            # the entry's success comes first, as given
+
+
+def test_what_a_definition_read_marks_is_read_off_the_flags_around_it():
+    clean = {"A.SLDASM": False, "L.SLDPRT": False}
+    read = lambda before, after: {"flags_before": before, "marked": p8.newly_marked(before, after)}  # noqa: E731
+    assert p8.read_marks([read(clean, clean), read(clean, clean)], "A.SLDASM") == "nothing"
+    assert p8.read_marks([read(clean, {**clean, "A.SLDASM": True})], "A.SLDASM") == "the assembly"
+    assert p8.read_marks([read(clean, {"A.SLDASM": True, "L.SLDPRT": True})], "A.SLDASM").startswith("more")
+    assert p8.read_marks([read({**clean, "A.SLDASM": True}, {**clean, "A.SLDASM": True})],
+                         "A.SLDASM").startswith("undetermined")
+
+
+def test_origin_noise_leaves_out_the_gears_meant_to_move():
+    before = {"G1": (0.0, 0.0, 0.0), "G4": (131.75, 0.0, 17.0)}
+    after = {"G1": (1e-9, 0.0, 0.0), "G4": (132.75, 0.0, 17.0)}
+    assert p8.origin_spread(before, after)["largest_mm"] == pytest.approx(1.0)
+    assert p8.origin_spread(before, after, ["G4"])["largest_mm"] == pytest.approx(1e-9)

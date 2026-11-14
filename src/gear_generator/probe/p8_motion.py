@@ -4926,6 +4926,173 @@ def second_assembly_beside_unsaved(px: Px) -> None:
     px.fact("second_assembly_beside_unsaved_holds", bool(saved and both_mated and closed))
 
 
+# -- 14b: what the app's Update check reads, and the noise its "moved" tolerance meets (round P0c, review of the
+# app's Update code) ----------------------------------------------------------------------------------------------
+#
+# On the 12 : 1 train gear_mate_update left saved: reopened cleanly by path, nothing else done to it first.
+
+MOVED_TOLERANCE_MM = 1e-6    # the app counts a gear as moved when its origin differs by more than this
+
+
+def _flags(px: Px, paths: Sequence[str]) -> Dict[str, bool]:
+    return {k: v["modified"] for k, v in _open_probe_docs(px, paths).items()}
+
+
+def newly_marked(before: Mapping[str, bool], after: Mapping[str, bool]) -> List[str]:
+    """The documents a step marked modified: not modified before it, modified after."""
+    return sorted(k for k, v in after.items() if v and not before.get(k, False))
+
+
+def read_marks(reads: Sequence[Mapping[str, Any]], assembly: str) -> str:
+    """What reading gear-mate definitions marked: "nothing", "the assembly", "more: [...]", or "undetermined" when
+    the assembly was already modified before the first read."""
+    if not reads:
+        return "undetermined"
+    if reads[0]["flags_before"].get(assembly):
+        return "undetermined: the assembly was already modified before the read"
+    marked = sorted({d for r in reads for d in r["marked"]})
+    if not marked:
+        return "nothing"
+    return "the assembly" if marked == [assembly] else f"more: {marked}"
+
+
+@probe("gear_mate_definition_read", needs=("gear_mate_update",), tier=8,
+       members=("IFeature.GetDefinition", "IGearMateFeatureData.GearRatioNumerator",
+                "IGearMateFeatureData.GearRatioDenominator", "IModelDoc2.GetSaveFlag", "ISldWorks.CloseDoc"))
+def gear_mate_definition_read(px: Px) -> None:
+    """Does READING a gear mate's definition mark anything modified? The saved train reopened; each of its gear mates
+    read exactly as the app's Update check reads it (GetDefinition, GearRatioNumerator, GearRatioDenominator, the
+    data object released: no ModifyDefinition, no AccessSelections), every document's GetSaveFlag before, after the
+    read and after the release; both gear mates in one session; then closed, and nothing may be left."""
+    info = px.shared.get("w8_update")
+    px.require(bool(info), "gear_mate_update left its train")
+    fx: UpdateFixture = info["fx"]
+    paths = info["paths"]
+    assembly = os.path.basename(info["plan"].assembly_path)
+    teeth = {g: float(v) for g, v in fx.new_teeth().items()}          # the train was saved after its Update
+    facts: Dict[str, Any] = {"reads": []}
+    try:
+        doc, _comps, _layout, _title = info["open_train"]()
+        facts["flags_on_open"] = _flags(px, paths)
+        for a, b in fx.meshes:
+            name = f"{a} meshes {b}"
+            feature = mate_feature(doc, name)
+            r: Dict[str, Any] = {"mate": name, "flags_before": _flags(px, paths)}
+            got, data = px.attempt(f"IFeature.GetDefinition of {name}", lambda f=feature: call(f, "GetDefinition"))
+            px.require(got and data is not None, f"{name}'s definition is read")
+            r["flags_after_get"] = _flags(px, paths)
+            for key in ("GearRatioNumerator", "GearRatioDenominator"):
+                ok, value = px.attempt(f"IGearMateFeatureData.{key} of {name}", lambda k=key: member(data, k)[0])
+                r[key] = plain(value) if ok else "raised"
+            r["flags_after_read"] = _flags(px, paths)
+            data = None                                               # released, as the app does
+            r["flags_after_release"] = _flags(px, paths)
+            r["marked"] = newly_marked(r["flags_before"], r["flags_after_release"])
+            r["ratio_right"] = r["GearRatioNumerator"] == teeth[b] and r["GearRatioDenominator"] == teeth[a]
+            facts["reads"].append(r)
+        facts["flags_after_both"] = _flags(px, paths)
+        facts["errors"] = errors_only(mate_errors(px, doc))
+    finally:
+        facts["close"] = _close_checked(px, info["plan"].assembly_path, paths)
+        facts["open_after"] = sorted(_open_probe_docs(px, paths))
+    px.fact("gear_mate_definition_read", facts)
+    marks = read_marks(facts["reads"], assembly)
+    px.check(len(facts["reads"]) == len(fx.meshes) and all(r["ratio_right"] for r in facts["reads"]),
+             f"both gear mates read in one session, each the teeth it was saved with (numerator the second's): "
+             f"{[(r['mate'], r['GearRatioNumerator'], r['GearRatioDenominator']) for r in facts['reads']]}")
+    px.check(facts["close"]["closed"] and not facts["open_after"],
+             f"closed afterwards, nothing left: {facts['close']}, {facts['open_after']}")
+    px.fact("gear_mate_definition_read_marks", marks,
+            "what reading gear-mate definitions marked modified, on the saved train reopened")
+
+
+def _origins(comps: Mapping[str, Any]) -> Dict[str, Vec]:
+    return {g: tuple(float(v) for v in frame_of(c)[1]) for g, c in comps.items()}
+
+
+def origin_spread(before: Mapping[str, Sequence[float]], after: Mapping[str, Sequence[float]],
+                  leave_out: Sequence[str] = ()) -> Dict[str, Any]:
+    """Each gear's origin move (mm, full precision) and the largest, leaving out gears meant to move."""
+    moved = {g: math.dist(before[g], after[g]) for g in before}
+    kept = [v for g, v in moved.items() if g not in leave_out]
+    return {"moved_mm": moved, "largest_mm": max(kept) if kept else 0.0, "left_out": list(leave_out)}
+
+
+@probe("origin_noise", needs=("gear_mate_update",), tier=8,
+       members=("IModelDoc2.ForceRebuild3", "IComponent2.Transform2", "swbuild.update_variables"))
+def origin_noise(px: Px) -> None:
+    """The noise the app's "moved" tolerance (1e-6 mm between two frame reads around a top-only rebuild) meets: each
+    gear's origin read before and after ForceRebuild3(True) following (a) nothing, (b) a part's global changed,
+    (c) another shaft moved by the layout's global, (d) a drive added, driven and taken away. Every change is set
+    back before the close."""
+    from .. import swbuild  # noqa: PLC0415
+    from .p7_workbook import _global_value, activate  # noqa: PLC0415
+
+    info = px.shared.get("w8_update")
+    px.require(bool(info), "gear_mate_update left its train")
+    fx: UpdateFixture = info["fx"]
+    jobs, paths, plan = info["jobs"], info["paths"], info["plan"]
+    shaft_of = {r[0]: r[1] for r in fx.rows}
+    moved_shaft = fx.shafts[-1][0]
+    first = fx.gears[0]
+    facts: Dict[str, Any] = {}
+
+    try:
+        doc, comps, layout, title = info["open_train"]()
+
+        def around(label: str, leave_out: Sequence[str] = ()) -> Dict[str, Any]:
+            before = _origins(comps)
+            out = {"rebuild": rebuild(px, doc, label, top_only=True)}
+            after = _origins(comps)
+            out.update(origin_spread(before, after, leave_out), before=before, after=after)
+            return out
+
+        facts["nothing"] = around("nothing changed")
+
+        # (b) the input's part: its teeth one more by its globals, in its own document, then back.
+        teeth = fx.new_teeth()[first]
+        e = {"set": _set_teeth(px, swbuild, jobs, first, str(teeth + 1))}
+        px.require(activate(px, title), "the assembly is active again")
+        e.update(around(f"{first}'s part changed"))
+        e["set_back"] = _set_teeth(px, swbuild, jobs, first, str(teeth))
+        px.require(activate(px, title), "the assembly is active again")
+        rebuild(px, doc, "the part set back", top_only=True)
+        facts["part_global"] = e
+
+        # (c) the last shaft moved 1 mm by its layout global, in the layout's own document; its gears left out.
+        layout_doc, _ = open_by_path(px, plan.layout_path, prefer="OpenDoc6")
+        px.require(activate(px, str(call(layout_doc, "GetTitle"))), "the layout part is active")
+        leqm = call(layout_doc, "GetEquationMgr")
+        name = f"{moved_shaft} X"
+        x_old = _global_value(leqm, name)
+        px.require(x_old is not None, f'the layout has the global "{name}"')
+        e = {"set": _set_exact(leqm, name, x_old + 1.0), "layout_rebuild": plain(call(layout_doc, "ForceRebuild3", False))}
+        px.require(activate(px, title), "the assembly is active again")
+        on_it = [g for g, s in shaft_of.items() if s == moved_shaft]
+        e.update(around(f"{moved_shaft} moved by the layout", leave_out=on_it))
+        px.require(activate(px, str(call(layout_doc, "GetTitle"))), "the layout part is active")
+        e["set_back"] = _set_exact(leqm, name, x_old)
+        call(layout_doc, "ForceRebuild3", False)
+        px.require(activate(px, title), "the assembly is active again")
+        rebuild(px, doc, "the layout set back", top_only=True)
+        facts["layout_move"] = e
+
+        # (d) the demonstration's temporary drive: added, driven 30 degrees, set back, taken away.
+        start = _origins(comps)
+        e = {"drive": _drive_measure(px, doc, comps, layout, _frames(comps), "the noise drive")}
+        e.update(around("after the drive was taken away"))
+        e["start_to_end"] = origin_spread(start, _origins(comps))
+        facts["drive"] = e
+    finally:
+        _close_quietly(px, paths)
+    px.fact("origin_noise_detail", facts)
+    largest = {k: v["largest_mm"] for k, v in facts.items()}
+    largest["drive_start_to_end"] = facts["drive"]["start_to_end"]["largest_mm"]
+    px.check(True, f"the largest origin move around a top-only rebuild (mm): {largest}")
+    px.fact("origin_noise_mm", largest, "per case, the largest origin difference (mm) between the two reads")
+    px.fact("origin_noise_within_moved_tolerance", all(v <= MOVED_TOLERANCE_MM for v in largest.values()))
+
+
 # -- 14c: an unsaved Update closed with its parts left modified (round P0c, review addition 2) ------------------
 #
 # On SolidWorks 2024 CloseDoc on an assembly whose saved parts had changed opened a modal "Save Modified Documents"
