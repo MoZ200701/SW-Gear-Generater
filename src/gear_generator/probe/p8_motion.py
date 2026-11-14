@@ -2749,6 +2749,37 @@ def _update_pass(px: Px, swbuild: Any, doc: Any, asm_title: str, comps: Mapping[
     return out
 
 
+STATIC_FOR_THE_PROBE = ("the probe gear_mate_update builds W4's static assembly and mates it itself, so this plan "
+                       "is made static on purpose.")
+
+
+def static_plan(px: Px, assessed: Any) -> Any:
+    """``plan_gearbox`` of W4's static gearbox, whatever W5's planning would choose: once ``plan_gearbox`` plans a
+    turning assembly when ``workbook.motion.motion_reason()`` is ``""`` (W5-INTERFACES, "workbook/motion.py"), the
+    probe makes that reason a sentence while it plans, so the plan carries W4's static assembly (W5-PLAN D1's
+    static-by-necessity case); without that module the plan is W4's anyway. A plan still carrying motion is refused
+    with a sentence."""
+    from ..workbook import gearbox as wb_gearbox  # noqa: PLC0415
+    try:
+        from ..workbook import motion as wb_motion  # noqa: PLC0415
+    except ImportError:
+        wb_motion = None
+    original = getattr(wb_motion, "motion_reason", None) if wb_motion is not None else None
+    if original is not None:
+        wb_motion.motion_reason = lambda: STATIC_FOR_THE_PROBE
+    try:
+        plan = wb_gearbox.plan_gearbox(assessed, None)
+    finally:
+        if original is not None:
+            wb_motion.motion_reason = original
+    px.require(not plan.refusal, f"plan_gearbox plans it: {plan.refusal!r}")
+    px.require(getattr(plan, "motion", None) is None,
+               "plan_gearbox planned a turning assembly though motion_reason said the gearbox is static, so this "
+               "probe, which mates W4's static assembly itself, cannot be run until it is taught the turning one")
+    px.fact("update_plan_static_reason", getattr(plan, "static_reason", ""))
+    return plan
+
+
 def update_turns(teeth: Mapping[str, int]) -> List[float]:
     """G1..G4's turns about +Z per degree of G1, every shaft Z+ and both meshes external."""
     return train_turns((teeth["G1"], teeth["G2"], teeth["G3"], teeth["G4"]), (1, 1, 1, 1))
@@ -2778,7 +2809,7 @@ def gear_mate_update(px: Px) -> None:
     gear put to its built frame; checked, driven, interference; closed unsaved and reopened as it was saved; and
     again, saved, reopened, driven."""
     from .. import swbuild  # noqa: PLC0415
-    from ..workbook import assess as wb_assess, gearbox as wb_gearbox  # noqa: PLC0415
+    from ..workbook import assess as wb_assess  # noqa: PLC0415
     from .p4_interference import interferences  # noqa: PLC0415
 
     folder = os.path.join(_folder(px), "update")
@@ -2787,8 +2818,7 @@ def gear_mate_update(px: Px) -> None:
     spec = update_spec(folder)
     assessed = wb_assess.assess(spec, [], spec.box.output_folder, "")
     px.require(assessed.lay_out_refusal() == "", f"the 12 : 1 reducer lays out: {assessed.lay_out_refusal()!r}")
-    plan = wb_gearbox.plan_gearbox(assessed, None)
-    px.require(not plan.refusal, f"plan_gearbox plans it: {plan.refusal!r}")
+    plan = static_plan(px, assessed)
     jobs = {job.gear_ids[0]: job for job in plan.build}
     paths = [plan.assembly_path, plan.layout_path] + [j.path for j in jobs.values()]
     built = update_frames(folder)

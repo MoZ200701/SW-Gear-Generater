@@ -558,3 +558,28 @@ def test_each_ratio_recipe_puts_what_it_says():
     assert p8.ratio_fields(one, {"GearRatioNumerator": 17.0, "GearRatioDenominator": 17.0}, 17, 20) == {}
     with pytest.raises(ValueError):
         p8.ratio_fields("guess", read, 51, 60)
+
+
+def test_p1b_plans_w4s_static_gearbox_whatever_w5_would_choose(monkeypatch):
+    """gear_mate_update mates W4's static assembly itself: while it plans, workbook.motion.motion_reason gives a
+    sentence, so a plan_gearbox that would plan a turning assembly plans the static one; one that still plans motion
+    is refused with a sentence; and motion_reason is put back afterwards."""
+    from types import SimpleNamespace
+
+    from gear_generator.workbook import gearbox, motion
+
+    original = motion.motion_reason
+    seen = []
+
+    def planner(assessed, record):
+        seen.append(motion.motion_reason())
+        return SimpleNamespace(refusal="", motion=None if motion.motion_reason() else "turning", static_reason="s")
+
+    monkeypatch.setattr(gearbox, "plan_gearbox", planner)
+    px = harness.Px(harness.Record("gear_mate_update", 8))
+    assert p8.static_plan(px, object()).motion is None
+    assert seen == [p8.STATIC_FOR_THE_PROBE] and motion.motion_reason is original
+    monkeypatch.setattr(gearbox, "plan_gearbox", lambda a, r: SimpleNamespace(refusal="", motion="turning"))
+    with pytest.raises(harness.Require, match="turning assembly"):
+        p8.static_plan(px, object())
+    assert motion.motion_reason is original
