@@ -1,0 +1,590 @@
+run     2026-11-13 20:05:56; app gear-generator 0.3.1 from C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\src; sections ['a', 'b']
+attach  SolidWorks 2024 (revision 32.5.0), PID 68820; SolidWorks 11.78 GB private, 4.75 GB free
+open    before: ['<user document 1>']
+findings LAYOUT_PLUS_FLIP {'right': False, 'top': False}, LAYOUT_NEGATED_LINK 'minus', LAYOUT_AXIS_Z_SIGN -1, REPLACE_FIXED_ROUTE 'Transform2 put'
+excel   started our own Excel, PID 41032, 16.0 build 20430.0
+== a   the 12 : 1 fixture: build, measure, Update SolidWorks, build again as _r2
+ok      Excel opened Reducer_12to1.xlsx with no dialog or repair: []
+excel   Box!B4 := 'C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w4-demo-sw2024-20261113-200555\\run\\a\\'
+excel   saved Reducer_12to1.xlsx
+ok      read Reducer_12to1.xlsx: ok
+        warning Gears!Q3: G2: The involute starts at 99.96 mm, above the form diameter of 99.343 mm, so the bottom of the working flank is a straight line.
+        warning Gears!Q5: G4: The involute starts at 99.28 mm, above the form diameter of 98.614 mm, so the bottom of the working flank is a straight line.
+        3 shafts · 4 gears · 2 meshes; gate ''
+ok      the gate is ""
+footer  (read) [green] Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\…\w4-demo-sw2024-20261113-200555\run\a\.
+        button 'Build' on primary; Update SolidWorks hidden
+plan    revision 0 Reducer_12to1: refusal ''; reason ''
+        layout C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1_Layout.SLDPRT; assembly C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1.SLDASM
+        build Gear_m1.5_N17 for G1 at C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m1.5_N17.SLDPRT (83 ops)
+        build Gear_m1.5_N68 for G2 at C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m1.5_N68.SLDPRT (83 ops)
+        build Gear_m2_N17 for G3 at C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m2_N17.SLDPRT (83 ops)
+        build OutputGear for G4 at C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\OutputGear.SLDPRT (83 ops)
+        shaft S1: (0, 0, 0) sigma +1; X base '', Y base ''; S1 Axis
+        shaft S2: (63.75, 0, 0) sigma +1; X plus 'S2 X', Y base ''; S2 Axis
+        shaft S3: (131.75, 0, 0) sigma +1; X plus 'S3 X', Y base ''; S3 Axis
+        frame G1: R [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] at [0.0, 0.0, 0.0]
+        frame G2: R [0.998932975, -0.046183459, 0.0, 0.046183459, 0.998932975, 0.0, 0.0, 0.0, 1.0] at [63.75, 0.0, 0.0]
+        frame G3: R [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] at [63.75, 0.0, 17.0]
+        frame G4: R [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] at [131.75, 0.0, 17.0]
+        ops of Reducer_12to1_Layout.SLDPRT:
+          new     NewPart from (default template)
+          global  "S2 X"= 63.75
+          global  "S3 X"= 131.75
+          axis    'S1 Axis' through planes 2 and 3
+          plane   'S2 X Plane' 63.75 mm from plane 3 (Offset)
+          link    "Offset@S2 X Plane"= "S2 X"
+          axis    'S2 Axis' through plane 2 and x2
+          plane   'S3 X Plane' 131.75 mm from plane 3 (Offset)
+          link    "Offset@S3 X Plane"= "S3 X"
+          axis    'S3 Axis' through plane 2 and x3
+          rebuild once
+          save    C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1_Layout.SLDPRT
+        ops of Reducer_12to1.SLDASM:
+          new     NewAssembly from (default template)
+          insert  layout C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1_Layout.SLDPRT at (0, 0, 0)
+          place   layout at (0, 0, 0) turned (1, 0, 0, 0, 1, 0, 0, 0, 1)
+          fix     layout
+          insert  gear1 C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m1.5_N17.SLDPRT at (0, 0, 0)
+          place   gear1 at (0, 0, 0) turned (1, 0, 0, 0, 1, 0, 0, 0, 1)
+          fix     gear1
+          insert  gear2 C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m1.5_N68.SLDPRT at (63.75, 0, 0)
+          place   gear2 at (63.75, 0, 0) turned (0.998933, -0.046183, 0, 0.046183, 0.998933, 0, 0, 0, 1)
+          fix     gear2
+          insert  gear3 C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m2_N17.SLDPRT at (63.75, 0, 17)
+          place   gear3 at (63.75, 0, 17) turned (1, 0, 0, 0, 1, 0, 0, 0, 1)
+          fix     gear3
+          insert  gear4 C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\OutputGear.SLDPRT at (131.75, 0, 17)
+          place   gear4 at (131.75, 0, 17) turned (1, 0, 0, 0, 1, 0, 0, 0, 1)
+          fix     gear4
+          rebuild once
+          save    C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1.SLDASM
+ok      the plan: revision 0, four parts to make, nothing to reuse
+open    before: ['<user document 1>']
+build   Reducer_12to1: SolidWorks 11.78 GB private, 4.55 GB free
+DIALOG  SolidWorks shows '': ['Title', 'Description', 'Button1', 'Button2', 'Hyperlink Text 1', 'Hyperlink Text 2']
+        build   Part129 · spur · recipe A · trig degrees
+        ok      new part Part129
+        ok      trig units measured: degrees
+        ok      global "No. of Teeth"
+        ok      global "Module"
+        ok      global "Bore Diameter"
+        ok      global "Pressure Angle"
+        ok      global "Outer Diameter"
+        ok      global "Pitch Diameter"
+        ok      global "Backlash"
+        ok      global "Arc Length"
+        ok      global "Fillet Radius"
+        ok      global "Tooth Depth"
+        ok      global "Face Width"
+        ok      global "Root Diameter"
+        ok      global "Base Diameter"
+        ok      global "Base Radius"
+        ok      global "Tooth Thickness"
+        ok      global "Half Space Angle"
+        ok      global "Involute Fn"
+        ok      global "Flank Offset"
+        ok      global "Tip Cap Diameter"
+        ok      global "Flank Start Diameter"
+        ok      global "Involute t1"
+        ok      global "Involute t2"
+        ok      global "Flank Arc Radius"
+        ok      global "Flank Centre Angle"
+        ok      axis Gear Axis
+        ok      sketch blank opened on plane 1
+        ok      circle od
+        ok      coincident od.centre origin
+        ok      dimension OD
+        ok      sketch Blank Sketch
+        ok      extrude Blank
+        ok      link "OD@Blank Sketch"
+        ok      link "Width@Blank"
+        ok      sketch space opened on plane 1
+        ok      curve I+
+        ok      curve I-
+        ok      line L+
+        ok      line L-
+        ok      arc F+
+        ok      arc F-
+        ok      arc R
+        ok      line T
+        ok      fixed I+
+        ok      fixed I-
+        ok      coincident R.centre origin
+        ok      coincident L+.start I+.start (already one point)
+        ok      coincident L-.start I-.start (already one point)
+        ok      coincident origin L+
+        ok      coincident origin L-
+        ok      coincident F+.start L+.end (already one point)
+        ok      coincident F-.end L-.end (already one point)
+        ok      coincident F+.end R.end (already one point)
+        ok      coincident F-.start R.start (already one point)
+        ok      tangent F+ L+
+        ok      tangent F- L-
+        ok      tangent F+ R
+        ok      tangent F- R
+        ok      equal F+ F-
+        ok      coincident T.start I+.end (already one point)
+        ok      coincident T.end I-.end (already one point)
+        ok      dimension Root
+        ok      dimension Fillet
+        ok      sketch Tooth Space Sketch
+        ok      link "Root@Tooth Space Sketch"
+        ok      link "Fillet@Tooth Space Sketch"
+        ok      cut Tooth Space
+        ok      pattern Teeth × 17
+        ok      link "Count@Teeth"
+        ok      sketch bore opened on plane 1
+        ok      circle bore_circle
+        ok      coincident bore_circle.centre origin
+        ok      dimension Bore
+        ok      sketch Bore Sketch
+        ok      cut Bore
+        ok      link "Bore@Bore Sketch"
+        ok      property 'Description'
+        ok      property 'Gear Kind'
+        ok      property 'Flank'
+        ok      property 'Generated By'
+        ok      24 globals read back and match the maths
+        ok      Blank Sketch is fully defined
+        ok      Tooth Space Sketch is fully defined
+        ok      Bore Sketch is fully defined
+        ok      rebuilt once
+        MANUAL  1 step(s) to do by hand
+        MANUAL  Assign a material to Gear_m1.5_N17; the build leaves it unset.
+        ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m1.5_N17.SLDPRT
+        build   Part130 · spur · recipe A · trig degrees
+        ok      new part Part130
+        ok      trig units measured: degrees
+        ok      global "No. of Teeth"
+        ok      global "Module"
+        ok      global "Bore Diameter"
+        ok      global "Pressure Angle"
+        ok      global "Outer Diameter"
+        ok      global "Pitch Diameter"
+        ok      global "Backlash"
+        ok      global "Arc Length"
+        ok      global "Fillet Radius"
+        ok      global "Tooth Depth"
+        ok      global "Face Width"
+        ok      global "Root Diameter"
+        ok      global "Base Diameter"
+        ok      global "Base Radius"
+        ok      global "Tooth Thickness"
+        ok      global "Half Space Angle"
+        ok      global "Involute Fn"
+        ok      global "Flank Offset"
+        ok      global "Tip Cap Diameter"
+        ok      global "Flank Start Diameter"
+        ok      global "Involute t1"
+        ok      global "Involute t2"
+        ok      global "Flank Arc Radius"
+        ok      global "Flank Centre Angle"
+        ok      axis Gear Axis
+        ok      sketch blank opened on plane 1
+        ok      circle od
+        ok      coincident od.centre origin
+        ok      dimension OD
+        ok      sketch Blank Sketch
+        ok      extrude Blank
+        ok      link "OD@Blank Sketch"
+        ok      link "Width@Blank"
+        ok      sketch space opened on plane 1
+        ok      curve I+
+        ok      curve I-
+        ok      line L+
+        ok      line L-
+        ok      arc F+
+        ok      arc F-
+        ok      arc R
+        ok      line T
+        ok      fixed I+
+        ok      fixed I-
+        ok      coincident R.centre origin
+        ok      coincident L+.start I+.start (already one point)
+        ok      coincident L-.start I-.start (already one point)
+        ok      coincident origin L+
+        ok      coincident origin L-
+        ok      coincident F+.start L+.end (already one point)
+        ok      coincident F-.end L-.end (already one point)
+        ok      coincident F+.end R.end (already one point)
+        ok      coincident F-.start R.start (already one point)
+        ok      tangent F+ L+
+        ok      tangent F- L-
+        ok      tangent F+ R
+        ok      tangent F- R
+        ok      equal F+ F-
+        ok      coincident T.start I+.end (already one point)
+        ok      coincident T.end I-.end (already one point)
+        ok      dimension Root
+        ok      dimension Fillet
+        ok      sketch Tooth Space Sketch
+        ok      link "Root@Tooth Space Sketch"
+        ok      link "Fillet@Tooth Space Sketch"
+        ok      cut Tooth Space
+        ok      pattern Teeth × 68
+        ok      link "Count@Teeth"
+        ok      sketch bore opened on plane 1
+        ok      circle bore_circle
+        ok      coincident bore_circle.centre origin
+        ok      dimension Bore
+        ok      sketch Bore Sketch
+        ok      cut Bore
+        ok      link "Bore@Bore Sketch"
+        ok      property 'Description'
+        ok      property 'Gear Kind'
+        ok      property 'Flank'
+        ok      property 'Generated By'
+        ok      24 globals read back and match the maths
+        ok      Blank Sketch is fully defined
+        ok      Tooth Space Sketch is fully defined
+        ok      Bore Sketch is fully defined
+        ok      rebuilt once
+        MANUAL  1 step(s) to do by hand
+        MANUAL  Assign a material to Gear_m1.5_N68; the build leaves it unset.
+        ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m1.5_N68.SLDPRT
+        build   Part131 · spur · recipe A · trig degrees
+        ok      new part Part131
+        ok      trig units measured: degrees
+        ok      global "No. of Teeth"
+        ok      global "Module"
+        ok      global "Bore Diameter"
+        ok      global "Pressure Angle"
+        ok      global "Outer Diameter"
+        ok      global "Pitch Diameter"
+        ok      global "Backlash"
+        ok      global "Arc Length"
+        ok      global "Fillet Radius"
+        ok      global "Tooth Depth"
+        ok      global "Face Width"
+        ok      global "Root Diameter"
+        ok      global "Base Diameter"
+        ok      global "Base Radius"
+        ok      global "Tooth Thickness"
+        ok      global "Half Space Angle"
+        ok      global "Involute Fn"
+        ok      global "Flank Offset"
+        ok      global "Tip Cap Diameter"
+        ok      global "Flank Start Diameter"
+        ok      global "Involute t1"
+        ok      global "Involute t2"
+        ok      global "Flank Arc Radius"
+        ok      global "Flank Centre Angle"
+        ok      axis Gear Axis
+        ok      sketch blank opened on plane 1
+        ok      circle od
+        ok      coincident od.centre origin
+        ok      dimension OD
+        ok      sketch Blank Sketch
+        ok      extrude Blank
+        ok      link "OD@Blank Sketch"
+        ok      link "Width@Blank"
+        ok      sketch space opened on plane 1
+        ok      curve I+
+        ok      curve I-
+        ok      line L+
+        ok      line L-
+        ok      arc F+
+        ok      arc F-
+        ok      arc R
+        ok      line T
+        ok      fixed I+
+        ok      fixed I-
+        ok      coincident R.centre origin
+        ok      coincident L+.start I+.start (already one point)
+        ok      coincident L-.start I-.start (already one point)
+        ok      coincident origin L+
+        ok      coincident origin L-
+        ok      coincident F+.start L+.end (already one point)
+        ok      coincident F-.end L-.end (already one point)
+        ok      coincident F+.end R.end (already one point)
+        ok      coincident F-.start R.start (already one point)
+        ok      tangent F+ L+
+        ok      tangent F- L-
+        ok      tangent F+ R
+        ok      tangent F- R
+        ok      equal F+ F-
+        ok      coincident T.start I+.end (already one point)
+        ok      coincident T.end I-.end (already one point)
+        ok      dimension Root
+        ok      dimension Fillet
+        ok      sketch Tooth Space Sketch
+        ok      link "Root@Tooth Space Sketch"
+        ok      link "Fillet@Tooth Space Sketch"
+        ok      cut Tooth Space
+        ok      pattern Teeth × 17
+        ok      link "Count@Teeth"
+        ok      sketch bore opened on plane 1
+        ok      circle bore_circle
+        ok      coincident bore_circle.centre origin
+        ok      dimension Bore
+        ok      sketch Bore Sketch
+        ok      cut Bore
+        ok      link "Bore@Bore Sketch"
+        ok      property 'Description'
+        ok      property 'Gear Kind'
+        ok      property 'Flank'
+        ok      property 'Generated By'
+        ok      24 globals read back and match the maths
+        ok      Blank Sketch is fully defined
+        ok      Tooth Space Sketch is fully defined
+        ok      Bore Sketch is fully defined
+        ok      rebuilt once
+        MANUAL  1 step(s) to do by hand
+        MANUAL  Assign a material to Gear_m2_N17; the build leaves it unset.
+        ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Gear_m2_N17.SLDPRT
+        build   Part132 · spur · recipe A · trig degrees
+        ok      new part Part132
+        ok      trig units measured: degrees
+        ok      global "No. of Teeth"
+        ok      global "Module"
+        ok      global "Bore Diameter"
+        ok      global "Pressure Angle"
+        ok      global "Outer Diameter"
+        ok      global "Pitch Diameter"
+        ok      global "Backlash"
+        ok      global "Arc Length"
+        ok      global "Fillet Radius"
+        ok      global "Tooth Depth"
+        ok      global "Face Width"
+        ok      global "Root Diameter"
+        ok      global "Base Diameter"
+        ok      global "Base Radius"
+        ok      global "Tooth Thickness"
+        ok      global "Half Space Angle"
+        ok      global "Involute Fn"
+        ok      global "Flank Offset"
+        ok      global "Tip Cap Diameter"
+        ok      global "Flank Start Diameter"
+        ok      global "Involute t1"
+        ok      global "Involute t2"
+        ok      global "Flank Arc Radius"
+        ok      global "Flank Centre Angle"
+        ok      axis Gear Axis
+        ok      sketch blank opened on plane 1
+        ok      circle od
+        ok      coincident od.centre origin
+        ok      dimension OD
+        ok      sketch Blank Sketch
+        ok      extrude Blank
+        ok      link "OD@Blank Sketch"
+        ok      link "Width@Blank"
+        ok      sketch space opened on plane 1
+        ok      curve I+
+        ok      curve I-
+        ok      line L+
+        ok      line L-
+        ok      arc F+
+        ok      arc F-
+        ok      arc R
+        ok      line T
+        ok      fixed I+
+        ok      fixed I-
+        ok      coincident R.centre origin
+        ok      coincident L+.start I+.start (already one point)
+        ok      coincident L-.start I-.start (already one point)
+        ok      coincident origin L+
+        ok      coincident origin L-
+        ok      coincident F+.start L+.end (already one point)
+        ok      coincident F-.end L-.end (already one point)
+        ok      coincident F+.end R.end (already one point)
+        ok      coincident F-.start R.start (already one point)
+        ok      tangent F+ L+
+        ok      tangent F- L-
+        ok      tangent F+ R
+        ok      tangent F- R
+        ok      equal F+ F-
+        ok      coincident T.start I+.end (already one point)
+        ok      coincident T.end I-.end (already one point)
+        ok      dimension Root
+        ok      dimension Fillet
+        ok      sketch Tooth Space Sketch
+        ok      link "Root@Tooth Space Sketch"
+        ok      link "Fillet@Tooth Space Sketch"
+        ok      cut Tooth Space
+        ok      pattern Teeth × 51
+        ok      link "Count@Teeth"
+        ok      sketch bore opened on plane 1
+        ok      circle bore_circle
+        ok      coincident bore_circle.centre origin
+        ok      dimension Bore
+        ok      sketch Bore Sketch
+        ok      cut Bore
+        ok      link "Bore@Bore Sketch"
+        ok      property 'Description'
+        ok      property 'Gear Kind'
+        ok      property 'Flank'
+        ok      property 'Generated By'
+        ok      24 globals read back and match the maths
+        ok      Blank Sketch is fully defined
+        ok      Tooth Space Sketch is fully defined
+        ok      Bore Sketch is fully defined
+        ok      rebuilt once
+        MANUAL  1 step(s) to do by hand
+        MANUAL  Assign a material to OutputGear; the build leaves it unset.
+        ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\OutputGear.SLDPRT
+        build   Part133 · layout · recipe  · trig degrees
+        ok      new part Part133
+        ok      trig units measured: degrees
+        ok      global "S2 X"
+        ok      global "S3 X"
+        ok      axis S1 Axis
+        ok      plane S2 X Plane
+        ok      link "Offset@S2 X Plane"
+        ok      axis S2 Axis
+        ok      plane S3 X Plane
+        ok      link "Offset@S3 X Plane"
+        ok      axis S3 Axis
+        ok      2 globals read back and match the maths
+        ok      rebuilt once
+        ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1_Layout.SLDPRT
+        build   Assem25 · assembly · recipe  · trig degrees
+        ok      new assembly Assem25
+        ok      trig units measured: degrees
+        ok      component Reducer_12to1_Layout-1
+        ok      placed layout
+        ok      fixed layout
+        ok      component Gear_m1.5_N17-1
+        ok      placed gear1
+        ok      fixed gear1
+        ok      component Gear_m1.5_N68-1
+        ok      placed gear2
+        ok      fixed gear2
+        ok      component Gear_m2_N17-1
+        ok      placed gear3
+        ok      fixed gear3
+        ok      component OutputGear-1
+        ok      placed gear4
+        ok      fixed gear4
+        ok      rebuilt once
+        ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w4-demo-sw2024-20261113-200555\run\a\Reducer_12to1.SLDASM
+        ok      no interference between the gears
+        in 89.6 s; SolidWorks 13.42 GB private, 3.79 GB free
+        steps [('part', 'Gear_m1.5_N17', 1, 4), ('part', 'Gear_m1.5_N68', 2, 4), ('part', 'Gear_m2_N17', 3, 4), ('part', 'OutputGear', 4, 4), ('layout', 'Reducer_12to1_Layout', 0, 0), ('assembly', 'Reducer_12to1', 0, 0), ('interference', 'Reducer_12to1', 0, 0)]
+        progress words ['Building in SolidWorks: part 1 of 4, Gear_m1.5_N17…', 'Building in SolidWorks: checking interference…']
+record  4 sidecar(s) written; record written; notes []
+status  [green] Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset.
+ok      4 parts, the layout part and the assembly saved
+ok      no interference: []
+ok      the record holds the gearbox, built from this read
+footer  (after the build) [green] Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset.
+        button 'Build again…' on; Update SolidWorks shown on primary
+tag     ' · built from this version'
+measure a built: SolidWorks 13.42 GB private, 3.78 GB free
+ok      a built: G1 (Gear_m1.5_N17-1) at (0.0, 0.0, 0.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 21.1765°, axis off 0.0e+00
+ok      a built: G1's frame on record is the one the workbook wants
+ok      a built: G2 (Gear_m1.5_N68-1) at (63.75, 0.0, 0.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 5.2941°, axis off 0.0e+00
+ok      a built: G2's frame on record is the one the workbook wants
+ok      a built: G3 (Gear_m2_N17-1) at (63.75, 0.0, 17.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 21.1765°, axis off 0.0e+00
+ok      a built: G3's frame on record is the one the workbook wants
+ok      a built: G4 (OutputGear-1) at (131.75, 0.0, 17.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 7.0588°, axis off 0.0e+00
+ok      a built: G4's frame on record is the one the workbook wants
+ok      a built: the layout (Reducer_12to1_Layout-1) is at identity
+        frames read in 0.1 s
+        Reducer_12to1_Layout.SLDPRT globals {'S2 X': 63.75, 'S3 X': 131.75, 'Offset@S2 X Plane': 63.75, 'Offset@S3 X Plane': 131.75}
+ok      a built: S1 Axis crosses z = 0 at (0.000000000, 0.000000000) for (0, 0), along (0.0, 0.0, 1.0)
+ok      a built: S2 Axis crosses z = 0 at (63.750000000, 0.000000000) for (63.75, 0), along (0.0, 0.0, 1.0)
+ok      a built: S3 Axis crosses z = 0 at (131.750000000, 0.000000000) for (131.75, 0), along (0.0, 0.0, 1.0)
+ok      a built: no interference in Reducer_12to1.SLDASM: []
+ok      a built: G2 turned half a pitch (2.6471°): 4 interference(s), merged [(('G1', 'G2'), 111.969)], all between G1 and G2
+ok      a built: G2 put back, no interference (6.4 s)
+ok      a built: G4 turned half a pitch (3.5294°): 4 interference(s), merged [(('G3', 'G4'), 251.658)], all between G3 and G4
+ok      a built: G4 put back, no interference (6.4 s)
+        closing: saved this run's modified documents first, as a person would: ['Gear_m1.5_N17.SLDPRT', 'Gear_m1.5_N68.SLDPRT', 'Gear_m2_N17.SLDPRT', 'OutputGear.SLDPRT', 'Reducer_12to1_Layout.SLDPRT', 'Reducer_12to1.SLDASM']
+ok      a built: saved and closed this run's documents: left []
+        open now: ['<user document 1>']
+DIALOG  SolidWorks shows '': ['Close', 'Opened 5\nComponents', 'Updating\nAssembly', 'Update\nGraphics', 'Post load updating', 'Elapsed time: 0s', 'This file was last opened in 2 seconds', 'For more information, view: ']
+ok      a built, reopened: G1 (Gear_m1.5_N17-1) at (0.0, 0.0, 0.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 21.1765°, axis off 0.0e+00
+ok      a built, reopened: G1's frame on record is the one the workbook wants
+ok      a built, reopened: G2 (Gear_m1.5_N68-1) at (63.75, 0.0, 0.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 5.2941°, axis off 0.0e+00
+ok      a built, reopened: G2's frame on record is the one the workbook wants
+ok      a built, reopened: G3 (Gear_m2_N17-1) at (63.75, 0.0, 17.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 21.1765°, axis off 0.0e+00
+ok      a built, reopened: G3's frame on record is the one the workbook wants
+ok      a built, reopened: G4 (OutputGear-1) at (131.75, 0.0, 17.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 7.0588°, axis off 0.0e+00
+ok      a built, reopened: G4's frame on record is the one the workbook wants
+ok      a built, reopened: the layout (Reducer_12to1_Layout-1) is at identity
+        frames read in 2.8 s
+-- a   the demonstration edit in Excel: S2 X 63.75 -> 64.5, G2 Teeth 68 -> 69
+excel   Shafts!C3 := 64.5
+excel   Gears!F3 := 69
+excel   saved Reducer_12to1.xlsx
+excel   Shafts!C4 now reads 132.5 by its formula
+poll    a new read 0.0 s after asking; changes:
+          Shafts!C3 S2 X 63.75 → 64.5
+          Shafts!C4 S3 X 131.75 → 132.5
+          Gears!F3 G2 Teeth 68 → 69
+ok      read Reducer_12to1.xlsx: ok
+        warning Gears!Q3: G2: The involute starts at 101.46 mm, above the form diameter of 100.837 mm, so the bottom of the working flank is a straight line.
+        warning Gears!Q5: G4: The involute starts at 99.28 mm, above the form diameter of 98.614 mm, so the bottom of the working flank is a straight line.
+        3 shafts · 4 gears · 2 meshes; gate ''
+ok      the change list says Shafts!C3 S2 X 63.75 → 64.5
+ok      the change list says Shafts!C4 S3 X 131.75 → 132.5
+ok      the change list says Gears!F3 G2 Teeth 68 → 69
+ok      the gate is still ""
+classify parts changed ['Gear_m1.5_N68.SLDPRT']; moved ['S2', 'S3']; re-place ['G2', 'G3', 'G4']; structural []; missing []; unsaved []; refusal ''
+        layout globals wanted ['S2 X = 64.5', 'S3 X = 132.5']
+summary Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.
+ok      classify: no structural change; G2's values, S2 and S3 moved, G2, G3 and G4 re-placed
+footer  (after the edit) [green] Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.
+        button 'Build again…' on; Update SolidWorks shown on primary
+update  SolidWorks 13.28 GB private, 3.71 GB free
+        update  Gear_m1.5_N17.SLDPRT · trig degrees
+        ok      already holds the workbook's values
+        update  Gear_m1.5_N68.SLDPRT · trig degrees
+        ok      set "No. of Teeth"
+        ok      rebuilt once
+        update  Gear_m2_N17.SLDPRT · trig degrees
+        ok      already holds the workbook's values
+        update  OutputGear.SLDPRT · trig degrees
+        ok      already holds the workbook's values
+        update  Reducer_12to1_Layout.SLDPRT · trig degrees
+        ok      set "S2 X", "S3 X"
+        ok      rebuilt once
+        ok      re-placed G2, G3, G4
+        ok      assembly rebuilt once
+        ok      no interference between the gears
+        not saved: Gear_m1.5_N68.SLDPRT, Reducer_12to1_Layout.SLDPRT, Reducer_12to1.SLDASM changed in SolidWorks; save there to keep it
+        in 28.8 s; SolidWorks 16.27 GB private, 2.23 GB free
+        steps [('check', 'Gear_m1.5_N17', 1, 6), ('check', 'Gear_m1.5_N68', 2, 6), ('check', 'Gear_m2_N17', 3, 6), ('check', 'OutputGear', 4, 6), ('check', 'Reducer_12to1_Layout', 5, 6), ('check', 'Reducer_12to1', 6, 6), ('values', 'Gear_m1.5_N17', 0, 0), ('values', 'Gear_m1.5_N68', 0, 0), ('values', 'Gear_m2_N17', 0, 0), ('values', 'OutputGear', 0, 0), ('values', 'Reducer_12to1_Layout', 0, 0), ('place', 'Reducer_12to1', 0, 0), ('interference', 'Reducer_12to1', 0, 0)]
+record  1 sidecar(s) written; record written; notes []
+status  [green] Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, re-placed G2, G3 and G4; no interference between the gears. Save in SolidWorks to keep it.
+ok      Update SolidWorks saved nothing: SolidWorks files changed on disk [] (of 6)
+ok      the record marks them unsaved: ['Gear_m1.5_N68.SLDPRT', 'Reducer_12to1.SLDASM', 'Reducer_12to1_Layout.SLDPRT']
+footer  (after the update) [green] Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, re-placed G2, G3 and G4; no interference between the gears. Save in SolidWorks to keep it. Build again… waits until Gear_m1.5_N68, Reducer_12to1 and Reducer_12to1_Layout are saved in SolidWorks.
+        button 'Build again…' off; Update SolidWorks shown on primary
+tag     ' · built from this version'
+ok      a updated: G1 (Gear_m1.5_N17-1) at (0.0, 0.0, 0.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 21.1765°, axis off 0.0e+00
+ok      a updated: G1's frame on record is the one the workbook wants
+ok      a updated: G2 (Gear_m1.5_N68-1) at (64.5, 0.0, 0.0), origin off 1.6e-16 mm, turn off 0.0e+00° modulo its pitch 5.2174°, axis off 0.0e+00
+ok      a updated: G2's frame on record is the one the workbook wants
+ok      a updated: G3 (Gear_m2_N17-1) at (64.5, 0.0, 17.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 21.1765°, axis off 0.0e+00
+ok      a updated: G3's frame on record is the one the workbook wants
+ok      a updated: G4 (OutputGear-1) at (132.5, 0.0, 17.0), origin off 0.0e+00 mm, turn off 0.0e+00° modulo its pitch 7.0588°, axis off 0.0e+00
+ok      a updated: G4's frame on record is the one the workbook wants
+ok      a updated: the layout (Reducer_12to1_Layout-1) is at identity
+        frames read in 0.1 s
+        Reducer_12to1_Layout.SLDPRT globals {'S2 X': 64.5, 'S3 X': 132.5, 'Offset@S2 X Plane': 64.5, 'Offset@S3 X Plane': 132.5}
+ok      a updated: S1 Axis crosses z = 0 at (0.000000000, 0.000000000) for (0, 0), along (0.0, 0.0, 1.0)
+ok      a updated: S2 Axis crosses z = 0 at (64.500000000, 0.000000000) for (64.5, 0), along (0.0, 0.0, 1.0)
+ok      a updated: S3 Axis crosses z = 0 at (132.500000000, 0.000000000) for (132.5, 0), along (0.0, 0.0, 1.0)
+ok      S2 Axis at x 64.5 and S3 Axis at x 132.5
+ok      G1 unchanged
+ok      G2's turn is now 0 modulo its pitch (69 teeth, odd): off 0.0e+00°
+ok      G2's part Gear_m1.5_N68.SLDPRT holds "No. of Teeth" = 69.0
+STOP    SolidWorks 16.39 GB private, 1.97 GB free: under 2 GB free, the run stops at the next step
+ok      a updated: no interference in Reducer_12to1.SLDASM: []
+        control: the assembly shows G2 with 69 teeth: put back at its old frame (63.75, 68-tooth turn)
+ok      at its old frame the 69-tooth G2 runs into G1 (a 68-tooth gear sat there clean): [(('G1', 'G2'), 180.578)]
+ok      put back where the update put it, no interference
+ok      a updated: G2 turned half a pitch (2.6087°): 4 interference(s), merged [(('G1', 'G2'), 112.235)], all between G1 and G2
+ok      a updated: G2 put back, no interference (6.4 s)
+ok      a updated: G4 turned half a pitch (3.5294°): 4 interference(s), merged [(('G3', 'G4'), 251.658)], all between G3 and G4
+ok      a updated: G4 put back, no interference (6.4 s)
+-- a   a structural edit in Excel: G1's bore 8 -> blank
+FAIL    section a stopped: free memory fell under 2 GB on SolidWorks 2024
+        closing: saved this run's modified documents first, as a person would: ['Reducer_12to1_Layout.SLDPRT', 'Gear_m1.5_N17.SLDPRT', 'Gear_m1.5_N68.SLDPRT', 'Gear_m2_N17.SLDPRT', 'OutputGear.SLDPRT', 'Reducer_12to1.SLDASM']
+close   section a: left of ours []; 167 s; SolidWorks 13.01 GB private, 3.11 GB free
+excel   quit our own Excel
+close   left of ours []; stray []; lost []; SolidWorks 13.01 GB private, 3.31 GB free
+dialogs progress boxes seen {'Calculating Interference Detection': 0, 'Updating...': 0, 'Opening': 0, 'Loading...': 0}; other dialogs are logged above as DIALOG
+done    1 failed: ['section a stopped: free memory fell under 2 GB on SolidWorks 2024']
