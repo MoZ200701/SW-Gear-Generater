@@ -2,7 +2,7 @@
 
 import pytest
 
-from gear_generator import swbuild
+from gear_generator import findings, swbuild
 from gear_generator.gears import KINDS
 from gear_generator.gears.base import BuildPlan, CloseSketch, Dimension, LinkDimension, SaveAs
 from gear_generator.gears.equations import DEGREES, RADIANS, split_equation
@@ -49,10 +49,21 @@ class FakeSolidWorks:
     so a test can see which documents SolidWorks would now mark modified.
     Every feature a build makes (not only planes and axes) is kept with the
     saved document, so ``feature_names`` on a reopened part lists them.
+
+    Rebuilding, as probe assembly_rebuild_scope found it on SolidWorks 2026
+    and 2024: ``rebuild`` (and the rebuild ``place_component`` makes of its
+    own) asks :func:`swcom.rebuild_call` for the member, as ``Session`` does,
+    and acts as SolidWorks did. On a part it marks the part. On an assembly
+    (a new one, or a saved ``.sldasm``) it marks the assembly, and a FULL
+    rebuild (``ForceRebuild3(False)``) marks every component document too
+    (``assembly_components`` keeps each saved assembly's inserted paths); any
+    component in ``failed_documents`` makes it return False, top-only or not.
+    A put alone marks nothing (``findings.PUT_MARKS_ASSEMBLY_MODIFIED``).
     """
 
     def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None,
-                 interference=(0, 0.0), open_docs=(), missing_components=(), frames=None, clashes=(), raises=None):
+                 interference=(0, 0.0), open_docs=(), missing_components=(), frames=None, clashes=(), raises=None,
+                 failed_documents=()):
         self.interference = interference
         self.revision = (34, 0, 0)
         self.calls = []
@@ -78,6 +89,10 @@ class FakeSolidWorks:
         self.counts = {}
         self.current = ""              # the document calls act on: an opened or saved path, "" for a new one
         self.touched = set()
+        self.kind = 1                  # the GetType of a new document: 1 part, 2 assembly
+        self.adding = []               # the paths inserted into the new assembly so far
+        self.assembly_components = {}  # lower-cased .sldasm path -> the paths it was saved with
+        self.failed_documents = {_key(p) for p in failed_documents}
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -105,11 +120,13 @@ class FakeSolidWorks:
     def new_part(self, template=""):
         self._log("new_part", template)
         self.equations_text, self.made, self.current = [], [], ""
+        self.kind = 1
         return DocInfo(title="Part1", path="", doc_type=1)
 
     def new_assembly(self, template=""):
         self._log("new_assembly", template)
         self.equations_text, self.made, self.current = [], [], ""
+        self.kind, self.adding = 2, []
         return DocInfo(title="Assem1", path="", doc_type=2)
 
     def document_path(self):
@@ -121,7 +138,23 @@ class FakeSolidWorks:
 
     def rebuild(self):
         self._log("rebuild", self.suppressed)
+        return self._rebuilt()
+
+    def _is_assembly(self):
+        return self.current.lower().endswith(".sldasm") if self.current else self.kind == 2
+
+    def _rebuilt(self):
+        """What a rebuild of the current document does to the marks, and what it returns (see the class)."""
+        from gear_generator import swcom
+        member, args = swcom.rebuild_call(swcom.DOC_ASSEMBLY if self._is_assembly() else swcom.DOC_PART)
         self._touch()
+        if not self._is_assembly():
+            return self.rebuild_ok
+        components = self.assembly_components.get(_key(self.current), []) if self.current else self.adding
+        if (member, args) == ("ForceRebuild3", (False,)):
+            self.touched.update(_key(p) for p in components)
+        if any(_key(p) in self.failed_documents for p in components):
+            return False
         return self.rebuild_ok
 
     def save_as(self, path):
@@ -130,6 +163,8 @@ class FakeSolidWorks:
         self.memory[_key(path)] = (self.equations_text, self.made)
         if path.lower().endswith(".sldasm"):
             self.saved_frames = dict(self.frames)        # where the components are in the file
+            if not self.current:
+                self.assembly_components[_key(path)] = list(self.adding)
         self.current = path
         self.touched.discard(_key(path))
         if not any(_key(d.path) == _key(path) for d in self.open_docs):
@@ -260,6 +295,7 @@ class FakeSolidWorks:
 
     def add_component(self, handle, path, at):
         self._log("add_component", handle, path)
+        self.adding.append(path)
         return f"{handle}-1"
 
     def fix_component(self, handle):
@@ -275,10 +311,12 @@ class FakeSolidWorks:
 
     def place_component(self, handle, rotation, at):
         self._log("place_component", handle)
-        self._touch()
+        if getattr(findings, "PUT_MARKS_ASSEMBLY_MODIFIED", False):
+            self._touch()
         self.frames[handle] = (tuple(rotation), tuple(at))
         if handle in self.found:
             self.frames[self.found[handle]] = (tuple(rotation), tuple(at))
+        self._rebuilt()                # Session.place_component's rebuild of its own, after the put
 
     def interference_count(self):
         self._log("interference_count")
@@ -1558,3 +1596,158 @@ def test_every_same_named_document_open_elsewhere_is_named_in_one_refusal():
                                  "make; SolidWorks keeps one document per file name, so close Gear_m1.5_N17.SLDPRT and "
                                  "R.SLDASM in SolidWorks and try again.")
     assert fake.calls == []
+
+
+# -- probe assembly_rebuild_scope: an assembly rebuild marks the assembly, never parts it did not change ---------
+#
+# The W4 rerun on SolidWorks 2026 failed three checks for one fault: the app rebuilt assemblies with
+# ForceRebuild3(False), which marks every component modified, so SolidWorks asked to save parts no job had changed
+# (parts earlier revisions share among them). The fake rebuilds as SolidWorks did (its docstring), choosing the
+# member through swcom.rebuild_call as Session does; FULL is the route the app used to take, to show the fault.
+
+FULL = {"ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(False)", "ASSEMBLY_REBUILD_TOP_ONLY": False}
+R1_LAYOUT, R1_ASM = W + "R_r1_Layout.SLDPRT", W + "R_r1.SLDASM"
+
+
+def _full_rebuild(monkeypatch):
+    for name, value in FULL.items():
+        monkeypatch.setattr(findings, name, value)
+
+
+def _build_again(fake):
+    """Revision 1 of the gearbox: G1's part reused from revision 0 (shared by both assemblies), G2 a new part."""
+    _, result = _build(fake, parts=[plan(S68, path=P68B)], reuse=[swbuild.DocumentValues(P17, _values(S17))],
+                       layout=_layout_plan(R1_LAYOUT), assembly=_gearbox_assembly((P17, P68B), R1_LAYOUT, R1_ASM))
+    assert result.ok, result.log_lines()
+    return result
+
+
+def test_a_fresh_build_leaves_every_part_and_the_layout_as_saved():
+    fake, result = _build()
+    assert result.ok and result.assembly.rebuilt
+    # Every part and the layout read as saved. (On SolidWorks the interference check after the assembly's save marks
+    # the assembly itself, as probe assembly_rebuild_scope saw; the fake does not model that check's mark.)
+    assert fake.touched == set()
+
+
+def test_a_fresh_build_with_the_old_full_rebuild_left_every_part_marked(monkeypatch):
+    _full_rebuild(monkeypatch)
+    fake, result = _build()
+    assert result.ok and fake.touched == {_key(P17), _key(P68), _key(LAYOUT)}      # the fault the rerun found
+
+
+def test_a_build_again_leaves_the_part_it_reuses_as_saved():
+    """W4 rerun failure 2: the superseded G1 part, which nothing changed, read modified after _r2."""
+    fake = _built_gearbox()
+    fake.touched.clear()
+    _build_again(fake)
+    assert fake.touched == set()
+
+
+def test_a_build_again_with_the_old_full_rebuild_marked_the_shared_part(monkeypatch):
+    fake = _built_gearbox()
+    fake.touched.clear()
+    _full_rebuild(monkeypatch)
+    _build_again(fake)
+    assert _key(P17) in fake.touched
+
+
+def _update_r1(fake, **kwargs):
+    kwargs.setdefault("parts", [swbuild.DocumentValues(P17, _values(S17)), swbuild.DocumentValues(P68B, _values(S69))])
+    kwargs.setdefault("layout", swbuild.DocumentValues(R1_LAYOUT, (GlobalVariable("S2 X", "64.5"),), LAYOUT_FEATURES))
+    kwargs.setdefault("assembly", R1_ASM)
+    return _update(fake, **kwargs)
+
+
+def test_an_update_marks_only_the_part_it_changed_the_layout_and_the_assembly():
+    """W4 rerun failure 1: after an Update that gave G2 69 teeth and moved S2, all six documents read modified."""
+    fake = _built_gearbox()
+    _build_again(fake)
+    fake.touched.clear()
+    result = _update_r1(fake)
+    assert result.ok, result.log_lines()
+    assert result.changed == [P68B, R1_LAYOUT, R1_ASM] and result.placed == ["G2"]
+    # G1's part, shared with revision 0, and every document of revision 0 read as saved.
+    assert fake.touched == {_key(P68B), _key(R1_LAYOUT), _key(R1_ASM)}
+
+
+def test_an_update_with_the_old_full_rebuild_marked_every_part(monkeypatch):
+    fake = _built_gearbox()
+    _build_again(fake)
+    fake.touched.clear()
+    _full_rebuild(monkeypatch)
+    _update_r1(fake)
+    assert {_key(P17), _key(P68B), _key(R1_LAYOUT), _key(R1_ASM)} <= fake.touched
+
+
+def test_a_pure_move_marks_only_the_layout_and_the_assembly():
+    """W4 rerun failure 3 (demonstration b): a move that changed no part marked all four gear parts modified."""
+    fake = _built_gearbox()
+    fake.touched.clear()
+    result = _update(fake, parts=[swbuild.DocumentValues(P17, _values(S17)), swbuild.DocumentValues(P68, _values(S68))],
+                     placements=_placements((TURNED2, (64.5, 0.0, 0.0))))
+    assert result.ok, result.log_lines()
+    assert result.changed == [LAYOUT, ASM] and result.placed == ["G2"]
+    assert fake.touched == {_key(LAYOUT), _key(ASM)}
+
+
+def test_a_put_alone_marks_nothing_its_rebuild_marks_the_assembly():
+    assert findings.PUT_MARKS_ASSEMBLY_MODIFIED is False
+    fake = _built_gearbox()
+    fake.open_document(ASM)
+    fake.touched.clear()
+    fake.find_component("g2", "gear2-1")
+    fake.place_component("g2", TURNED2, (64.5, 0.0, 0.0))
+    assert fake.touched == {_key(ASM)}
+
+
+def test_a_component_that_fails_still_fails_the_assemblys_top_only_rebuild():
+    fake = _built_gearbox()
+    fake.failed_documents = {_key(P68)}
+    result = _update(fake)
+    assert not result.rebuilt and ("R.SLDASM", "SolidWorks reported an error rebuilding R.") in result.failures
+
+
+UNSETTLED = [({"ASSEMBLY_REBUILD_ROUTE": None}, "How to rebuild an assembly has not been settled on SolidWorks yet "
+              "(findings.ASSEMBLY_REBUILD_ROUTE is None), so no assembly is changed; run probe tier 7 first."),
+             ({"ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(maybe)"},
+              "How to rebuild an assembly has not been settled on SolidWorks yet (findings.ASSEMBLY_REBUILD_ROUTE is "
+              "'ForceRebuild3(maybe)'), so no assembly is changed; run probe tier 7 first."),
+             ({"ASSEMBLY_REBUILD_TOP_ONLY": None},
+              "findings.ASSEMBLY_REBUILD_ROUTE is 'ForceRebuild3(True)' but findings.ASSEMBLY_REBUILD_TOP_ONLY is None, "
+              "and the two disagree, so no assembly is changed; run probe tier 7 again.")]
+CHANGES = ("new_part", "new_assembly", "set_global_variable", "add_global_variable", "place_component", "rebuild",
+           "save_as", "detect_trig_units")
+
+
+@pytest.mark.parametrize("unsettled, sentence", UNSETTLED)
+def test_an_update_refuses_an_unsettled_assembly_rebuild_before_changing_anything(monkeypatch, unsettled, sentence):
+    fake = _built_gearbox()
+    for name, value in unsettled.items():
+        monkeypatch.setattr(findings, name, value)
+    fake.touched.clear()
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update(fake)
+    assert str(raised.value) == sentence
+    assert not any(n in CHANGES for n in names(fake)) and fake.touched == set()
+
+
+@pytest.mark.parametrize("unsettled, sentence", UNSETTLED)
+def test_a_build_refuses_an_unsettled_assembly_rebuild_before_making_anything(monkeypatch, unsettled, sentence):
+    for name, value in unsettled.items():
+        monkeypatch.setattr(findings, name, value)
+    for make in (lambda fake: _build(fake),
+                 lambda fake: swbuild.build(fake, _assembly_plan(), never_exists),
+                 lambda fake: swbuild.build_pair(fake, plan(S17, path=r"C:\g\a.SLDPRT"),
+                                                 plan(S68, path=r"C:\g\b.SLDPRT"), _assembly_plan(), never_exists)):
+        fake = FakeSolidWorks()
+        with pytest.raises(swbuild.BuildError) as raised:
+            make(fake)
+        assert str(raised.value) == sentence
+        assert not any(n in CHANGES for n in names(fake))
+
+
+def test_parts_alone_are_built_whatever_the_assembly_route_says(monkeypatch):
+    monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)
+    fake, result = _build(layout=None, assembly=None)
+    assert result.ok and [r.saved for r in result.parts.built] == [P17, P68]

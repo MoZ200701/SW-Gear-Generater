@@ -88,6 +88,11 @@ COMPONENT_FIND_ROUTES = ("GetComponentByName", "GetComponents(True) by Name2",
                          "root component GetChildren by Name2",
                          "FeatureByName then GetSpecificFeature2")          # COMPONENT_FIND_ROUTE
 TRANSFORM_ORDERS = ("columns", "rows")                                     # TRANSFORM_ARRAY_ORDER
+# Probe assembly_rebuild_scope's routes for an assembly, with the member and its arguments; "none" is not one of
+# them (it showed every change but reported no failure and left a put unmarked).
+ASSEMBLY_REBUILD_CALLS = {"ForceRebuild3(True)": ("ForceRebuild3", (True,)),
+                          "EditRebuild3": ("EditRebuild3", ()),
+                          "ForceRebuild3(False)": ("ForceRebuild3", (False,))}     # ASSEMBLY_REBUILD_ROUTE
 
 # swComponentSuppressionState_e, as probe layout_assembly_reopen read it from
 # swconst.tlb on SolidWorks 2026: 0 suppressed, 1 lightweight, 2 fully
@@ -98,6 +103,37 @@ COMPONENT_LIGHTWEIGHT = (1, 4)
 
 class SolidWorksError(Exception):
     """Something about the SolidWorks connection did not work."""
+
+
+def rebuild_call(doc_type: int) -> Tuple[str, Tuple[Any, ...]]:
+    """The member, and its arguments, that rebuild a document of this ``GetType``: the one place that decides.
+
+    A part (or anything that is not an assembly) is rebuilt as it always was,
+    ``ForceRebuild3(False)``: a rebuild of a part's own features, and top-only
+    on a part was never probed. An assembly takes ``findings.ASSEMBLY_REBUILD_ROUTE``
+    (probe assembly_rebuild_scope, SolidWorks 2026 34.1.1 and 2024 32.5.0):
+    ``ForceRebuild3(False)`` on an assembly rebuilt every component and marked
+    each one modified, parts nothing had changed among them, while
+    ``ForceRebuild3(True)`` marked the assembly alone, still showed a put, the
+    layout part's moved axes and a part changed in its own document, and still
+    returned False while a component failed to rebuild. A finding that is
+    missing, not one of :data:`ASSEMBLY_REBUILD_CALLS`, or at odds with
+    ``findings.ASSEMBLY_REBUILD_TOP_ONLY`` is refused with a sentence, never guessed.
+    """
+    if doc_type != DOC_ASSEMBLY:
+        return "ForceRebuild3", (False,)
+    route = getattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)
+    if route not in ASSEMBLY_REBUILD_CALLS:
+        raise SolidWorksError(f"How to rebuild an assembly has not been settled on SolidWorks yet "
+                              f"(findings.ASSEMBLY_REBUILD_ROUTE is {route!r}), so no assembly is changed; run probe "
+                              "tier 7 first.")
+    member, args = ASSEMBLY_REBUILD_CALLS[route]
+    top_only = getattr(findings, "ASSEMBLY_REBUILD_TOP_ONLY", None)
+    if member == "ForceRebuild3" and top_only is not args[0]:
+        raise SolidWorksError(f"findings.ASSEMBLY_REBUILD_ROUTE is {route!r} but findings.ASSEMBLY_REBUILD_TOP_ONLY "
+                              f"is {top_only!r}, and the two disagree, so no assembly is changed; run probe tier 7 "
+                              "again.")
+    return member, args
 
 
 class NotAvailable(SolidWorksError):
@@ -615,8 +651,16 @@ class Session:
         self._app.CommandInProgress = bool(suppressed)
 
     def rebuild(self) -> bool:
-        """Rebuild the build's document (else the active one). Called once, after the last change."""
-        return bool(call(self._doc(), "ForceRebuild3", False))
+        """Rebuild the build's document (else the active one). Called once, after the last change.
+
+        Which rebuild is :func:`rebuild_call`'s to say, by the document's
+        ``GetType``: a part as always, an assembly by ``findings.ASSEMBLY_REBUILD_ROUTE``
+        (top-only), so a rebuild after an Update or a build marks the assembly
+        modified and leaves every part it did not change as it was.
+        """
+        doc = self._doc()
+        member, args = rebuild_call(int(call(doc, "GetType")))
+        return bool(call(doc, member, *args))
 
 
     # -- the build ---------------------------------------------------------
@@ -1674,9 +1718,17 @@ class Session:
         binding's property get, so it is invoked as the method it is, with the
         16 numbers as a double array — the rotation in columns, then the
         translation in metres, the scale and three zeros — and put on
-        ``Transform2``. The frame is read back.
+        ``Transform2``. Then the document is rebuilt as :func:`rebuild_call`
+        says, top-only for an assembly: probe assembly_rebuild_scope saw the
+        put show without any rebuild, but a put alone left the assembly
+        unmarked (``findings.PUT_MARKS_ASSEMBLY_MODIFIED``), and the full
+        rebuild this used to make marked every component modified. The frame
+        is read back.
         """
         component = self._handles[handle]["component"]
+        doc = self._doc()
+        # Settled before the put, so a rebuild that cannot be made refuses with nothing moved.
+        member, args = rebuild_call(int(call(doc, "GetType")))
         m = MM_PER_METRE
         columns = [float(rotation[i * 3 + j]) for j in range(3) for i in range(3)]
         data = columns + [at[0] / m, at[1] / m, at[2] / m, 1.0, 0.0, 0.0, 0.0]
@@ -1689,7 +1741,7 @@ class Session:
             raise SolidWorksError("CreateTransform made no transform.")
         transform = raw if hasattr(raw, "ArrayData") else _guarded("CreateTransform", lambda: _dynamic.Dispatch(raw))
         _put(component, "Transform2", transform)
-        call(self._doc(), "ForceRebuild3", False)
+        call(doc, member, *args)
         got = [float(v) for v in call(call(component, "Transform2"), "ArrayData")]
         error = max(abs(got[i] - data[i]) for i in range(9))
         moved = max(abs(got[9 + i] - data[9 + i]) for i in range(3)) * m

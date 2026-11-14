@@ -32,7 +32,8 @@ from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
 from .gears.equations import DEGREES, RADIANS, EquationError, evaluate_all, split_equation
 from .store import same_path
-from .swcom import MINIMUM_MAJOR, ComponentGone, DocInfo, SolidWorksError, meets_minimum, release_year
+from .swcom import (DOC_ASSEMBLY, MINIMUM_MAJOR, ComponentGone, DocInfo, SolidWorksError, meets_minimum,
+                    rebuild_call, release_year)
 
 VALUE_TOLERANCE = 1e-6
 FULLY_DEFINED = 3
@@ -193,6 +194,17 @@ class UpdateResult:
 def _gate(sw: SolidWorks) -> None:
     if not meets_minimum(sw.revision):
         raise BuildError(f"Building needs SolidWorks {release_year(MINIMUM_MAJOR)} or newer.")
+
+
+def _assembly_rebuild_gate() -> None:
+    """Refuse, before anything is made or changed, a job that would rebuild an assembly while how to rebuild one
+    is not settled: :func:`swcom.rebuild_call`'s sentence, as a :class:`BuildError`. Every assembly rebuild goes
+    through ``rebuild_call`` (``Session.rebuild`` and ``place_component``), so without this a job would make or
+    change its parts and only then refuse at the assembly."""
+    try:
+        rebuild_call(DOC_ASSEMBLY)
+    except SolidWorksError as exc:
+        raise BuildError(str(exc)) from None
 
 
 # -- the operations ---------------------------------------------------------
@@ -420,6 +432,8 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     if problems:
         raise BuildError("The build plan is not sound: " + " ".join(problems))
     first = plan.ops[0]
+    if isinstance(first, base.NewAssembly):
+        _assembly_rebuild_gate()
     save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
     if save is not None and save.path and exists(save.path):
         raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
@@ -542,6 +556,7 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
         save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
         if save is not None and save.path and exists(save.path):
             raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
+    _assembly_rebuild_gate()                 # before the gears, not after them at the assembly
     pair = PairResult(gear_a=build(sw, gear_a, exists))
     if not pair.gear_a.ok:
         pair.skipped = "the second gear and the assembly, because the first gear failed"
@@ -1330,7 +1345,14 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     check left every reused document unmodified, but once inserted into the
     new assembly, rebuilt and saved, each part (and the layout) read
     ``GetSaveFlag`` True: SolidWorks' own doing, nothing of theirs on disk is
-    stale, so it is not a reason to mark them unsaved.
+    stale, so it is not a reason to mark them unsaved. The cause was the
+    assembly's full rebuild (``ForceRebuild3(False)``, in ``rebuild`` and in
+    every ``place_component``), which probe assembly_rebuild_scope found
+    marking every component modified on 2026 and 2024; the assembly is now
+    rebuilt top-only (``swcom.rebuild_call``), which is enough because every
+    part and the layout were built, rebuilt and saved in their own documents
+    first, and a reused one is only read. Refused before anything is made: an
+    assembly while ``findings.ASSEMBLY_REBUILD_ROUTE`` is not settled.
     """
     say = progress or _quiet
     _gate(sw)
@@ -1340,6 +1362,8 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
     if assembly is not None and layout is None:
         raise BuildError("The assembly is built around its layout part, and this build has neither a layout part "
                          "to make nor one to reuse.")
+    if assembly is not None:
+        _assembly_rebuild_gate()
     plans = list(parts) + [p for p in (layout_plan, assembly) if p is not None]
     for plan in plans:
         problems = plan.check()
@@ -1598,9 +1622,14 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     assembly is open — the user is asked to close it — and the assembly is
     opened only after the values, so a missing component is then a failure
     rather than a refusal. ``place_component`` reads each frame back after a
-    ForceRebuild3 of its own (probe nonparallel_mates); the assembly's one
+    rebuild of its own (probe nonparallel_mates); the assembly's one
     rebuild here is the one after every put, with ``CommandInProgress``
-    restored in a ``finally``.
+    restored in a ``finally``. Both are top-only (``swcom.rebuild_call``,
+    probe assembly_rebuild_scope): each changed part and the layout were
+    already rebuilt in their own documents by :func:`update_variables`, and a
+    full rebuild of the assembly marked every part modified, those Update
+    never touched among them. Refused in the check phase too: an assembly
+    while ``findings.ASSEMBLY_REBUILD_ROUTE`` is not settled.
     """
     say = progress or _quiet
     _gate(sw)
@@ -1609,6 +1638,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     paths = [d.path for d in documents] + ([assembly] if assembly else [])
     if placements and not assembly:
         raise BuildError("Gears can only be re-placed in an assembly, and Update SolidWorks was given none.")
+    if assembly:
+        _assembly_rebuild_gate()
     for path in paths:
         if not exists(path):
             raise BuildError(f"{path} is no longer there, so Update SolidWorks cannot change it: it was moved, "
