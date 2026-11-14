@@ -285,14 +285,33 @@ def call(obj: Any, name: str, *args: Any) -> Any:
     and lose what the job had saved (W4 review B1). It happens here, at the
     one place every COM call passes, rather than in each Session method.
     """
-    try:
+    def reach() -> Any:
         member = getattr(obj, name)
         return member(*args) if args else member
+
+    return _guarded(name, reach)
+
+
+def _guarded(member: str, action: Callable[[], Any]) -> Any:
+    """Run one COM action — a call, a property put, a raw ``Invoke`` — turning a ``pywintypes.com_error`` into
+    :class:`ComError` naming ``member`` and setting :data:`CONNECTION` ``.lost`` when it says the session has gone.
+    :func:`call` goes through it, and so does every COM action that cannot be spelled as a call: :func:`_put`,
+    :func:`_put_indexed` (every global set) and ``place_component``'s ``CreateTransform`` (every component
+    placed). Before the second W4 review (N4) those two reached COM directly: an error there read "it stopped
+    on an unexpected com_error: (-2147023170, …)" rather than a sentence, and never marked the session lost, so
+    the next press failed its pre-flight against a dead session instead of connecting again."""
+    try:
+        return action()
     except _COM_ERRORS as exc:
-        error = ComError(name, exc)
+        error = ComError(member, exc)
         if error.lost:
             CONNECTION.lost = True
         raise error from exc
+
+
+def _put(obj: Any, name: str, value: Any) -> None:
+    """A property put (``feature.Name = new`` in VBA) through :func:`_guarded`, so a COM error is a sentence."""
+    _guarded(f"setting {name}", lambda: setattr(obj, name, value))
 
 
 def _dispatch(raw: Any) -> Any:
@@ -380,7 +399,8 @@ def _put_indexed(obj: Any, name: str, index: int, value: Any) -> None:
     ``Invoke`` (probe equation_set, SolidWorks 2026).
     """
     oleobj = obj._oleobj_  # noqa: SLF001
-    oleobj.Invoke(oleobj.GetIDsOfNames(name), 0, pythoncom.DISPATCH_PROPERTYPUT, False, index, value)
+    _guarded(f"setting {name}({index})", lambda: oleobj.Invoke(oleobj.GetIDsOfNames(name), 0,
+                                                               pythoncom.DISPATCH_PROPERTYPUT, False, index, value))
 
 
 def find_candidates(out_unreachable: "Optional[List[Tuple[str, str]]]" = None) -> List[Candidate]:
@@ -551,7 +571,7 @@ class Session:
         to avoid — so the name is read back rather than assumed.
         """
         feature = self._feature(current)
-        feature.Name = new
+        _put(feature, "Name", new)
         return str(call(feature, "Name"))
 
     def set_rebuild_suppressed(self, suppressed: bool) -> None:
@@ -865,7 +885,7 @@ class Session:
 
     @staticmethod
     def _rename(feature: Any, name: str) -> str:
-        feature.Name = name
+        _put(feature, "Name", name)
         return str(call(feature, "Name"))
 
     # -- features
@@ -959,14 +979,14 @@ class Session:
         else:
             self.select_plane_by_order(plane)
         manager = call(doc, "SketchManager")
-        manager.AddToDB = True
-        manager.DisplayWhenAdded = False
+        _put(manager, "AddToDB", True)
+        _put(manager, "DisplayWhenAdded", False)
         call(manager, "InsertSketch", True)
         sketch = call(manager, "ActiveSketch")
         call(doc, "ClearSelection2", True)
         if sketch is None:
-            manager.AddToDB = False
-            manager.DisplayWhenAdded = True
+            _put(manager, "AddToDB", False)
+            _put(manager, "DisplayWhenAdded", True)
             raise SolidWorksError(f"InsertSketch would not open a sketch on plane {plane}.")
         self._handles[handle] = {"before": before, "sketch": sketch, "dimensions": []}
         self._open_sketch = handle
@@ -975,8 +995,8 @@ class Session:
         doc = self._doc()
         manager = call(doc, "SketchManager")
         call(manager, "InsertSketch", True)
-        manager.AddToDB = False
-        manager.DisplayWhenAdded = True
+        _put(manager, "AddToDB", False)
+        _put(manager, "DisplayWhenAdded", True)
         self._open_sketch = None
         record = self._handles[handle]
         kept = self._rename(self._made_since(record["before"], "ProfileFeature", "Closing the sketch"), name)
@@ -1000,7 +1020,7 @@ class Session:
                       0.0, radius / MM_PER_METRE)
         self._keep(handle, entity, "a circle")
         if construction:
-            entity.ConstructionGeometry = True
+            _put(entity, "ConstructionGeometry", True)
 
     def sketch_arc(self, handle: str, centre: Tuple[float, float], start: Tuple[float, float],
                    end: Tuple[float, float], direction: int = 1, construction: bool = False) -> None:
@@ -1010,7 +1030,7 @@ class Session:
                       0.0, end[0] / m, end[1] / m, 0.0, direction)
         self._keep(handle, entity, "an arc")
         if construction:
-            entity.ConstructionGeometry = True
+            _put(entity, "ConstructionGeometry", True)
 
     def sketch_line(self, handle: str, start: Tuple[float, float], end: Tuple[float, float],
                     construction: bool = False) -> None:
@@ -1020,7 +1040,7 @@ class Session:
         # closed can select it by name (probes revolve and ref_plane_normal).
         self._keep(handle, entity, "a line", sketch=self._open_sketch, segment=_segment_name(entity))
         if construction:
-            entity.ConstructionGeometry = True
+            _put(entity, "ConstructionGeometry", True)
 
     def sketch_point(self, handle: str, at: Tuple[float, float]) -> None:
         entity = call(self._manager(), "CreatePoint", at[0] / MM_PER_METRE, at[1] / MM_PER_METRE, 0.0)
@@ -1166,7 +1186,7 @@ class Session:
         if display is None:
             raise SolidWorksError(f"AddDimension2 would not dimension {' and '.join(refs)} as {name}.")
         dimension = call(display, "GetDimension2", 0)
-        dimension.Name = name
+        _put(dimension, "Name", name)
         kept = str(call(dimension, "Name"))
         if self._open_sketch:
             self._handles[self._open_sketch]["dimensions"].append(kept)
@@ -1311,7 +1331,7 @@ class Session:
             if data is None or not call(data, "AccessSelections", doc, _null_dispatch()):
                 raise SolidWorksError(f"The definition of {kept} ({_type_name(feature)}) could not be opened to "
                                       "reverse its twist.")
-            data.D1ReverseTwistDir = True
+            _put(data, "D1ReverseTwistDir", True)
             if not call(feature, "ModifyDefinition", data, doc, _null_dispatch()):
                 raise SolidWorksError(f"ModifyDefinition would not reverse the twist of {kept} ({_type_name(feature)}).")
         self._handles[handle] = {"feature": kept}
@@ -1423,7 +1443,7 @@ class Session:
             raise SolidWorksError(f"The mirror {name} needs exactly one solid body; the part has {len(bodies or ())}.")
         self._select_feature(self._by_name(plane_name), mark=findings.MIRROR_PLANE_MARK)
         data = call(call(doc, "SelectionManager"), "CreateSelectData")
-        data.Mark = findings.MIRROR_BODY_MARK
+        _put(data, "Mark", findings.MIRROR_BODY_MARK)
         before_count = self._selected()
         if not call(bodies[0], "Select2", True, data) or self._selected() <= before_count:
             raise SolidWorksError(f"The body could not be selected to mirror {self._selection_context()}.")
@@ -1630,12 +1650,13 @@ class Session:
         data = columns + [at[0] / m, at[1] / m, at[2] / m, 1.0, 0.0, 0.0, 0.0]
         utility = call(self._app, "GetMathUtility")
         oleobj = utility._oleobj_  # noqa: SLF001 - the method, not the property get
-        raw = oleobj.Invoke(oleobj.GetIDsOfNames("CreateTransform"), 0, pythoncom.DISPATCH_METHOD, True,
-                            VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, data))
+        raw = _guarded("CreateTransform", lambda: oleobj.Invoke(
+            oleobj.GetIDsOfNames("CreateTransform"), 0, pythoncom.DISPATCH_METHOD, True,
+            VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, data)))
         if raw is None:
             raise SolidWorksError("CreateTransform made no transform.")
-        transform = raw if hasattr(raw, "ArrayData") else _dynamic.Dispatch(raw)
-        component.Transform2 = transform
+        transform = raw if hasattr(raw, "ArrayData") else _guarded("CreateTransform", lambda: _dynamic.Dispatch(raw))
+        _put(component, "Transform2", transform)
         call(self._doc(), "ForceRebuild3", False)
         got = [float(v) for v in call(call(component, "Transform2"), "ArrayData")]
         error = max(abs(got[i] - data[i]) for i in range(9))
@@ -1896,7 +1917,7 @@ class Session:
                 error = _by_ref(errors)
         elif route == "OpenDoc7":
             spec = call(self._app, "GetOpenDocSpec", path)
-            spec.Silent = True
+            _put(spec, "Silent", True)
             result = call(self._app, "OpenDoc7", spec)
             error = _by_ref(getattr(spec, "Error", 0))
         else:

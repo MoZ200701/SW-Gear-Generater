@@ -970,6 +970,69 @@ def test_a_rejected_call_and_a_failed_member_say_so(com_errors):
     assert not raised.value.lost and not swcom.CONNECTION.lost
 
 
+class _Ole:
+    """A dispatch's ``_oleobj_`` whose Invoke raises what it is given."""
+
+    def __init__(self, error):
+        self.error = error
+
+    def GetIDsOfNames(self, name):  # noqa: N802 - pywin32's name
+        return 7
+
+    def Invoke(self, *args):  # noqa: N802 - pywin32's name
+        raise self.error
+
+
+class _Raw:
+    def __init__(self, error):
+        self._oleobj_ = _Ole(error)
+
+
+class _PyCom:
+    DISPATCH_PROPERTYPUT, DISPATCH_METHOD, VT_ARRAY, VT_R8 = 4, 1, 0x2000, 5
+
+
+def test_an_indexed_put_goes_through_the_same_wrapper_as_call(com_errors, monkeypatch):
+    """W4 review N4.1: every global set is an indexed put through Invoke, which reached COM directly — a failure
+    read "it stopped on an unexpected com_error" and never marked the session lost."""
+    monkeypatch.setattr(swcom, "pythoncom", _PyCom)
+    with pytest.raises(swcom.ComError) as raised:
+        swcom._put_indexed(_Raw(RPC_FAILED), "Equation", 3, '"No. of Teeth"= 69')
+    assert str(raised.value) == ("SolidWorks did not complete setting Equation(3): The remote procedure call failed "
+                                 "(RPC_S_CALL_FAILED). SolidWorks may have closed or crashed; the next press connects "
+                                 "to it again.")
+    assert swcom.CONNECTION.lost
+
+
+def test_placing_a_component_goes_through_the_same_wrapper_as_call(com_errors, monkeypatch):
+    """W4 review N4.1: place_component's CreateTransform Invoke reached COM directly too."""
+    monkeypatch.setattr(swcom, "pythoncom", _PyCom)
+    monkeypatch.setattr(swcom, "VARIANT", lambda kind, value: value)
+
+    class App:
+        GetMathUtility = _Raw(RPC_FAILED)          # late binding reads a zero-argument member as a property
+
+    session = swcom.Session(App(), (34, 0, 0), 1)
+    session._handles = {"gear1": {"component": object()}}
+    with pytest.raises(swcom.ComError) as raised:
+        session.place_component("gear1", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (0.0, 0.0, 0.0))
+    assert str(raised.value).startswith("SolidWorks did not complete CreateTransform: The remote procedure call failed")
+    assert swcom.CONNECTION.lost
+
+
+def test_a_property_put_goes_through_the_same_wrapper_as_call(com_errors):
+    rejected = com_error(-2147418111, "Call was rejected by callee.", None, None)
+
+    class Feature:
+        def __setattr__(self, name, value):
+            raise rejected
+
+    with pytest.raises(swcom.ComError) as raised:
+        swcom._put(Feature(), "Name", "Gear")
+    assert str(raised.value).startswith("SolidWorks did not complete setting Name: Call was rejected by callee")
+    assert not swcom.CONNECTION.lost
+
+
 def test_anything_else_passes_through_call_untouched(com_errors):
     with pytest.raises(ZeroDivisionError):
         swcom.call(Raising(ZeroDivisionError("no")), "SaveAs3", 0)
