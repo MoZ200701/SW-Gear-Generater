@@ -578,8 +578,8 @@ def chosen_row(pair, test):
 # would for the same file. Nothing is saved anywhere real: the board's "disk"
 # is a set of paths, as the gearbox tests' is.
 
-import hashlib, tempfile
-from gear_generator import __version__, swbuild, workbook_gui as wb_gui
+import copy as copying, dataclasses, hashlib, shutil, tempfile
+from gear_generator import __version__, store, swbuild, workbook_gui as wb_gui
 from gear_generator.workbook import assess as wb_assess, gearbox as wb_gearbox, link as wb_link, \
     model as wb_model, update as wb_update, xlsx as wb_xlsx
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tests"))
@@ -591,14 +591,18 @@ STAMP = "2026-11-13T14:02:31Z"
 _reads = {}
 
 
-def read_workbook(spec):
+def read_workbook(spec, copy=False):
     """``spec`` through a real file, written once and read by the window's own link: (path, spec, diagnostics,
-    digest). The same spec is the same file, so a record's digest matches a later board's read of it."""
-    key = repr(spec)
+    digest). The same spec is the same file, so a record's digest matches a later board's read of it; ``copy``
+    reads the same file copied to a folder of its own (a copied workbook)."""
+    key = (repr(spec), copy)
     if key not in _reads:
         folder = tempfile.mkdtemp(prefix="gen-workbook-")
         path = os.path.join(folder, f"{spec.box.name}.xlsx")
-        wb_xlsx.write_new(path, wb_model.to_sheets(spec))
+        if copy:
+            shutil.copy(read_workbook(spec)[0], path)
+        else:
+            wb_xlsx.write_new(path, wb_model.to_sheets(spec))
         reading = wb_link.Link(path).read()
         _reads[key] = (path, reading.spec, reading.diagnostics, reading.digest)
     return _reads[key]
@@ -669,39 +673,44 @@ def assessed(spec, diagnostics, chosen=()):                            # Workboo
 
 
 def planned(a, record, disk):                                           # WorkbookWindow._plan_solidworks
-    """(what the build button would run, what Update SolidWorks would do), as the window plans them. The record
-    is not passed through store.clear_saved: on the board's disk nothing is saved after Update, as in the window
-    until the user saves in SolidWorks."""
-    gearbox = record.gearbox if record is not None else None
+    """(what the build button would run, what Update SolidWorks would do, the record when it is this workbook's),
+    as the window plans them: a copied workbook's record is the other workbook's, so it is not shown and Update
+    is not asked (plan_gearbox is given it and tells the copy itself). The record is not passed through
+    store.clear_saved: on the board's disk nothing is saved after Update, as in the window until the user saves
+    in SolidWorks."""
+    here = str(a.read.source_path or a.spec.source_path or "")
+    ours = None if store.foreign_workbook(record, here, disk.exists) else record
+    gearbox = ours.gearbox if ours is not None else None
     has_assembly = gearbox is not None and bool(gearbox.assembly)
     parts_only = not has_assembly and bool(a.parts.refused)
     gate = a.build_refusal() if parts_only else a.lay_out_refusal()
     plan = None if gate else wb_gearbox.plan_gearbox(a, record, parts_only=parts_only, exists=disk.exists,
                                                      read_sidecar=disk.read_sidecar)
     update = None
-    if record is not None and (record.parts or gearbox is not None) and not wb_gui._update_gate(a, record):
-        update = wb_update.classify(record, a, exists=disk.exists)
-    return plan, update
+    if ours is not None and (ours.parts or gearbox is not None) and not wb_gui._update_gate(a, ours):
+        update = wb_update.classify(ours, a, exists=disk.exists)
+    return plan, update, ours
 
 
 def press_build(desk, spec):
     """Build pressed on ``spec``: the plan run by swbuild.build_gearbox, finished into the record; the note."""
     path, read_spec, diagnostics, digest = read_workbook(spec)
-    plan, _ = planned(assessed(read_spec, diagnostics), desk.record, desk.disk)
+    plan, _, _ = planned(assessed(read_spec, diagnostics), desk.record, desk.disk)
     result = swbuild.build_gearbox(desk.sw, **plan.build_kwargs(), exists=desk.disk.exists)
-    text, ok = ui_text.gearbox_status(plan, result)
+    again = desk.record is not None and desk.record.gearbox is not None and bool(desk.record.gearbox.assembly)
+    text, ok = ui_text.gearbox_status(plan, result, again=again)
     finished = wb_gearbox.finish_build(plan, result, desk.record, workbook=path, digest=digest,
                                        written_by=f"gear-generator {__version__}", read_sidecar=desk.disk.read_sidecar,
                                        stamp=STAMP)
     desk.disk.write(finished)
     desk.record = finished.record or desk.record
-    return " ".join([text] + finished.notes), ok
+    return ui_text.Note(" ".join([text] + finished.notes), ok)
 
 
 def press_update(desk, spec):
     """Update SolidWorks pressed on ``spec``: swbuild.update_gearbox, finished into the record; the note."""
     path, read_spec, diagnostics, digest = read_workbook(spec)
-    _, update = planned(assessed(read_spec, diagnostics), desk.record, desk.disk)
+    _, update, _ = planned(assessed(read_spec, diagnostics), desk.record, desk.disk)
     result = swbuild.update_gearbox(desk.sw, **update.update_kwargs(), exists=desk.disk.exists)
     meshes = desk.record.gearbox.meshes
     finished = wb_update.finish_update(update, result, desk.record, digest=digest,
@@ -709,7 +718,7 @@ def press_update(desk, spec):
     desk.disk.write(finished)
     desk.record = finished.record or desk.record
     text, ok = ui_text.gearbox_update_status(update, result, finished.dragged, meshes=meshes)
-    return " ".join([text] + finished.notes), ok
+    return ui_text.Note(" ".join([text] + finished.notes), ok)
 
 
 def gears_table(rows):
@@ -815,14 +824,14 @@ def question_dialog(title, text):
 
 
 def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, choose=None, desk=None, note=None,
-                   ask=False):
+                   ask=False, copy=False):
     """The window after reading ``spec`` (changes listed against ``before``); ``choose`` picks offered fixes
     (``(field, index)``) as if their buttons were pressed; ``desk`` is what has been built before (its record and
-    disk), and ``note`` the last job's sentence; ``ask`` draws the Build again? question the build button asks."""
-    path, read_spec, read_diagnostics, digest = read_workbook(spec)
+    disk), and ``note`` the last job's sentence; ``ask`` draws the Build again? question the build button asks;
+    ``copy`` reads a copy of the workbook in a folder of its own, at ``C:\\Copy``."""
+    path, read_spec, read_diagnostics, digest = read_workbook(spec, copy)
     folder = read_spec.box.output_folder
     desk = desk or Desk()
-    record = desk.record
 
     def plan(chosen, read=(read_spec, read_diagnostics)):              # WorkbookWindow._plan and _assess
         state = assessed(read[0], read[1], chosen)
@@ -840,7 +849,7 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
         chosen.append(report.fixes[field_][index])
         state, effective, parts, report, diagnostics = plan(chosen)
     covered = wb_link.covered_by_fix(did, report) if chosen else []
-    build_plan, update = planned(state, record, desk.disk)
+    build_plan, update, record = planned(state, desk.record, desk.disk)
     footer = ui_text.workbook_footer(state, record=record, plan=build_plan, update=update, folder=folder,
                                      folder_exists=True, note=note)
     name = os.path.basename(path)
@@ -853,7 +862,7 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
               f'{ui_text.workbook_built_tag(record, digest)}</span></div>'
               f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Open in Excel")}{button("Re-read")}</div></div>')
     mono = f'font-family: {MONO}; font-size: 11.5px; color: {INK};'
-    file_text = ui_text.short_path(f"C:\\Parts\\{name}", wb_gui.PATH_CHARS)
+    file_text = ui_text.short_path(f"C:\\{'Copy' if copy else 'Parts'}\\{name}", wb_gui.PATH_CHARS)
     box = panel("Workbook", ui_text.workbook_counts(effective), [
         row(label("File"), f'<span style="{mono}">{file_text}</span>'),
         row(label("Name"), f'<span style="{mono}">{effective.box.name}</span>'),
@@ -1026,6 +1035,23 @@ boards["WorkbookUpdated"] = ("Workbook · after Update SolidWorks, not yet saved
 arcs = wb_model.replace(reducer, gears=(wb_model.replace(reducer.gears[0], flank="arcs"),) + reducer.gears[1:])
 boards["WorkbookAgain"] = ("Workbook · a change that needs a new part, and Build again?",
                            workbook_board(arcs, before=reducer, desk=built_desk, ask=True), WINDOW_WIDTH)
+# The W4 review's rework of the footer, in the two states it found worst or new. After Update, not yet saved,
+# G1's bore cleared (the demonstration's structural step, its window log's state 06): the save asked once, both
+# buttons on, and G2's part made new by the new revision until Gear_m1.5_N68 is saved. And the reducer's folder
+# copied whole, workbook and record: the record is the original's, so Build makes the copy's own gearbox.
+bored = wb_model.replace(edited, gears=(wb_model.replace(edited.gears[0], bore=""),) + edited.gears[1:])
+boards["WorkbookUnsaved"] = ("Workbook · after Update, not yet saved, a change that needs a new part",
+                             workbook_board(bored, before=edited, desk=updated_desk), WINDOW_WIDTH)
+copy_desk = Desk()
+copy_desk.disk = copying.deepcopy(built_desk.disk)
+original = "C:\\Parts\\Reducer_12to1.xlsx"         # where the boards' header says the reducer is
+copy_desk.disk.add(original)
+for key, sidecar in list(copy_desk.disk.sidecars.items()):
+    copy_desk.disk.sidecars[key] = dataclasses.replace(sidecar, record=dataclasses.replace(sidecar.record,
+                                                                                         workbook=original))
+copy_desk.record = dataclasses.replace(copying.deepcopy(built_desk.record), workbook=original)
+boards["WorkbookCopy"] = ("Workbook · a copied workbook, the original still there",
+                          workbook_board(reducer, desk=copy_desk, copy=True), WINDOW_WIDTH)
 
 layout = []
 x = 0
