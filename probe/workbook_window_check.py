@@ -15,17 +15,19 @@ with PrintWindow into <scratch>\shots, and the footer, read line and gear table 
    then says "updated from this version, not yet saved", never "built from this version".
 3. G1's bore cleared in Excel. Since the W4 review (B2) nothing waits for a save: Build again… and Update
    SolidWorks are both enabled, and the footer gives the structural reason, asks once for the save of
-   Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1, and says that until Gear_m1.5_N68 is saved the new
-   revision makes G2's part new, as Gear_m1.5_N69. The three are then saved in SolidWorks, as a person would
-   (by this driver, through COM, on its own thread), so G2's part is reused; then Update SolidWorks asks
-   Build again? and the answer is Yes, and the record ends at revision 2 with N68 reused.
+   Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 (since the second review, adding "If SolidWorks closed
+   them without saving, those changes are gone."), and says that while Gear_m1.5_N68's changes are not saved
+   the new revision makes G2's part new, as Gear_m1.5_N69. The three are then saved in SolidWorks, as a person
+   would (by this driver, through COM, on its own thread), so G2's part is reused; then Update SolidWorks asks
+   Build again? and the answer is Yes, and the record ends at revision 2 with N68 reused, its journal taken
+   out, and the header "built from this version".
 
 Afterwards the window is closed, Excel quit, and this run's SolidWorks documents saved and closed.
 
 Run on SolidWorks 2026 on 2026-11-13 (w4-window-20261113-195843.log) before the review's fixes: the stages
 then read as the review quotes them (state 06 asked for the save twice and said Build again… waited). A rerun
-should log state 06 with both buttons on, one save request and the "Until … is saved" sentence, and pass
-every check below.
+should log state 06 with both buttons on, one save request with its "If SolidWorks closed them without
+saving" sentence and the "While Gear_m1.5_N68's changes are not saved" sentence, and pass every check below.
 """
 
 import ctypes
@@ -304,6 +306,8 @@ def record_check():
     record = store.read_link_record(PATH)
     check(record.gearbox.revision == 2 and [e.revision for e in record.earlier] == [0],
           f"the record: revision {record.gearbox.revision}, earlier {[e.revision for e in record.earlier]}")
+    check(record.pending == [], f"the build's journal taken out: {[os.path.basename(e.path) for e in record.pending]}")
+    check(win.read_line.get().endswith(" · built from this version"), f"the header: {win.read_line.get()!r}")
     parts = sorted(os.path.basename(c.part) for c in record.gearbox.components)
     check("Gear_m1.5_N68.SLDPRT" in parts and "Gear_m1.5_N69.SLDPRT" not in parts,
           f"G2's part reused once saved: {parts}")
@@ -321,8 +325,10 @@ def structural_unsaved_check():
           "the save asked once, and build again said once")
     check("Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks" in text,
           "the three unsaved documents named")
-    check("Until Gear_m1.5_N68 is saved, the new revision makes G2's part new, as Gear_m1.5_N69" in text,
-          "the part made new while unsaved said")
+    check("While Gear_m1.5_N68's changes are not saved, the new revision makes G2's part new, as Gear_m1.5_N69"
+          in text, "the part made new while unsaved said")
+    check("If SolidWorks closed them without saving, those changes are gone." in text,
+          "the save asked as what may no longer be possible (second review N2)")
 
 
 STEPS = [

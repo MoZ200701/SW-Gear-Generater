@@ -1,7 +1,7 @@
 r"""W4's Windows demonstration: three gearbox workbooks through the app's own code, on real SolidWorks and Excel.
 
 python.exe probe/workbook_assembly_check.py <repo src> <output folder under C:\> --pid PID [--log FILE]
-                                            [--only a|a2|b|c ...] [--fixtures FOLDER]
+                                            [--only a|a2|a3|b|c ...] [--fixtures FOLDER]
 
 PLAN-WORKBOOK §6, W4 "Demonstrable", and the W4 decisions' item 10. Every step goes the way the Workbook window
 goes (``workbook_gui.WorkbookWindow``: ``_plan_solidworks``, ``_start_build``, ``press_update``,
@@ -40,6 +40,16 @@ The sections, each in its own folder under the output folder:
 - ``a2``: the same fixture, built with an assembly template that is not there, so the build stops after the
   parts and the layout; the cell cleared in Excel, Build carries on reusing them; then Build pressed again with
   nothing changed.
+- ``a3`` (the second W4 review, N4 and N2): the journal and the marks. The 12 : 1 fixture planned, its journal
+  written as the window writes it before a job, then only two of its parts built and the job's answer never
+  collected — as when the app is killed, or closed with "Quit anyway?", after SolidWorks saved them. The next
+  plan reuses those two from the journal (revision 0, no suffix, nothing called a file with no record), the
+  build checks them live first, and its finish writes their ``.gear.json`` and takes the journal out. Then
+  the demonstration edit (S2 X 64.5, G2 Teeth 69) and Update, left unsaved; this section's documents closed in
+  SolidWorks without saving (``QuitDoc``, assumed to discard without asking: DialogWatch logs any dialog it
+  shows); the edit typed back (63.75, 68), which is what the files hold; Update loads every document from its
+  file, changes nothing, and the record's unsaved marks and Gear_m1.5_N68.gear.json's mark are gone, so a
+  build-again plan reuses Gear_m1.5_N68.
 - ``b``: a workbook written by the app's own ``write_new``, opened and saved in Excel with S2 placed by formulas
   from an angle cell, off both axes, and S3 following S2 by formula. Built; the angle changed in Excel; Update
   moves the shafts and re-places the gears without touching a part.
@@ -68,7 +78,7 @@ import traceback
 sys.path.insert(0, sys.argv[1])
 SRC, OUT = sys.argv[1], sys.argv[2]
 PID = int(sys.argv[sys.argv.index("--pid") + 1])
-ONLY = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--only"] or ["a", "a2", "b", "c"]
+ONLY = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--only"] or ["a", "a2", "a3", "b", "c"]
 LOG_PATH = sys.argv[sys.argv.index("--log") + 1] if "--log" in sys.argv else os.path.join(OUT, "workbook-assembly.log")
 FIXTURES = sys.argv[sys.argv.index("--fixtures") + 1] if "--fixtures" in sys.argv else ""
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -277,6 +287,23 @@ def close_ours(session):
     return [str(call(d, "GetTitle")) for d in documents(app) if ours(str(call(d, "GetPathName") or ""))]
 
 
+def quit_in(folder):
+    """Close the open documents under ``folder`` WITHOUT saving them (``ISldWorks::QuitDoc``), assemblies first, as
+    a person closing SolidWorks and answering "Don't save" would. Returns what is left open under it."""
+    def under(path):
+        return bool(path) and os.path.normcase(os.path.abspath(path)).startswith(
+            os.path.normcase(os.path.abspath(folder)) + os.sep)
+
+    def work(session):
+        app = session._app  # noqa: SLF001
+        for kind in (2, 1):
+            for doc in documents(app):
+                if under(str(call(doc, "GetPathName") or "")) and int(call(doc, "GetType")) == kind:
+                    call(app, "QuitDoc", str(call(doc, "GetTitle")))
+        return [str(call(d, "GetTitle")) for d in documents(app) if under(str(call(d, "GetPathName") or ""))]
+    return work
+
+
 def save_flags(session, paths):
     out = {}
     for doc in documents(session._app):  # noqa: SLF001
@@ -467,11 +494,28 @@ class Desk:
         say(f"summary {ui_text.update_summary(u)}")
 
     # the jobs
+    def write_journal(self, plan):
+        """``WorkbookWindow._write_journal``: what the build is about to make, in the record, before the job."""
+        try:
+            record = store.read_link_record(self.path)
+        except Exception:  # noqa: BLE001 - as the window: left for the finish
+            return False
+        if record is None:
+            record = store.LinkRecord(workbook=self.path)
+        record.pending, record.pending_for = wb_gearbox.journal(plan), self.path
+        try:
+            store.save_link_record(record, store.link_record_path(self.path))
+        except Exception:  # noqa: BLE001
+            return False
+        return True
+
     def build(self):
-        """``_start_build`` then, once the worker answers, ``_finish_build``."""
+        """``_start_build`` (its journal first) then, once the worker answers, ``_finish_build``."""
         plan = self.plan
         steps = []
         kwargs = plan.build_kwargs()
+        journaled = self.write_journal(plan)
+        say(f"journal {'written' if journaled else 'NOT written'}: {len(wb_gearbox.journal(plan))} paths")
         started = time.monotonic()
         say(f"build   {plan.name}: {memory()}")
         result = run(self.worker, lambda s: swbuild.build_gearbox(s, **kwargs, progress=steps.append))
@@ -507,9 +551,11 @@ class Desk:
             say("        " + line)
         say(f"        in {seconds:.1f} s; {memory()}")
         say(f"        steps {[(x.stage, x.name, x.index, x.count) for x in steps]}")
+        say(f"        loaded from disk {[os.path.basename(p) for p in result.opened]}")
         record, may_write, notes = self._open_record()
         base_record = record if record is not None else self.record
-        finished = wb_update.finish_update(update, result, base_record, digest=self.reading.digest)
+        finished = wb_update.finish_update(update, result, base_record, digest=self.reading.digest,
+                                           workbook=self.path)
         gearbox = self.record.gearbox if self.record is not None else None
         text, ok = ui_text.gearbox_update_status(update, result, finished.dragged,
                                                  meshes=gearbox.meshes if gearbox is not None else None)
@@ -536,7 +582,7 @@ class Desk:
                 faults.append(ui_text.sidecar_unwritten(path, exc))
         if finished.record is not None and may_write:
             try:
-                store.save_link_record(finished.record)
+                store.save_link_record(finished.record, store.link_record_path(self.path))
             except store.StoreError as exc:
                 faults.append(str(exc))
         say(f"record  {len(finished.sidecars)} sidecar(s) written; record "
@@ -1012,6 +1058,105 @@ def section_a2(worker, excel):
     book.close()
 
 
+def section_a3(worker, excel):
+    say("== a3  the journal: a build interrupted after two parts saved; then an Update lost when its documents "
+        "closed unsaved")
+    folder = fresh_folder("a3")
+    path = os.path.join(folder, "Reducer_12to1.xlsx")
+    shutil.copy2(FIXTURE_12, path)
+    book = Workbook(excel, path, "a3")
+    book.set("Box", "B4", folder + "\\")
+    book.save()
+    desk = Desk(path, worker)
+    desk.read()
+    plan = desk.plan
+    check(plan is not None and plan.revision == 0 and len(plan.build) == 4 and not plan.reuse,
+          "the plan: revision 0, four parts to make")
+
+    say("-- a3  the journal written; the job then saves two parts and is never collected")
+    check(desk.write_journal(plan), "the journal is on record before the job, as the window writes it")
+    say(f"journal {[(os.path.basename(e.path), e.kind) for e in store.read_link_record(path).pending]}")
+    two = plan.build[:2]
+    guard()
+    interrupted = run(worker, lambda s: swbuild.build_many(s, [j.plan for j in two], os.path.exists))
+    for line in interrupted.log_lines():
+        say("        " + line)
+    check(interrupted.ok and all(os.path.isfile(j.path) and store.read_sidecar(j.path) is None for j in two),
+          f"SolidWorks saved {[os.path.basename(j.path) for j in two]}, and no .gear.json is beside either: the "
+          "finish never ran")
+    desk.plan_solidworks()
+    desk.say_plan(full=False)
+    p = desk.plan
+    check(p is not None and p.revision == 0 and p.made_new == ()
+          and [r.stem for r in p.reuse] == [j.stem for j in two] and all(r.journaled for r in p.reuse)
+          and [j.stem for j in p.build] == [j.stem for j in plan.build[2:]],
+          "the next plan reuses the two the journal names, to be checked live, and makes the other two: revision 0, "
+          "no suffix, nothing called a file with no record")
+    desk.say_footer("after the interrupted build")
+    guard()
+    _, result = desk.build()
+    check(result.ok and result.checked[:2] == [r.path for r in p.reuse],
+          f"built, the two checked live first: {[os.path.basename(c) for c in result.checked]}")
+    for r in p.reuse:
+        sidecar = store.read_sidecar(r.path)
+        check(sidecar is not None and store.same_path(sidecar.record.workbook, path)
+              and sidecar.record.trig == result.held.get(r.path) and sidecar.record.variables,
+              f"{r.stem}.gear.json written at the finish, for this workbook, in {result.held.get(r.path)!r}")
+    check(store.read_link_record(path).pending == [] and len(desk.record.parts) == 4,
+          "the journal is taken out, and the four parts are on record")
+    measure(worker, desk, "a3 built", controls=False, again=False)
+
+    say("-- a3  S2 X 64.5 and G2 Teeth 69, and Update, left unsaved; then the documents closed without saving")
+    n68 = next(e.path for e in desk.record.parts if e.gears == ["G2"])
+    book.set("Shafts", "C3", 64.5)
+    book.set("Gears", "F3", 69)
+    book.save()
+    desk.poll()
+    desk.say_update()
+    guard()
+    desk.update_solidworks()
+    unsaved = sorted(os.path.basename(x) for x in desk.record.unsaved)
+    check("Gear_m1.5_N68.SLDPRT" in unsaved, f"the record marks what Update changed unsaved: {unsaved}")
+    check(store.read_sidecar(n68).record.unsaved_since > 0, "Gear_m1.5_N68.gear.json is marked unsaved")
+    left = run(worker, quit_in(folder))
+    check(not left, f"this section's documents closed in SolidWorks without saving: left {left}")
+    desk.plan_solidworks()
+    check(sorted(os.path.basename(x) for x in desk.record.unsaved) == unsaved,
+          "the marks stay: the files were not saved, and nothing on the Tk thread can see SolidWorks")
+    desk.say_footer("documents closed unsaved")
+    say(f"tag     {ui_text.workbook_built_tag(desk.record, desk.reading.digest)!r}")
+    book.set("Shafts", "C3", 63.75)
+    book.set("Gears", "F3", 68)
+    book.save()
+    desk.poll()
+    desk.say_update()
+    guard()
+    _, result, _ = desk.update_solidworks()
+    current = [e.path for e in desk.record.current_parts()] + [desk.record.gearbox.layout,
+                                                               desk.record.gearbox.assembly]
+    check(result.changed == [], f"Update found every document holding the workbook's values: changed "
+          f"{[os.path.basename(x) for x in result.changed]}")
+    check(sorted(os.path.basename(x) for x in result.opened) == sorted(os.path.basename(x) for x in current),
+          f"it loaded every document from its file: {[os.path.basename(x) for x in result.opened]}")
+    check(desk.record.unsaved == {} and desk.record.mismatched == {},
+          f"the marks are gone: unsaved {list(desk.record.unsaved)}, mismatched {list(desk.record.mismatched)}")
+    sidecar = store.read_sidecar(n68)
+    check(sidecar.record.unsaved_since == 0 and sidecar.record.spec.get("teeth") == "68",
+          f"Gear_m1.5_N68.gear.json says 68 teeth, unmarked ({sidecar.record.unsaved_since})")
+    tag = ui_text.workbook_built_tag(desk.record, desk.reading.digest)
+    check(tag == " · built from this version", f"the header: {tag!r}")
+    book.set("Gears", "J2", None)
+    book.save()
+    desk.poll()
+    desk.say_plan(full=False)
+    q = desk.plan
+    check(q is not None and n68 in [r.path for r in q.reuse] and not any(store.same_path(m.old, n68)
+                                                                       for m in q.made_new),
+          "a build-again plan now reuses Gear_m1.5_N68 (it made it new for ever before the second review)")
+    desk.say_footer("structural, nothing unsaved")
+    book.close()
+
+
 def section_b(worker, excel):
     say("== b   a pure move: S2 placed by formulas from an angle cell, moved along its arc")
     folder = fresh_folder("b")
@@ -1091,7 +1236,7 @@ def section_c(worker, excel):
     book.close()
 
 
-SECTIONS = {"a": section_a, "a2": section_a2, "b": section_b, "c": section_c}
+SECTIONS = {"a": section_a, "a2": section_a2, "a3": section_a3, "b": section_b, "c": section_c}
 
 
 def connect_pid():
