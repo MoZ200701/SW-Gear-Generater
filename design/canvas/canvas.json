@@ -146,6 +146,27 @@
       "x": 17836,
       "y": 0,
       "w": 1080
+    },
+    {
+      "file": "WorkbookRefused.dc.html",
+      "title": "Workbook · SolidWorks refused a mate: no assembly, Build waits for a change",
+      "x": 18996,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookTurned.dc.html",
+      "title": "Workbook · turned in SolidWorks, then an Update that puts the train back",
+      "x": 20156,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookStatic.dc.html",
+      "title": "Workbook · a gearbox W4 built static, offered a turning revision",
+      "x": 21316,
+      "y": 0,
+      "w": 1080
     }
   ],
   "annotations": [

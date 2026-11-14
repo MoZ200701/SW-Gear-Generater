@@ -564,7 +564,7 @@ def chosen_row(pair, test):
     return row_, PairSpec(**values)
 
 
-# -------------------------------------------------------------------- the Workbook window (W2–W4)
+# -------------------------------------------------------------------- the Workbook window (W2–W5)
 #
 # Drawn from a real workbook: written by the app's writer, read by its link,
 # worked through by workbook.assess with any chosen fixes made, and — for the
@@ -581,7 +581,7 @@ def chosen_row(pair, test):
 import copy as copying, dataclasses, hashlib, shutil, tempfile
 from gear_generator import __version__, store, swbuild, workbook_gui as wb_gui
 from gear_generator.workbook import assess as wb_assess, gearbox as wb_gearbox, link as wb_link, \
-    model as wb_model, update as wb_update, xlsx as wb_xlsx
+    model as wb_model, motion as wb_motion, update as wb_update, xlsx as wb_xlsx
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tests"))
 from test_swbuild import FakeSolidWorks          # the fake SolidWorks swbuild's own tests run against
 
@@ -638,8 +638,8 @@ class BoardSolidWorks(FakeSolidWorks):
     """The fake SolidWorks, putting what it saves on the board's disk and keeping each component's frame under
     the Name2 it was inserted as, so Update finds the assembly where the build left it."""
 
-    def __init__(self, disk):
-        super().__init__()
+    def __init__(self, disk, **doctored):
+        super().__init__(**doctored)
         self.disk, self.names = disk, {}
 
     def save_as(self, path):
@@ -652,8 +652,8 @@ class BoardSolidWorks(FakeSolidWorks):
         self.names[handle] = name
         return name
 
-    def place_component(self, handle, rotation, at):
-        super().place_component(handle, rotation, at)
+    def place_component(self, handle, rotation, at, kind=None):
+        super().place_component(handle, rotation, at, kind)
         if handle in self.names:
             self.frames[self.names[handle]] = (tuple(rotation), tuple(at))
 
@@ -662,10 +662,15 @@ class Desk:
     """One session of the window on one folder: the fake SolidWorks, its disk, and the record beside the
     workbook as the last finish left it."""
 
-    def __init__(self):
+    def __init__(self, **doctored):
         self.disk = Disk()
-        self.sw = BoardSolidWorks(self.disk)
+        self.sw = BoardSolidWorks(self.disk, **doctored)
         self.record = None
+
+    def turn_train(self, degrees, speeds):
+        """The user drags the input in SolidWorks: each gear turns degrees·ω_i/ω_in about its own axis."""
+        for gear, k in speeds.items():
+            self.sw.turn(next(c.name for c in self.record.gearbox.components if c.gear == gear), degrees * k)
 
 
 def assessed(spec, diagnostics, chosen=()):                            # WorkbookWindow._assess
@@ -859,7 +864,8 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     covered = wb_link.covered_by_fix(did, report) if chosen else []
     build_plan, update, record = planned(state, desk.record, desk.disk)
     footer = ui_text.workbook_footer(state, record=record, plan=build_plan, update=update, folder=folder,
-                                     folder_exists=True, note=note, building=building is not None, progress=building)
+                                     folder_exists=True, note=note, building=building is not None, progress=building,
+                                     digest=digest)
     if building is not None:                                            # WorkbookWindow._refresh_state, closing
         footer = dataclasses.replace(footer, text=f"{footer.text} {ui_text.closes_when_done()}")
     name = os.path.basename(path)
@@ -916,7 +922,7 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     body = (header + f'<div style="display: flex; gap: 8px; align-items: flex-start;">{left}{right}</div>' + foot)
     window = column(body, width=WINDOW_WIDTH, pad=wb_gui.BODY_PAD)
     if ask:
-        dialog = (ui_text.BUILD_AGAIN_TITLE, ui_text.build_again_question(update, build_plan))
+        dialog = (ui_text.BUILD_AGAIN_TITLE, ui_text.build_again_question(update, build_plan, record=record))
     if dialog is not None:
         window = (f'<div style="position: relative; width: {WINDOW_WIDTH}px;">{window}'
                   + question_dialog(*dialog) + '</div>')
@@ -1028,16 +1034,19 @@ boards["WorkbookFix"] = ("Workbook · a mesh off its centres, two fixes offered"
 boards["WorkbookChosen"] = ("Workbook · the move chosen, waiting for Export",
                             workbook_board(off, before=reducer, choose=[("Meshes!A2", 0)]), WINDOW_WIDTH)
 
-# W4. Build pressed on the reducer; then PLAN-WORKBOOK §6's demonstration edit — S2 X 63.75 → 64.5 and G2's teeth
-# 68 → 69, S3 X following to 132.5 as its formula does in the fixture — before and after Update SolidWorks; then,
-# on the reducer as built, G1's flank changed to arcs, which needs a new part, and the build button's question.
+# W4 and W5. Build pressed on the reducer: its gears mated so the train turns. Then an edit Update carries on a
+# turning gearbox — G3 and G4 to module 2.5 with S3 moved out to their centre (132.5 → 148.75) and G4's At
+# 27 → 30, which moves S3's anchor along its shaft — before and after Update SolidWorks. (PLAN-WORKBOOK §6's
+# demonstration edit, G2's teeth 68 → 69, changes the gear mate G1 meshes G2's ratio: Build again… until the probes
+# settle how a ratio is changed, so these boards use an edit that is an Update whatever that finding says.) Then, on
+# the reducer as built, G1's flank changed to arcs, which needs a new part, and the build button's question.
 built_desk = Desk()
 built_note = press_build(built_desk, reducer)
 boards["WorkbookBuilt"] = ("Workbook · built: the parts, the layout part and the assembly",
                            workbook_board(reducer, desk=built_desk, note=built_note), WINDOW_WIDTH)
-edited = wb_model.replace(reducer, shafts=(reducer.shafts[0], wb_model.replace(reducer.shafts[1], x="64.5"),
-                                           wb_model.replace(reducer.shafts[2], x="132.5")),
-                          gears=(reducer.gears[0], wb_model.replace(reducer.gears[1], teeth="69")) + reducer.gears[2:])
+edited = wb_model.replace(reducer, shafts=reducer.shafts[:2] + (wb_model.replace(reducer.shafts[2], x="148.75"),),
+                          gears=reducer.gears[:2] + (wb_model.replace(reducer.gears[2], module="2.5"),
+                                                     wb_model.replace(reducer.gears[3], module="2.5", at="30")))
 boards["WorkbookUpdate"] = ("Workbook · an edit Update SolidWorks carries",
                             workbook_board(edited, before=reducer, desk=built_desk), WINDOW_WIDTH)
 updated_desk = Desk()
@@ -1051,7 +1060,7 @@ boards["WorkbookAgain"] = ("Workbook · a change that needs a new part, and Buil
 # The W4 review's rework of the footer, in the two states it found worst or new. After Update, not yet saved,
 # G1's bore cleared (the demonstration's structural step, its window log's state 06): the save asked once — as
 # what may no longer be possible, since the second review — both buttons on, and G2's part made new by the new
-# revision while Gear_m1.5_N68's changes are not saved. And the reducer's folder copied whole, workbook and
+# revision while Gear_m2_N17's changes are not saved. And the reducer's folder copied whole, workbook and
 # record: the record is the original's, so Build makes the copy's own gearbox, each part under the name it will
 # have (the Gears table shows plan.part_of since the second review).
 bored = wb_model.replace(edited, gears=(wb_model.replace(edited.gears[0], bore=""),) + edited.gears[1:])
@@ -1083,6 +1092,31 @@ boards["WorkbookCloseAnyway"] = ("Workbook · closed twice while SolidWorks does
                                                 dialog=(ui_text.CLOSE_ANYWAY_TITLE,
                                                         ui_text.close_anyway_question(journaled=True))),
                                  WINDOW_WIDTH)
+# W5. SolidWorks refusing a mate (the fake flags the lock G3 locked to G2, as SolidWorks may): the parts and the
+# layout part kept, no assembly saved, Build greyed for this same read of the workbook. The train turned by hand in
+# SolidWorks, then the turning edit: Update must move gears, so it puts the whole train back at its built turn and
+# says so for that train. And a gearbox W4 built: static, its record as W4 wrote it, offered a turning revision.
+refused_desk = Desk(mate_codes={"G3 locked to G2": (46, False)})
+refused_note = press_build(refused_desk, reducer)
+boards["WorkbookRefused"] = ("Workbook · SolidWorks refused a mate: no assembly, Build waits for a change",
+                             workbook_board(reducer, desk=refused_desk, note=refused_note), WINDOW_WIDTH)
+REDUCER_SPEEDS = {"G1": 1.0, "G2": -0.25, "G3": -0.25, "G4": 1 / 12}     # ω_i/ω_in, each about its own axis
+turned_desk = Desk()
+press_build(turned_desk, reducer)
+turned_desk.turn_train(30.0, REDUCER_SPEEDS)
+turned_note = press_update(turned_desk, edited)
+boards["WorkbookTurned"] = ("Workbook · turned in SolidWorks, then an Update that puts the train back",
+                            workbook_board(edited, before=reducer, desk=turned_desk, note=turned_note), WINDOW_WIDTH)
+static_desk = Desk()
+_motion_reason = wb_motion.motion_reason
+wb_motion.motion_reason = lambda: "Built by W4."          # as W4 built it: placed fixed
+try:
+    press_build(static_desk, reducer)
+finally:
+    wb_motion.motion_reason = _motion_reason
+static_desk.record.gearbox.static_reason = ""            # a W4 record has none: static_reason is W5's own
+boards["WorkbookStatic"] = ("Workbook · a gearbox W4 built static, offered a turning revision",
+                            workbook_board(reducer, desk=static_desk), WINDOW_WIDTH)
 
 layout = []
 x = 0
