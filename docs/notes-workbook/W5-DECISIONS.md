@@ -3,8 +3,8 @@
 Read in this order: `docs/PLAN-WORKBOOK.md` (the authority), `W5-PLAN.md` (the implementation plan),
 `W5-PLAN-REVIEW.md` (its independent review), then this file. Where they disagree, this file wins over the
 review, the review over W5-PLAN, and PLAN-WORKBOOK over all three unless this file says a reading was chosen.
-Written 2026-11-14; the probe batch the review asked for (package P0) was still running, so what depends on
-its findings is marked *open* and is filled in when they are committed.
+Written 2026-11-14 while the probe batch the review asked for (package P0) was still running; what depended on
+its findings is ruled on in the last two sections, added the same day once they were committed and reviewed.
 
 ## The user's answers (2026-11-14)
 
@@ -59,9 +59,43 @@ its findings is marked *open* and is filled in when they are committed.
   is suppressed).
 - **M13 accepted:** the loop test uses one internal mesh, or two meshes between the same two shafts.
 
-## Open until package P0's findings are committed
+## Rulings on package P0's findings (2026-11-14, after their independent review)
 
-- D7 (a tooth change the globals carry: Update or structural) — by `GEAR_MATE_RATIO_ROUTE`.
-- D8's follower case (a follower's place along its shaft) — by `LOCK_RETAKES_AN_OFFSET`.
-- Which rebuild a turning gearbox uses — by `MATED_ASSEMBLY_REBUILD_ROUTE`. If only the full rebuild re-solves
-  mates, a mated Update leaves every part marked modified in SolidWorks; that is then the user's to accept or not.
+P0 is commits `0d638db` to `8504856`; the findings are in `findings.py` from "tier 8 items 7–13".
+
+- **D8's follower case: an Update.** `LOCK_RETAKES_AN_OFFSET` is True on both versions, and the measurement
+  tells a working lock from a dead one (11° and 3 mm kept through a drive; a dead lock would have read 18.5°).
+  A follower's `At` or face-width change is carried by Update. The anchor's Front-plane cases stay structural
+  (answer 3).
+- **D7: a tooth change stays structural (Build again…) until probe P1b passes.** `GEAR_MATE_RATIO_ROUTE` is
+  None. Changing the gear mate's definition in place works on 2026 and leaves an assembly SolidWorks 2024
+  cannot close, so it is never used on either version. Deleting the gear mate and adding it again ("remake")
+  gave the right ratio in the right sense on both, but on 2024 it has only run in a session that already held
+  an assembly it could not close, and never in the shape an Update needs. P1b, in a fresh session on each
+  version with the remake first: the part's teeth changed through its globals; locks suppressed, the gear mate
+  remade and renamed, every gear put to its built frame; locks on, rebuild, drive at the new ratio,
+  interference; close without saving and reopen; and the same on a gear that carries two gear mates. Both
+  branches of D7 are coded and tested against the fake, as W5-PLAN says; only `"remake"` or None can be the
+  finding, and code refuses `"modify definition"` with a sentence.
+- **A lock does not hold against a put.** With the lock on, a `Transform2` put moved one gear, its locked
+  partner did not follow, and SolidWorks reported nothing (both versions). This agrees with M1 and M8 — the
+  app only ever puts with every lock of the train suppressed — and it changes the fake: its `place_component`
+  must take a put on a locked gear silently and leave the partner where it was, as SolidWorks does, so a test
+  can catch a put made with a lock on. What the lock does on its next solve after such a put was not measured
+  (no drive followed); nothing may be built on it.
+- **The train's rebuild: top-only (`ForceRebuild3(True)`) for Update, on probation for Build.**
+  `MATED_ASSEMBLY_REBUILD_ROUTE` re-solved a changed global and a drive on a built, saved, reopened train and
+  marked only the assembly, on both versions. Not yet shown: a train *built* under the top-only rebuild (the
+  probe's train was built with the full one), a drive after a layout move under it, and 2024 in a session with
+  no stuck assembly holding the shared layout and part. Probe round P0b adds those. Code passes the train kind
+  for Build and Update alike; if P0b shows the build needs the full rebuild, the build gets its own kind in
+  `swcom.rebuild_call` (package A's file) and nothing else changes. The demonstration (package E) does not run
+  before P0b is committed and reviewed.
+- **Mates are found by walking the mate group** (`MATE_FIND_ROUTE`), named by an `IFeature.Name` put
+  (`MATE_RENAME_ROUTE`), all four kinds, both versions. The demonstration's drive holds and returns every gear
+  to its built frame (M12 stands as written). A put on a gear in two gear mates holds.
+
+## Open until probe round P0b is committed
+
+- D7's Update branch (above). Until then the user is told a tooth change needs Build again….
+- Whether a train's Build may use the top-only rebuild (above).
