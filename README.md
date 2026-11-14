@@ -3,7 +3,8 @@
 Builds parametric spur gears in SolidWorks from a form, and solves gear pairs:
 given a centre distance and a ratio, it finds module and tooth counts that work,
 builds both gears and mates them in an assembly. A whole gearbox written in an
-Excel workbook can be imported, checked and built as parts.
+Excel workbook can be imported, checked and built: its parts, a layout part and
+a static assembly with the gears placed meshed.
 
 The gear it builds is parametric in SolidWorks itself. Its sizes live in the
 Equation Manager as global variables, starting with the ten a person would type
@@ -150,10 +151,13 @@ the other way for an external pair, the same way round a ring. It is for gears
 on parallel shafts. The `gear_mate` probe settled the mate's enum value, which
 gear the ratio's numerator goes with, and the flip, on two cylinders on
 SolidWorks 2024 and 2026: driven 30°, the second turned 15° the opposite way
-with Flip off. An external spur pair has since been built on a gear mate
-through the app on 2026 without a failure or interference, but **nobody has
-yet dragged a built pair to check that it turns the right way**, and a ring's
-flip (the opposite of an external pair's) is reasoned, not measured.
+with Flip off. Pairs built through the app's own assembly plan were then
+driven the same way on both versions (`probe/gear_pairs_check.py`, logs in
+`probe/results/` and `probe/results/sw2024/`): a 20 / 40 pair turned 1 : 2 the
+opposite way, and a 20-tooth pinion in a 60-tooth ring 3 : 1 the same way, with
+no interference after the turn. The ring takes the same Flip as an external
+pair: with the opposite one, which the app used to give it, the pinion turned
+against the ring and the teeth clashed.
 
 ## Profile shift
 
@@ -302,7 +306,7 @@ it. The window works out what the rows add up to (*Parallel train · 2 meshes ·
 12.000 : 1 · output turns the same way*), draws the gears seen from +Z, each
 turned so its teeth sit in its partner's spaces, and gives each shaft's speed,
 which way it turns and its torque. Nothing reaches SolidWorks until you press
-**Build parts**.
+**Build** or **Update SolidWorks**.
 
 **Checks and fixes.** Two gears listed in Meshes must sit where their teeth put
 them, within 0.005 mm. When they do not, the error offers fixes: move the shaft
@@ -310,7 +314,7 @@ them, within 0.005 mm. When they do not, the error offers fixes: move the shaft
 need it, or keep your positions and profile-shift both gears to meet them
 (*x +0.084550 / +0.084550 → 64.000 exact*). A chosen fix is checked at once
 and can be undone; it is written to the workbook only on **Export**, and Build
-waits until it is, so the workbook and the parts agree.
+and Update SolidWorks wait until it is, so the workbook and SolidWorks agree.
 
 **Export** writes the chosen fixes' cells and a Results sheet — each shaft's
 speed and torque, each mesh's ratio, centres and contact ratio, the overall
@@ -328,28 +332,72 @@ Excel recalculates; until then Checks are marked provisional and offer no fixes.
 If every cell a fix names holds a formula, nothing is written: change the
 formula, or a cell it reads, in Excel.
 
-**Build parts** builds every gear as a part, exactly as the form builds the same
-values, each with its `.gear.json`; identical gears share one part file, and a
-build never overwrites a file. A `<name>.workbook.json` beside the workbook
-remembers what was built from which version of it.
+**Build** makes the whole gearbox in the output folder, named for the Box's
+Name: every gear as a part, exactly as the form builds the same values, each
+with its `.gear.json` (identical gears share one part file); a layout part,
+`Reducer_12to1_Layout.SLDPRT`, holding an axis per shaft, `"S2 Axis"`, through
+planes set from the origin by globals such as `"S2 X"`; and an assembly,
+`Reducer_12to1.SLDASM`, with the layout part fixed at the origin and each gear
+placed on its shaft at its At, turned so its teeth sit in its partner's spaces,
+and fixed. It then runs SolidWorks' interference detection: *no interference
+between the gears*, or a check naming the two gears and the volume. The
+assembly is static — the gears are placed meshed, but nothing turns yet. A part
+or layout already built and unchanged is reused, after it is opened and checked
+to hold exactly what the workbook asks; a build never overwrites a file. After
+a build SolidWorks marks the inserted parts and the layout part as modified, so
+it may ask to save them when you close the assembly: saving them is harmless,
+since they hold what they were built with.
+
+**Update SolidWorks** carries a later edit of the workbook into what was built:
+the values of a part whose row changed (it keeps its file name, so
+`Gear_m1.5_N68` may now hold 69 teeth; the sentence says so), the layout's
+globals for a shaft that moved, and each gear whose place changed re-placed
+where the workbook now puts it, then interference again. It compares with SolidWorks itself, not
+only with its record, so a gear dragged by hand is put back. **Update does not
+save**, as the form's Update values does not: save in SolidWorks to keep it.
+The window says which documents still hold unsaved changes until you have.
+
+**Build again…** builds the next revision, `Reducer_12to1_r2_Layout.SLDPRT`
+and `Reducer_12to1_r2.SLDASM` (then `_r3`, …), beside the first: new parts for
+the rows that need them, the unchanged parts reused, and nothing overwritten.
+It is what a change Update cannot carry needs — a gear, shaft or mesh added or
+removed, a shaft's X or Y crossing, reaching or leaving 0, another recipe, a
+bore added or removed, a Part name changed, a built file moved away — and Update
+SolidWorks then offers it, asking first. The question says what the new revision makes and
+reuses, and that the reused parts are shared, so a later Update that changes
+one of them changes the earlier assembly too.
+
+`Reducer_12to1.workbook.json` beside the workbook records what was built, from
+which version of the workbook, and what Update changed and has not been saved;
+the header says *built from this version* or *changed since it was built*.
+
+The layout part and assembly were settled on SolidWorks 2026 and 2024 by probe
+tier 7 (`p7_workbook`; `probe/results/latest.json`, `probe/results/sw2024/`), and
+a smoke test of the gearbox build, its reuse and Update passed on 2026
+(`probe/results/gearbox-smoke-20261113-191036.log`): a gearbox built with no
+interference, and interference between the two gears of a mesh when one was
+turned half a pitch; built again, reusing the saved parts and layout after
+checking each; and updated, a dragged gear put back and nothing saved. A full
+demonstration on the 12 : 1 reducer, on both versions, is under way and not yet
+reported.
 
 What is not built yet:
 
-- **Parts only.** The layout part (an axis per shaft), the assembly with the
-  gears placed and meshed, and Update SolidWorks for a changed workbook are the
-  next phase. Build parts has run on SolidWorks 2024 and 2026: the 12 : 1
-  reducer's four parts built, each part's `.gear.json` variables matched the
-  same gear built from the form, and a second build was refused rather than
-  overwrite them (logs in `probe/results/`).
-- Rows a later phase builds are read, and refused at Build with the phase that
-  builds them: bevel gears and turned axes (any Axis but `Z+` or `Z-`) phase W6,
+- **Motion (phase W5).** The assembly is static: every gear is fixed where it
+  meshes, and dragging one turns nothing. Mating gears to the layout's axes,
+  with gear mates between them, comes next.
+- Rows a later phase builds are read, and refused with the phase that builds
+  them: bevel gears and turned axes (any Axis but `Z+` or `Z-`) phase W6,
   shafts mounted on a carrier and their copies phase W7, sleeves, dog rings,
-  sliding gears and modes phase W8. Each is listed under Checks at its cell,
-  and the footer names the first instead of a plain *Ready*. A bevel gear's,
-  sleeve's or dog ring's part is not built; the other gears' parts still are, a
-  planet's or a sliding gear's included, but nothing places or checks them as a
-  gearbox yet — a carrier or a turned axis stops the gearbox checks and speeds
-  altogether.
+  sliding gears and modes phase W8. Each is listed under Checks at its cell.
+  While one is there the button reads **Build parts**: a bevel gear's,
+  sleeve's or dog ring's part is not built, the other gears' parts are (a
+  planet's or a sliding gear's included), and the layout part and assembly
+  wait for its phase — a carrier or a turned axis stops the gearbox checks and
+  speeds altogether. Build parts has run on SolidWorks 2024 and 2026: the
+  12 : 1 reducer's four parts built, each part's `.gear.json` variables matched
+  the same gear built from the form, and a second build was refused rather
+  than overwrite them (logs in `probe/results/`).
 
 ## Driving SolidWorks
 
@@ -357,9 +405,10 @@ The app attaches to a SolidWorks that is already running — it never starts one
 — through the Running Object Table, so with several versions installed it uses
 the one on screen. It needs SolidWorks 2024 (revision 32) or newer: every API
 call it makes, and every kind of gear end to end, was probed on SolidWorks 2024
-and 2026 (see `probe/results/sw2024/`); crown and internal bevel gears and a
-pair on a gear mate, whose probes are newer, have been built whole on 2026
-only. 2025 sits between them and was not probed.
+and 2026 (see `probe/results/sw2024/`); crown and internal bevel pairs, and a
+workbook's layout part and assembly through the app, whose probes are newer,
+have been built whole on 2026 only. 2025 sits between them and was not
+probed.
 
 It only ever works in documents it made. Nothing you have open is touched.
 
