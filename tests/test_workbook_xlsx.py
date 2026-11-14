@@ -440,6 +440,29 @@ def test_bad_input_raises_the_modules_own_errors(tmp_path):
         xlsx.write_cells(str(path), {"Shafts": {"A0": 1}})
 
 
+def test_export_as_never_overwrites_another_file_on_a_volume_whose_file_ids_are_all_zero(tmp_path, monkeypatch):
+    """Some redirectors and virtual drives report a file id (st_ino) of 0 for every file. os.path.samefile then
+    called any existing file the workbook itself, the "never overwrites" guard was skipped and the other file was
+    written over; and with the workbook open in Excel the export was refused as locked instead."""
+    path = excel_like(tmp_path / "w.xlsx")
+    other = tmp_path / "Precious.xlsx"
+    other.write_bytes(b"not ours")
+    real = os.stat
+
+    def ino_zero(p, *args, **kwargs):
+        s = real(p, *args, **kwargs)
+        return os.stat_result((s.st_mode, 0, 7, s.st_nlink, s.st_uid, s.st_gid, s.st_size, int(s.st_atime),
+                               int(s.st_mtime), int(s.st_ctime)))
+    monkeypatch.setattr(os, "stat", ino_zero)
+    with pytest.raises(xlsx.XlsxError, match="never overwrites"):
+        xlsx.write_cells(str(path), {"Shafts": {"B2": 64}}, out_path=str(other))
+    assert other.read_bytes() == b"not ours"
+    (tmp_path / "~$w.xlsx").write_bytes(b"owner")
+    with pytest.raises(xlsx.XlsxError, match="never overwrites"):       # not Locked: it is not the workbook
+        xlsx.write_cells(str(path), {"Shafts": {"B2": 64}}, out_path=str(other))
+    assert other.read_bytes() == b"not ours"
+
+
 def test_saving_over_the_open_workbook_by_its_own_name_is_refused(tmp_path):
     path = excel_like(tmp_path / "w.xlsx")
     (tmp_path / "~$w.xlsx").write_bytes(b"owner")

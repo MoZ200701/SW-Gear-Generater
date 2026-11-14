@@ -31,6 +31,8 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Uni
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape, quoteattr
 
+from ..store import same_file
+
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 STRICT_NS = "http://purl.oclc.org/ooxml/spreadsheetml/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -602,7 +604,9 @@ def write_cells(path: str, changes: Mapping[str, Mapping[str, Value]],
     """
     source = os.path.realpath(path)          # through a symlink: the workbook is the file it points at
     target = os.path.realpath(out_path) if out_path else source
-    writing_source = target == source or (os.path.exists(target) and os.path.samefile(target, source))
+    # store.same_file, not os.path.samefile: a volume that reports a file id of 0 for every file made any
+    # existing file "the source", and Export as… then wrote over it (third W4 review, item 2, met again here).
+    writing_source = target == source or same_file(target, source)
     if writing_source and is_open_in_excel(path):
         raise Locked(f"{os.path.basename(path)} is open in Excel, so it cannot be saved from here. Close it "
                      "there, or use Export as… to write a new file.")
