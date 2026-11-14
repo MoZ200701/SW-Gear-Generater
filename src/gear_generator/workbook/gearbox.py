@@ -283,12 +283,34 @@ class Finished:
     ``store.save_link_record(record)`` unless it is None (nothing reached disk). ``notes`` are sentences about the
     records themselves (a sidecar left alone because it is newer, …) for the footer. ``dragged`` (an update's
     finish only): gears whose live frame differed from the recorded one while the recorded one was what the
-    workbook wanted — the user moved them in SolidWorks, and Update put them back."""
+    workbook wanted — the user moved them in SolidWorks, and Update put them back.
+
+    An update's finish only, additive (W5, package B, for package C to word): when the record as read showed
+    that an earlier Update SolidWorks changed the assembly and that change was never saved — the assembly's
+    path in ``LinkRecord.unsaved`` (where the earlier finish put each path of that Update's ``changed``), its
+    file no newer than that mark — the frames on record are not known to be what SolidWorks held, so nothing
+    found off them is laid to the user. ``earlier_update`` says which: :data:`UPDATE_LOST` when the assembly was
+    not open when this job began (``GearboxUpdate.open_before`` known and without it: SolidWorks closed it
+    unsaved, and that Update's changes are gone), :data:`UPDATE_NOT_SAVED` when it was still open, or when what
+    was open is not known (that Update's changes not saved, or it stopped part way: the record cannot tell
+    which); ``""`` otherwise. Then ``off_after_update`` holds the gears that would otherwise be in ``dragged``
+    (found off their recorded frame, and put back), and ``dragged`` is empty; ``out_of_step_after_update``
+    holds every relation of ``GearboxUpdate.out_of_step`` (the check phase's, against the record), which the
+    sentences then do not call turned out of step by the user. With ``earlier_update`` ``""`` all three are
+    empty and ``dragged`` keeps its meaning."""
 
     record: Optional[LinkRecord] = None
     sidecars: List[Tuple[str, Sidecar]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
     dragged: List[str] = field(default_factory=list)
+    earlier_update: str = ""
+    off_after_update: List[str] = field(default_factory=list)
+    out_of_step_after_update: List[Tuple[str, str]] = field(default_factory=list)
+
+
+# Finished.earlier_update: why frames found off the record are not laid to the user.
+UPDATE_LOST = "lost"              # an earlier Update's change to the assembly was closed unsaved in SolidWorks
+UPDATE_NOT_SAVED = "not saved"    # an earlier Update's change to the assembly is not saved (or it stopped part way)
 
 
 MAX_REVISION = 99                 # the last revision plan_gearbox tries before it says every one is taken

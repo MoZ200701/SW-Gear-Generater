@@ -904,6 +904,10 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
             _follow_trains(box, plan, result, held)
             _follow_mates(box, plan, result)
             box.drag = list(plan.drag)
+        out.earlier_update = _earlier_update(record, plan, result, mtime)
+        if out.earlier_update:
+            out.off_after_update, out.dragged = out.dragged, []
+            out.out_of_step_after_update = [tuple(pair) for pair in getattr(result, "out_of_step", []) or []]
         if changed:
             box.updated = stamp
 
@@ -939,6 +943,28 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     if not (result.failures or result.skipped):
         rec.digest = digest
     return out
+
+
+def _earlier_update(record: LinkRecord, plan: UpdatePlan, result: GearboxUpdate,
+                    mtime: Callable[[str], float]) -> str:
+    """Whether the record as read shows an earlier Update's change to the assembly that was never saved
+    (``gearbox.UPDATE_LOST``, ``gearbox.UPDATE_NOT_SAVED`` or ``""``; see ``Finished``). Read from the record's
+    ``unsaved`` mark on the assembly (the earlier finish marks every path of that Update's ``changed``), the
+    assembly's file time as this job read it before changing anything (``result.mtimes``, else ``mtime``), and
+    ``result.open_before``."""
+    asm = plan.assembly
+    if not asm:
+        return ""
+    then = next((t for p, t in record.unsaved.items() if store.same_path(p, asm)), None)
+    if then is None:
+        return ""
+    now = next((t for p, t in (getattr(result, "mtimes", {}) or {}).items() if store.same_path(p, asm)), None)
+    if (now is not None and now > then) or (now is None and store.saved_since(asm, then, mtime)):
+        return ""                            # saved since: the file holds that Update's changes
+    open_before = getattr(result, "open_before", None)
+    if open_before is not None and not _in(asm, open_before):
+        return gearbox.UPDATE_LOST
+    return gearbox.UPDATE_NOT_SAVED
 
 
 def _follow_trains(box: GearboxRecord, plan: UpdatePlan, result: GearboxUpdate, held: set) -> None:

@@ -1153,3 +1153,85 @@ def test_round_trip_moving_the_input_refreshes_the_drag_gear_and_records_the_tra
     assert finished.record.gearbox.drag == ["G4"]
     check = in_step_on_record(sw, finished.record, spec)
     assert check.in_step and not check.turned
+
+
+# -- an earlier Update not saved, lost or stopped part way: what it left is not laid to the user ---------------------
+
+from gear_generator.workbook import gearbox as gearbox_  # noqa: E402
+
+MOVE = shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5"))
+# The window's turning edit: G3 and G4 to module 2.5 with S3 out to their new centre, and G4's At 27 -> 30.
+TURNING = gears(shafts(reducer(), S3=dict(x="148.75")), G3=dict(module="2.5"), G4=dict(module="2.5", at="30"))
+
+
+def test_round_trip_an_update_lost_with_solidworks_is_not_said_to_be_gears_moved_by_hand(on_fake):
+    sw, record = on_fake
+    _, first, finished = press(sw, record, MOVE)
+    assert first.ok and finished.earlier_update == "" and record.gearbox.assembly in finished.record.unsaved
+    sw.close_all()                                            # SolidWorks closed, nothing saved: the Update is lost
+    plan, result, again = press(sw, finished.record, MOVE, digest="d3")
+    assert result.ok and result.off_axis and again.earlier_update == gearbox_.UPDATE_LOST
+    assert again.dragged == [] and again.off_after_update == result.off_axis
+    assert at_wanted(sw, record, MOVE) and nothing(update.classify(again.record, assessed(MOVE),
+                                                                    exists=lambda p: True))
+    # Saved this time and pressed again with a gear really dragged: the user's again.
+    sw.saved_frames = dict(sw.frames)
+    clean = dict(again.record.unsaved)
+    again.record.unsaved.clear()
+    rotation, at = sw.frames[name2(record, "G4")]
+    sw.frames[name2(record, "G4")] = (rotation, (at[0] + 2.0, at[1], at[2]))
+    _, _, third = press(sw, again.record, MOVE, digest="d4")
+    assert clean and third.earlier_update == "" and third.dragged == ["G4"] and third.off_after_update == []
+
+
+def test_round_trip_the_press_after_a_stopped_update_lays_nothing_it_left_to_the_user(on_fake):
+    from gear_generator import swcom
+    sw, record = on_fake
+    turn_train(sw, record, 30.0)
+    sw.raises = {"place_component": (sw.counts.get("place_component", 0) + 3,
+                                     swcom.SolidWorksError("gear3-1 did not take its frame."))}
+    _, stopped, finished = press(sw, record, TURNING)
+    assert stopped.failures and stopped.placed == ["G1", "G2"] and no_lock_left_off(sw, record)
+    assert record.gearbox.assembly in finished.record.unsaved
+    sw.raises = {}
+    plan, result, again = press(sw, finished.record, TURNING, digest="d3")
+    # What the stopped job left: G4 off its recorded place (its shaft moved, the put never reached it) and G2 put
+    # back while its locked G3 was not.
+    assert result.ok and result.off_axis == ["G4"] and result.out_of_step == [("G2", "G3")]
+    assert again.earlier_update == gearbox_.UPDATE_NOT_SAVED and again.dragged == []
+    assert again.off_after_update == ["G4"] and again.out_of_step_after_update == [("G2", "G3")]
+    assert nothing(update.classify(again.record, assessed(TURNING), exists=lambda p: True))
+    assert in_step_on_record(sw, again.record, TURNING).in_step
+
+
+def test_a_lost_update_on_w4s_static_path_is_not_said_to_be_gears_moved_by_hand():
+    from test_swbuild import FakeSolidWorks
+    sw = FakeSolidWorks()
+    sw, _, _, record = fake_build(reducer(), sw)
+    assert record.gearbox.kind == motion.STATIC
+    _, first, finished = press(sw, record, MOVE)
+    assert first.ok and finished.dragged == [] and finished.earlier_update == ""
+    sw.close_all()
+    _, result, again = press(sw, finished.record, MOVE, digest="d3")
+    assert result.ok and again.earlier_update == gearbox_.UPDATE_LOST
+    assert again.dragged == [] and set(again.off_after_update) == {"G2", "G3", "G4"}
+    assert again.out_of_step_after_update == []
+
+
+def test_an_earlier_updates_mark_on_the_assembly_saved_since_lays_a_drag_to_the_user_again(built):
+    disk, record = built
+    plan = classify(built, reducer())
+    found = {c.gear: (tuple(c.rotation), tuple(c.at)) for c in record.gearbox.components}
+    found["G4"] = (found["G4"][0], (140.0, 3.0, 17.0))
+    marked = copy.deepcopy(record)
+    marked.unsaved[record.gearbox.assembly] = 10.0
+    for when, said in ((5.0, gearbox_.UPDATE_NOT_SAVED), (11.0, "")):
+        result = worker_answer(plan, found=found, placed=("G4",), changed_parts=())
+        result.mtimes = {record.gearbox.assembly: when}
+        done = update.finish_update(plan, result, marked, digest="d2", read_sidecar=disk.read_sidecar,
+                                    mtime=lambda p: when)
+        assert done.earlier_update == said
+        assert (done.dragged, done.off_after_update) == (([], ["G4"]) if said else (["G4"], []))
+    plain = update.finish_update(plan, worker_answer(plan, found=found, placed=("G4",), changed_parts=()), record,
+                                 digest="d2", read_sidecar=disk.read_sidecar, mtime=lambda p: 1.0)
+    assert (plain.earlier_update, plain.dragged, plain.off_after_update) == ("", ["G4"], [])
