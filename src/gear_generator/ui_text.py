@@ -1625,21 +1625,22 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     update_gate = loose.lay_out_refusal() if gearbox is not None else loose.build_refusal()
     update_on = on_record and not update_gate and update is not None and not update.refusal
 
+    held = ""                                     # why Build again… is greyed, when the sentence does not say it
     if action == BUILD_AGAIN:
         build_on = not build_block
         if update_gate:
             text, ok = update_gate, False
         elif update is None:
-            text, ok = f"{_file(gearbox.assembly)} is built from this workbook.", True
+            text, ok, held = f"{_file(gearbox.assembly)} is built from this workbook.", True, build_block
         elif update.refusal:
-            text, ok = update.refusal, False
+            text, ok, held = update.refusal, False, build_block
         elif update.needs_new_revision:
             text, ok = _again_sentence(update, plan.name if plan is not None else ""), not update.missing
             if build_block:
                 # Update would ask, and the build it offers cannot go: say why, and hold both back.
                 text, ok, update_on = f"{text} {build_block}", False, False
         else:
-            text, ok = update_summary(update), True
+            text, ok, held = update_summary(update), True, build_block
     else:
         if build_block:
             text, ok, build_on = build_block, False, False
@@ -1652,18 +1653,40 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
 
     if record_problem:                            # a broken record: Build goes ahead and sets it aside
         text, ok = f"{text} {record_problem}", False
+    unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
+    # A greyed button always has its reason on screen. Build again… held only because Update left documents
+    # unsaved (plan_gearbox will not reuse a part whose file is not what SolidWorks holds) says it waits for that
+    # save, beside the sentence asking for it; held for anything else, the reason itself follows.
+    waits_save = bool(held and unsaved and plan is not None and held == plan.refusal
+                      and any(_file(p) in held for p in unsaved))
     if note is not None:
         if ok:
             text, ok = note[0] + _left_for_later(a.parts), note[1]
         else:
             text = _after_note(note, text)
+        if waits_save:
+            text += " " + build_again_waits(unsaved)
+        elif held:
+            text += " " + held
     else:
-        unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
         if unsaved:
             one = len(unsaved) == 1
             text += (f" {_and(_stem(p) for p in unsaved)} {'has' if one else 'have'} changes from Update SolidWorks "
                      f"that are not saved: save {'it' if one else 'them'} in SolidWorks to keep them.")
+            if waits_save:
+                text += f" {BUILD_AGAIN_WAITS_SAVE}"
+        if held and not waits_save:
+            text += " " + held
     return footer(text + due, ok, build_on, update_on)
+
+
+BUILD_AGAIN_WAITS_SAVE = "Build again… waits for that save."
+
+
+def build_again_waits(unsaved: Sequence[str]) -> str:
+    """After an Update's own sentence (which already asks for the save): why Build again… is greyed."""
+    one = len(unsaved) == 1
+    return f"Build again… waits until {_and(_stem(p) for p in unsaved)} {'is' if one else 'are'} saved in SolidWorks."
 
 
 
@@ -1739,6 +1762,10 @@ def record_unwritten(path: str, error: BaseException) -> str:
     """The ``.workbook.json`` could not be written (the disk refused): the files SolidWorks saved stay."""
     return (f"The record of what was built, {_file(path)}, could not be written: {error}. What SolidWorks saved "
             "stays on disk, and the next Build goes beside it rather than over it.")
+
+
+FIX_SET_ASIDE = ("The workbook changed, so the fix you chose no longer applies as it was and was set aside; choose "
+                 "again from Checks.")
 
 
 def record_not_carried(why: str) -> str:

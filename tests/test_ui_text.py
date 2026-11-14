@@ -937,3 +937,27 @@ def test_a_clash_is_called_a_mesh_only_when_it_is_one():
     nothing.clashes = [mesh]
     assert ui_text.gearbox_update_status(_update(), nothing, meshes=[["G1", "G2"], ["G3", "G4"]])[0].endswith(
         "look at their mesh in Reducer_12to1.SLDASM.")
+
+
+def test_build_again_greyed_always_says_why(ready):
+    """After an Update not yet saved, plan_gearbox will not reuse the changed part, so Build again… is greyed: the
+    footer says it waits for the save, with the note after the update and with the unsaved sentence after it."""
+    unsaved = {_path("Gear_m1.5_N68"): 1.0, _path("Reducer_12to1", ".SLDASM"): 1.0}
+    refusal = ("Gear_m1.5_N68.SLDPRT was changed in SolidWorks by Update SolidWorks and has not been saved since, so "
+               "the file is not yet the part this build would use: save it in SolidWorks, then build again.")
+    again = _gearbox(name="Reducer_12to1_r2", revision=2, refusal=refusal)
+    matches = _update(parts=(), moved_shafts=(), replaced=(), unsaved=tuple(unsaved))
+    f = _footer(ready, record=_record(unsaved=unsaved), plan=again, update=matches)
+    assert not f.build_enabled and f.update_enabled
+    assert f.text.endswith("Gear_m1.5_N68 and Reducer_12to1 have changes from Update SolidWorks that are not saved: "
+                           "save them in SolidWorks to keep them. Build again… waits for that save.")
+    updated = ("Updated SolidWorks: changed 1 variable in Gear_m1.5_N68; no interference between the gears. Save in "
+               "SolidWorks to keep it.", True)
+    f = _footer(ready, record=_record(unsaved=unsaved), plan=again, update=matches, note=updated)
+    assert f.text == (updated[0] + " Build again… waits until Gear_m1.5_N68 and Reducer_12to1 are saved in "
+                      "SolidWorks.")
+    # Held for anything else, the reason itself follows what Update would do.
+    f = _footer(ready, record=_record(), plan=_gearbox(name="Reducer_12to1_r2", revision=2), update=_update(),
+                folder_exists=False)
+    assert not f.build_enabled and f.update_enabled and f.text.startswith("Update SolidWorks will change")
+    assert f.text.endswith("does not exist; make it, or change it on the Box sheet.")
