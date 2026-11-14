@@ -4,7 +4,7 @@ pass    attach  (0.0 s)
   fact   revision = '34.0.0'
   fact   version = 'SolidWorks 2026 (revision 34.0.0)'
   ok     revision 34.0.0 is SolidWorks 2026 or newer
-  fact   open_at_start = ['Aileron Hinge 1.2.SLDPRT']
+  fact   open_at_start = ['<user document 2>']
 pass    templates  (0.0 s)
   try    GetDocumentTemplate(1, '', 0, 0, 0): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot'
   try    GetUserPreferenceStringValue(8): returned 'C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2025\\templates\\Part.prtdot'

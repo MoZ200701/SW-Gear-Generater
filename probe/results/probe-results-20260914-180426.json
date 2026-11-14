@@ -40,8 +40,8 @@
       "error": null,
       "facts": {
         "open_at_start": [
-          "Master Geometry-Wing.SLDPRT",
-          "Aileron Hinge 1.2.SLDPRT"
+          "<user document 1>",
+          "<user document 2>"
         ],
         "revision": "34.0.0",
         "version": "SolidWorks 2026 (revision 34.0.0)"
@@ -64,11 +64,11 @@
         },
         {
           "detail": [
-            "Master Geometry-Wing.SLDPRT",
-            "Aileron Hinge 1.2.SLDPRT"
+            "<user document 1>",
+            "<user document 2>"
           ],
           "level": "fact",
-          "text": "open_at_start = ['Master Geometry-Wing.SLDPRT', 'Aileron Hinge 1.2.SLDPRT']"
+          "text": "open_at_start = ['<user document 1>', '<user document 2>']"
         }
       ],
       "members": [
