@@ -1,7 +1,7 @@
 r"""W5's (and W4's) Windows demonstration: gearbox workbooks through the app's own code, on real SolidWorks and Excel.
 
 python.exe probe/workbook_assembly_check.py <repo src> <output folder under C:\> --pid PID [--log FILE]
-                                            [--only m1|m2|m3|m4|m5|a|a2|a3|b|c ...] [--fixtures FOLDER]
+                                            [--only m1|m2|m3|m4|m5|m6|a|a2|a3|b|c ...] [--fixtures FOLDER]
                                             [--m4-offset MM]
 
 PLAN-WORKBOOK §6; W4 "Demonstrable" and the W4 decisions' item 10; W5-PLAN §4 with W5-DECISIONS' rulings. Every
@@ -47,7 +47,7 @@ Nothing is taken on the app's word: each assembly is measured.
   that it is a NOTE (logged, listed at the end, not a failure) for the coordinator to rule on; a document expected
   marked and not marked is a FAIL.
 
-The sections, each in its own folder under the output folder (default order m1 m3 m2 m4 m5 a a2 a3 b c):
+The sections, each in its own folder under the output folder (default order m1 m3 m2 m4 m5 m6 a a2 a3 b c):
 
 - ``m1`` (W5-PLAN §4.3): the Windows-saved 12 : 1 fixture (compound S2). Build turning; §4.1; §4.2 with the
   control on G3 meshes G4. M7: an angle mate the record does not know, on G4, unsuppressed -> Update refuses
@@ -81,6 +81,14 @@ The sections, each in its own folder under the output folder (default order m1 m
   the section closed in SolidWorks without saving (``QuitDoc``), Update pressed again on the same workbook: the
   sentence "… was not saved before … was closed, so its changes were made again", and the drive at 17 : 69 shows
   whether the gear mate holds the ratio the record says.
+- ``m6``: mates in a folder (W5-DECISIONS on P0c: a turning Update skips the folder's "FtrFolder" entries). The
+  12 : 1 built; its two gear mates put in a mate folder (``findings.MATE_FOLDER_ROUTE``); saved, closed and
+  reopened; Excel G3 At 27 -> 29, an Update that puts the whole train: it must pass, find every recorded mate and
+  report it, the mates still in their folder (no remake moves one out), frames, mates and interference clean.
+
+  No committed fixture has a gear that carries two gear mates (an idler), so the idler tooth change
+  (``IDLER_UPDATE_HOLDS``) is not demonstrated through the app here; the 12 : 1 tooth change stays the
+  demonstration's.
 - ``a``: W4's section a on a turning build: build; §4.1; the demonstration edit as an Update by the remake (W4's
   "G2 at its old frame clashes" control does not hold for mated gears — the axis mate pulls a put gear back — so
   §4.2's drive at 17 : 69 stands in for it); then G1's bore cleared with Update's changes unsaved: the build-again
@@ -117,7 +125,7 @@ import traceback
 sys.path.insert(0, sys.argv[1])
 SRC, OUT = sys.argv[1], sys.argv[2]
 PID = int(sys.argv[sys.argv.index("--pid") + 1])
-DEFAULT_ORDER = ["m1", "m3", "m2", "m4", "m5", "a", "a2", "a3", "b", "c"]
+DEFAULT_ORDER = ["m1", "m3", "m2", "m4", "m5", "m6", "a", "a2", "a3", "b", "c"]
 ONLY = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--only"] or DEFAULT_ORDER
 LOG_PATH = sys.argv[sys.argv.index("--log") + 1] if "--log" in sys.argv else os.path.join(OUT, "workbook-assembly.log")
 FIXTURES = sys.argv[sys.argv.index("--fixtures") + 1] if "--fixtures" in sys.argv else ""
@@ -261,6 +269,28 @@ def memory():
 
 
 PROGRESS = {"Calculating Interference Detection": 0, "Updating...": 0, "Opening": 0, "Loading...": 0}
+# Set only while this run closes a refused, never-saved assembly by its title (m4): no probe closed one on 2024 under
+# a watch, so a "save changes?" box there is answered "Don't Save", as a person closing it unsaved would, and logged.
+DISMISS = threading.Event()
+DISMISS_BUTTONS = ("&No", "No", "Do&n't Save", "Don't Save", "&Don't Save", "Don't save")
+
+
+def press_dont_save(hwnd):
+    """Post BM_CLICK to the dialog's "No"/"Don't Save" button; the button's text, or "" when it has none."""
+    found = []
+
+    def each(child, _):
+        if win32gui.GetWindowText(child) in DISMISS_BUTTONS:
+            found.append(child)
+        return True
+    try:
+        win32gui.EnumChildWindows(hwnd, each, None)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not found:
+        return ""
+    win32gui.PostMessage(found[0], 0x00F5, 0, 0)      # BM_CLICK
+    return win32gui.GetWindowText(found[0])
 
 
 class DialogWatch(threading.Thread):
@@ -297,6 +327,10 @@ class DialogWatch(threading.Thread):
                             continue
                     say(f"DIALOG  SolidWorks shows {title!r}: {xlhelp.child_texts(hwnd)[:8]}"
                         + (" (a progress box that closes itself; not logged again)" if title in PROGRESS else ""))
+                    if DISMISS.is_set() and title not in PROGRESS:
+                        pressed = press_dont_save(hwnd)
+                        say(f"DIALOG  closing a refused, never-saved assembly: pressed {pressed!r}" if pressed else
+                            "DIALOG  closing a refused, never-saved assembly: no No / Don't Save button to press")
             if TAG["major"] == 32 and free_gb() < 2.0 and not STOP.is_set():
                 say(f"STOP    {memory()}: under 2 GB free, the run stops at the next step")
                 STOP.set()
@@ -366,7 +400,11 @@ def close_ours(session):
     for doc in documents(app):
         title = str(call(doc, "GetTitle"))
         if not str(call(doc, "GetPathName") or "") and title in REFUSED:
-            call(app, "CloseDoc", title)
+            DISMISS.set()
+            try:
+                call(app, "CloseDoc", title)
+            finally:
+                DISMISS.clear()
             say(f"        closing: the refused assembly {title}, never saved, closed by its title")
     for kind in (2, 1):
         for doc in documents(app):
@@ -1955,6 +1993,64 @@ def injected(plan, offset):
     return dataclasses.replace(plan, assembly=dataclasses.replace(plan.assembly, ops=tuple(ops)))
 
 
+FOLDER_CONTAINING = 2       # swFeatureTreeFolderType_e.swFeatureTreeFolder_Containing, as probe mate_folders read it
+
+
+def mate_folder(session, names, folder_name):
+    """``findings.MATE_FOLDER_ROUTE``, as probe mate_folders made one: the mates selected (Select2, appending after
+    the first), ``IFeatureManager.InsertFeatureTreeFolder2(swFeatureTreeFolder_Containing)``, the folder renamed, a
+    top-only rebuild. Returns the mate group's walk as (name, GetTypeName2)."""
+    doc = session._doc()  # noqa: SLF001
+    call(doc, "ClearSelection2", True)
+    for index, name in enumerate(names):
+        call(session._mate_feature(name), "Select2", index > 0, 0)  # noqa: SLF001
+    folder = call(call(doc, "FeatureManager"), "InsertFeatureTreeFolder2", FOLDER_CONTAINING)
+    call(doc, "ClearSelection2", True)
+    if folder is None:
+        raise swcom.SolidWorksError("InsertFeatureTreeFolder2 made no folder")
+    folder.Name = folder_name
+    session.rebuild(kind=swcom.ASSEMBLY_TRAIN)
+    return mate_walk(session)
+
+
+def mate_walk(session):
+    """The mate group as SolidWorks lists it: (name, GetTypeName2) of every entry, folders included."""
+    return [(str(call(f, "Name")), swcom._type_name(f)) for f in session._mate_group()]  # noqa: SLF001
+
+
+def section_m6(worker, excel):
+    say("== m6  the 12 : 1's gear mates in a mate folder, saved and reopened; an Update that puts the whole train")
+    folder, path, book, desk = fixture_desk(worker, excel, "m6", FIXTURE_12)
+    build_turning(worker, desk, "m6", 4)
+    measure(worker, desk, "m6 built", controls=False, again=False)
+    box = desk.record.gearbox
+    gear_mates = [m.name for m in box.mates if m.kind == "mesh"]
+    walk = run(worker, in_assembly(box.assembly, lambda s: mate_folder(s, gear_mates, "Gear mates")))
+    say(f"        the mate group with the folder: {walk}")
+    check(any(t == findings.MATE_FOLDER_TYPE_NAME for _, t in walk) and all(n in [w[0] for w in walk]
+                                                                           for n in gear_mates),
+          f"m6: a folder ({findings.MATE_FOLDER_TYPE_NAME}) holds {gear_mates}, still listed in the walk")
+    measure_mates(worker, desk, "m6 with the folder")
+    reopen(worker, desk, "m6 with the folder")
+    walk = run(worker, in_assembly(box.assembly, mate_walk))
+    say(f"        the mate group reopened: {walk}")
+    edit(desk, book, ("Gears", "C4", 29))
+    guard()
+    _, result, _ = desk.update_solidworks()
+    check(result is not None and result.ok and sorted(result.placed) == all_mated(desk)
+          and sorted(m.name for m in result.mates) == sorted(m.name for m in box.mates),
+          f"m6: the Update passed with the mates in a folder, put every gear, and found and reported every recorded "
+          f"mate: {desk.note[0]!r}")
+    walk = run(worker, in_assembly(box.assembly, mate_walk))
+    say(f"        the mate group after the Update: {walk}")
+    if result is not None:
+        update_marks(worker, desk, result, "m6 G3 At", folder)
+        measure_frames(worker, desk, "m6 G3 At")
+        measure_mates(worker, desk, "m6 G3 At")
+        measure_clear(worker, desk, "m6 G3 At")
+    book.close()
+
+
 def p0c_findings():
     """What probe round P0c set, by name (read when it is committed; logged whatever it is)."""
     keys = ("SECOND_ASSEMBLY", "COMMAND_IN_PROGRESS", "LIGHTWEIGHT", "MATE_FOLDER", "FOLDER", "IDLER",
@@ -2528,7 +2624,7 @@ def section_c(worker, excel):
     book.close()
 
 
-SECTIONS = {"m1": section_m1, "m2": section_m2, "m3": section_m3, "m4": section_m4, "m5": section_m5,
+SECTIONS = {"m1": section_m1, "m2": section_m2, "m3": section_m3, "m4": section_m4, "m5": section_m5, "m6": section_m6,
             "a": section_a, "a2": section_a2, "a3": section_a3, "b": section_b, "c": section_c}
 
 

@@ -35,7 +35,8 @@ and the footer, read line and gear table are logged.
    found); Build stops at the mate check: the sentence names the mate problems, says the assembly is left open
    and that Build is available again once the workbook changes, Build is greyed, the record holds the problems
    and their digest, and no assembly file is written. Shot as 10. The refused document is then closed by its
-   title (this run's modified documents saved first, as W4's close_ours does on 2024).
+   title (this run's modified documents saved first, as W4's close_ours does on 2024), any dialog it raises answered
+   "Don't Save" and logged: no probe closed a never-saved refused assembly on 2024 under a watch.
 
 Afterwards the window is closed, Excel quit, and this run's SolidWorks documents saved and closed.
 
@@ -223,9 +224,57 @@ def close_ours():
     return in_solidworks(work)
 
 
+DONT_SAVE = ("&No", "No", "Do&n't Save", "Don't Save", "&Don't Save", "Don't save")
+
+
+def answer_dont_save(stop, pressed):
+    """While the refused assembly is closed: any SolidWorks dialog (#32770) of the PID gets its No / Don't Save
+    button pressed (BM_CLICK), as a person closing a never-saved assembly unsaved would; each is logged. No probe
+    closed one on 2024 under a watch, so this is what keeps a "save changes?" box from holding the close."""
+    import win32process
+    seen = set()
+    while not stop.is_set():
+        found = []
+
+        def each(hwnd, _):
+            if (win32gui.IsWindowVisible(hwnd) and win32gui.GetClassName(hwnd) == "#32770"
+                    and win32process.GetWindowThreadProcessId(hwnd)[1] == PID):
+                found.append(hwnd)
+            return True
+        try:
+            win32gui.EnumWindows(each, None)
+        except Exception:  # noqa: BLE001
+            pass
+        for hwnd in found:
+            if hwnd in seen:
+                continue
+            seen.add(hwnd)
+            buttons = []
+            win32gui.EnumChildWindows(hwnd, lambda c, _: buttons.append(c) or True, None)
+            hit = [c for c in buttons if win32gui.GetWindowText(c) in DONT_SAVE]
+            pressed.append((win32gui.GetWindowText(hwnd), win32gui.GetWindowText(hit[0]) if hit else ""))
+            if hit:
+                win32gui.PostMessage(hit[0], 0x00F5, 0, 0)
+        time.sleep(0.5)
+
+
 def close_refused():
     """The refused assembly the build left open (an untitled assembly that was not open before the run): this run's
-    modified documents saved first, then ``CloseDoc`` by its title, as W4's close_ours closes on 2024."""
+    modified documents saved first, then ``CloseDoc`` by its title, as W4's close_ours closes on 2024, with any
+    dialog answered "Don't Save" and logged (``answer_dont_save``)."""
+    stop, pressed = threading.Event(), []
+    watcher = threading.Thread(target=answer_dont_save, args=(stop, pressed), daemon=True)
+    watcher.start()
+    try:
+        out = _close_refused()
+    finally:
+        stop.set()
+        watcher.join(5)
+    out["dialogs"] = pressed
+    return out
+
+
+def _close_refused():
     def work(app):
         for doc in _docs(app):
             path = str(call(doc, "GetPathName") or "")
