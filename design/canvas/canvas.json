@@ -118,6 +118,20 @@
       "x": 13196,
       "y": 0,
       "w": 1080
+    },
+    {
+      "file": "WorkbookUnsaved.dc.html",
+      "title": "Workbook · after Update, not yet saved, a change that needs a new part",
+      "x": 14356,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookCopy.dc.html",
+      "title": "Workbook · a copied workbook, the original still there",
+      "x": 15516,
+      "y": 0,
+      "w": 1080
     }
   ],
   "annotations": [
