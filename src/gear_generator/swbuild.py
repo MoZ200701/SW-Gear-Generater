@@ -2337,7 +2337,13 @@ MOTION_UPDATE_FINDINGS = (
 
 
 def _motion_gate(motion: MotionUpdate) -> None:
-    """Refuse, before anything is read or changed, a motion Update whose SolidWorks calls are not settled."""
+    """Refuse, before anything is read or changed, a motion Update whose SolidWorks calls are not settled: a new
+    ratio first by its route (the reason a user can act on), then every finding of :data:`MOTION_UPDATE_FINDINGS`."""
+    route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
+    if motion.ratios and route != "remake":
+        raise BuildError(f"Giving a gear mate a new ratio has not been settled on SolidWorks (findings."
+                         f"GEAR_MATE_RATIO_ROUTE is {route!r}), so nothing is changed; build the gearbox again for a "
+                         "new tooth count.")
     for name, wanted, what, needed_for in MOTION_UPDATE_FINDINGS:
         if needed_for and not getattr(motion, needed_for):
             continue
@@ -2345,11 +2351,6 @@ def _motion_gate(motion: MotionUpdate) -> None:
         if value is None or (wanted is not _SET and value != wanted):
             raise BuildError(f"Update SolidWorks on a gearbox built to turn needs {what} settled on SolidWorks "
                              f"(findings.{name} is {value!r}), so nothing is changed; run probe tier 8 first.")
-    route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
-    if motion.ratios and route != "remake":
-        raise BuildError(f"Giving a gear mate a new ratio has not been settled on SolidWorks (findings."
-                         f"GEAR_MATE_RATIO_ROUTE is {route!r}), so nothing is changed; build the gearbox again for a "
-                         "new tooth count.")
 
 
 def _motion_consistent(motion: MotionUpdate, placements: Sequence[Placement]) -> None:

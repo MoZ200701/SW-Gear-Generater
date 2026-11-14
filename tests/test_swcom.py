@@ -1675,6 +1675,7 @@ def test_the_remake_deletes_the_gear_mate_makes_it_again_at_the_ratio_and_gives_
     session, doc = mated
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
     steps = [e[:2] for e in doc.log if e[0] in ("Select2", "EditDelete", "AddMate5")]
     assert steps == [("Select2", "G3 meshes G4"), ("EditDelete",), ("Select2", "Gear Axis@Gear_m1.5_N17-2"),
@@ -1691,6 +1692,7 @@ def test_a_remake_solidworks_will_not_make_again_says_the_mate_was_deleted(mated
     session, doc = mated
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     doc.refuse = True
     with pytest.raises(swcom.MateRefused) as raised:
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
@@ -1704,6 +1706,7 @@ def test_a_remake_whose_selection_fails_is_an_ordinary_failure_not_mate_refused(
     session, doc = mated
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     session._handles["placed4"] = {"component": MatedComponent(doc, "Gear_m1.5_N51-1")}
     session._handles["placed4"]["component"].FeatureByName = lambda name: None
     doc.Extension = type("NoSelect", (), {"SelectByID2": lambda self, *args: False})()
@@ -1727,6 +1730,7 @@ def test_any_failure_after_the_delete_says_the_open_assembly_lost_the_gear_mate(
     session, doc = mated
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
 
     def fails(*args):
         raise error
@@ -1743,6 +1747,7 @@ def test_a_remake_solidworks_names_otherwise_says_the_open_assembly_lost_the_mat
     session, doc = mated
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     monkeypatch.setattr(swcom.Session, "_rename", staticmethod(lambda feature, name: "G3 meshes G4 1"))
     with pytest.raises(SolidWorksError) as raised:
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
@@ -1769,6 +1774,7 @@ def test_a_remake_without_the_delete_route_is_refused_before_the_mate_is_touched
     session, doc = mated
     _ratio_world(session, doc)
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     monkeypatch.setattr(findings, "MATE_DELETE_ROUTE", "Select2 then DeleteSelection2(0)")
     with pytest.raises(SolidWorksError, match="findings.MATE_DELETE_ROUTE is 'Select2 then DeleteSelection2"):
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))

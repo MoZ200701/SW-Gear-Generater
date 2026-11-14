@@ -2490,6 +2490,7 @@ def test_the_fake_finds_suppresses_and_remakes_mates_by_name(monkeypatch):
     with pytest.raises(SolidWorksError):
         fake.set_gear_ratio("m", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     fake.set_gear_ratio("m", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
     assert fake.mate("G3 meshes G4").ratio == (18.0, 50.0) and fake.mates[-1].name == "G3 meshes G4"
 
@@ -2981,6 +2982,7 @@ def test_a_motion_update_without_its_findings_is_refused_before_anything_is_read
 def test_every_finding_the_motion_update_calls_need_is_read_before_anything_is_read(monkeypatch, name, ratios):
     """A missing FEATURE_UNSUPPRESS would suppress the locks and then refuse to turn them back on: read first."""
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     fake = _built_train()
     monkeypatch.setattr(findings, name, None)
     with pytest.raises(swbuild.BuildError, match=rf"findings.{name} .*None\), so nothing is (made or )?changed; run "
@@ -2999,6 +3001,7 @@ def test_a_new_ratio_is_refused_before_anything_changes_while_the_route_is_not_t
 
 def test_with_the_remake_a_new_ratio_is_set_with_the_locks_off_before_the_train_is_put(monkeypatch):
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     fake = _built_train()
     result = _update_train(fake, motion=_motion(ratios=(("G3 meshes G4", 18, 50),)))
     assert result.ok, result.log_lines()
@@ -3151,6 +3154,7 @@ def test_a_remake_that_fails_still_lists_the_assembly_as_changed(monkeypatch, re
     """A refusal is a MateRefused, a COM or selection failure an ordinary one (Build stays enabled): either way the
     gear mate was deleted, so the assembly is changed and listed."""
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_REMAKE_WORKS", True)
     fake = _built_train()
     lost = (swcom.MateRefused if refused else SolidWorksError)(
         "The open T.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its new ratio, and making "
