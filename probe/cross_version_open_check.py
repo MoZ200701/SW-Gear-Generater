@@ -11,6 +11,12 @@ fact line, if it answers. Nothing is saved: the documents this run opened are cl
 closed modified documents without a dialog, W4-RERUN-2026), assembly first, and the files' sha256 and mtime are
 compared before and after. Refuses unless the session attached is the PID given; documents open before the run
 are left alone and logged as ``<user document N>``.
+
+Run on 2026-11-14 (2026, 34.1.1) on section b's and c's gearboxes as SolidWorks 2024 saved them: every document
+read GetSaveFlag False straight after the open and no file changed. But ``QuitDoc`` on each assembly raised a
+modal "SOLIDWORKS CAM Warning" asking "Save changes to <assembly>?" (the CAM add-in, whatever the save flag
+said), which blocked the run until No was pressed by hand; a 2026-made assembly closed by ``QuitDoc`` raised
+none. ``GetVersionHistory`` answered "<unknown>.GetVersionHistory" through late binding (not probed; logged only).
 """
 
 import hashlib
@@ -114,20 +120,26 @@ def work(session):
 
 def main():
     say(f"run     {time.strftime('%Y-%m-%d %H:%M:%S')}; app gear-generator {__version__}; assembly {ASM}")
-    found = [c for c in swcom.find_candidates() if c.pid == PID]
-    if not found:
-        say(f"STOP    no SolidWorks session with PID {PID} is reachable")
-        return 2
-    worker = swcom.Worker(lambda: swcom.Session(found[0].app, found[0].revision, found[0].pid))
+    def connect_pid():
+        # On the worker's own thread, as workbook_assembly_check does: a COM object found on another thread
+        # answered "<unknown>.GetFirstDocument" here.
+        found = [c for c in swcom.find_candidates() if c.pid == PID]
+        if not found:
+            raise swcom.NotRunning(f"No SolidWorks session with PID {PID} is reachable.")
+        return swcom.Session(found[0].app, found[0].revision, found[0].pid)
+
+    worker = swcom.Worker(connect_pid)
     try:
-        (label, pid), error = worker.submit(lambda s: (s.label, s.pid)).wait(timeout=120)
+        value, error = worker.submit(lambda s: (s.label, s.pid)).wait(timeout=120)
         if error is not None:
             raise error
+        label, pid = value
         say(f"attach  {label}, PID {pid}")
         disk_before = stamps()
-        (flags, left), error = worker.submit(work).wait(timeout=600)
+        value, error = worker.submit(work).wait(timeout=600)
         if error is not None:
             raise error
+        flags, left = value
         check(not left, f"closed without saving (QuitDoc): left {left}")
         disk_after = stamps()
         check(disk_before == disk_after, f"no file of the gearbox changed on disk ({len(disk_before)} files, sha256 "

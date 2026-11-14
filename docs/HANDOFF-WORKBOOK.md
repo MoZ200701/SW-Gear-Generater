@@ -111,6 +111,24 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    that launcher was a scratch file on the host and has to be written again (`W4-RERUN-2026.md`, "How it
    ran"). Pass 4 added one expectation a rerun must confirm: a document just opened from its file reads
    `GetSaveFlag` False.
+
+   *2026-11-14: rerun done, every check passed on both versions*, from a `git archive` snapshot of `9ac36c5`
+   (the app as of `388c8d3`; `cross_version_open_check.py` as committed with these logs), one SolidWorks at a time, each started for the run and exited
+   after it (no launcher needed). `workbook_assembly_check.py`: 322 of 322 on 2026 (34.1.1,
+   `probe/results/w4-workbook-assembly-20261114-053855.log`) and 322 of 322 on 2024 (32.5.0, all five sections
+   for the first time, `sw2024/w4-workbook-assembly-20261114-055924.log`), exit 0 both. `workbook_window_check.py`:
+   10 of 10 on each (`w4-window-20261114-055011.log`, `sw2024/w4-window-20261114-061023.log`).
+   `gear_pairs_check.py` on 2026: spur, ring, crown and internal all ok, as before the three kinds
+   (`gear-pairs-20261114-055230.log`). The three checks the 2026 rerun failed now pass; after a build no part
+   or layout part is marked and the assembly is; the part-only Update in b marks G2's part and the rebuilt
+   assembly, the record the part alone; every document reads `GetSaveFlag` False straight after a reopen. The
+   new fact lines isolate what marks the assembly: the frame reads leave every flag False, `interferences()`
+   marks the assembly (six reopens on each version). A gearbox saved by 2024 and opened in 2026
+   (`probe/cross_version_open_check.py`, `w4-cross-version-2024-in-2026-*.log`): every document reads False
+   straight after the open and no file changes; but `QuitDoc` on each such assembly raised a modal "SOLIDWORKS
+   CAM Warning: Save changes to <assembly>?" (the CAM add-in, not the save flag), answered No by hand; a
+   2026-made assembly closed by `QuitDoc` in a3 raised none. The first 2026 attempt stopped at a script fault
+   (a local shadowing the new `marked()`), kept as `w4-workbook-assembly-20261114-053142-stopped-by-a-script-fault.log`.
 4. Redraw the four board PNGs. Then W4 can be called closed.
 
 **Known and left:** a journaled assembly (an interrupted build that had got as far as saving the assembly)

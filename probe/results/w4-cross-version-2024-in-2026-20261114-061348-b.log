@@ -1,0 +1,16 @@
+run     2026-11-14 06:13:48; app gear-generator 0.3.1; assembly C:\Users\M0obo\Documents\GearGeneratorProbe\w4-rerun2-20261114-053109\asm2024\b\Arc_Move.SLDASM
+attach  SolidWorks 2026 (revision 34.1.1), PID 11052
+open    before: []
+ok      none of the gearbox's documents is open before the run
+opened  Arc_Move.SLDASM (C:\Users\M0obo\Documents\GearGeneratorProbe\w4-rerun2-20261114-053109\asm2024\b\Arc_Move.SLDASM) by the app's open_document
+flags   GetSaveFlag straight after the open: {'Arc_Move_Layout.SLDPRT': False, 'Gear_m2_N18.SLDPRT': False, 'Gear_m2_N22.SLDPRT': False, 'Gear_m2_N17.SLDPRT': False, 'Gear_m2_N23.SLDPRT': False, 'Arc_Move.SLDASM': False}
+ok      every document of a gearbox saved by another release reads GetSaveFlag False straight after the open: marked []
+fact    Arc_Move_Layout.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Gear_m2_N18.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Gear_m2_N22.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Gear_m2_N17.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Gear_m2_N23.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Arc_Move.SLDASM version history: ['raised <unknown>.GetVersionHistory']
+ok      closed without saving (QuitDoc): left []
+ok      no file of the gearbox changed on disk (6 files, sha256 and mtime)
+done    0 failed: []

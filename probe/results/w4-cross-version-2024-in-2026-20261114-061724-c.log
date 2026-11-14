@@ -1,0 +1,18 @@
+run     2026-11-14 06:17:24; app gear-generator 0.3.1; assembly C:\Users\M0obo\Documents\GearGeneratorProbe\w4-rerun2-20261114-053109\asm2024\c\Risky_Placements.SLDASM
+attach  SolidWorks 2026 (revision 34.1.1), PID 11052
+open    before: []
+ok      none of the gearbox's documents is open before the run
+opened  Risky_Placements.SLDASM (C:\Users\M0obo\Documents\GearGeneratorProbe\w4-rerun2-20261114-053109\asm2024\c\Risky_Placements.SLDASM) by the app's open_document
+flags   GetSaveFlag straight after the open: {'Risky_Placements_Layout.SLDPRT': False, 'Helical_m2_N14_20R.SLDPRT': False, 'Helical_m2_N20_20L.SLDPRT': False, 'Herringbone_m2_N14_25R.SLDPRT': False, 'Herringbone_m2_N22_25R.SLDPRT': False, 'Helical_m2_N14_20L.SLDPRT': False, 'Ring_m2_N36_20L.SLDPRT': False, 'Risky_Placements.SLDASM': False}
+ok      every document of a gearbox saved by another release reads GetSaveFlag False straight after the open: marked []
+fact    Risky_Placements_Layout.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Helical_m2_N14_20R.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Helical_m2_N20_20L.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Herringbone_m2_N14_25R.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Herringbone_m2_N22_25R.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Helical_m2_N14_20L.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Ring_m2_N36_20L.SLDPRT version history: ['raised <unknown>.GetVersionHistory']
+fact    Risky_Placements.SLDASM version history: ['raised <unknown>.GetVersionHistory']
+ok      closed without saving (QuitDoc): left []
+ok      no file of the gearbox changed on disk (8 files, sha256 and mtime)
+done    0 failed: []
