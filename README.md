@@ -346,9 +346,15 @@ or layout already built and unchanged is reused, after it is opened and checked
 to hold exactly what the workbook asks — one that does not (an update lost when
 SolidWorks closed unsaved, a feature deleted by hand) is noted, nothing is
 built, and the next press makes that part new; a build never overwrites a file,
-and a part whose file name is taken gets its own `_r2`. A workbook copied with
-its folder builds a gearbox of its own beside the original's files and leaves
-them alone. After
+and a part whose file name is taken gets its own `_r2` (never the name another
+row's Part name asks for). A workbook copied with its folder builds a gearbox
+of its own beside the original's files and leaves them alone; when the
+workbook its record was written for is gone, the window asks once whether this
+one was moved there or is a copy, and remembers the answer in the record.
+While a build runs, the record keeps a journal of what it is about to make, so
+if the app is killed, crashes or is quit while SolidWorks does not answer, the
+next Build checks what SolidWorks saved and reuses it rather than go beside
+it. After
 a build SolidWorks marks the inserted parts and the layout part as modified, so
 it may ask to save them when you close the assembly: saving them is harmless,
 since they hold what they were built with.
@@ -361,8 +367,12 @@ where the workbook now puts it, then interference again. It compares with SolidW
 only with its record, so a gear dragged by hand is put back. **Update does not
 save**, as the form's Update values does not: the window names the documents
 it changed — save them in SolidWorks to keep them — and says so until you
-have. Nothing waits for that save: a build that would reuse a part Update left
+have (or, if SolidWorks closed them without saving, to press Update SolidWorks
+again). Nothing waits for that save: a build that would reuse a part Update left
 unsaved makes that part new instead, and says so; saved, the part is reused.
+A later job that loads those documents from their files settles them: an
+Update that finds them holding the workbook's values clears the marks, so a
+change lost when SolidWorks closed unsaved never holds a part back for good.
 
 **Build again…** builds the next revision, `Reducer_12to1_r2_Layout.SLDPRT`
 and `Reducer_12to1_r2.SLDASM` (then `_r3`, …), beside the first: new parts for
@@ -381,8 +391,10 @@ assembly too.
 which version of the workbook, and what Update changed and has not been saved;
 the header says *built from this version*, *changed since it was built*, or,
 while an update is not saved, *updated from this version, not yet saved*.
-Closing the app while a workbook's build or update runs waits until what it
-saved is on record.
+Closing the app while a workbook's build or update, or the strip's own build,
+runs waits until what it saved is on record; closing it a second time while
+SolidWorks does not answer (a dialog open there, say) asks whether to quit
+anyway.
 
 The layout part and assembly were settled on SolidWorks 2026 and 2024 by probe
 tier 7 (`p7_workbook`; `probe/results/latest.json`, `probe/results/sw2024/`), and
@@ -411,9 +423,13 @@ The W4 demonstration (`probe/workbook_assembly_check.py`, `probe/workbook_window
 - The W4 review's fixes made after the demonstration (an unsaved part made new
   rather than waited for, a part's own `_r` suffix, copied workbooks, Update
   touching only what it changes, a job's saved files kept on record whatever
-  goes wrong, the footer's sentences, the app's close) are tested against the
+  goes wrong, the footer's sentences, the app's close), and the second
+  review's (whose a record is when its workbook is gone or reached by another
+  path, marks a job can prove cleared, the journal, quitting while SolidWorks
+  does not answer, a value check on the angle unit), are tested against the
   test suite's fake SolidWorks only, and await a rerun of both scripts on
-  SolidWorks.
+  SolidWorks — the assembly check's new section `a3` shows the journal and the
+  marks clearing there.
 
 What is not built yet:
 

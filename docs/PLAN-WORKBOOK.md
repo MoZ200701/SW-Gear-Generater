@@ -406,6 +406,27 @@ files, sharing and overwriting nothing; when that workbook is gone, it was moved
 Update touches only a document it changes. These were tested against the fake SolidWorks; they await a rerun of
 the demonstration on SolidWorks.
 
+*Readings changed by the second W4 review (2026-11-13):* **whose a record is, decided by the file and asked
+when it cannot be known.** Two paths to one workbook (a mapped drive and its UNC path, `subst`, a junction) are
+one workbook (`os.path.samefile` when both exist), never a copy of itself. A record whose workbook is gone is no
+longer adopted silently — it may be one of two copies of a deleted original — but planned as a copy's until the
+window has asked, once and default No, whether this workbook was moved or renamed from it; Yes adopts it, No
+keeps it the other's (`copy_of`), and the answer is kept in the record. Locate… never carries a copy's record.
+**Marks a job can prove are cleared.** A job reports which documents were open when it began and which it
+loaded from disk; one loaded from disk holds what its file holds, so its unsaved marks go and what the job
+found decides the rest (an Update that finds it holding the workbook clears its mismatched mark), and one
+marked unsaved that was not open when a job began lost Update's changes and becomes mismatched. The header and
+the save asked for count only the current revision's documents, and the save is said so that it is true if
+SolidWorks has closed them since (nothing on the Tk thread can see SolidWorks). **A build keeps a journal:**
+before its job starts, the record gains what it is about to make (`pending`); the finish takes it out; a pending
+part on disk with no `.gear.json` is the interrupted build's own and is reused once checked live, a pending
+layout part likewise, a pending assembly is gone beside. With it, a second close while SolidWorks does not
+answer may quit anyway (default No), and a finish that raises still leaves what was saved reusable. **A
+document holds its values** only if SolidWorks evaluates them as the unit its text matches would (a degree-form
+part set to radians is updated, not reused). **Every new part's own name is claimed before any suffix**, so a
+suffix never takes a typed Part name. Tested against the fake SolidWorks; the assembly check's new section `a3`
+shows the journal and the marks on SolidWorks once rerun.
+
 ## 5. The Workbook window: `workbook_gui.py` (+ `ui_text`)
 
 Opened from **Import workbook…** in the Gear panel header (a file dialog, then the window), or **New workbook…**
@@ -444,7 +465,7 @@ the pattern: `POLL_MS`).
 | **W1 format** | `xlsx.py` (read, `write_new`, `write_cells`), `schema.py`, `model.py` + tests; **ask the user for the Excel-saved fixture first** | The Excel fixture reads into a `GearboxSpec`; `to_book` → `write_new` → `read` round-trips; `write_cells` on the fixture changes only its cells and refuses a formula cell; a bad cell's diagnostic names it. |
 | **W2 batch parts** | The window's artboard and `UI-DESIGN.md` §9 first (drawn in `design/canvas/` by `gen.py`, as the strip was); then `build_many`, the Workbook window (header, gear list, per-gear errors), Import / New workbook…, the live link and change list, `Recent.workbooks` | Mac: each row's plan equals the strip's for the same `GearSpec`; the window updates within two seconds of a scripted save (screenshots). Windows: a workbook of 4 gears builds 4 parts whose `.gear.json` variables match strip-built twins. |
 | **W3 positions and checks** | `geometry.py`, `checks.py`, `kinematics.py` (parallel), `fixes.py`, `pair.shift_for_centre`, Results, Export / Export as…, `preview.layout_gearbox` | Mac: the 12 : 1 workbook checks clean and its speeds match the pinned values; S2 typed at 64.00 shows E2's error and both fixes (shift x = 0.084550 each); Export writes the fix and Results and leaves a formula cell alone; screenshots checked by eye. Windows: the exported file opens in Excel with no repair prompt. |
-| **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. *(2026-11-13: in the 12 : 1 reducer S3 X is a formula on S2 X, so S2 X alone moves S3 with it and leaves G1–G2 0.75 mm off its centres: the gearbox fails its checks and Update waits. The demonstration edit is S2 X 63.75 → 64.5 with G2's teeth 68 → 69, which puts G1–G2 back on centres at 64.5. Shown on SolidWorks 2026 in full, 244 checks, 0 failed; on 2024 tier 7, the build, its measurements and controls, the Excel edit and Update — the structural step and `_r2`, the continued build, the pure-move and risky-placement workbooks and the window run are still to run on 2024, in a fresh session. The W4 review's fixes since are tested on the fake only and await a rerun on SolidWorks.)* |
+| **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. *(2026-11-13: in the 12 : 1 reducer S3 X is a formula on S2 X, so S2 X alone moves S3 with it and leaves G1–G2 0.75 mm off its centres: the gearbox fails its checks and Update waits. The demonstration edit is S2 X 63.75 → 64.5 with G2's teeth 68 → 69, which puts G1–G2 back on centres at 64.5. Shown on SolidWorks 2026 in full, 244 checks, 0 failed; on 2024 tier 7, the build, its measurements and controls, the Excel edit and Update — the structural step and `_r2`, the continued build, the pure-move and risky-placement workbooks and the window run are still to run on 2024, in a fresh session. The W4 review's fixes since, and the second review's, are tested on the fake only and await a rerun on SolidWorks.)* |
 | **W5 motion** | §4.4, after `gear_mate` and tier-6 items 3–5 have passed | Drag the input in SolidWorks: the output turns at 1/12 the input's angle, the right way. |
 | **W6 right-angle** | Turned axes, bevel and crossed meshes | A bevel stage feeding a parallel stage builds; sub-plan and questions at the time. |
 | **W7 planetary** | Carriers, copies, loops in kinematics and phases | A 4 : 1 planetary with the ring fixed builds; own sub-plan. |

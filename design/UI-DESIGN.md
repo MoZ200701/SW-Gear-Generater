@@ -256,7 +256,7 @@ All in `ui_text.py`, tested without a window:
 | `widgets.py` | Airfoil Converter's, plus `Explainer` and `draw_diagram` |
 | `swbuild.py` | the build, run against the `SolidWorks` protocol |
 | `store.py` | `.gear.json` records and `recent.json` |
-| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field); and the Workbook window, 1080 px wide, as `WorkbookReady`, `WorkbookError`, `WorkbookFix`, `WorkbookChosen`, `WorkbookBuilt`, `WorkbookUpdate`, `WorkbookUpdated` and `WorkbookAgain` (§9); the built ones run the worker against `tests/test_swbuild.py`'s fake SolidWorks, so `gen.py` needs the tests folder beside it. `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
+| `design/canvas/` | the artboards, one strip each: `Main` (a spur pair), `SingleGear`, `ShiftedPair` (a solved row with profile shift), `HelicalPair` (gear B's hand following A's), `Herringbone` (grooved), `RingPair`, `CrossedPair` (opposite hands), `BevelPair`, and `FieldGuide` (every explainer card, each worked for a gear that has the field); and the Workbook window, 1080 px wide, as `WorkbookReady`, `WorkbookError`, `WorkbookFix`, `WorkbookChosen`, `WorkbookBuilt`, `WorkbookUpdate`, `WorkbookUpdated`, `WorkbookAgain`, `WorkbookUnsaved`, `WorkbookCopy`, `WorkbookMoved` and `WorkbookCloseAnyway` (§9); the built ones run the worker against `tests/test_swbuild.py`'s fake SolidWorks, so `gen.py` needs the tests folder beside it. `gen.py` writes them — `.venv/bin/python design/canvas/gen.py` — taking every word from `ui_text`, every picture from `preview.layout` and which field borrows which diagram from `widgets.py`, so they cannot drift from the window; only the HTML and the SVG diagrams are its own. `ui.py` is Airfoil Converter's builders, unchanged. The first three once lived at <https://claude.ai/artifact/NZXpsX26vgcabs9fFryF7G>, which has not been republished since |
 | `design/renders/` | each artboard as a PNG at 2×, `<Board>.png`, made by `.venv/bin/python design/canvas/render.py` with headless Chrome (no window opens; a throwaway profile) and trimmed of the empty window ground. Its `CHROME` is the Mac's path; on Windows or WSL point it at `chrome.exe` and add `--disable-lcd-text`, or the text comes out with colour fringes |
 
 ## 7. Where it differs from the plan
@@ -353,9 +353,12 @@ and **Update SolidWorks**), `WorkbookUpdate` (PLAN-WORKBOOK §6's edit, S2 X
 press), `WorkbookUpdated` (after it, not yet saved), `WorkbookAgain` (G1's
 flank changed to arcs, which needs a new part, with the *Build again?*
 question), `WorkbookUnsaved` (after the update, still not saved, G1's bore
-cleared: the demonstration's structural step) and `WorkbookCopy` (the
+cleared: the demonstration's structural step), `WorkbookCopy` (the
 reducer's folder copied whole, workbook and record, the original still
-there). `gen.py` draws them from a real workbook written, read and worked
+there; each part under the `_r2` name the build will give it),
+`WorkbookMoved` (the folder moved by hand, the record's workbook gone: the
+window asks whether it was moved or is a copy) and `WorkbookCloseAnyway` (the
+window closed a second time while SolidWorks has not answered its build). `gen.py` draws them from a real workbook written, read and worked
 through by the app, with the window's own sizes and colours from
 `workbook_gui`, the end view from `preview.layout_gearbox` and every line from
 `ui_text` — the footer is `workbook_footer` whole. The built boards run
@@ -522,12 +525,12 @@ a job collected). In order, the first that holds:
 | a copied workbook (its record names another workbook still on disk) | *Ready: Build makes 4 parts, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM in C:\Parts\Reducer_12to1. This workbook is a copy of C:\Parts\Reducer_12to1.xlsx, which is still there, so the record that came with it is that workbook's, and so are the SolidWorks files it lists: Build makes this workbook's own gearbox beside them, sharing and overwriting nothing.*, green | **Build**, on | hidden |
 | rows a later phase builds | *Ready: Build parts makes 2 parts in …; the layout and assembly wait for a later phase: Shafts!A4: P1 is mounted on C, …* (*The 4 parts are built already, so Build parts has nothing to make; …* when all are) | **Build parts**, on (off when nothing to make) | shown once parts are |
 | parts on record, the layout part saved, no assembly | the ready sentence, then Update's reason: *Reducer_12to1_Layout.SLDPRT was saved but its assembly was not made: Build carries on with it, and Update SolidWorks waits until it has.* | **Build**, on | shown, off |
-| parts from Build parts, and a change only a new part takes | the ready sentence, then *Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B', so it needs a new part. Update SolidWorks waits until Build has made what that needs.* (nothing is assembled yet, so Update never offers a build-again) | **Build** / **Build parts**, on | shown, off |
+| parts from Build parts, and a change only a new part takes | the ready sentence, then *Gear_m1.5_N17 (G1): Flank changed from involute to arcs, which its values cannot carry, so it needs a new part. Update SolidWorks waits until Build has made what that needs.* (nothing is assembled yet, so Update never offers a build-again) | **Build** / **Build parts**, on | shown, off |
 | built, the workbook changed since | *Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.* | **Build again…**, on | on, primary |
 | built, nothing on record differs | *SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything changed there.* | **Build again…**, on | on, primary |
-| built, a change Update cannot carry | *Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B', so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2.* (*(and 1 other change Update SolidWorks cannot carry)* with more) | **Build again…**, on | on, primary |
+| built, a change Update cannot carry | *Gear_m1.5_N17 (G1): Flank changed from involute to arcs, which its values cannot carry, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2.* (*(and 1 other change Update SolidWorks cannot carry)* with more) | **Build again…**, on | on, primary |
 | … and the build it needs cannot go | *Gear_m1.5_N17 (G1): …, so it needs a new part. The new revision it needs, Reducer_12to1_r2, cannot be built yet:* and why, red | off | off |
-| built, a recorded file gone | *Gear_m1.5_N68.SLDPRT is no longer in C:\Parts\Reducer_12to1: it was moved or renamed since it was built, so Update SolidWorks offers to build again as Reducer_12to1_r2.*, red | **Build again…**, on | on |
+| built, a recorded file gone | *Gear_m1.5_N68.SLDPRT is no longer in C:\Parts\Reducer_12to1: it was moved, renamed or deleted since it was built, so Update SolidWorks offers to build again as Reducer_12to1_r2.*, red | **Build again…**, on | on |
 
 Every row is decided from the plans' and the record's fields, never from the
 words of another sentence. A greyed button always has its reason on screen —
@@ -540,21 +543,42 @@ whichever of the last rows holds — *… The next Build sets it aside and start
 new one.* — with Build on and Update hidden; the next build's finish moves it to
 `Reducer_12to1.workbook.json.bad-<stamp>` and starts a fresh one.
 
-**What Update left unsaved.** Documents Update SolidWorks changed and that
-are not saved add, once, while no job's sentence is showing: *Gear_m1.5_N68,
-Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks
-that are not saved: save them in SolidWorks to keep them.* (*it* for one).
-Nothing waits for that save (W4 review B2): a part Update left unsaved is not
-what its file holds, so it is not reused, and a build that would have reused
-it makes that part new instead. Where the state offers that build, the next
-sentence says so: *Until Gear_m1.5_N68 is saved, the new revision makes G2's
-part new, as Gear_m1.5_N69, rather than reuse it.* (*Build makes …* before
-anything is assembled). Saved in SolidWorks, the part is reused again. The
-poll looks at those files' times every second, so both sentences go once
-SolidWorks saves them. A part the last build's live check found not holding
-what the record says is said the same way: *Gear_m1.5_N68 did not hold what
-the record says when the last build checked it, so the new revision makes
-G2's part new, as Gear_m1.5_N69, rather than reuse it.*
+**What Update left unsaved.** Documents of the current revision that Update
+SolidWorks changed and that are not saved add, once, while no job's sentence
+is showing (or after an answer): *Gear_m1.5_N68, Reducer_12to1_Layout and
+Reducer_12to1 have changes from Update SolidWorks that are not saved: save
+them in SolidWorks to keep them. If SolidWorks closed them without saving,
+press Update SolidWorks to make them again.* (*it* for one; where Update
+would build again instead, the last sentence is *If SolidWorks closed them
+without saving, those changes are gone.*). Nothing on the Tk thread can see
+whether SolidWorks still has them open, so the sentence is true either way
+(second review N2); a job that finds them closed settles it (below). An
+earlier revision's documents, left behind by a build-again, are never
+counted. Nothing waits for that save (W4 review B2): a part Update left
+unsaved is not what its file holds, so it is not reused, and a build that
+would have reused it makes that part new instead. Where the state offers that
+build, the next sentence says so: *While Gear_m1.5_N68's changes are not
+saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than
+reuse it.* (*Build makes …* before anything is assembled). Saved in
+SolidWorks, the part is reused again. The poll looks at those files' times
+every second, so both sentences go once SolidWorks saves them. A part marked
+mismatched is said the same way: *Gear_m1.5_N68 does not hold what the record
+says, as the last job in SolidWorks found, so the new revision makes G2's part
+new, as Gear_m1.5_N69, rather than reuse it.*
+
+**Marks a job settles** (second review N2). Each job says which documents
+were open in SolidWorks when it began and which it loaded from their files.
+One loaded from its file holds in memory what the file holds, so its unsaved
+marks go (the record's and its `.gear.json`'s) and what the job found decides
+the rest: an Update that finds it holding the workbook's values clears its
+mismatched mark too; one it changes is marked unsaved again. A document marked
+unsaved that was not open when a job began lost Update's changes when it was
+closed: its mark becomes a mismatched one (its file does not hold what the
+record says), unless the file was saved since. So an Update left unsaved and
+lost with SolidWorks never holds a part back for ever: the next Update reads
+the files and settles it. While a document of the current revision is marked
+mismatched the header reads *· SolidWorks no longer holds all of this
+version*.
 
 An Export that left the Results sheet out for a formula cell adds, once Excel
 has saved since, *Export again to write the Results sheet: it waited for Excel
@@ -679,7 +703,51 @@ record; it stays open if something needs saying.*, and the app closes once
 no job is pending and every one of those windows has closed. If one stayed
 open to show a fault, the app stays too: *Gear Generator stayed open: a
 workbook's job has something to say in its window. Close this window again to
-quit.* With nothing pending it closes at once.
+quit.* With nothing pending it closes at once. Since the second review the
+strip's own build is waited for the same way (*Gear Generator closes once the
+strip's build in SolidWorks has finished and what it saved is on record; it
+stays open if something needs saying.*): its poll collects it and writes its
+`.gear.json`, then the app closes. A Workbook window with a question open —
+*Build again?*, or *Moved, or a copy?* — is never destroyed under it: *Gear
+Generator closes once the question open in a Workbook window is answered.*,
+and the window closes once the answer is acted on (after a job, if the answer
+started one).
+
+**When SolidWorks does not answer** — held by a modal dialog, say; nothing
+can cancel a call it does not answer — closing a window a second time asks,
+titled *Close anyway?*, defaulting to No: *SolidWorks has not answered yet:
+the build is still running there, perhaps held up by a dialog open in
+SolidWorks. Close this window anyway? Files SolidWorks saves from now are not
+put on record by this window, and nothing will be overwritten: the next Build
+finds them, checks them in SolidWorks and reuses what it can.* (for an
+update: *… What it changes from now is not put on record, so this window will
+not ask for those documents to be saved, and nothing will be overwritten.*).
+Closing the strip's window a second time asks *Quit anyway?*: *SolidWorks has
+not answered yet: a job is still running there, perhaps held up by a dialog
+open in SolidWorks. Quit anyway? Files SolidWorks saves from now, and
+documents it changes, are not put on record by this session, and nothing will
+be overwritten.* (adding *The workbook's next Build finds the files its build
+saved, checks them in SolidWorks and reuses what it can.* when a workbook's
+build is among the jobs). Yes closes; No goes on waiting.
+
+**The journal.** Before a build's job is submitted, the record gains what it
+is about to make (`pending`: each new part with its gears and form, the
+layout part, the assembly), written through the same guarded write as a
+finish; the finish takes it out, and so does collecting a job the worker
+refused. So a build interrupted after SolidWorks saved some of it — the app
+killed, a crash, a power cut, or *Close anyway?* — leaves files the next plan
+knows: a pending part on disk with no `.gear.json` is planned for reuse when
+it is the same part (the same plan), checked live like any reused part, and
+given its `.gear.json` at the finish; a pending layout part is reused once the
+live check finds it holding the shafts' globals, planes and axes; a pending
+assembly is gone beside, with *Reducer_12to1.SLDASM was saved by a build that
+was interrupted before it was put on record, and a build never overwrites a
+file. So this build is Reducer_12to1_r2, beside it; nothing is overwritten.*
+A pending path that is not on disk is dropped. A finish that raises writes
+nothing, but the journal is still on record: *What the build saved could not
+all be put on record — …. What SolidWorks saved stays on disk, and the next
+Build finds it from the journal written before the build, checks it in
+SolidWorks and reuses what it can.*
 
 **The finish** writes what it can whatever raises: each part's `.gear.json`
 and the record stand alone, so one that cannot be written stops neither the
@@ -767,7 +835,11 @@ document that does not already hold what it should is touched, so the others
 are not left modified in SolidWorks. A part keeps its file name after a value
 update — N68 holding 69 teeth — and the sentence says so; a Part name of the
 user's own never goes stale. The record marks each document it changed as
-unsaved, with the file's time, until the file on disk is newer. Stopped part
+unsaved, with the file's time, until the file on disk is newer. "Already
+holds what it should" means the text of every global in one trig unit and,
+since the second review (N5), SolidWorks evaluating them as that unit would:
+a part holding the degree form whose angle unit was set to radians is
+updated, and is not reused. Stopped part
 way, it says what it had already changed, not saved, and that pressing it
 again once that is put right finishes the job (*Nothing was changed.* if
 nothing had). Speeds, torques and efficiencies change nothing in SolidWorks.
@@ -791,8 +863,8 @@ reads *needs a new part*. Update SolidWorks then asks instead of updating, and
 **Build again…** always asks: a `messagebox.askyesno` titled *Build again?*,
 defaulting to No (`ui_text.build_again_question`):
 
-*Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B', so it needs a new
-part. Build again as Reducer_12to1_r2? That makes a new part for G1
+*Gear_m1.5_N17 (G1): Flank changed from involute to arcs, which its values
+cannot carry, so it needs a new part. Build again as Reducer_12to1_r2? That makes a new part for G1
 (Gear_m1.5_N17_r2), reuses 3 parts that have not changed and makes a new layout
 part and assembly (Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM).
 Nothing is overwritten, and Reducer_12to1.SLDASM stays as it is on disk, but it
@@ -801,8 +873,10 @@ changes Reducer_12to1.SLDASM too.*
 
 A part made new although one was built says why: *G2's part is new because
 Gear_m1.5_N68 has changes from Update SolidWorks that are not saved; to reuse
-it instead, answer No and save it in SolidWorks first.* (or *… did not hold
-what the record says when the last build checked it.*), and a part whose own
+it instead, answer No and save it in SolidWorks first (if SolidWorks has
+closed it since without saving, those changes are gone, and it cannot be
+reused).* (or *… does not hold what the record says, as the last job in
+SolidWorks found.*), and a part whose own
 file name is taken by something else says whose it is, as the ready sentence
 does. Pressed with nothing Update cannot carry, it opens *Nothing on record
 needs a new revision.* With no earlier assembly (parts from Build parts — the
@@ -839,10 +913,27 @@ disk, this one is a copy: the record and the files it lists are the
 original's, so nothing is shown as built, Update SolidWorks is hidden, and
 Build makes the copy's own gearbox beside those files (at `_r2` and with
 `_r2` parts when the original built into the same folder), sharing and
-overwriting nothing; its first build starts a record of its own. When the
-named workbook is gone, the workbook was moved or renamed: the record is
-adopted, the old path kept in `moved_from`, and the parts' `.gear.json`, which
-name that path, are still recognised as this workbook's.
+overwriting nothing; its first build starts a record of its own. Paths are
+compared as files (second review N1a): a mapped drive and its UNC path, a
+`subst` drive or a junction are one workbook, never a copy of itself. When the
+named workbook is gone, the window does not adopt the record silently — it
+may be one of two copies of an original since deleted, renamed or offline —
+but asks once, after the plan that found it, titled *Moved, or a copy?*,
+defaulting to No: *The record of what was built beside this workbook was
+written for C:\Parts\Reducer_12to1.xlsx, which is not there any more. Was
+this workbook moved or renamed from it? Yes: the record is this workbook's,
+and Update SolidWorks and Build carry on from what it lists. No: this workbook
+is a copy, so Build makes its own gearbox beside those files, sharing and
+overwriting nothing. The answer is kept in the record.* Until it is answered
+the record is planned as a copy's, and the footer says so (*The record that
+came with this workbook was written for …, which is not there any more: until
+you say whether this workbook was moved or renamed from it, Build makes this
+workbook's own gearbox beside the files it lists, sharing and overwriting
+nothing.*). Yes adopts the record — the old path kept in `moved_from`, so the
+parts' `.gear.json`, which name it, are still this workbook's; No keeps it the
+other workbook's (`copy_of`). The answer holds for the session even if the
+record cannot be written. The Gears table shows each part to build under the
+name the build will give it (`plan.part_of`).
 
 ### The record, `Reducer_12to1.workbook.json`
 
@@ -853,9 +944,11 @@ revision that made it, its spec and the variables last put in it; the current
 revision's name, layout part, assembly, each shaft's position and side and its
 globals, planes and axis, the listed meshes, and each gear's component name and
 frame; earlier revisions (paths only); the documents Update left unsaved, with
-their times; the documents a build's live check found not as recorded
-(`mismatched`, with their times); the workbook's earlier paths
-(`moved_from`); and the app's own last Export (`own_digest`, `recalc`). Each
+their times; the documents found not as recorded — by a live check, or
+marked unsaved and found closed — (`mismatched`, with their times); the
+workbook's earlier paths (`moved_from`); the answer *No: a copy* (`copy_of`);
+a build's journal (`pending`, and `pending_for`, the workbook whose build wrote
+it); and the app's own last Export (`own_digest`, `recalc`). Each
 part also gets its `.gear.json`, naming the workbook and the rows it serves;
 Update marks the one of a part it changed `unsaved_since`, so it never claims
 values the file may not hold.
@@ -869,10 +962,15 @@ from a newer Gear Generator is left byte for byte as it is (both buttons wait);
 one that cannot be read is set aside as `.bad-<stamp>` by the next build, never
 deleted. On disk `schema_version` stays 1, with the real schema in
 `link_schema_version` (2), so a build from before W4 that rewrites the file
-keeps its parts. **Locate…** carries the record: a copy is written beside the
+keeps its parts (it reads only the keys it knows, so the new ones are dropped,
+never a fault). **Locate…** carries the record: a copy is written beside the
 workbook's new place with its `workbook` updated, unless one is already there,
 and the old one is left where it was (*The record of what was built stays
-beside the workbook's old place: …* when it cannot be carried).
+beside the workbook's old place: …* when it cannot be carried). A copy's
+record is never carried (*… it was written for C:\Parts\Reducer_12to1.xlsx,
+so it is that workbook's record and lists that workbook's files, not this
+one's.*); one whose workbook is gone and unanswered is carried as it is, not
+adopted, so the question is asked at the new place.
 
 ### Where it differs from PLAN-WORKBOOK §5
 
@@ -903,10 +1001,15 @@ beside the workbook's old place: …* when it cannot be carried).
   and so is one a build's live check found not as recorded.
 - **A copied workbook** (the record beside it written for another workbook
   still on disk) builds a gearbox of its own and never touches the
-  original's files; a moved one adopts its record (W4 review S1; §5 does not
-  say).
-- **Closing the strip's window** waits for any Workbook window's job to be
-  on record, as a Workbook window's own close does.
+  original's files; one whose record's workbook is gone asks once whether it
+  was moved (and then adopts the record) or is a copy (W4 review S1, second
+  review N1; §5 does not say).
+- **Closing the strip's window** waits for any Workbook window's job, and the
+  strip's own build, to be on record, as a Workbook window's own close does,
+  and for any question open over a window; a second close while SolidWorks
+  does not answer offers to quit anyway.
+- **A build keeps a journal** in the record while it runs (`pending`), so what
+  an interrupted build saved is reused, once checked, by the next.
 - **A part keeps its file name after a value update** (`Gear_m1.5_N68` holding
   69 teeth); the sentence says so. A Part name change is structural only when
   the file name it makes changes.
