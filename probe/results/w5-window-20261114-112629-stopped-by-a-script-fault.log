@@ -1,0 +1,687 @@
+11:53:21 newest session {"pid": {"value": 33284}}
+11:53:22 excel started 4516 16.0 build 20527.0
+11:53:24 open w4-window {"path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1.xlsx", "tag": "w4-window", "opened": true, "seconds": 0.19, "dialogs": [], "new_error_logs": [], "caption": "Reducer_12to1.xlsx - Excel", "window_caption": "Reducer_12to1.xlsx", "name": "Reducer_12to1.xlsx", "repaired": false}
+11:53:24 excel {"what": "open", "at": 1794675204.0729034, "result": false, "error": ""}
+11:53:24 waited {"status": ""}
+11:53:24 excel {"what": "set-save", "at": 1794675204.337766, "result": "saved", "error": ""}
+11:53:24 waited {"status": ""}
+11:53:24 status {"now": "Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\…\\w5-demo-20261114-112629\\window2026\\window\\. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks."}
+11:53:25 waited {"status": "Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\…\\w5-demo-20261114-112629\\window2026\\window\\. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks."}
+11:53:26 state {"name": "01-ready", "status": "Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\…\\w5-demo-20261114-112629\\window2026\\window\\. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks.", "read_line": "linked · read 11:53:24 · open in Excel", "build": ["Build", true, true], "update": [false, false, false], "parts": "4 parts to build", "changes": "nothing changed · 11:53:24", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\01-ready.png"}
+11:53:26 status {"now": "Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\…\\w5-demo-20261114-112629\\window2026\\window\\. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks."}
+11:53:26 status {"now": "Building in SolidWorks…"}
+11:53:28 state {"name": "02-building", "status": "Building in SolidWorks: part 1 of 4, Gear_m1.5_N17…", "read_line": "linked · read 11:53:24 · open in Excel", "build": ["Build", false, true], "update": [false, false, false], "parts": "4 parts to build", "changes": "nothing changed · 11:53:24", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\02-building.png"}
+11:53:28 status {"now": "Building in SolidWorks: part 1 of 4, Gear_m1.5_N17…"}
+11:53:29 waiting {"status": "Building in SolidWorks: part 1 of 4, Gear_m1.5_N17…"}
+11:53:44 waiting {"status": "Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…"}
+11:53:59 waiting {"status": "Building in SolidWorks: part 2 of 4, Gear_m1.5_N68…"}
+11:54:14 waiting {"status": "Building in SolidWorks: part 3 of 4, Gear_m2_N17…"}
+11:54:29 waiting {"status": "Building in SolidWorks: part 4 of 4, OutputGear…"}
+build   Part66 · spur · recipe A · trig degrees
+ok      new part Part66
+ok      trig units measured: degrees
+ok      global "No. of Teeth"
+ok      global "Module"
+ok      global "Bore Diameter"
+ok      global "Pressure Angle"
+ok      global "Outer Diameter"
+ok      global "Pitch Diameter"
+ok      global "Backlash"
+ok      global "Arc Length"
+ok      global "Fillet Radius"
+ok      global "Tooth Depth"
+ok      global "Face Width"
+ok      global "Root Diameter"
+ok      global "Base Diameter"
+ok      global "Base Radius"
+ok      global "Tooth Thickness"
+ok      global "Half Space Angle"
+ok      global "Involute Fn"
+ok      global "Flank Offset"
+ok      global "Tip Cap Diameter"
+ok      global "Flank Start Diameter"
+ok      global "Involute t1"
+ok      global "Involute t2"
+ok      global "Flank Arc Radius"
+ok      global "Flank Centre Angle"
+ok      axis Gear Axis
+ok      sketch blank opened on plane 1
+ok      circle od
+ok      coincident od.centre origin
+ok      dimension OD
+ok      sketch Blank Sketch
+ok      extrude Blank
+ok      link "OD@Blank Sketch"
+ok      link "Width@Blank"
+ok      sketch space opened on plane 1
+ok      curve I+
+ok      curve I-
+ok      line L+
+ok      line L-
+ok      arc F+
+ok      arc F-
+ok      arc R
+ok      line T
+ok      fixed I+
+ok      fixed I-
+ok      coincident R.centre origin
+ok      coincident L+.start I+.start (already one point)
+ok      coincident L-.start I-.start (already one point)
+ok      coincident origin L+
+ok      coincident origin L-
+ok      coincident F+.start L+.end (already one point)
+ok      coincident F-.end L-.end (already one point)
+ok      coincident F+.end R.end (already one point)
+ok      coincident F-.start R.start (already one point)
+ok      tangent F+ L+
+ok      tangent F- L-
+ok      tangent F+ R
+ok      tangent F- R
+ok      equal F+ F-
+ok      coincident T.start I+.end (already one point)
+ok      coincident T.end I-.end (already one point)
+ok      dimension Root
+ok      dimension Fillet
+ok      sketch Tooth Space Sketch
+ok      link "Root@Tooth Space Sketch"
+ok      link "Fillet@Tooth Space Sketch"
+ok      cut Tooth Space
+ok      pattern Teeth × 17
+ok      link "Count@Teeth"
+ok      sketch bore opened on plane 1
+ok      circle bore_circle
+ok      coincident bore_circle.centre origin
+ok      dimension Bore
+ok      sketch Bore Sketch
+ok      cut Bore
+ok      link "Bore@Bore Sketch"
+ok      property 'Description'
+ok      property 'Gear Kind'
+ok      property 'Flank'
+ok      property 'Generated By'
+ok      24 globals read back and match the maths
+ok      Blank Sketch is fully defined
+ok      Tooth Space Sketch is fully defined
+ok      Bore Sketch is fully defined
+ok      rebuilt once
+MANUAL  1 step(s) to do by hand
+MANUAL  Assign a material to Gear_m1.5_N17; the build leaves it unset.
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Gear_m1.5_N17.SLDPRT
+build   Part67 · spur · recipe A · trig degrees
+ok      new part Part67
+ok      trig units measured: degrees
+ok      global "No. of Teeth"
+ok      global "Module"
+ok      global "Bore Diameter"
+ok      global "Pressure Angle"
+ok      global "Outer Diameter"
+ok      global "Pitch Diameter"
+ok      global "Backlash"
+ok      global "Arc Length"
+ok      global "Fillet Radius"
+ok      global "Tooth Depth"
+ok      global "Face Width"
+ok      global "Root Diameter"
+ok      global "Base Diameter"
+ok      global "Base Radius"
+ok      global "Tooth Thickness"
+ok      global "Half Space Angle"
+ok      global "Involute Fn"
+ok      global "Flank Offset"
+ok      global "Tip Cap Diameter"
+ok      global "Flank Start Diameter"
+ok      global "Involute t1"
+ok      global "Involute t2"
+ok      global "Flank Arc Radius"
+ok      global "Flank Centre Angle"
+ok      axis Gear Axis
+ok      sketch blank opened on plane 1
+ok      circle od
+ok      coincident od.centre origin
+ok      dimension OD
+ok      sketch Blank Sketch
+ok      extrude Blank
+ok      link "OD@Blank Sketch"
+ok      link "Width@Blank"
+ok      sketch space opened on plane 1
+ok      curve I+
+ok      curve I-
+ok      line L+
+ok      line L-
+ok      arc F+
+ok      arc F-
+ok      arc R
+ok      line T
+ok      fixed I+
+ok      fixed I-
+ok      coincident R.centre origin
+ok      coincident L+.start I+.start (already one point)
+ok      coincident L-.start I-.start (already one point)
+ok      coincident origin L+
+ok      coincident origin L-
+ok      coincident F+.start L+.end (already one point)
+ok      coincident F-.end L-.end (already one point)
+ok      coincident F+.end R.end (already one point)
+ok      coincident F-.start R.start (already one point)
+ok      tangent F+ L+
+ok      tangent F- L-
+ok      tangent F+ R
+ok      tangent F- R
+ok      equal F+ F-
+ok      coincident T.start I+.end (already one point)
+ok      coincident T.end I-.end (already one point)
+ok      dimension Root
+ok      dimension Fillet
+ok      sketch Tooth Space Sketch
+ok      link "Root@Tooth Space Sketch"
+ok      link "Fillet@Tooth Space Sketch"
+ok      cut Tooth Space
+ok      pattern Teeth × 68
+ok      link "Count@Teeth"
+ok      sketch bore opened on plane 1
+ok      circle bore_circle
+ok      coincident bore_circle.centre origin
+ok      dimension Bore
+ok      sketch Bore Sketch
+ok      cut Bore
+ok      link "Bore@Bore Sketch"
+ok      property 'Description'
+ok      property 'Gear Kind'
+ok      property 'Flank'
+ok      property 'Generated By'
+ok      24 globals read back and match the maths
+ok      Blank Sketch is fully defined
+ok      Tooth Space Sketch is fully defined
+ok      Bore Sketch is fully defined
+ok      rebuilt once
+MANUAL  1 step(s) to do by hand
+MANUAL  Assign a material to Gear_m1.5_N68; the build leaves it unset.
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Gear_m1.5_N68.SLDPRT
+build   Part68 · spur · recipe A · trig degrees
+ok      new part Part68
+ok      trig units measured: degrees
+ok      global "No. of Teeth"
+ok      global "Module"
+ok      global "Bore Diameter"
+ok      global "Pressure Angle"
+ok      global "Outer Diameter"
+ok      global "Pitch Diameter"
+ok      global "Backlash"
+ok      global "Arc Length"
+ok      global "Fillet Radius"
+ok      global "Tooth Depth"
+ok      global "Face Width"
+ok      global "Root Diameter"
+ok      global "Base Diameter"
+ok      global "Base Radius"
+ok      global "Tooth Thickness"
+ok      global "Half Space Angle"
+ok      global "Involute Fn"
+ok      global "Flank Offset"
+ok      global "Tip Cap Diameter"
+ok      global "Flank Start Diameter"
+ok      global "Involute t1"
+ok      global "Involute t2"
+ok      global "Flank Arc Radius"
+ok      global "Flank Centre Angle"
+ok      axis Gear Axis
+ok      sketch blank opened on plane 1
+ok      circle od
+ok      coincident od.centre origin
+ok      dimension OD
+ok      sketch Blank Sketch
+ok      extrude Blank
+ok      link "OD@Blank Sketch"
+ok      link "Width@Blank"
+ok      sketch space opened on plane 1
+ok      curve I+
+ok      curve I-
+ok      line L+
+ok      line L-
+ok      arc F+
+ok      arc F-
+ok      arc R
+ok      line T
+ok      fixed I+
+ok      fixed I-
+ok      coincident R.centre origin
+ok      coincident L+.start I+.start (already one point)
+ok      coincident L-.start I-.start (already one point)
+ok      coincident origin L+
+ok      coincident origin L-
+ok      coincident F+.start L+.end (already one point)
+ok      coincident F-.end L-.end (already one point)
+ok      coincident F+.end R.end (already one point)
+ok      coincident F-.start R.start (already one point)
+ok      tangent F+ L+
+ok      tangent F- L-
+ok      tangent F+ R
+ok      tangent F- R
+ok      equal F+ F-
+ok      coincident T.start I+.end (already one point)
+ok      coincident T.end I-.end (already one point)
+ok      dimension Root
+ok      dimension Fillet
+ok      sketch Tooth Space Sketch
+ok      link "Root@Tooth Space Sketch"
+ok      link "Fillet@Tooth Space Sketch"
+ok      cut Tooth Space
+ok      pattern Teeth × 17
+ok      link "Count@Teeth"
+ok      sketch bore opened on plane 1
+ok      circle bore_circle
+ok      coincident bore_circle.centre origin
+ok      dimension Bore
+ok      sketch Bore Sketch
+ok      cut Bore
+ok      link "Bore@Bore Sketch"
+ok      property 'Description'
+ok      property 'Gear Kind'
+ok      property 'Flank'
+ok      property 'Generated By'
+ok      24 globals read back and match the maths
+ok      Blank Sketch is fully defined
+ok      Tooth Space Sketch is fully defined
+ok      Bore Sketch is fully defined
+ok      rebuilt once
+MANUAL  1 step(s) to do by hand
+MANUAL  Assign a material to Gear_m2_N17; the build leaves it unset.
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Gear_m2_N17.SLDPRT
+build   Part69 · spur · recipe A · trig degrees
+ok      new part Part69
+ok      trig units measured: degrees
+ok      global "No. of Teeth"
+ok      global "Module"
+ok      global "Bore Diameter"
+ok      global "Pressure Angle"
+ok      global "Outer Diameter"
+ok      global "Pitch Diameter"
+ok      global "Backlash"
+ok      global "Arc Length"
+ok      global "Fillet Radius"
+ok      global "Tooth Depth"
+ok      global "Face Width"
+ok      global "Root Diameter"
+ok      global "Base Diameter"
+ok      global "Base Radius"
+ok      global "Tooth Thickness"
+ok      global "Half Space Angle"
+ok      global "Involute Fn"
+ok      global "Flank Offset"
+ok      global "Tip Cap Diameter"
+ok      global "Flank Start Diameter"
+ok      global "Involute t1"
+ok      global "Involute t2"
+ok      global "Flank Arc Radius"
+ok      global "Flank Centre Angle"
+ok      axis Gear Axis
+ok      sketch blank opened on plane 1
+ok      circle od
+ok      coincident od.centre origin
+ok      dimension OD
+ok      sketch Blank Sketch
+ok      extrude Blank
+ok      link "OD@Blank Sketch"
+ok      link "Width@Blank"
+ok      sketch space opened on plane 1
+ok      curve I+
+ok      curve I-
+ok      line L+
+ok      line L-
+ok      arc F+
+ok      arc F-
+ok      arc R
+ok      line T
+ok      fixed I+
+ok      fixed I-
+ok      coincident R.centre origin
+ok      coincident L+.start I+.start (already one point)
+ok      coincident L-.start I-.start (already one point)
+ok      coincident origin L+
+ok      coincident origin L-
+ok      coincident F+.start L+.end (already one point)
+ok      coincident F-.end L-.end (already one point)
+ok      coincident F+.end R.end (already one point)
+ok      coincident F-.start R.start (already one point)
+ok      tangent F+ L+
+ok      tangent F- L-
+ok      tangent F+ R
+ok      tangent F- R
+ok      equal F+ F-
+ok      coincident T.start I+.end (already one point)
+ok      coincident T.end I-.end (already one point)
+ok      dimension Root
+ok      dimension Fillet
+ok      sketch Tooth Space Sketch
+ok      link "Root@Tooth Space Sketch"
+ok      link "Fillet@Tooth Space Sketch"
+ok      cut Tooth Space
+ok      pattern Teeth × 51
+ok      link "Count@Teeth"
+ok      sketch bore opened on plane 1
+ok      circle bore_circle
+ok      coincident bore_circle.centre origin
+ok      dimension Bore
+ok      sketch Bore Sketch
+ok      cut Bore
+ok      link "Bore@Bore Sketch"
+ok      property 'Description'
+ok      property 'Gear Kind'
+ok      property 'Flank'
+ok      property 'Generated By'
+ok      24 globals read back and match the maths
+ok      Blank Sketch is fully defined
+ok      Tooth Space Sketch is fully defined
+ok      Bore Sketch is fully defined
+ok      rebuilt once
+MANUAL  1 step(s) to do by hand
+MANUAL  Assign a material to OutputGear; the build leaves it unset.
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\OutputGear.SLDPRT
+build   Part70 · layout · recipe  · trig degrees
+ok      new part Part70
+ok      trig units measured: degrees
+ok      global "S2 X"
+ok      global "S3 X"
+ok      axis S1 Axis
+ok      plane S2 X Plane
+ok      link "Offset@S2 X Plane"
+ok      axis S2 Axis
+ok      plane S3 X Plane
+ok      link "Offset@S3 X Plane"
+ok      axis S3 Axis
+ok      2 globals read back and match the maths
+ok      rebuilt once
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Reducer_12to1_Layout.SLDPRT
+build   Assem16 · assembly · recipe  · trig degrees
+ok      new assembly Assem16
+ok      trig units measured: degrees
+ok      global "G4 Face Z"
+ok      component Reducer_12to1_Layout-1
+ok      placed layout
+ok      fixed layout
+ok      component Gear_m1.5_N17-1
+ok      placed gear1
+ok      fixed gear1
+ok      component Gear_m1.5_N68-1
+ok      placed gear2
+ok      fixed gear2
+ok      component Gear_m2_N17-1
+ok      placed gear3
+ok      fixed gear3
+ok      component OutputGear-1
+ok      placed gear4
+ok      fixed gear4
+ok      unfixed gear1
+ok      mate coincident gear1:Gear Axis ~ layout:S1 Axis as G1 on S1 Axis
+ok      mate point gear1:origin ~ layout:plane1 as G1 along S1
+ok      unfixed gear2
+ok      mate coincident gear2:Gear Axis ~ layout:S2 Axis as G2 on S2 Axis
+ok      mate point gear2:origin ~ layout:plane1 as G2 along S2
+ok      unfixed gear3
+ok      mate lock gear2 ~ gear3 as G3 locked to G2
+ok      unfixed gear4
+ok      mate coincident gear4:Gear Axis ~ layout:S3 Axis as G4 on S3 Axis
+ok      mate point distance gear4:origin ~ layout:plane1 as G4 along S3
+ok      link "D1@G4 along S3"
+ok      mate gear gear1:Gear Axis ~ gear2:Gear Axis as G1 meshes G2
+ok      mate gear gear3:Gear Axis ~ gear4:Gear Axis as G3 meshes G4
+ok      1 globals read back and match the maths
+ok      every mate sound, every gear free to turn
+mate    G1 on S1 Axis
+mate    G1 along S1
+mate    G2 on S2 Axis
+mate    G2 along S2
+mate    G3 locked to G2
+mate    G4 on S3 Axis
+mate    G4 along S3
+mate    G1 meshes G2
+mate    G3 meshes G4
+ok      rebuilt once
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Reducer_12to1.SLDASM
+ok      no interference between the gears
+11:54:44 waited {"status": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset."}
+11:54:45 state {"name": "03-built", "status": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset.", "read_line": "linked · read 11:53:24 · open in Excel · built from this version", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "nothing changed · 11:53:24", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\03-built.png"}
+11:54:45 status {"now": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset."}
+11:54:46 ok {"what": "built to turn: kind 'motion'"}
+11:54:46 ok {"what": "the built footer says how to turn it: 'drag G1 in SolidWorks and the rest of its train follow'"}
+11:54:46 status {"now": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset."}
+11:54:46 status {"now": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset."}
+11:54:46 excel {"what": "set-save", "at": 1794675286.4208853, "result": "saved", "error": ""}
+11:54:46 waited {"status": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset."}
+11:54:46 waiting {"status": "Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to each of the 4 parts; the build leaves it unset."}
+11:54:47 waited {"status": "Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, and re-place G1, G2, G3 and G4. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow."}
+11:54:48 state {"name": "04-demonstration-edit", "status": "Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, and re-place G1, G2, G3 and G4. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow.", "read_line": "linked · read 11:54:47 · open in Excel · changed since it was built", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "3 changes · 11:54:47", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\04-demonstration-edit.png"}
+11:54:48 status {"now": "Update SolidWorks will change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, and re-place G1, G2, G3 and G4. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow."}
+11:54:48 status {"now": "Updating SolidWorks…"}
+update  Gear_m1.5_N17.SLDPRT · trig degrees
+ok      already holds the workbook's values
+update  Gear_m1.5_N68.SLDPRT · trig degrees
+ok      set "No. of Teeth"
+ok      rebuilt once
+update  Gear_m2_N17.SLDPRT · trig degrees
+ok      already holds the workbook's values
+update  OutputGear.SLDPRT · trig degrees
+ok      already holds the workbook's values
+update  Reducer_12to1_Layout.SLDPRT · trig degrees
+ok      set "S2 X", "S3 X"
+ok      rebuilt once
+ok      re-placed G1, G2, G3, G4
+ok      given their new ratio: G1 meshes G2
+mate    G1 on S1 Axis
+mate    G1 along S1
+mate    G2 on S2 Axis
+mate    G2 along S2
+mate    G3 locked to G2
+mate    G4 on S3 Axis
+mate    G4 along S3
+mate    G3 meshes G4
+mate    G1 meshes G2
+ok      assembly rebuilt once
+ok      no interference between the gears
+not saved: Gear_m1.5_N68.SLDPRT, Reducer_12to1_Layout.SLDPRT, Reducer_12to1.SLDASM changed in SolidWorks; save there to keep it
+11:55:00 waited {"status": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them."}
+11:55:02 state {"name": "05-updated", "status": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them.", "read_line": "linked · read 11:54:47 · open in Excel · updated from this version, not yet saved", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "3 changes · 11:54:47", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\05-updated.png"}
+11:55:02 status {"now": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them."}
+11:55:02 ok {"what": "the header after Update: 'linked · read 11:54:47 · open in Excel · updated from this version, not yet saved'"}
+11:55:02 status {"now": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them."}
+11:55:03 status {"now": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them."}
+11:55:03 excel {"what": "set-save", "at": 1794675303.141122, "result": "saved", "error": ""}
+11:55:03 waited {"status": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them."}
+11:55:03 waiting {"status": "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), moved S2 and S3 in Reducer_12to1_Layout, set the gear mate G1 meshes G2 to 17 : 69, re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them."}
+11:55:04 waited {"status": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow. Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks that are not saved: save them in SolidWorks to keep them. If SolidWorks closed them without saving, those changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than reuse it."}
+11:55:05 state {"name": "06-structural-unsaved", "status": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow. Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks that are not saved: save them in SolidWorks to keep them. If SolidWorks closed them without saving, those changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than reuse it.", "read_line": "linked · read 11:55:03 · open in Excel · changed since it was built", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "1 change · 11:55:03", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\06-structural-unsaved.png"}
+11:55:05 status {"now": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow. Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks that are not saved: save them in SolidWorks to keep them. If SolidWorks closed them without saving, those changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than reuse it."}
+11:55:05 ok {"what": "both buttons on with Update's changes unsaved"}
+11:55:05 ok {"what": "the save asked once, and build again said once"}
+11:55:05 ok {"what": "the three unsaved documents named"}
+11:55:05 ok {"what": "the part made new while unsaved said"}
+11:55:05 ok {"what": "the save asked as what may no longer be possible (second review N2)"}
+11:55:05 status {"now": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow. Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks that are not saved: save them in SolidWorks to keep them. If SolidWorks closed them without saving, those changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than reuse it."}
+11:55:07 person saves in SolidWorks {"paths": ["Gear_m1.5_N68.SLDPRT", "Reducer_12to1.SLDASM", "Reducer_12to1_Layout.SLDPRT"], "result": {"value": [["Gear_m1.5_N68.SLDPRT", true], ["Reducer_12to1_Layout.SLDPRT", true], ["Reducer_12to1.SLDASM", true]]}}
+11:55:07 status {"now": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow. Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 have changes from Update SolidWorks that are not saved: save them in SolidWorks to keep them. If SolidWorks closed them without saving, those changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than reuse it."}
+11:55:07 waited {"status": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow."}
+11:55:08 state {"name": "07-structural-saved", "status": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow.", "read_line": "linked · read 11:55:03 · open in Excel · changed since it was built", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "1 change · 11:55:03", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\07-structural-saved.png"}
+11:55:08 status {"now": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Update SolidWorks offers to build again as Reducer_12to1_r2. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow."}
+11:55:08 asked {"title": "Build again?", "question": "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a new part. Build again as Reducer_12to1_r2? That makes a new part for G1 (Gear_m1.5_N17_r2), reuses 3 parts that have not changed and makes a new layout part and assembly (Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM). Nothing is overwritten, and Reducer_12to1.SLDASM stays as it is on disk, but it shares the 3 reused parts: a later Update SolidWorks that changes one of them changes Reducer_12to1.SLDASM too."}
+11:55:08 status {"now": "Building in SolidWorks…"}
+11:55:18 waiting {"status": "Building in SolidWorks: part 1 of 1, Gear_m1.5_N17_r2…"}
+11:55:33 waiting {"status": "Building in SolidWorks: the assembly, Reducer_12to1_r2…"}
+build   Part71 · spur · recipe A · trig degrees
+ok      new part Part71
+ok      trig units measured: degrees
+ok      global "No. of Teeth"
+ok      global "Module"
+ok      global "Bore Diameter"
+ok      global "Pressure Angle"
+ok      global "Outer Diameter"
+ok      global "Pitch Diameter"
+ok      global "Backlash"
+ok      global "Arc Length"
+ok      global "Fillet Radius"
+ok      global "Tooth Depth"
+ok      global "Face Width"
+ok      global "Root Diameter"
+ok      global "Base Diameter"
+ok      global "Base Radius"
+ok      global "Tooth Thickness"
+ok      global "Half Space Angle"
+ok      global "Involute Fn"
+ok      global "Flank Offset"
+ok      global "Tip Cap Diameter"
+ok      global "Flank Start Diameter"
+ok      global "Involute t1"
+ok      global "Involute t2"
+ok      global "Flank Arc Radius"
+ok      global "Flank Centre Angle"
+ok      axis Gear Axis
+ok      sketch blank opened on plane 1
+ok      circle od
+ok      coincident od.centre origin
+ok      dimension OD
+ok      sketch Blank Sketch
+ok      extrude Blank
+ok      link "OD@Blank Sketch"
+ok      link "Width@Blank"
+ok      sketch space opened on plane 1
+ok      curve I+
+ok      curve I-
+ok      line L+
+ok      line L-
+ok      arc F+
+ok      arc F-
+ok      arc R
+ok      line T
+ok      fixed I+
+ok      fixed I-
+ok      coincident R.centre origin
+ok      coincident L+.start I+.start (already one point)
+ok      coincident L-.start I-.start (already one point)
+ok      coincident origin L+
+ok      coincident origin L-
+ok      coincident F+.start L+.end (already one point)
+ok      coincident F-.end L-.end (already one point)
+ok      coincident F+.end R.end (already one point)
+ok      coincident F-.start R.start (already one point)
+ok      tangent F+ L+
+ok      tangent F- L-
+ok      tangent F+ R
+ok      tangent F- R
+ok      equal F+ F-
+ok      coincident T.start I+.end (already one point)
+ok      coincident T.end I-.end (already one point)
+ok      dimension Root
+ok      dimension Fillet
+ok      sketch Tooth Space Sketch
+ok      link "Root@Tooth Space Sketch"
+ok      link "Fillet@Tooth Space Sketch"
+ok      cut Tooth Space
+ok      pattern Teeth × 17
+ok      link "Count@Teeth"
+ok      property 'Description'
+ok      property 'Gear Kind'
+ok      property 'Flank'
+ok      property 'Generated By'
+ok      24 globals read back and match the maths
+ok      Blank Sketch is fully defined
+ok      Tooth Space Sketch is fully defined
+ok      rebuilt once
+MANUAL  1 step(s) to do by hand
+MANUAL  Assign a material to Gear_m1.5_N17_r2; the build leaves it unset.
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Gear_m1.5_N17_r2.SLDPRT
+ok      checked Gear_m1.5_N68.SLDPRT: it holds what the workbook asks, so it is reused
+ok      checked Gear_m2_N17.SLDPRT: it holds what the workbook asks, so it is reused
+ok      checked OutputGear.SLDPRT: it holds what the workbook asks, so it is reused
+build   Part72 · layout · recipe  · trig degrees
+ok      new part Part72
+ok      trig units measured: degrees
+ok      global "S2 X"
+ok      global "S3 X"
+ok      axis S1 Axis
+ok      plane S2 X Plane
+ok      link "Offset@S2 X Plane"
+ok      axis S2 Axis
+ok      plane S3 X Plane
+ok      link "Offset@S3 X Plane"
+ok      axis S3 Axis
+ok      2 globals read back and match the maths
+ok      rebuilt once
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Reducer_12to1_r2_Layout.SLDPRT
+build   Assem17 · assembly · recipe  · trig degrees
+ok      new assembly Assem17
+ok      trig units measured: degrees
+ok      global "G4 Face Z"
+ok      component Reducer_12to1_r2_Layout-1
+ok      placed layout
+ok      fixed layout
+ok      component Gear_m1.5_N17_r2-1
+ok      placed gear1
+ok      fixed gear1
+ok      component Gear_m1.5_N68-1
+ok      placed gear2
+ok      fixed gear2
+ok      component Gear_m2_N17-1
+ok      placed gear3
+ok      fixed gear3
+ok      component OutputGear-1
+ok      placed gear4
+ok      fixed gear4
+ok      unfixed gear1
+ok      mate coincident gear1:Gear Axis ~ layout:S1 Axis as G1 on S1 Axis
+ok      mate point gear1:origin ~ layout:plane1 as G1 along S1
+ok      unfixed gear2
+ok      mate coincident gear2:Gear Axis ~ layout:S2 Axis as G2 on S2 Axis
+ok      mate point gear2:origin ~ layout:plane1 as G2 along S2
+ok      unfixed gear3
+ok      mate lock gear2 ~ gear3 as G3 locked to G2
+ok      unfixed gear4
+ok      mate coincident gear4:Gear Axis ~ layout:S3 Axis as G4 on S3 Axis
+ok      mate point distance gear4:origin ~ layout:plane1 as G4 along S3
+ok      link "D1@G4 along S3"
+ok      mate gear gear1:Gear Axis ~ gear2:Gear Axis as G1 meshes G2
+ok      mate gear gear3:Gear Axis ~ gear4:Gear Axis as G3 meshes G4
+ok      1 globals read back and match the maths
+ok      every mate sound, every gear free to turn
+mate    G1 on S1 Axis
+mate    G1 along S1
+mate    G2 on S2 Axis
+mate    G2 along S2
+mate    G3 locked to G2
+mate    G4 on S3 Axis
+mate    G4 along S3
+mate    G1 meshes G2
+mate    G3 meshes G4
+ok      rebuilt once
+ok      saved C:\Users\M0obo\Documents\GearGeneratorProbe\w5-demo-20261114-112629\window2026\window\Reducer_12to1_r2.SLDASM
+ok      no interference between the gears
+11:55:36 waited {"status": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:38 state {"name": "08-built-again", "status": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset.", "read_line": "linked · read 11:55:03 · open in Excel · built from this version", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "1 change · 11:55:03", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\08-built-again.png"}
+11:55:38 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:38 ok {"what": "the record: revision 2, earlier [0]"}
+11:55:38 ok {"what": "the build's journal taken out: []"}
+11:55:38 ok {"what": "the header: 'linked · read 11:55:03 · open in Excel · built from this version'"}
+11:55:38 ok {"what": "G2's part reused once saved: ['Gear_m1.5_N17_r2.SLDPRT', 'Gear_m1.5_N68.SLDPRT', 'Gear_m2_N17.SLDPRT', 'OutputGear.SLDPRT']"}
+11:55:38 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:39 STEP FAILED {"step": "do", "error": "Traceback (most recent call last):\n  File \"C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\snap\\probe\\workbook_window_check.py\", line 609, in step\n    arg()\n    ~~~^^\n  File \"C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\snap\\probe\\workbook_window_check.py\", line 466, in open_static\n    log(\"the W4 static record's source\", folder=W4_STATIC, workbook=os.path.basename(workbook),\n    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        schema=raw.get(\"schema\"), built=(raw.get(\"gearbox\") or {}).get(\"built\"), kind=(raw.get(\"gearbox\") or {}).get(\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n            \"kind\", \"(none: schema 2)\"), written_by=raw.get(\"written_by\"))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: log() got multiple values for argument 'kind'\n"}
+11:55:40 state {"name": "09-w4-static-record", "status": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset.", "read_line": "linked · read 11:55:03 · open in Excel · built from this version", "build": ["Build again…", true, false], "update": [true, true, true], "parts": "4 parts built", "changes": "1 change · 11:55:03", "path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\shots\\09-w4-static-record.png"}
+11:55:40 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:41 FAIL {"what": "the W4 static record's footer says it was built static and Build again… turns"}
+11:55:41 ok {"what": "nothing in the W4 folder changed: []"}
+11:55:41 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:41 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:41 excel {"what": "close", "at": 1794675341.5114553, "result": "closed", "error": ""}
+11:55:41 waited {"status": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:41 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:43 open w4-window {"path": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1.xlsx", "tag": "w4-window", "opened": true, "seconds": 0.13, "dialogs": [], "new_error_logs": [], "caption": "Reducer_12to1.xlsx - Excel", "window_caption": "Reducer_12to1.xlsx", "name": "Reducer_12to1.xlsx", "repaired": false}
+11:55:43 excel {"what": "open", "at": 1794675343.7145982, "result": false, "error": ""}
+11:55:43 waited {"status": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:43 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:44 excel {"what": "set-save", "at": 1794675343.9785953, "result": "saved", "error": ""}
+11:55:44 waited {"status": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:44 status {"now": "Built 1 part, Reducer_12to1_r2_Layout and Reducer_12to1_r2.SLDASM, reusing the 3 parts already built; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow. 1 thing to do by hand: Assign a material to Gear_m1.5_N17_r2; the build leaves it unset."}
+11:55:44 status {"now": "Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\…\\w5-demo-20261114-112629\\window2026\\refused\\. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks."}
+11:55:45 waited {"status": "Ready: Build makes 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM in C:\\…\\w5-demo-20261114-112629\\window2026\\refused\\. Its gears are mated to their shafts and to each other, so they turn together in SolidWorks."}
+11:55:45 status {"now": "Building in SolidWorks…"}
+11:55:48 waiting {"status": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m1.5_N17.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m1.5_N17.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m1.5_N68.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m1.5_N68.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m2_N17.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m2_N17.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\OutputGear.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\OutputGear.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1_Layout.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1_Layout.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1.SLDASM is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1.SLDASM, which this job would make; SolidWorks keeps one document per file name, so close Gear_m1.5_N17.SLDPRT, Gear_m1.5_N68.SLDPRT, Gear_m2_N17.SLDPRT, OutputGear.SLDPRT, Reducer_12to1_Layout.SLDPRT and Reducer_12to1.SLDASM in SolidWorks and try again."}
+11:56:04 waiting {"status": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m1.5_N17.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m1.5_N17.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m1.5_N68.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m1.5_N68.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m2_N17.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m2_N17.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\OutputGear.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\OutputGear.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1_Layout.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1_Layout.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1.SLDASM is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1.SLDASM, which this job would make; SolidWorks keeps one document per file name, so close Gear_m1.5_N17.SLDPRT, Gear_m1.5_N68.SLDPRT, Gear_m2_N17.SLDPRT, OutputGear.SLDPRT, Reducer_12to1_Layout.SLDPRT and Reducer_12to1.SLDASM in SolidWorks and try again."}
+11:56:19 waiting {"status": "C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m1.5_N17.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m1.5_N17.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m1.5_N68.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m1.5_N68.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Gear_m2_N17.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Gear_m2_N17.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\OutputGear.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\OutputGear.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1_Layout.SLDPRT is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1_Layout.SLDPRT, which this job would make; C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\window\\Reducer_12to1.SLDASM is open in SolidWorks, and it has the same file name as C:\\Users\\M0obo\\Documents\\GearGeneratorProbe\\w5-demo-20261114-112629\\window2026\\refused\\Reducer_12to1.SLDASM, which this job would make; SolidWorks keeps one document per file name, so close Gear_m1.5_N17.SLDPRT, Gear_m1.5_N68.SLDPRT, Gear_m2_N17.SLDPRT, OutputGear.SLDPRT, Reducer_12to1_Layout.SLDPRT and Reducer_12to1.SLDASM in SolidWorks and try again."}
+exit 1
