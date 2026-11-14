@@ -33,6 +33,18 @@ STATIC_FOR_W4 = "This test pins phase W4's static assembly, so its gears are pla
 MOTION_REASON = motion.motion_reason
 
 
+# The findings a probe round may still change, pinned to what these tests were written against, so none of them
+# leans on the committed value; a test of another branch pins its own value over this.
+SETTLED = {"GEAR_MATE_RATIO_ROUTE": None, "LOCK_RETAKES_AN_OFFSET": True,
+           "MATED_ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(True)", "GEAR_MATE_RATIO_REMAKE_WORKS": True}
+
+
+@pytest.fixture(autouse=True)
+def settled_findings(monkeypatch):
+    for name, value in SETTLED.items():
+        monkeypatch.setattr(findings, name, value, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def static_w4(monkeypatch):
     monkeypatch.setattr(motion, "motion_reason", lambda: STATIC_FOR_W4)

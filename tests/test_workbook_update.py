@@ -47,7 +47,7 @@ from gear_generator import findings, store  # noqa: E402
 from gear_generator.workbook import assess, layout, update  # noqa: E402
 from gear_generator.workbook.model import Gear, Mesh, Shaft, replace  # noqa: E402
 from test_workbook_gearbox import FOLDER, WORKBOOK, Disk, build, norm, stem  # noqa: E402
-from test_workbook_gearbox import static_w4, turning  # noqa: E402,F401  (W4's tests stay static: W5-INTERFACES §5)
+from test_workbook_gearbox import settled_findings, static_w4, turning  # noqa: E402,F401  (W5-INTERFACES §5)
 from test_workbook_model import edit, read, reducer, write  # noqa: E402
 
 
@@ -647,7 +647,8 @@ def demonstration():
     return gears(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), G2=dict(teeth="69"))
 
 
-def test_the_w4_demonstration_edit_on_a_turning_gearbox_waits_for_the_ratio_route(turned):
+def test_the_w4_demonstration_edit_on_a_turning_gearbox_waits_for_the_ratio_route(turned, monkeypatch):
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
     plan = classify(turned, demonstration())
     assert plan.structural == (
         "G2's teeth (68 → 69) change the gear mate G1 meshes G2 from 17 : 68 to 17 : 69, and a gear mate's ratio "
@@ -756,7 +757,8 @@ def test_a_followers_at_or_face_width_is_an_update_only_while_the_lock_retakes_a
             assert plan.structural == (f"{edit_}, and {why}, {REBUILD}",)
 
 
-def test_a_reordered_gears_sheet_keeps_the_recorded_anchors(turned):
+def test_a_reordered_gears_sheet_keeps_the_recorded_anchors(turned, monkeypatch):
+    monkeypatch.setattr(findings, "LOCK_RETAKES_AN_OFFSET", True)
     spec = reducer()
     spec = replace(spec, gears=(spec.gears[0], spec.gears[2], spec.gears[1], spec.gears[3]))
     plan = classify(turned, spec)
@@ -1039,7 +1041,8 @@ def test_round_trip_an_anchors_face_z_moves_it_and_the_record_follows(on_fake):
     assert nothing(update.classify(finished.record, assessed(spec), exists=lambda p: True))
 
 
-def test_round_trip_a_followers_at_is_carried_by_a_put_under_its_suppressed_lock(on_fake):
+def test_round_trip_a_followers_at_is_carried_by_a_put_under_its_suppressed_lock(on_fake, monkeypatch):
+    monkeypatch.setattr(findings, "LOCK_RETAKES_AN_OFFSET", True)
     sw, record = on_fake
     spec = gears(reducer(), G3=dict(at="30"))
     plan, result, finished = press(sw, record, spec)
@@ -1072,12 +1075,16 @@ def gearbox_module():
     return gearbox
 
 
-def test_round_trip_a_tooth_change_by_remake(on_fake, monkeypatch):
+def test_round_trip_the_w4_demonstration_edit_by_remake(on_fake, monkeypatch):
+    """S2 X 63.75 -> 64.5 (S3 following) and G2 68 -> 69 on the 12 : 1, under GEAR_MATE_RATIO_ROUTE "remake": an
+    Update that sets G2's teeth and the layout, remakes G1 meshes G2 at 17 : 69 and puts the whole train."""
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
     sw, record = on_fake
     spec = gears(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), G2=dict(teeth="69"))
     plan, result, finished = press(sw, record, spec)
     assert result.ok, result.failures
+    assert plan.ratios == ("G1 meshes G2",) and plan.motion.ratios == (("G1 meshes G2", 17, 69),)
+    assert sorted(result.placed) == ["G1", "G2", "G3", "G4"]          # the whole train put, its locks off around it
     assert result.ratios == ["G1 meshes G2"] and sw.mate("G1 meshes G2", record.gearbox.assembly).ratio == (17, 69)
     assert {e.name: e.ratio for e in finished.record.gearbox.mates}["G1 meshes G2"] == [17, 69]
     assert no_lock_left_off(sw, record) and at_wanted(sw, record, spec)
