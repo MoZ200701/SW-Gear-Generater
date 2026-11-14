@@ -1694,9 +1694,49 @@ def test_a_remake_solidworks_will_not_make_again_says_the_mate_was_deleted(mated
     doc.refuse = True
     with pytest.raises(swcom.MateRefused) as raised:
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
-    assert str(raised.value) == ("The gear mate G3 meshes G4 was deleted in R.SLDASM to give it its new ratio, and "
-                                 "SolidWorks would not make it again (AddMate5 would not make a gear mate between "
-                                 "placed3:Gear Axis and placed4:Gear Axis.); build the gearbox again.")
+    assert str(raised.value) == ("The open R.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its "
+                                 "new ratio, and SolidWorks would not make it again (AddMate5 would not make a gear "
+                                 "mate between placed3:Gear Axis and placed4:Gear Axis). The saved R.SLDASM still has "
+                                 "it: close R.SLDASM in SolidWorks without saving to bring it back.")
+
+
+def test_a_remake_whose_selection_fails_is_an_ordinary_failure_not_mate_refused(mated, monkeypatch):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    session._handles["placed4"] = {"component": MatedComponent(doc, "Gear_m1.5_N51-1")}
+    session._handles["placed4"]["component"].FeatureByName = lambda name: None
+    doc.Extension = type("NoSelect", (), {"SelectByID2": lambda self, *args: False})()
+    with pytest.raises(SolidWorksError) as raised:
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert not isinstance(raised.value, swcom.MateRefused)
+    assert str(raised.value).endswith("could not be selected for a mate.")
+
+
+def test_a_remake_solidworks_names_otherwise_says_the_open_assembly_lost_the_mate(mated, monkeypatch):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    monkeypatch.setattr(swcom.Session, "_rename", staticmethod(lambda feature, name: "G3 meshes G4 1"))
+    with pytest.raises(SolidWorksError) as raised:
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert str(raised.value) == ("The open R.SLDASM has lost the gear mate G3 meshes G4 by that name: it was made again "
+                                 "with its new ratio, and SolidWorks named it G3 meshes G4 1. The saved R.SLDASM still "
+                                 "has it: close R.SLDASM in SolidWorks without saving to bring it back.")
+
+
+def test_statuses_are_this_builds_only(mated):
+    session, doc = mated
+    session.add_mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")
+    session.begin_build()
+    assert session.mate_status("G3 locked to G2") is None
+
+
+def test_what_in_the_mate_group_is_not_a_mate_is_named_when_asked(mated):
+    session, doc = mated
+    doc.mates = [MateFeature(doc, "G1 on S1 Axis"), MateFeature(doc, "My mates", "FtrFolder")]
+    others = []
+    assert [m.name for m in session.mate_states(others=others)] == ["G1 on S1 Axis"] and others == ["My mates"]
 
 
 def test_a_remake_without_the_delete_route_is_refused_before_the_mate_is_touched(mated, monkeypatch):

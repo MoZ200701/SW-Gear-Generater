@@ -760,6 +760,7 @@ class Session:
         call waits on it.
         """
         self._handles: Dict[str, Any] = {}
+        self._mate_statuses = {}                  # a status is this build's: never one a mate of an earlier build left
         self._plane_objects: Dict[str, Any] = {}  # a RefPlane handle -> what InsertRefPlane returned
         self._open_sketch: Optional[str] = None
         self._build_doc: Any = None  # until new_part, new_assembly or open_document, the active document
@@ -2055,16 +2056,19 @@ class Session:
         for a mate this session did not make. Reads nothing from SolidWorks."""
         return self._mate_statuses.get(name)
 
-    def mate_states(self) -> List[MateState]:
+    def mate_states(self, *, others: Optional[List[str]] = None) -> List[MateState]:
         """Every mate of the build document, in tree order (``findings.MATE_FIND_ROUTE`` "mate group": walk
         ``FirstFeature`` to the ``MateGroup``, then ``GetFirstSubFeature`` / ``GetNextSubFeature``): its
         ``Name``; ``GetErrorCode2`` with a by-reference bool for ``IsWarning`` (a tuple back, or the out
         parameter's ``.value``); ``IsSuppressed2(findings.THIS_CONFIGURATION, null dispatch)`` (a tuple or list
         back: its first item). An assembly with no MateGroup has no mates: ``[]``. A sub-feature that is not a
-        mate (a folder: :meth:`_is_mate`) is left out."""
+        mate (a folder: :meth:`_is_mate`) is left out; given ``others`` (a list), each one's name is appended to it,
+        so a caller can refuse what no probe has read yet (W5 review: how a folder in the MateGroup reads)."""
         out: List[MateState] = []
         for feature in self._mate_group():
             if not self._is_mate(feature):
+                if others is not None:
+                    others.append(str(call(feature, "Name")))
                 continue
             flag = _out_bool()
             answer = call(feature, "GetErrorCode2", flag)
@@ -2176,14 +2180,16 @@ class Session:
         if name in self._mate_names():
             raise SolidWorksError(f"SolidWorks would not delete the gear mate {name} in {title} to give it its new "
                                   "ratio, so it keeps its old one.")
+        restore = (f"The saved {title} still has it: close {title} in SolidWorks without saving to bring it back.")
         try:
             kept, _ = self._gear_mate(handle, a, b, (float(ratio[0]), float(ratio[1])), bool(flip), name)
-        except SolidWorksError as exc:
-            raise MateRefused(f"The gear mate {name} was deleted in {title} to give it its new ratio, and SolidWorks "
-                              f"would not make it again ({exc}); build the gearbox again.") from None
+        except MateRefused as exc:
+            said = str(exc).rstrip(".")
+            raise MateRefused(f"The open {title} has lost the gear mate {name}: it was deleted to give it its new "
+                              f"ratio, and SolidWorks would not make it again ({said}). {restore}") from None
         if kept != name:
-            raise SolidWorksError(f"The gear mate {name}, made again with its new ratio in {title}, was named {kept} by "
-                                  "SolidWorks, so it cannot be found by its name again.")
+            raise SolidWorksError(f"The open {title} has lost the gear mate {name} by that name: it was made again with "
+                                  f"its new ratio, and SolidWorks named it {kept}. {restore}")
 
     def set_custom_property(self, name: str, value: str) -> None:
         """A text custom property on the build's part, added or replaced, and read back.
