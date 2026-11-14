@@ -1774,6 +1774,182 @@ def test_a_structural_edit_on_a_turning_gearbox_is_shown_as_classify_wrote_it(re
     assert question.startswith(f"{face} {teeth} Build again as Reducer_12to1_r2? ")
 
 
+# before Update SolidWorks, and after, on a turning gearbox
+
+
+def _motion_update(**changes):
+    refs = tuple(swbuild.MateRef(m.name, m.kind, m.gears, m.shaft) for m in _motion().mates)
+    motion = swbuild.MotionUpdate(mates=refs, locks=(swbuild.LockLink("G2", "G3", 0.0),),
+                                  meshes=(swbuild.MeshLink("G1", "G2", -0.25, 5.294),
+                                          swbuild.MeshLink("G3", "G4", -1 / 3, 7.059)),
+                                  ratios=(("G1 meshes G2", 17, 69), ("G3 meshes G4", 17, 52)))
+    fields = dict(motion=motion, parts=(), layout=None, moved_shafts=(), replaced=())
+    fields.update(changes)
+    return _update(**fields)
+
+
+ASM = _path("Reducer_12to1", ".SLDASM")
+
+
+def _moved(**values):
+    fields = dict(parts=[], layout=None, placed=[], rebuilt=True, changed=[])
+    fields.update(values)
+    return swbuild.GearboxUpdate(**fields)
+
+
+def test_the_update_summary_names_a_move_along_a_shaft_and_a_new_ratio():
+    assert ui_text.update_summary(_motion_update(axial=("G4",), replaced=("G4",))) == (
+        "Update SolidWorks will move G4 along S3, and re-place G4.")
+    assert ui_text.update_summary(_motion_update(axial=("G4",))) == "Update SolidWorks will move G4 along S3."
+    both = _motion_update(axial=("G2", "G4"), ratios=("G1 meshes G2",), replaced=("G2", "G3", "G4"),
+                          moved_shafts=("S2",), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")))
+    assert _clean(ui_text.update_summary(both)) == (
+        "Update SolidWorks will move S2 in Reducer_12to1_Layout, move G2 along S2 and G4 along S3, set the gear mate "
+        "G1 meshes G2 to 17 : 69, and re-place G2, G3 and G4.")
+    two = _motion_update(ratios=("G1 meshes G2", "G3 meshes G4"))
+    assert ui_text.update_summary(two) == (
+        "Update SolidWorks will set the gear mates G1 meshes G2 to 17 : 69 and G3 meshes G4 to 17 : 52.")
+
+
+def test_after_update_a_train_that_had_to_move_is_said_to_be_back_at_its_built_turn():
+    """Answer 2 and D4: when Update had to put a train, it put every mated gear of it back to the built turn."""
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], restored=[("G1", "G2", "G3", "G4")],
+                    layout=swbuild.UpdateResult(document="Reducer_12to1_Layout.SLDPRT", changed=["S2 X"], rebuilt=True))
+    update = _motion_update(moved_shafts=("S2",), layout=swbuild.DocumentValues(_path("Reducer_12to1_Layout")))
+    assert _clean(ui_text.gearbox_update_status(update, result)[0]) == (
+        "Updated SolidWorks: moved S2 in Reducer_12to1_Layout, re-placed G1, G2, G3 and G4; no interference between "
+        "the gears where they stand. G1, G2, G3 and G4 had been turned in SolidWorks; their train is back at the turn "
+        "it was built at. Save Reducer_12to1 in SolidWorks to keep it.")
+    one = _moved(placed=["G1", "G2"], changed=[ASM], restored=[("G2",)])
+    assert "G2 had been turned in SolidWorks; its train is back at the turn it was built at." in \
+        ui_text.gearbox_update_status(_motion_update(), one)[0]
+
+
+def test_two_trains_where_only_one_was_put_name_only_that_train():
+    result = _moved(placed=["G1", "G2"], changed=[ASM], turned=True, restored=[("G1", "G2")],
+                    axial=["G2"])
+    text, ok = ui_text.gearbox_update_status(_motion_update(), result)
+    assert (_clean(text), ok) == (
+        "Updated SolidWorks: moved G2 along S2, re-placed G1 and G2; no interference between the gears where they "
+        "stand. G1 and G2 had been turned in SolidWorks; their train is back at the turn it was built at. Save "
+        "Reducer_12to1 in SolidWorks to keep it.", True)
+    assert "G5" not in text and "the gears had been" not in text
+
+
+def test_a_train_put_with_no_gear_turned_back_gets_no_sentence_and_one_left_turned_is_never_mentioned():
+    put = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], restored=[])
+    assert ui_text.gearbox_update_status(_motion_update(), put)[0] == (
+        "Updated SolidWorks: re-placed G1, G2, G3 and G4; no interference between the gears where they stand. Save "
+        "Reducer_12to1 in SolidWorks to keep it.")
+    turned = _moved(turned=True)
+    assert ui_text.gearbox_update_status(_motion_update(), turned) == (ui_text.ALREADY_MATCHES, True)
+    values = _moved(turned=True, parts=[swbuild.UpdateResult(document="Gear_m1.5_N68.SLDPRT", changed=["No. of Teeth"],
+                                                             rebuilt=True)], changed=[_path("Gear_m1.5_N68")])
+    text, _ = ui_text.gearbox_update_status(_motion_update(parts=_update().parts), values)
+    assert text == ("Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its "
+                    "name); no interference between the gears where they stand. Save Gear_m1.5_N68 in SolidWorks to "
+                    "keep it.")
+
+
+def test_a_relation_out_of_step_is_said_without_guessing_which_gear_was_turned():
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], out_of_step=[("G1", "G2"), ("G2", "G3")],
+                    restored=[("G2", "G3", "G4")])
+    text = _clean(ui_text.gearbox_update_status(_motion_update(), result)[0])
+    assert text == (
+        "Updated SolidWorks: re-placed G1, G2, G3 and G4; no interference between the gears where they stand. G1 and "
+        "G2 had been turned out of step with each other in SolidWorks; they are back in mesh. G2 and G3 had been "
+        "turned out of step with each other in SolidWorks; they are back in step. G2, G3 and G4 had been turned in "
+        "SolidWorks; their train is back at the turn it was built at. Save Reducer_12to1 in SolidWorks to keep it.")
+
+
+def test_a_gear_moved_off_its_axis_is_w4s_put_back():
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], off_axis=["G4"])
+    text, _ = ui_text.gearbox_update_status(_motion_update(), result, dragged=["G4"])
+    assert text == ("Updated SolidWorks: re-placed G1, G2 and G3; no interference between the gears where they stand. "
+                    "G4 had been moved in SolidWorks; put back where the workbook has it. Save Reducer_12to1 in "
+                    "SolidWorks to keep it.")
+
+
+def test_a_recorded_mate_found_suppressed_was_turned_back_on_and_said():
+    """D10."""
+    result = _moved(changed=[ASM], unsuppressed=["G1 meshes G2"])
+    assert ui_text.gearbox_update_status(_motion_update(), result)[0] == (
+        "Updated SolidWorks: turned the mate G1 meshes G2 back on (it was suppressed in SolidWorks); no interference "
+        "between the gears where they stand. Save Reducer_12to1 in SolidWorks to keep it.")
+    two = _moved(changed=[ASM], unsuppressed=["G1 meshes G2", "G3 locked to G2"], axial=["G4"],
+                 ratios=["G3 meshes G4"])
+    assert _clean(ui_text.gearbox_update_status(_motion_update(), two)[0]).startswith(
+        "Updated SolidWorks: turned the mates G1 meshes G2 and G3 locked to G2 back on (they were suppressed in "
+        "SolidWorks), moved G4 along S3, set the gear mate G3 meshes G4 to 17 : 52; no interference")
+
+
+def test_mates_the_app_did_not_make_and_left_alone_are_said_even_when_nothing_changed():
+    one = _moved(extra_mates=["Angle1"])
+    assert ui_text.gearbox_update_status(_motion_update(), one) == (
+        "SolidWorks already matches the workbook: nothing was changed. Reducer_12to1.SLDASM also has a suppressed "
+        "mate the app did not make, Angle1; Update SolidWorks left it as it is.", True)
+    three = _moved(changed=[ASM], placed=["G4"], extra_mates=["Angle1", "Angle2", "Distance3"])
+    assert ("Reducer_12to1.SLDASM also has suppressed mates the app did not make, Angle1, Angle2 and Distance3; "
+            "Update SolidWorks left them as they are. Save Reducer_12to1") in \
+        _clean(ui_text.gearbox_update_status(_motion_update(), three)[0])
+
+
+def test_an_unknown_mate_not_suppressed_refuses_the_update_in_the_workers_own_words():
+    """M7: the worker's check phase raises a BuildError naming the mate; the window shows it as it came."""
+    said = ("Reducer_12to1.SLDASM has a mate the app did not make, Angle1, and it is not suppressed: suppress Angle1 "
+            "in SolidWorks and press Update SolidWorks again.")
+    assert ui_text.job_failed(swbuild.BuildError(said), updating=True) == said
+
+
+def test_locks_that_could_not_be_turned_back_on_are_never_hidden_behind_the_failure_before_them():
+    """M8: the put fails, then the locks' unsuppress in the finally fails too; both are said, in order."""
+    result = _moved(changed=[ASM], failures=[
+        ("Reducer_12to1.SLDASM", "G2 would not move: Transform2 was not taken."),
+        ("Reducer_12to1.SLDASM", "The compound gears G2 and G3 are not locked: press Update SolidWorks again.")])
+    assert ui_text.gearbox_update_status(_motion_update(), result) == (
+        "Update SolidWorks stopped. Reducer_12to1.SLDASM: G2 would not move: Transform2 was not taken. The compound "
+        "gears G2 and G3 are not locked: press Update SolidWorks again. It had already changed Reducer_12to1, not "
+        "saved: press Update SolidWorks again once that is put right, or save it in SolidWorks to keep what it did.",
+        False)
+    post = _moved(failures=[("Gear_m1.5_N68.SLDPRT", "SolidWorks reported an error rebuilding Gear_m1.5_N68."),
+                            ("Reducer_12to1.SLDASM", "G4 is not where Update SolidWorks put it once the assembly "
+                                                     "rebuilt: a mate holds it elsewhere.")])
+    assert ui_text.gearbox_update_status(_motion_update(), post)[0] == (
+        "Update SolidWorks stopped. Gear_m1.5_N68.SLDPRT: SolidWorks reported an error rebuilding Gear_m1.5_N68. "
+        "Reducer_12to1.SLDASM: G4 is not where Update SolidWorks put it once the assembly rebuilt: a mate holds it "
+        "elsewhere. Nothing was changed.")
+    # W4's static path keeps saying the first failure only, word for word.
+    assert ui_text.gearbox_update_status(_update(), post)[0] == (
+        "Update SolidWorks stopped. Gear_m1.5_N68.SLDPRT: SolidWorks reported an error rebuilding Gear_m1.5_N68. "
+        "Nothing was changed.")
+
+
+def test_motion_update_lines_are_whole_sentences_and_empty_on_the_static_path():
+    result = _moved(changed=[ASM], placed=["G1", "G2", "G3", "G4"], unsuppressed=["G1 meshes G2"], axial=["G4"],
+                    ratios=["G1 meshes G2"], out_of_step=[("G1", "G2")], restored=[("G1", "G2")],
+                    extra_mates=["Angle1"])
+    lines = ui_text.motion_update_lines(_motion_update(), result)
+    assert lines == [
+        "Turned the mate G1 meshes G2 back on (it was suppressed in SolidWorks).",
+        "Moved G4 along S3.",
+        "Set the gear mate G1 meshes G2 to 17 : 69.",
+        "G1 and G2 had been turned out of step with each other in SolidWorks; they are back in mesh.",
+        "G1 and G2 had been turned in SolidWorks; their train is back at the turn it was built at.",
+        "Reducer_12to1.SLDASM also has a suppressed mate the app did not make, Angle1; Update SolidWorks left it as "
+        "it is."]
+    for line in lines:
+        assert _clean(line)[0].isupper() and line.endswith(".")
+    assert ui_text.motion_update_lines(_update(), result) == []
+
+
+def test_a_static_gearboxs_update_reads_exactly_as_in_w4_whatever_the_result_carries():
+    result = _updated(restored=[("G2",)], unsuppressed=["X"], extra_mates=["Angle1"], turned=True)
+    assert ui_text.gearbox_update_status(_update(), result) == (
+        "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), "
+        "moved S2 and S3 in Reducer_12to1_Layout, re-placed G2, G3 and G4; no interference between the gears. Save "
+        "Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in SolidWorks to keep them.", True)
+
+
 def test_no_w5_sentence_says_fallback_or_static_instead():
     """W5-DECISIONS answer 1: there is no static fallback, so nothing anywhere speaks of one."""
     import inspect

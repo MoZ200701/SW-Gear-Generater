@@ -1486,12 +1486,15 @@ def update_summary(update) -> str:
     """What Update SolidWorks will do, before the press (``workbook.update.UpdatePlan``): *Update SolidWorks will
     change G2's values (Gear_m1.5_N68), move S2 and S3 in Reducer_12to1_Layout, and re-place G2, G3 and G4.*; the
     structural sentence when it needs a new revision; *SolidWorks already matches the workbook on record* when
-    nothing on record differs."""
+    nothing on record differs. On a turning gearbox (W5) also *move G4 along S3* (``update.axial``) and *set the
+    gear mate G1 meshes G2 to 17 : 69* (``update.ratios``)."""
     if update.refusal:
         return update.refusal
     if update.needs_new_revision:
         return _again_sentence(update)
-    if update.record_matches:
+    axial = [g for g in getattr(update, "axial", ()) if g]
+    ratios = [n for n in getattr(update, "ratios", ()) if n]
+    if update.record_matches and not (axial or ratios):
         return ("SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right "
                 "anything changed there.")
     pieces = []
@@ -1503,6 +1506,10 @@ def update_summary(update) -> str:
     if update.moved_shafts:
         layout = f" in {_stem(update.layout.path)}" if update.layout is not None else ""
         pieces.append(f"move {_and(update.moved_shafts)}{layout}")
+    if axial:                                  # W5: an anchor's distance along its shaft (its Face Z global)
+        pieces.append(f"move {_along(update, axial)}")
+    if ratios:                                 # W5: only once a gear mate's ratio can be changed (D7)
+        pieces.append(f"set {_gear_mates(update, ratios)}")
     if update.replaced:
         pieces.append(f"re-place {_and(update.replaced)}")
     if len(pieces) > 1:
@@ -1545,11 +1552,28 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
     """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
     with :func:`save_to_keep` naming the documents whenever ``result.changed`` is not empty; *SolidWorks already
     matches the workbook: nothing was changed.* when nothing was. ``meshes``: the record's listed meshes (pairs of
-    gear ids), so a clash is called a mesh only when it is one (see :func:`_interference`)."""
+    gear ids), so a clash is called a mesh only when it is one (see :func:`_interference`).
+
+    On a turning gearbox (``update.motion``, W5) the sentence adds what the
+    motion path did and found (:func:`_motion_pieces`, :func:`_motion_after`),
+    the interference is of the gears *where they stand*, and a job that
+    stopped says every failure, not only the first: a lock that could not be
+    turned back on after a put that failed is a failure of its own, naming
+    the compound gears left unlocked (review M8), and must not be hidden
+    behind the put's. W4's static path reads as it always has."""
     changed_docs = [_stem(p) for p in result.changed]
+    motion = getattr(update, "motion", None) is not None
     if result.failures:
         what, why = result.failures[0]
         text = f"Update SolidWorks stopped. {what.strip()}: {_sentence(why)}"
+        if motion:
+            groups: List[Tuple[str, List[str]]] = []
+            for what, why in result.failures:
+                if groups and groups[-1][0] == what.strip():
+                    groups[-1][1].append(_sentence(why))
+                else:
+                    groups.append((what.strip(), [_sentence(why)]))
+            text = "Update SolidWorks stopped. " + " ".join(f"{w}: {' '.join(ys)}" for w, ys in groups)
         if changed_docs:
             one = len(changed_docs) == 1
             text += (f" It had already changed {_and(changed_docs)}, not saved: press Update SolidWorks again once "
@@ -1579,6 +1603,9 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
         if not result.layout.rebuilt:
             pieces[-1] += " (SolidWorks reported an error rebuilding it)"
             ok = False
+    if motion:
+        pieces.extend(_motion_pieces(update, result))
+    after = _motion_after(update, result) if motion else []
     dragged = list(dragged)
     placed = [g for g in result.placed if g not in dragged]
     if placed:
@@ -1589,9 +1616,9 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
     if nothing:
         text = ALREADY_MATCHES
         if assembly and (result.clashes or result.interference_error):
-            ending, ok = _interference(result.clashes, result.interference_error, assembly, meshes)
+            ending, ok = _interference(result.clashes, result.interference_error, assembly, meshes, turning=motion)
             text += ending[1:]
-        return text, ok
+        return _joined(text, *after), ok
     put_back = ""
     if dragged:
         one = len(dragged) == 1
@@ -1603,12 +1630,15 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
             text += f". SolidWorks reported an error rebuilding {assembly}, so look at it before saving."
             ok = False
         else:
-            ending, clean = _interference(result.clashes, result.interference_error, assembly, meshes)
+            ending, clean = _interference(result.clashes, result.interference_error, assembly, meshes,
+                                          turning=motion)
             text, ok = text + ending, ok and clean
     else:
         text += "."
     if put_back and pieces:
         text += f" {put_back}."
+    if after:
+        text += " " + " ".join(after)
     if result.changed:
         text += " " + save_to_keep(result.changed)
     return text, ok
@@ -2565,17 +2595,97 @@ def motion_record_line(record, digest: str = "", *, offer: bool = True) -> str:
             "turn.") if offer else ""
 
 
+def _shaft_of(update, gear: str) -> str:
+    """The shaft of ``gear``'s ALONG mate in ``update.motion.mates``; ``""`` if none is recorded."""
+    motion = getattr(update, "motion", None)
+    for mate in getattr(motion, "mates", ()) or ():
+        if mate.kind == "along" and tuple(mate.gears)[:1] == (gear,) and mate.shaft:
+            return mate.shaft
+    return ""
+
+
+def _along(update, gears: Sequence[str]) -> str:
+    """``G4 along S3`` / ``G4 along S3 and G6 along S5`` (``along its shaft`` if no ALONG mate names it)."""
+    return _and(f"{g} along {_shaft_of(update, g) or 'its shaft'}" for g in gears)
+
+
+def _ratio_of(update, name: str) -> str:
+    """``G1 meshes G2 to 17 : 69`` from ``update.motion.ratios``; ``G1 meshes G2 to its new ratio`` if not there."""
+    motion = getattr(update, "motion", None)
+    for mate, a, b in getattr(motion, "ratios", ()) or ():
+        if mate == name:
+            return f"{name} to {a} : {b}"
+    return f"{name} to its new ratio"
+
+
+def _gear_mates(update, names: Sequence[str]) -> str:
+    """``the gear mate G1 meshes G2 to 17 : 69`` / ``the gear mates … and …``."""
+    names = [n for n in names if n]
+    return f"the gear mate{'' if len(names) == 1 else 's'} {_and(_ratio_of(update, n) for n in names)}"
+
+
+def _motion_pieces(update, result) -> List[str]:
+    """What the motion path did, as pieces of *Updated SolidWorks: …*, in the order it did them: *turned the mate
+    G1 meshes G2 back on (it was suppressed in SolidWorks)* (D10), *moved G4 along S3* (``result.axial``), *set the
+    gear mate G1 meshes G2 to 17 : 69* (``result.ratios``)."""
+    pieces = []
+    back = [n for n in result.unsuppressed if n]
+    if back:
+        one = len(back) == 1
+        pieces.append(f"turned the mate{'' if one else 's'} {_and(back)} back on ({'it was' if one else 'they were'} "
+                      "suppressed in SolidWorks)")
+    axial = [g for g in result.axial if g]
+    if axial:
+        pieces.append(f"moved {_along(update, axial)}")
+    ratios = [n for n in result.ratios if n]
+    if ratios:
+        pieces.append(f"set {_gear_mates(update, ratios)}")
+    return pieces
+
+
+def _pair_kind(update, pair: Tuple[str, str]) -> str:
+    """``"lock"`` when ``pair`` is a recorded LOCK (anchor, follower), else ``"mesh"``."""
+    motion = getattr(update, "motion", None)
+    for lock in getattr(motion, "locks", ()) or ():
+        if (lock.anchor, lock.follower) == tuple(pair):
+            return "lock"
+    return "mesh"
+
+
+def _motion_after(update, result) -> List[str]:
+    """What the motion path found and put right, each a whole sentence, after the pieces: a relation out of step
+    (*G1 and G2 had been turned out of step with each other in SolidWorks; they are back in mesh.* — which of the
+    two was turned cannot be told, so neither is said to be), then one sentence per train put
+    (``result.restored``: *G1, G2, G3 and G4 had been turned in SolidWorks; their train is back at the turn it was
+    built at.* — that train's gears only; a train put with none turned, or not put, is never mentioned, and with
+    nothing to put the train stays where it was turned and nothing is said: W5-DECISIONS answer 2), then the mates
+    the app did not make, left alone (``result.extra_mates``)."""
+    out = []
+    for a, b in result.out_of_step:
+        back = "they are back in step" if _pair_kind(update, (a, b)) == "lock" else "they are back in mesh"
+        out.append(f"{a} and {b} had been turned out of step with each other in SolidWorks; {back}.")
+    for gears in result.restored:
+        gears = [g for g in gears if g]
+        if not gears:
+            continue
+        one = len(gears) == 1
+        out.append(f"{_and(gears)} had been turned in SolidWorks; {'its' if one else 'their'} train is back at the "
+                   "turn it was built at.")
+    extra = [n for n in result.extra_mates if n]
+    if extra:
+        one = len(extra) == 1
+        where = _file(update.assembly) if update.assembly else "The assembly"
+        out.append(f"{where} also has {'a suppressed mate' if one else 'suppressed mates'} the app did not make, "
+                   f"{_and(extra)}; Update SolidWorks left {'it as it is' if one else 'them as they are'}.")
+    return out
+
+
 def motion_update_lines(update, result) -> List[str]:
     """The W5 pieces of a finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate`` of the motion
-    path), in order, each a whole sentence: *Moved G4 along S3.* (``result.axial``, the shaft from the ALONG mate
-    in ``update.motion.mates``), *Set the gear mate G1 meshes G2 to 17 : 69.* (``result.ratios``), *Turned the
-    mate G1 meshes G2 back on (it was suppressed in SolidWorks).* (``result.unsuppressed``), per entry of
-    ``result.restored`` (one per train put, its gears that had stood turned) *G1, G2, G3 and G4 had been turned in
-    SolidWorks; they are back at the turn they were built at.* — only that train's gears, never "the gears" when
-    another train was left as turned — *G4 had been turned out of step with G3 in SolidWorks; it is back in mesh.*
-    (``result.out_of_step``; when a train was put for that, the restored sentence names the other gears turned
-    back with it), *Reducer_12to1.SLDASM also
-    has mates the app did not make (Angle1), suppressed; Update SolidWorks left them as they are.*
-    (``result.extra_mates``); and, with nothing changed and ``result.turned``, *The gears stand where they were
-    turned in SolidWorks.* after ``ALREADY_MATCHES``. ``[]`` for W4's static path."""
-    raise NotImplementedError("W5: Agent C, ui_text.motion_update_lines")
+    path), each a whole sentence, in order: *Turned the mate G1 meshes G2 back on (it was suppressed in
+    SolidWorks).*, *Moved G4 along S3.*, *Set the gear mate G1 meshes G2 to 17 : 69.*, then
+    :func:`_motion_after`'s. :func:`gearbox_update_status` folds the first three into its *Updated SolidWorks: …*
+    list and adds the rest after it. ``[]`` for W4's static path (``update.motion`` None)."""
+    if getattr(update, "motion", None) is None:
+        return []
+    return [_sentence(p[:1].upper() + p[1:]) for p in _motion_pieces(update, result)] + _motion_after(update, result)
