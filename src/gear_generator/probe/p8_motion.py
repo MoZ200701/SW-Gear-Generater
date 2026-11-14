@@ -1596,7 +1596,12 @@ TRAIN_C12, TRAIN_C34 = 42.5, 34.0              # mm, module 1
 TRAINS = (("all Z+", "T", (1, 1, 1), (40.0, 40.0)), ("middle Z-", "U", (1, -1, 1), (40.0, 240.0)))
 TRAIN_DRIVE_AGAIN = 70.0   # degrees, the drive after the reopen
 DRAG = 20.0                # degrees the input is turned with the drive suppressed
-DRAG_ROUTES = ("IDragOperator.DragAsUI", "IDragOperator.Drag", "SetTransformAndSolve2", "Transform2 put")
+# The first run tried DragAsUI and Drag as IDragOperator came (TransformType 0, DragMode 3): every call returned
+# True and the input turned, but the train did not follow; the other settings are tried in turn after them.
+DRAG_ROUTES = ("IDragOperator.DragAsUI", "IDragOperator.Drag", "IDragOperator.DragAsUI TransformType=1",
+               "IDragOperator.DragAsUI TransformType=2", "IDragOperator.DragAsUI DragMode=0",
+               "IDragOperator.DragAsUI DragMode=1", "IDragOperator.DragAsUI DragMode=2", "SetTransformAndSolve2",
+               "Transform2 put")
 
 
 def rotation_about(axis: Sequence[float], degrees: float) -> Matrix:
@@ -1628,10 +1633,16 @@ def drag(px: Px, asm: Any, component: Any, degrees: float, route: str) -> Dict[s
         ok, value = px.attempt(f"IDragOperator.{key}", lambda k=key: member(op, k)[0])
         out[key] = plain(value) if ok else "raised"
     px.attempt("IDragOperator.UseAbsoluteTransform = False", lambda: setattr(op, "UseAbsoluteTransform", False))
+    call_part, _, setting = route.partition(" ")
+    if setting:
+        key, _, value = setting.partition("=")
+        px.attempt(f"IDragOperator.{key} = {value}", lambda: setattr(op, key, int(value)))
+        ok, read = px.attempt(f"IDragOperator.{key} read back", lambda: member(op, key)[0])
+        out[f"{key} set"] = plain(read) if ok else "raised"
     m, o = frame_of(component)
     r, t = turn_about_point(column(m, 2), degrees, o)
     xform = make_transform(px, array_data(r, t, findings.TRANSFORM_ARRAY_ORDER or "columns"))
-    method = route.rsplit(".", 1)[-1]
+    method = call_part.rsplit(".", 1)[-1]
     for step, thunk in (("AddComponent", lambda: call(op, "AddComponent", component, False)),
                         ("BeginDrag", lambda: member(op, "BeginDrag")[0]),
                         (method, lambda: call(op, method, xform)),
@@ -1897,6 +1908,16 @@ def swung(centre: Sequence[float], radius: float, degrees: float) -> Tuple[float
     return (centre[0] + radius * math.sin(a), centre[1] + radius * math.cos(a))
 
 
+def _set_exact(eqm: Any, name: str, value: float) -> str:
+    """Change a global in place to ``value`` written to nine decimals; returns what reads back."""
+    from .p7_workbook import _names_global  # noqa: PLC0415
+    for index in range(int(call(eqm, "GetCount"))):
+        if _names_global(str(call(eqm, "Equation", index)), name):
+            sc.put_indexed(eqm, "Equation", index, f'"{name}"= {value:.9f}')
+            return str(call(eqm, "Equation", index))
+    raise Require(f'There is no global "{name}" to change.')
+
+
 def phase_change(swing: float, teeth_driver: int, teeth_driven: int) -> float:
     """How far the driven gear must turn, about +Z, when the direction to it from its driver turns ``swing`` degrees
     and the driver stays put: θq = φ + π − π/zq − (θp − φ)·zp/zq (PLAN-WORKBOOK §3.3), so dθq/dφ = 1 + zp/zq."""
@@ -1932,7 +1953,8 @@ def motion_update(px: Px) -> None:
         from .p7_workbook import activate  # noqa: PLC0415
         px.require(activate(px, str(call(layout, "GetTitle"))), "the layout part is made active")
         leqm = call(layout, "GetEquationMgr")
-        facts["layout_set"] = [_set_global(leqm, f"{s3} X", x_new), _set_global(leqm, f"{s3} Y", y_new)]
+        # Written to 9 decimals: _set_global's :g kept six figures, and the first run put S3 5e-5 mm off.
+        facts["layout_set"] = [_set_exact(leqm, f"{s3} X", x_new), _set_exact(leqm, f"{s3} Y", y_new)]
         facts["layout_rebuild"] = plain(call(layout, "ForceRebuild3", False))
         px.require(activate(px, asm_title), "the assembly is made active again")
         facts["assembly_rebuild_after_move"] = rebuild(px, doc, "after the layout moved S3")
@@ -2063,6 +2085,12 @@ def motion_update(px: Px) -> None:
     turns = [facts["turns_after_move"][k] for k in [g["key"] for g in t["gears"]]]
     px.check(_ratio_ok(turns, expected), f"after the move the train still turns 1/12 the same way: {turns}")
     px.fact("layout_move_carries_mates", bool(followed and not facts["errors_after_move"] and _ratio_ok(turns, expected)))
+    # What SolidWorks did to the gear's turn as its shaft swung, against what keeping it meshed needs.
+    turned = out["turned"]
+    px.fact("turn_on_a_shaft_move", {"turned": turned, "mesh_needs": delta,
+                                      "as_a_multiple_of_the_need": round(turned / delta, 6) if delta else None})
+    px.note(f"swinging S3 {MOVE_ANGLE:g}° round S2 turned the output {turned:.6f}°; staying in mesh needs "
+            f"{delta:+.6f}°, so the app puts the phase back after any move")
     phase_route = None
     after = facts["after_unsuppress"]
     put_on = facts["put_with_gear_mate_on"]
