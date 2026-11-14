@@ -464,8 +464,8 @@ def open_static():
     STATIC["path"], STATIC["before"] = workbook, _folder_stamps(W4_STATIC)
     raw = json.load(open(store.link_record_path(workbook), encoding="utf-8"))
     log("the W4 static record's source", folder=W4_STATIC, workbook=os.path.basename(workbook),
-        schema=raw.get("schema"), built=(raw.get("gearbox") or {}).get("built"), kind=(raw.get("gearbox") or {}).get(
-            "kind", "(none: schema 2)"), written_by=raw.get("written_by"))
+        schema=raw.get("schema"), built=(raw.get("gearbox") or {}).get("built"),
+        gearbox_kind=(raw.get("gearbox") or {}).get("kind", "(none: schema 2)"), written_by=raw.get("written_by"))
     open_window(workbook, UNIQUE + " static")
 
 
@@ -573,6 +573,9 @@ STEPS = [
     ("do", lambda: shoot("09-w4-static-record")),
     ("do", static_check),
 ] if W4_STATIC else [("do", lambda: log("skipped", what="the W4 static record's footer: no --w4-static folder"))]) + [
+    # The refused folder's parts have the main flow's file names, and SolidWorks keeps one document per file name
+    # (the app refuses a build beside them): the main flow's documents are saved and closed first, as a person would.
+    ("do", lambda: log("closed the first workbook's documents in SolidWorks", left=close_ours())),
     ("do", lambda: excel("close")),
     ("wait", excel_done("close")),
     ("do", lambda: excel("open", REFUSED_PATH)),
