@@ -32,8 +32,8 @@ from .gears import base
 from .gears.base import BuildPlan, GlobalVariable
 from .gears.equations import DEGREES, RADIANS, EquationError, evaluate_all, split_equation
 from .store import same_path
-from .swcom import (DOC_ASSEMBLY, MINIMUM_MAJOR, ComponentGone, DocInfo, SolidWorksError, meets_minimum,
-                    rebuild_call, release_year)
+from .swcom import (ASSEMBLY_PAIR, ASSEMBLY_STATIC, ASSEMBLY_TRAIN, DOC_ASSEMBLY, MINIMUM_MAJOR, ComponentGone,
+                    DocInfo, SolidWorksError, meets_minimum, rebuild_call, release_year)
 
 VALUE_TOLERANCE = 1e-6
 FULLY_DEFINED = 3
@@ -51,7 +51,7 @@ class SolidWorks(Protocol):
     def new_assembly(self, template: str = "") -> DocInfo: ...
     def document_path(self) -> str: ...
     def set_rebuild_suppressed(self, suppressed: bool) -> None: ...
-    def rebuild(self, mated: Optional[bool] = None) -> bool: ...
+    def rebuild(self, kind: Optional[str] = None) -> bool: ...
     def save_as(self, path: str) -> str: ...
     def detect_trig_units(self) -> str: ...
     def add_global_variable(self, name: str, expression: str) -> int: ...
@@ -89,7 +89,7 @@ class SolidWorks(Protocol):
                  name: str = "", ratio: Tuple[float, float] = (1.0, 1.0), flip: bool = False) -> Tuple[str, str]: ...
     def interference_count(self) -> Tuple[int, float]: ...
     def set_custom_property(self, name: str, value: str) -> None: ...
-    def place_component(self, handle: str, rotation: Sequence[float], at, mated: Optional[bool] = None) -> None: ...
+    def place_component(self, handle: str, rotation: Sequence[float], at, kind: Optional[str] = None) -> None: ...
     # W4 (a workbook's layout part and static assembly). ``documents`` and ``feature_names`` are swcom.Session's
     # own, unchanged; the other four are new there (each docstring in swcom says what it does).
     def documents(self) -> List[DocInfo]: ...
@@ -196,22 +196,27 @@ def _gate(sw: SolidWorks) -> None:
         raise BuildError(f"Building needs SolidWorks {release_year(MINIMUM_MAJOR)} or newer.")
 
 
-def _assembly_rebuild_gate(mated: bool) -> None:
+def _assembly_rebuild_gate(kind: str) -> None:
     """Refuse, before anything is made or changed, a job that would rebuild an assembly of this kind while how to
     rebuild one is not settled: :func:`swcom.rebuild_call`'s sentence, as a :class:`BuildError`. Every assembly
     rebuild goes through ``rebuild_call`` (``Session.rebuild`` and ``place_component``), so without this a job
-    would make or change its parts and only then refuse at the assembly. A mated assembly is refused only for a
-    ``MATED_ASSEMBLY_REBUILD_ROUTE`` this code does not know: with none, it takes the full rebuild."""
+    would make or change its parts and only then refuse at the assembly. A pair or a train is refused only for a
+    finding of its own this code does not know: with none, it takes the full rebuild."""
     try:
-        rebuild_call(DOC_ASSEMBLY, mated)
+        rebuild_call(DOC_ASSEMBLY, kind)
     except SolidWorksError as exc:
         raise BuildError(str(exc)) from None
 
 
 def is_mated(plan: BuildPlan) -> bool:
-    """Whether an assembly plan mates its components (W5-PLAN §1's predicate): its rebuilds and puts then take
-    the mated route (:func:`swcom.rebuild_call`)."""
+    """Whether an assembly plan mates its components (W5-PLAN §1's predicate)."""
     return any(isinstance(op, base.Mate) for op in plan.ops)
+
+
+def workbook_assembly_kind(plan: BuildPlan) -> str:
+    """The kind of a workbook gearbox's assembly, and of any assembly built outside :func:`build_pair`: a train
+    when its plan mates its components (W5), else static (fixed components, W4)."""
+    return ASSEMBLY_TRAIN if is_mated(plan) else ASSEMBLY_STATIC
 
 
 # -- the operations ---------------------------------------------------------
@@ -375,8 +380,8 @@ def _unfix(sw, op: base.Unfix, result, trig):
     return f"unfixed {op.component}"
 
 
-def _place(sw, op: base.Place, result, trig, mated):
-    sw.place_component(op.component, op.rotation, op.at, mated=mated)
+def _place(sw, op: base.Place, result, trig, kind):
+    sw.place_component(op.component, op.rotation, op.at, kind=kind)
     return f"placed {op.component}"
 
 
@@ -429,26 +434,28 @@ _RUNNERS: Mapping[type, Callable] = {
 
 
 def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.path.exists,
-          mated: Optional[bool] = None) -> BuildResult:
+          kind: Optional[str] = None) -> BuildResult:
     """Make the plan's document, run every step, rebuild once, check, and save.
 
     Raises :class:`BuildError` only before anything is made. After that every
     problem is a failure in the result, and the document is left open.
 
-    ``mated`` says what kind of assembly this is, for every rebuild and put
-    of it (:func:`swcom.rebuild_call`); None reads it off the plan
-    (:func:`is_mated`). :func:`build_pair` passes True, so a pair stays on the
-    full rebuild whatever its plan holds, the puts before its mates included.
+    ``kind`` says what kind of assembly this is (``swcom.ASSEMBLY_KINDS``),
+    for every rebuild and put of it (:func:`swcom.rebuild_call`); None reads
+    it off the plan (:func:`workbook_assembly_kind`: a train if it mates its
+    components, else static). :func:`build_pair` passes ``ASSEMBLY_PAIR``, so a
+    pair keeps its own route whatever its plan holds, the puts before its
+    mates included.
     """
     _gate(sw)
     problems = plan.check()
     if problems:
         raise BuildError("The build plan is not sound: " + " ".join(problems))
     first = plan.ops[0]
-    if mated is None:
-        mated = is_mated(plan)
+    if kind is None:
+        kind = workbook_assembly_kind(plan)
     if isinstance(first, base.NewAssembly):
-        _assembly_rebuild_gate(mated)
+        _assembly_rebuild_gate(kind)
     save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
     if save is not None and save.path and exists(save.path):
         raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
@@ -463,8 +470,8 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
         try:
             result.trig = sw.detect_trig_units()
             result.done.append(f"trig units measured: {result.trig}")
-            _run(sw, plan, result, mated)
-            result.rebuilt = bool(sw.rebuild(mated=mated))
+            _run(sw, plan, result, kind)
+            result.rebuilt = bool(sw.rebuild(kind=kind))
             _verify(sw, plan, result)
         except Exception as exc:  # noqa: BLE001 - the document is made: every problem is now a failure (B1)
             result.failures.append(("the build", _said(exc)))
@@ -490,7 +497,7 @@ def _said(exc: BaseException) -> str:
 
 
 def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool],
-                  mated: Optional[bool] = None) -> BuildResult:
+                  kind: Optional[str] = None) -> BuildResult:
     """:func:`build`, for one document of a job that has already saved others: what :func:`build` raises (its
     template is not there, SolidWorks would not make the document, the path was taken since the job's own check)
     comes back as a failed :class:`BuildResult` instead, so the job still reports, and the record still keeps,
@@ -503,7 +510,7 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
     already saved), with its type named.
     """
     try:
-        return build(sw, plan, exists, mated=mated)
+        return build(sw, plan, exists, kind=kind)
     except Exception as exc:  # noqa: BLE001 - see the docstring
         first = plan.ops[0] if plan.ops else None
         what = ("new part" if isinstance(first, base.NewPart) else "new assembly"
@@ -514,7 +521,7 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
                            manual=[op.text for op in plan.manual_steps()])
 
 
-def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, mated: bool) -> None:
+def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, kind: str) -> None:
     sw.set_rebuild_suppressed(True)
     try:
         for op in plan.ops[1:]:
@@ -523,7 +530,7 @@ def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, mated: bool) -> N
                 continue
             try:
                 if runner is _place:
-                    result.done.append(_place(sw, op, result, result.trig, mated))
+                    result.done.append(_place(sw, op, result, result.trig, kind))
                 else:
                     result.done.append(runner(sw, op, result, result.trig))
             except SolidWorksError as exc:
@@ -575,9 +582,9 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
         save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
         if save is not None and save.path and exists(save.path):
             raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
-    # Before the gears, not after them at the assembly: a bad MATED_ASSEMBLY_REBUILD_ROUTE would otherwise leave two
-    # saved gears behind, which the next Build refuses to overwrite. It never refuses while that finding is None.
-    _assembly_rebuild_gate(mated=True)
+    # Before the gears, not after them at the assembly: a bad PAIR_ASSEMBLY_REBUILD_ROUTE would otherwise leave two
+    # saved gears behind, which the next Build refuses to overwrite. It never refuses while that finding is absent.
+    _assembly_rebuild_gate(ASSEMBLY_PAIR)
     pair = PairResult(gear_a=build(sw, gear_a, exists))
     if not pair.gear_a.ok:
         pair.skipped = "the second gear and the assembly, because the first gear failed"
@@ -586,9 +593,9 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
     if not pair.gear_b.ok:
         pair.skipped = "the assembly, because the second gear failed"
         return pair
-    # Mated for every rebuild and put, whatever the plan holds (a crossed pair placed fixed has no mate): a pair
-    # stays on the full rebuild every pair result on record ran, until a finding says otherwise.
-    pair.assembly = build(sw, assembly, exists, mated=True)
+    # A pair for every rebuild and put, whatever the plan holds (a crossed pair placed fixed has no mate): the full
+    # rebuild every pair result on record ran (probe tiers 4 and 5), never the workbook train's route.
+    pair.assembly = build(sw, assembly, exists, kind=ASSEMBLY_PAIR)
     if pair.assembly.ok and findings.INTERFERENCE_CHECKED:
         try:
             count, volume = sw.interference_count()
@@ -1386,7 +1393,7 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
         raise BuildError("The assembly is built around its layout part, and this build has neither a layout part "
                          "to make nor one to reuse.")
     if assembly is not None:
-        _assembly_rebuild_gate(is_mated(assembly))
+        _assembly_rebuild_gate(workbook_assembly_kind(assembly))
     plans = list(parts) + [p for p in (layout_plan, assembly) if p is not None]
     for plan in plans:
         problems = plan.check()
@@ -1487,9 +1494,9 @@ def _build_gearbox_body(sw: SolidWorks, result: GearboxResult, parts: Sequence[B
     stage[0] = "the assembly"
     stem = _stem(_saved_path(assembly))
     say(Step(STAGE_ASSEMBLY, stem))
-    # Its kind said explicitly: today's workbook gearbox is fixed and unmated (static, top-only); W5's mated one
-    # is mated by the same predicate the gate above used.
-    result.assembly = _build_in_job(sw, assembly, exists, mated=is_mated(assembly))
+    # Its kind said explicitly: today's workbook gearbox is fixed (static, top-only); W5's mated one is a train, by
+    # the same predicate the gate above used.
+    result.assembly = _build_in_job(sw, assembly, exists, kind=workbook_assembly_kind(assembly))
     result.components = dict(result.assembly.components)
     if result.assembly.ok and result.assembly.saved and getattr(findings, "INTERFERENCE_CHECKED", False):
         stage[0] = "the interference check"
@@ -1670,7 +1677,7 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     if placements and not assembly:
         raise BuildError("Gears can only be re-placed in an assembly, and Update SolidWorks was given none.")
     if assembly:
-        _assembly_rebuild_gate(mated=False)        # the workbook's static gearbox: fixed components, no mates
+        _assembly_rebuild_gate(ASSEMBLY_STATIC)    # the workbook's static gearbox: fixed components, no mates
     for path in paths:
         if not exists(path):
             raise BuildError(f"{path} is no longer there, so Update SolidWorks cannot change it: it was moved, "
@@ -1799,7 +1806,7 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
                 for handle, placement in moves:
                     if unfix:
                         sw.unfix_component(handle)
-                    sw.place_component(handle, placement.rotation, placement.at, mated=False)
+                    sw.place_component(handle, placement.rotation, placement.at, kind=ASSEMBLY_STATIC)
                     result.placed.append(placement.gear)
                     if unfix:
                         sw.fix_component(handle)
@@ -1808,7 +1815,7 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
         except Exception as exc:  # noqa: BLE001 - the assembly's failure; what was placed stays listed (B1)
             result.failures.append((_file(assembly), _said(exc)))
         if opened and (result.changed or result.placed):
-            result.rebuilt = bool(sw.rebuild(mated=False))
+            result.rebuilt = bool(sw.rebuild(kind=ASSEMBLY_STATIC))
             if not result.rebuilt:
                 result.failures.append((_file(assembly), f"SolidWorks reported an error rebuilding {stem}."))
         if result.rebuilt and not result.failures and getattr(findings, "INTERFERENCE_CHECKED", False):

@@ -365,7 +365,8 @@ build: the reads made after it is saved (its frames read back and/or the
 interference check; which of them is not yet settled) leave it marked.
 Nothing is lost by closing it without saving, since the file on disk is the
 one the build saved. A gear pair's assembly, whose gears are held by mates, is
-rebuilt in full as before.
+rebuilt in full as before, whatever a later finding says about the workbook's
+own mated gearbox.
 
 **Update SolidWorks** carries a later edit of the workbook into what was built:
 the values of a part whose row changed (it keeps its file name, so

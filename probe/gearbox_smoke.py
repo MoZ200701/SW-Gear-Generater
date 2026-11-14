@@ -261,9 +261,9 @@ def clashes_turned(session, asm, name, rotation, at):
         session.open_document(asm)
         session.find_component("turned", name)
         before = session.component_frame("turned")
-        session.place_component("turned", rotation, at, mated=False)
+        session.place_component("turned", rotation, at, kind=swcom.ASSEMBLY_STATIC)
         turned = session.interferences()
-        session.place_component("turned", before[0], before[1], mated=False)
+        session.place_component("turned", before[0], before[1], kind=swcom.ASSEMBLY_STATIC)
         back = session.interferences()
         return turned, back
     finally:
@@ -435,7 +435,7 @@ def step_update(worker, built):
         try:
             session.open_document(ASM)
             session.find_component("dragged", names["G1"])
-            session.place_component("dragged", rot_z(10.0), (2.0, 1.0, 0.0), mated=False)
+            session.place_component("dragged", rot_z(10.0), (2.0, 1.0, 0.0), kind=swcom.ASSEMBLY_STATIC)
         finally:
             session.end_build()
         return titles(session)

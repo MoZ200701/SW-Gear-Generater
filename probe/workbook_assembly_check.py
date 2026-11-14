@@ -678,9 +678,9 @@ def placed_elsewhere(session, asm, name, rotation, at):
         session.open_document(asm)
         session.find_component("moved", name)
         before = session.component_frame("moved")
-        session.place_component("moved", rotation, at, mated=False)
+        session.place_component("moved", rotation, at, kind=swcom.ASSEMBLY_STATIC)
         moved = session.interferences()
-        session.place_component("moved", before[0], before[1], mated=False)
+        session.place_component("moved", before[0], before[1], kind=swcom.ASSEMBLY_STATIC)
         back = session.interferences()
         return moved, back
     finally:

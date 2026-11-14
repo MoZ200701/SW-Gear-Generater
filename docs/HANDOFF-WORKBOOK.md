@@ -80,22 +80,25 @@ document in memory, and the value comparison never disagreed falsely. Journal re
    showed the put, the layout move and the changed part; `ForceRebuild3(True)` marked only what changed and
    returned False on a failed component; `ForceRebuild3(False)` marked every component. Findings in `e57aca7`
    (`ASSEMBLY_REBUILD_ROUTE` and the rest). The fix is `9c39fb8`, narrowed after its review: `swcom.rebuild_call`
-   is the one place that decides, and the CALLER says what kind of assembly it is. A part rebuilds as always; a
-   static assembly (the workbook gearbox: fixed components, no mates) by `ASSEMBLY_REBUILD_ROUTE`, top-only,
-   refused with a sentence when unsettled, before a build or Update changes anything; a MATED assembly (every
-   pair, crossed and bevel build, and any plan with a `Mate` op) keeps the full `ForceRebuild3(False)` it always
-   had, until `MATED_ASSEMBLY_REBUILD_ROUTE` is set by the W5 probe batch, because the probe tried no mate and no
-   assembly equation. The fake marks what the probe saw for the static route (a full rebuild marks every
-   component, top-only the assembly, a put nothing; the reads after a put or a build mark the assembly, which
-   the fake pins on the interference check though the probe did not isolate it); it models nothing unprobed.
-   Since the review of `31d1ac9` an assembly's kind must always be said (`mated=True/False`), and a pair's
-   gate is back before its gears. **What the SolidWorks rerun (step 3) must still confirm:** the three checks the 2026 rerun failed
+   is the one place that decides, and the CALLER says which of three kinds of assembly it is, refused with a
+   sentence when it does not. A part rebuilds as always. STATIC (fixed components: today's workbook gearbox)
+   takes `ASSEMBLY_REBUILD_ROUTE`, top-only, which it requires: unsettled, a build or Update refuses before
+   changing anything. TRAIN (W5's mated workbook gearbox, any plan with a `Mate` op built outside `build_pair`;
+   nothing builds one yet) takes `MATED_ASSEMBLY_REBUILD_ROUTE`, full while None. PAIR (everything `build_pair`
+   makes, and the p5 half-pitch controls) keeps the full `ForceRebuild3(False)` probe tiers 4 and 5 ran, whatever
+   the train's finding says, since that is measured on other mates; an absent `PAIR_ASSEMBLY_REBUILD_ROUTE` is
+   where a later pair probe could change it. The probe tried no mate and no assembly equation. The fake
+   marks what the probe saw for the static route (a full rebuild marks every component, top-only the
+   assembly, a put nothing; the reads after a put or a build mark the assembly, which the fake pins on the interference check though the probe did not isolate it); it models nothing unprobed.
+   Since the review of `31d1ac9` an assembly's kind must always be said, and a pair's gate is back before its
+   gears. **What the SolidWorks rerun (step 3) must still confirm:** the three checks the 2026 rerun failed
    now pass under the demonstration's corrected invariant (marked modified = `GearboxUpdate.changed` ∪ the
    assembly when Update rebuilt it or ran the interference check: `changed` keeps meaning content changed);
    the new part-only Update step in b; after a fresh build no part or layout part reads `GetSaveFlag` True and
    the assembly does (the reads after its save mark it — frame reads and/or the interference check, not yet
    isolated: the rerun logs the flags after each as fact lines, and an extra probe step is to settle it — with
-   nothing to lose by not saving it); a document just opened from its file reads False. Still unprobed for the static route, and shown only by that rerun: a put
+   nothing to lose by not saving it); a document just opened from its file reads False. Still unprobed for
+   the static route, and shown only by that rerun: a put
    and its top-only rebuild under `set_rebuild_suppressed(True)` (Update places with `CommandInProgress` on); an
    assembly BUILT with the top-only route; whether the assembly still reports needing a rebuild after the
    route; and a part opened alone by path reading `GetSaveFlag` False.

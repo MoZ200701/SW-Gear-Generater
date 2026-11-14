@@ -26,6 +26,7 @@ import math
 import os
 
 from .. import findings, swbuild
+from ..swcom import ASSEMBLY_PAIR
 from ..gears import kind_for, pair
 from ..spec import HAND_RIGHT, KIND_BEVEL, KIND_HELICAL, GearSpec
 from . import scaffold as sc
@@ -67,8 +68,8 @@ def _build_pair(px: Px, builds: _PairBuilds, label: str, specs, paths, path_pair
 def _half_pitch_control(px: Px, label: str, angle: float, teeth: int) -> None:
     session = px.session
     session.set_global_variable(pair.MESH_ANGLE, f"{angle + 180.0 / teeth:.9g}")
-    # A mated pair: the full rebuild it always had (swcom.rebuild_call), not the static gearbox's top-only.
-    px.check(session.rebuild(mated=True), f"{label}: the assembly rebuilds with gear 2 half a pitch round")
+    # A pair: the full rebuild it always had (swcom.rebuild_call), never the gearbox's or the train's route.
+    px.check(session.rebuild(kind=ASSEMBLY_PAIR), f"{label}: the assembly rebuilds with gear 2 half a pitch round")
     count, volume = session.interference_count()
     px.fact(f"{label}_half_pitch_interference", {"count": count, "volume_mm3": volume})
     px.check(count > 0 and volume > 0.0, f"{label}: half a pitch round, the teeth interfere ({count}, {volume:.3f} mm³)")

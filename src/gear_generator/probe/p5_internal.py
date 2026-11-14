@@ -23,6 +23,7 @@ import os
 from typing import List
 
 from .. import findings, swbuild
+from ..swcom import ASSEMBLY_PAIR
 from ..gears import kind_for, pair
 from ..gears.base import BuildPlan
 from ..spec import HAND_RIGHT, KIND_HELICAL, KIND_SPUR, GearSpec
@@ -99,8 +100,8 @@ def _run_kind(px: Px, builds: _PairBuilds, kind: str, folder: str) -> None:
     # The negative control: half a pinion pitch round, a tooth faces a tooth.
     mesh = pair.internal_mesh_angle(PINION_TEETH)
     session.set_global_variable(pair.MESH_ANGLE, f"{mesh + 180.0 / PINION_TEETH:g}")
-    # A mated pair: the full rebuild it always had (swcom.rebuild_call), not the static gearbox's top-only.
-    px.check(session.rebuild(mated=True), f"{kind}: the assembly rebuilds with the pinion half a pitch round")
+    # A pair: the full rebuild it always had (swcom.rebuild_call), never the gearbox's or the train's route.
+    px.check(session.rebuild(kind=ASSEMBLY_PAIR), f"{kind}: the assembly rebuilds with the pinion half a pitch round")
     count, volume = session.interference_count()
     px.fact(f"{kind}_half_pitch_interference", {"count": count, "volume_mm3": volume})
     px.check(count > 0 and volume > 0.0, f"{kind}: half a pitch round, the teeth interfere ({count}, {volume:.3f} mm³)")
