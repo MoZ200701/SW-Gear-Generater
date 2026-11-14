@@ -133,7 +133,8 @@ class BuildResult:
         if self.stopped_at:
             lines.append(f"STOPPED at {self.stopped_at}; the part is left open as it is")
         lines.extend(f"CHECK   {line}" for line in self.checks)
-        lines.append("ok      rebuilt once" if self.rebuilt else "FAIL    the rebuild reported an error")
+        if self.document or self.rebuilt:          # no document made (_build_in_job): nothing was rebuilt either
+            lines.append("ok      rebuilt once" if self.rebuilt else "FAIL    the rebuild reported an error")
         if self.manual:
             lines.append(f"MANUAL  {len(self.manual)} step(s) to do by hand")
             lines.extend(f"MANUAL  {text}" for text in self.manual)

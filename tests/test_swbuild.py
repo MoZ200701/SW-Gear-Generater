@@ -927,6 +927,7 @@ def test_an_assembly_that_cannot_even_be_made_keeps_the_parts_and_the_layout_on_
     assert assembly.failures == [("new assembly", "There is no assembly template at 'C:\\T\\No.asmdot'.")]
     assert "FAIL    new assembly: There is no assembly template at 'C:\\T\\No.asmdot'." in result.log_lines()
     assert "interferences" not in names(fake)
+    assert "FAIL    the rebuild reported an error" not in assembly.log_lines()   # nothing was made to rebuild
 
 
 def test_a_later_part_that_cannot_be_made_keeps_the_parts_before_it():
