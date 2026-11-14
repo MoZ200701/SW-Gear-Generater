@@ -379,7 +379,8 @@ def test_package_p0_decisions_come_off_a_pass_only():
                                                                                          "select": "M"},
                                            "c": {"how": "angle", "select": True}},
                           "over_defined": {"deleted_by": "D"}},
-        "gear_mate_ratio": {"gear_mate_ratio_route": "modify definition", "definition_numerator_is_second_teeth": True},
+        "gear_mate_ratio": {"gear_mate_ratio_route": "modify definition", "definition_numerator_is_second_teeth": True,
+                            "gear_mate_ratio_recipe": "r"},
         "lock_retake_offset": {"lock_retakes_an_offset": True},
         "lock_mate_rename": {"mate_rename_route": "IFeature.Name put",
                              "mate_find_routes": {"mate group": True, "FeatureByName": True}},
@@ -392,7 +393,7 @@ def test_package_p0_decisions_come_off_a_pass_only():
     passed = decide.decide(records(facts=facts))
     assert (passed["feature_suppress"], passed["feature_unsuppress"], passed["this_configuration"]) == (0, 1, 1)
     assert (passed["suppression_route"], passed["lock_select_route"], passed["mate_delete_route"]) == ("S", "M", "D")
-    assert passed["gear_mate_ratio_route"] == "modify definition"
+    assert passed["gear_mate_ratio_route"] == "modify definition" and passed["gear_mate_ratio_recipe"] == "r"
     assert passed["gear_mate_definition_numerator_is_second"] is True
     assert passed["lock_retakes_an_offset"] is True
     assert (passed["mate_rename_route"], passed["mate_find_route"]) == ("IFeature.Name put", "mate group")
@@ -405,7 +406,8 @@ def test_package_p0_decisions_come_off_a_pass_only():
         failed[name]["facts"].update(values)
     decided = decide.decide(failed)
     for key in ("feature_suppress", "feature_unsuppress", "this_configuration", "suppression_route",
-                "lock_select_route", "mate_delete_route", "gear_mate_ratio_route", "lock_retakes_an_offset",
+                "lock_select_route", "mate_delete_route", "gear_mate_ratio_route", "gear_mate_ratio_recipe",
+                "lock_retakes_an_offset",
                 "mate_rename_route", "mate_find_route", "demonstration_drive_holds", "put_on_twice_meshed_gear_holds",
                 "axial_datum_route", "axial_datum_flip", "mated_assembly_rebuild_route",
                 "mated_rebuild_keeps_components_unmodified"):
@@ -416,3 +418,15 @@ def test_package_p0_decisions_come_off_a_pass_only():
     renamed_not = records(facts={**facts, "lock_mate_rename": {"mate_rename_route": None,
                                                                "mate_find_routes": {"mate group": True}}})
     assert decide.decide(renamed_not)["mate_find_route"] is None
+
+
+def test_each_ratio_recipe_puts_what_it_says():
+    read = {"GearRatioNumerator": 51.0, "GearRatioDenominator": 17.0, "Reverse": False}
+    one, both, crossed_over = p8.RATIO_RECIPES
+    assert p8.ratio_fields(one, read, 51, 60) == {"GearRatioNumerator": 60.0}
+    assert p8.ratio_fields(both, read, 51, 60) == {"GearRatioNumerator": 60.0, "GearRatioDenominator": 17.0}
+    assert p8.ratio_fields(crossed_over, read, 51, 60) == {"GearRatioNumerator": 17.0, "GearRatioDenominator": 60.0}
+    assert p8.ratio_fields(one, read, 68, 60) == {}                     # the old count is in neither field
+    assert p8.ratio_fields(one, {"GearRatioNumerator": 17.0, "GearRatioDenominator": 17.0}, 17, 20) == {}
+    with pytest.raises(ValueError):
+        p8.ratio_fields("guess", read, 51, 60)

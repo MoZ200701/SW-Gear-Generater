@@ -396,6 +396,7 @@ def decide(records: Records) -> Dict[str, Any]:
         "lock_select_route": lock_select_route(records),
         "mate_delete_route": mate_delete_route(records),
         "gear_mate_ratio_route": _fact(records, "gear_mate_ratio", "gear_mate_ratio_route"),
+        "gear_mate_ratio_recipe": _fact(records, "gear_mate_ratio", "gear_mate_ratio_recipe"),
         "gear_mate_definition_numerator_is_second": _fact(records, "gear_mate_ratio",
                                                           "definition_numerator_is_second_teeth"),
         "lock_retakes_an_offset": _fact(records, "lock_retake_offset", "lock_retakes_an_offset"),
