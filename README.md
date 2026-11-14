@@ -360,9 +360,10 @@ it; a file stays in the journal until it is on record or gone. A workbook
 build (and Update SolidWorks) rebuilds its assembly top-only, so the parts and
 the layout part it inserts are expected to be left as saved (the next run on
 SolidWorks is to confirm it); until 2026-11-14 it rebuilt every component, which
-left them all marked modified. The assembly itself always reads modified after
-a build, because the interference check run after it is saved marks it;
-nothing is lost by closing it without saving, since the file on disk is the
+left them all marked modified. The assembly itself reads modified after a
+build: the reads made after it is saved (its frames read back and/or the
+interference check; which of them is not yet settled) leave it marked.
+Nothing is lost by closing it without saving, since the file on disk is the
 one the build saved. A gear pair's assembly, whose gears are held by mates, is
 rebuilt in full as before.
 

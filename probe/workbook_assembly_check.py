@@ -34,7 +34,9 @@ The sections, each in its own folder under the output folder:
   documents unsaved, and SolidWorks marks modified only the documents Update changed and the assembly it
   rebuilt (W4 review S2: the parts it did not change are left unmodified; the assembly is rebuilt top-only,
   ``findings.ASSEMBLY_REBUILD_ROUTE``). Right after the build, no part and no layout part reads modified and the
-  assembly does (its interference check marks it); after every reopen, every document reads unmodified. Then a structural edit (G1's bore cleared) with those documents still
+  assembly does (a read after its save marks it); after every reopen, every document reads unmodified straight
+  after the open, and the flags are logged again after the frame reads and after ``interferences()``, as fact
+  lines, to show which read marks the assembly. Then a structural edit (G1's bore cleared) with those documents still
   unsaved: the build-again plan does not wait for a save (review B2) — G2's part, changed by Update and not
   saved, is made new as Gear_m1.5_N69 instead of reused, G1's as Gear_m1.5_N17_r2 — and ``_r2`` is built
   without saving anything, reusing G3's and G4's parts; every earlier file's sha256 and mtime are compared with
@@ -335,14 +337,15 @@ def expected_marks(result, assembly):
 
 def check_fresh_build_marks(worker, paths, assembly, label):
     """Right after a build and its saves: no part and no layout part reads GetSaveFlag True (the assembly is rebuilt
-    top-only, findings.ASSEMBLY_REBUILD_ROUTE), and the assembly does: its interference check, run after it is
-    saved, marks it, with nothing to lose by not saving it."""
+    top-only, findings.ASSEMBLY_REBUILD_ROUTE), and the assembly does: a read after its save marks it — its frame
+    reads and/or its interference check, not yet isolated (``reopen`` logs which) — with nothing to lose by not
+    saving it."""
     flags = run(worker, lambda s: save_flags(s, paths))
     say(f"        marked modified in SolidWorks right after the build: {flags}")
     others = [os.path.basename(p) for p in paths if not store.same_path(p, assembly)]
     check(all(flags.get(n) is False for n in others) and flags.get(os.path.basename(assembly)) is True,
           f"{label}: after the build and its saves no part and no layout part is marked modified, and the assembly "
-          f"is (its interference check): marked {marked(flags)}")
+          f"is (a read after its save): marked {marked(flags)}")
 
 
 def stamps(folder, solidworks_only=False):
@@ -675,9 +678,9 @@ def placed_elsewhere(session, asm, name, rotation, at):
         session.open_document(asm)
         session.find_component("moved", name)
         before = session.component_frame("moved")
-        session.place_component("moved", rotation, at)
+        session.place_component("moved", rotation, at, mated=False)
         moved = session.interferences()
-        session.place_component("moved", before[0], before[1])
+        session.place_component("moved", before[0], before[1], mated=False)
         back = session.interferences()
         return moved, back
     finally:
@@ -751,17 +754,34 @@ def negative_controls(worker, desk, label):
         check(back == [], f"{label}: {turned} put back, no interference ({time.monotonic() - started:.1f} s)")
 
 
+def live_open(session, path):
+    """The app's own open of a saved document (OpenDoc6 then ActivateDoc3), reading nothing else."""
+    session.begin_build()
+    try:
+        session.open_document(path)
+    finally:
+        session.end_build()
+
+
 def reopen(worker, desk, label):
     left = run(worker, close_ours)
     check(not left, f"{label}: saved and closed this run's documents: left {left}")
     say(f"        open now: {run(worker, open_titles)}")
-    measure_frames(worker, desk, f"{label}, reopened")
     box = desk.record.gearbox
     paths = [box.assembly, box.layout] + sorted({c.part for c in box.components})
+    # Read straight after the open, before any frame read: the probe never isolated WHICH read after a put or a
+    # build marks the assembly (all False after the put; True after the frame reads and interferences() together).
+    run(worker, lambda s: live_open(s, box.assembly))
     flags = run(worker, lambda s: save_flags(s, paths))
     check(len(flags) == len(paths) and not marked(flags),
           f"{label}, reopened: every document just opened from its file reads GetSaveFlag False (the record clears "
           f"a mark on that reading): {flags}")
+    measure_frames(worker, desk, f"{label}, reopened")
+    say(f"fact    {label}, reopened: marked modified after the frame reads (component_frame): "
+        f"{marked(run(worker, lambda s: save_flags(s, paths)))}")
+    found = run(worker, lambda s: live_interferences(s, box.assembly))
+    say(f"fact    {label}, reopened: marked modified after interferences() ({len(found)} found): "
+        f"{marked(run(worker, lambda s: save_flags(s, paths)))}")
 
 
 def measure(worker, desk, label, controls=True, again=True):
