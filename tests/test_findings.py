@@ -486,10 +486,19 @@ def test_the_assembly_rebuild_route(rebuild_scope):
     assert width["global"] == "Face Width" and width["part_rebuild"] is True and width["part_errors"] == {}
 
 
-# -- package P0 (W5-PLAN §0.3, its review's M4 and M5, and the mated rebuild), on both versions
+# -- packages P0 and P0b (W5-PLAN §0.3, its review's M4 and M5, the mated rebuild, the rulings), on both versions
 
-# The new tier-8 items and what they need on 2024, in a SolidWorks started for the run.
-SW2024_P0 = LATEST.parent / "sw2024" / "probe-results-20261114-040636.json"
+# Items 7-14 and what they need on 2024, as round P0b left them, in a SolidWorks started fresh for them.
+SW2024_P0 = LATEST.parent / "sw2024" / "probe-results-20261114-071324.json"
+# gear_mate_definition alone on 2024, in another fresh SolidWorks (it strands what it changes there).
+SW2024_DEFINITION = LATEST.parent / "sw2024" / "probe-results-20261114-073328.json"
+# P0's first runs, kept: 2026's full run of 388c8d3, and 2024's beside an assembly the definition route stranded.
+FIRST_2026 = LATEST.parent / "probe-results-20261114-034458.json"
+FIRST_2024 = LATEST.parent / "sw2024" / "probe-results-20261114-040636.json"
+
+
+def _records(path):
+    return {r["name"]: r for r in json.loads(path.read_text(encoding="utf-8"))["records"]}
 
 
 @pytest.fixture(scope="module", params=["2026", "2024"])
@@ -530,9 +539,8 @@ def gear_ratio(request):
 def test_a_saved_gear_mates_ratio_two_routes_and_the_versions_split(gear_ratio):
     """Probe gear_mate_ratio: the definition changes the ratio on both versions (its counts put in AddMate5's order,
     read back reversed), but on 2024 that copy cannot be closed; a remade gear mate works and closes on both. The
-    versions decide differently, so findings.GEAR_MATE_RATIO_ROUTE stays None until the user chooses."""
+    versions decided differently then; round P0b settled it (the remake, after P1b)."""
     records, decided, version = gear_ratio
-    assert findings.GEAR_MATE_RATIO_ROUTE is None
     ratio = facts(records, "gear_mate_ratio")
     tries = {t["how"]: t for t in ratio["gear_mate_ratio"]["tries"]}
     assert list(tries) == [p8.RATIO_CROSSED, "remake"]
@@ -554,10 +562,12 @@ def test_a_saved_gear_mates_ratio_two_routes_and_the_versions_split(gear_ratio):
     assert decided["gear_mate_ratio_route"] is None
 
 
-def test_the_first_runs_of_gear_mate_ratio_on_2026_and_2024(package_p0):
+@pytest.mark.parametrize("version", ["2026", "2024"])
+def test_the_first_runs_of_gear_mate_ratio_on_2026_and_2024(version):
     """The full runs' gear_mate_ratio, recipes in their first order: on 2026 the first two inverted the ratio and the
     third was right; on 2024 the first one's copy could not be closed, so the item failed and decided nothing."""
-    records, decided, version = package_p0
+    records = _records(FIRST_2026 if version == "2026" else FIRST_2024)
+    decided = decide.decide(records)
     if version == "2024":
         assert records["gear_mate_ratio"]["status"] == "fail" and decided["gear_mate_ratio_route"] is None
         assert "CloseDoc" in records["gear_mate_ratio"]["reason"]
@@ -613,22 +623,86 @@ def test_an_anchor_held_from_a_datum_plane_far_behind_front(package_p0):
     assert [r["z"] for r in datum["reopened"]["read"].values()] == pytest.approx([8.0, 8.0])
 
 
-def test_the_rebuild_a_mated_assembly_needs(package_p0):
-    """Probe mated_rebuild_scope: the top-only rebuild re-solves every change, and marks only what changed."""
+def test_the_rebuild_a_mated_train_needs_to_be_built_and_changed(package_p0):
+    """Probe mated_rebuild_scope (P0b): each route built its own train with itself as the only rebuild and changed
+    it; the top-only rebuild did everything the full one did, frame for frame, and marked only what changed."""
     records, decided, _version = package_p0
-    assert decided["mated_assembly_rebuild_route"] == findings.MATED_ASSEMBLY_REBUILD_ROUTE
-    assert findings.MATED_ASSEMBLY_REBUILD_ROUTE == findings.ASSEMBLY_REBUILD_ROUTE
+    assert decided["mated_assembly_rebuild_route"] == findings.MATED_ASSEMBLY_REBUILD_ROUTE == findings.ASSEMBLY_REBUILD_ROUTE
     assert decided["mated_rebuild_keeps_components_unmodified"] is findings.MATED_REBUILD_KEEPS_COMPONENTS_UNMODIFIED
+    assert decided["mated_build_rebuild_route"] == findings.MATED_BUILD_REBUILD_ROUTE
+    assert decided["mated_build_keeps_components_unmodified"] is findings.MATED_BUILD_KEEPS_COMPONENTS_UNMODIFIED
     scope = facts(records, "mated_rebuild_scope")
-    verdicts = scope["mated_rebuild_verdicts"]
-    # The first version's criteria (P0); round P0b reads a change before its route too (p8.MATED_CRITERIA).
-    first = ("axial_shown", "drive_shown", "put_held", "layout_shown", "part_shown", "failure_shown", "failure_cleared")
-    for route, verdict in verdicts.items():
-        assert all(verdict[c] for c in first), route
-    assert verdicts["ForceRebuild3(False)"]["only_changed_marked"] is False
-    assert scope["mated_rebuild_marked"]["ForceRebuild3(False)"]["axial"] == ["assembly", "layout", "part"]
-    # A mate error does not make any route return False.
-    assert all(r["failure"] is True for r in scope["mated_rebuild_returned"].values())
+    assert all(all(v.values()) for v in scope["mated_build_verdicts"].values())
+    assert scope["mated_build_marked"]["ForceRebuild3(False)"]["before_save"] == ["layout", "part"]
+    assert scope["mated_build_marked"]["ForceRebuild3(True)"]["before_save"] == []
+    for route, verdict in scope["mated_rebuild_verdicts"].items():
+        for criterion in p8.MATED_EVIDENCE:
+            if not (route == "ForceRebuild3(False)" and criterion == "only_changed_marked"):
+                assert verdict[criterion] is True, (route, criterion)
+        assert verdict["put_held"] is True
+        # Shown before any route, so not evidence for one: the layout move, the part change, the mate error.
+        assert {c for c in p8.MATED_RECORDED if verdict[c] == p8.BEFORE} == \
+            {"layout_shown", "part_shown", "failure_shown", "failure_cleared"}, route
+    assert scope["mated_rebuild_verdicts"]["ForceRebuild3(False)"]["only_changed_marked"] is False
+    assert all(max(d.values()) < 1e-6 for d in scope["mated_frames_against_reference"].values())
     for case in scope["mated_rebuild_cases"].values():
         assert case["axial"]["before_route_mm"] == 0.0 and case["axial"]["moved_mm"] == pytest.approx(4.0)
         assert case["drive"]["before_route"]["TG1"] == 0.0
+        # The P0 file's 2024 differences did not recur in a clean session: the move shows after ActivateDoc3.
+        assert case["layout"]["before_activate_mm"] == 0.0 and case["layout"]["before_route_mm"] == pytest.approx(5.0)
+        assert case["layout"]["status_before_route"]["IModelDocExtension.NeedsRebuild2"] == 0
+    assert all(r["failure"] is True for r in scope["mated_rebuild_returned"].values())
+
+
+def test_a_tooth_change_is_an_update_by_the_remake(package_p0):
+    """Probes gear_mate_ratio (the remake, alone) and gear_mate_update (P1b): GEAR_MATE_RATIO_ROUTE is "remake"."""
+    records, decided, _version = package_p0
+    assert decided["gear_mate_ratio_route"] == findings.GEAR_MATE_RATIO_ROUTE == "remake"
+    assert decided["gear_mate_update_holds"] is findings.GEAR_MATE_UPDATE_HOLDS
+    ratio = facts(records, "gear_mate_ratio")
+    remade = ratio["gear_mate_ratio"]
+    assert remade["turns_before"]["TG4"] == pytest.approx(2.5) and remade["turns"]["TG4"] == pytest.approx(30 * 17 / 68 * 17 / 60)
+    assert remade["close"]["closed"] and remade["reopened"]["close"]["closed"]
+    assert remade["reopened"]["turns"]["TG4"] == pytest.approx(30 * 17 / 68 * 17 / 60)
+    position = ratio["remade_mate_position"]
+    assert (position["after"] == position["count"] - 1 and position["before"] < position["after"]) is \
+        findings.REMADE_GEAR_MATE_GOES_LAST
+    update = facts(records, "gear_mate_update")["gear_mate_update"]
+    for label in ("unsaved", "saved"):
+        p = update[label]
+        assert p8.update_pass_holds(p, update["teeth_after"]), label
+        assert p["drive"]["turns"]["G4"] == pytest.approx(30 * 17 / 68 * 18 / 50)
+    assert update["unsaved"]["moved_by_the_full_rebuild"] < 1e-6
+    assert update["unsaved"]["reopened"]["definition"] == update["definition_saved"]
+    assert update["unsaved"]["reopened"]["teeth"] == {"G3": 17.0, "G4": 51.0}
+    assert update["saved"]["reopened"]["teeth"] == {"G3": 18.0, "G4": 50.0}
+    assert update["saved"]["reopened"]["interference"]["count"] == 0
+
+
+@pytest.mark.parametrize("version", ["2026", "2024"])
+def test_the_definition_route_is_recorded_and_never_chosen(version):
+    """Probe gear_mate_definition, last: the right ratio on both versions; on 2024 the copy cannot be closed."""
+    records = _records(LATEST if version == "2026" else SW2024_DEFINITION)
+    decided = decide.decide(records)
+    assert decided["gear_mate_definition_numerator_is_second"] is findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND
+    tries = facts(records, "gear_mate_definition")["gear_mate_definition"]["tries"]
+    assert [t["how"] for t in tries] == [p8.RATIO_CROSSED] and tries[0]["right"] is True
+    assert tries[0]["definition"]["fields"] == {"GearRatioNumerator": 17.0, "GearRatioDenominator": 60.0}
+    assert findings.GEAR_MATE_RATIO_PUT_NUMERATOR_FIRST is True
+    assert decided["modified_gear_mate_closes"] is (True if version == "2026" else findings.MODIFIED_GEAR_MATE_CLOSES_ON_2024)
+    assert decided["gear_mate_ratio_route"] != "modify definition"
+
+
+def test_a_lock_after_a_put_and_the_remake_on_a_twice_meshed_gear(package_p0):
+    """Probe put_on_twice_meshed_gear (P0b): driven after a put made with the lock on, the pair turns together at
+    the angle the put left; the remake on a gear carrying two gear mates holds and is found by name."""
+    records, decided, _version = package_p0
+    twice = facts(records, "put_on_twice_meshed_gear")
+    after = twice["lock_on_put_after_drive"]
+    assert after["relative_angle_change"] == pytest.approx(0.0) and not after["errors"]
+    assert (after["anchor_turned"] == pytest.approx(after["follower_turned"]) == pytest.approx(-2.5)) is \
+        findings.LOCK_RETAKES_AFTER_A_PUT
+    assert decided["remake_on_twice_meshed_gear_holds"] is findings.REMAKE_ON_TWICE_MESHED_GEAR_HOLDS
+    e = twice["put_on_twice_meshed_gear"]["remake_on_twice_meshed"]
+    assert e["mates_after"][-1] == "GearMate2" and e["mates_before"].index("GearMate2") < len(e["mates_before"]) - 1
+    assert e["turns"]["UG1"] == pytest.approx(-10 * 17 / 68 * 17 / 60 * 51 / 17)
