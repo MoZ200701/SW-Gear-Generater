@@ -222,6 +222,7 @@ class FakeSolidWorks:
         self.mate_folders = {}         # lower-cased path -> names of MateGroup sub-features that are not mates
         self.raises_after = {}         # call name -> (n, exception): raised by the n-th call, after its effect
         self.counts_after = {}
+        self.lightweight = set()       # Name2s loaded lightweight (component_resolved reads False for them)
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -522,11 +523,14 @@ class FakeSolidWorks:
         key = _key(self.current)
         return key in self.touched or self.memory.get(key) != self.saved.get(key)
 
-    def find_component(self, handle, name):
+    def find_component(self, handle, name, lightweight_ok=False):
         self._log("find_component", handle, name)
+        title = self.active.title if self.active else "the assembly"
         if name in self.missing_components:
-            title = self.active.title if self.active else "the assembly"
             raise ComponentGone(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
+        if name in self.lightweight and not lightweight_ok:          # as swcom.Session.find_component refuses it
+            raise SolidWorksError(f"{name} is loaded lightweight in {title}, and resolving a component is not "
+                                  "settled here; set it to Resolved in SolidWorks and try again.")
         self.found[handle] = name
         self.component_names[handle] = name
         return name
@@ -687,6 +691,11 @@ class FakeSolidWorks:
         counts the other way round from AddMate5 (findings.GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND)."""
         first, second = self.mate(name, path).ratio
         return float(second), float(first)
+
+    def component_resolved(self, handle):
+        """As swcom.Session.component_resolved: False for a component loaded lightweight (``lightweight``)."""
+        self._log("component_resolved", handle)
+        return self._name2(handle) not in self.lightweight
 
     def gear_mate_ratio(self, handle):
         """As swcom.Session.gear_mate_ratio: the definition read, and turned back into the mate's own order by the
@@ -3565,3 +3574,45 @@ def test_the_twelve_to_one_remake_does_not_read_the_idler_finding(monkeypatch, r
     fake = _built_train()
     result = _update_train(fake, motion=_motion(meshes=MESHES_69, ratios=(("G1 meshes G2", 17, 69),)))
     assert result.ok and result.ratios == ["G1 meshes G2"], result.log_lines()
+
+
+
+# -- lightweight gears (P0c drove a lightweight train and a gear turned wrongly; the read is probe round P0d's)
+
+@pytest.fixture
+def resolved_read(monkeypatch):
+    """The read P0d settles, set here under swcom's placeholder names (renamed in one place once it is committed)."""
+    monkeypatch.setattr(findings, swcom.RESOLVED_ROUTE_FINDING, "GetSuppression2", raising=False)
+    monkeypatch.setattr(findings, swcom.RESOLVED_VALUES_FINDING, (2,), raising=False)
+
+
+def test_a_lightweight_gear_refuses_a_turning_update_before_anything_changes(resolved_read):
+    fake = _built_train()
+    fake.lightweight = {"gear3-1"}
+    fake.turn("gear4-1", 3.0)
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake)
+    assert not isinstance(raised.value, swbuild.NotAsBuilt)
+    assert str(raised.value) == ("G3 (gear3-1) is not fully resolved in T.SLDASM: SolidWorks loaded it lightweight, and "
+                                 "a train with a lightweight gear does not turn as it was built, so nothing is changed; "
+                                 "in SolidWorks, right-click T.SLDASM and choose Set Lightweight to Resolved, then press "
+                                 "Update SolidWorks again.")
+    assert not any(n in CHANGING for n in names(fake))
+
+
+def test_every_gear_resolved_the_turning_update_goes_on_as_before(resolved_read):
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    result = _update_train(fake)
+    assert result.ok and result.placed == list(TRAIN_ORDER), result.log_lines()
+    assert [a[0] for n, a in fake.calls if n == "component_resolved"] == ["placed1", "placed2", "placed3", "placed4"]
+
+
+def test_without_the_resolved_read_the_update_reads_nothing_new_and_goes_on_as_today(monkeypatch):
+    monkeypatch.setattr(findings, swcom.RESOLVED_ROUTE_FINDING, None, raising=False)
+    fake = _built_train()
+    fake.turn("gear4-1", 3.0)
+    assert _update_train(fake).ok and "component_resolved" not in names(fake)
+    fake.lightweight = {"gear3-1"}                        # find_component's own check, as today
+    with pytest.raises(swbuild.BuildError, match="^gear3-1 is loaded lightweight in T.SLDASM"):
+        _update_train(fake)

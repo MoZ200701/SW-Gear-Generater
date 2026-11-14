@@ -1875,3 +1875,37 @@ def test_a_gear_mates_ratio_is_not_read_without_its_finding_or_its_definition(ma
     monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", None)
     with pytest.raises(SolidWorksError, match=r"GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND is None\), so nothing"):
         session.gear_mate_ratio("mesh1")
+
+
+
+@pytest.mark.parametrize("state, resolved", [(2, True), (3, False), (1, False), (4, False)])
+def test_a_components_resolved_state_is_read_by_the_settled_route(mated, monkeypatch, state, resolved):
+    session, doc = mated
+    monkeypatch.setattr(findings, swcom.RESOLVED_ROUTE_FINDING, "GetSuppression2", raising=False)
+    monkeypatch.setattr(findings, swcom.RESOLVED_VALUES_FINDING, (2,), raising=False)
+    component = session._handles["gear2"]["component"]
+    component.GetSuppression2 = state
+    assert session.component_resolved("gear2") is resolved
+
+
+@pytest.mark.parametrize("route, values", [(None, (2,)), ("GetSomethingElse", (2,)), ("GetSuppression2", None)])
+def test_a_resolved_read_not_settled_is_refused(mated, monkeypatch, route, values):
+    session, _doc = mated
+    monkeypatch.setattr(findings, swcom.RESOLVED_ROUTE_FINDING, route, raising=False)
+    monkeypatch.setattr(findings, swcom.RESOLVED_VALUES_FINDING, values, raising=False)
+    with pytest.raises(SolidWorksError, match="Reading whether a component is fully resolved has not been settled"):
+        session.component_resolved("gear2")
+
+
+def test_find_component_leaves_a_lightweight_component_to_its_caller_when_asked(com, monkeypatch):
+    monkeypatch.setattr(findings, "COMPONENT_FIND_ROUTE", "GetComponentByName")
+    doc = com.opened(W + "R.SLDASM", doc_type=2)
+    doc.components.append(Component("gear2-1", state=1))
+    session = _session(com)
+    session.begin_build()
+    with pytest.raises(SolidWorksError, match="is loaded lightweight in R.SLDASM"):
+        session.find_component("g", "gear2-1")
+    assert session.find_component("g", "gear2-1", lightweight_ok=True) == "gear2-1"
+    doc.components[0].GetSuppression2 = swcom.COMPONENT_SUPPRESSED
+    with pytest.raises(SolidWorksError, match="is suppressed in R.SLDASM"):
+        session.find_component("g", "gear2-1", lightweight_ok=True)

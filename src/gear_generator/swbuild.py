@@ -33,9 +33,9 @@ from .gears.base import BuildPlan, GlobalVariable
 from .gears.equations import DEGREES, RADIANS, EquationError, evaluate_all, split_equation
 from .gears.spur import AXIS_NAME
 from .store import GEARBOX_MOTION, GEARBOX_STATIC, same_path
-from .swcom import (ASSEMBLY_PAIR, ASSEMBLY_STATIC, ASSEMBLY_TRAIN, DOC_ASSEMBLY, MINIMUM_MAJOR, ComponentGone,
-                    DocInfo, MateGone, MateRefused, MateState, SolidWorksError, meets_minimum, rebuild_call,
-                    release_year)
+from .swcom import (ASSEMBLY_PAIR, ASSEMBLY_STATIC, ASSEMBLY_TRAIN, DOC_ASSEMBLY, MINIMUM_MAJOR,
+                    RESOLVED_ROUTE_FINDING, ComponentGone, DocInfo, MateGone, MateRefused, MateState, SolidWorksError,
+                    meets_minimum, rebuild_call, release_year)
 
 VALUE_TOLERANCE = 1e-6
 FULLY_DEFINED = 3
@@ -98,7 +98,7 @@ class SolidWorks(Protocol):
     def feature_names(self) -> List[str]: ...
     def open_document(self, path: str) -> DocInfo: ...
     def has_unsaved_changes(self) -> bool: ...
-    def find_component(self, handle: str, name: str) -> str: ...
+    def find_component(self, handle: str, name: str, *, lightweight_ok: bool = False) -> str: ...
     def component_frame(self, handle: str) -> Tuple[Tuple[float, ...], Tuple[float, float, float]]: ...
     def interferences(self) -> List[Tuple[Tuple[str, ...], float]]: ...
     # W5 (the workbook gearbox that turns): new in swcom.Session, each docstring there says what it does. ``add_mate``
@@ -110,6 +110,7 @@ class SolidWorks(Protocol):
     def set_mate_suppressed(self, handle: str, suppressed: bool) -> None: ...
     def set_gear_ratio(self, handle: str, a: str, b: str, ratio: Tuple[int, int]) -> None: ...
     def gear_mate_ratio(self, handle: str) -> Tuple[float, float]: ...
+    def component_resolved(self, handle: str) -> bool: ...
 
 
 class BuildError(SolidWorksError):
@@ -2607,8 +2608,23 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
     try:
         sw.open_document(assembly)
         _note_opened(sw, assembly, result)
+        # Lightweight gears (a user whose SolidWorks loads assemblies lightweight): P0c drove such a train and a gear
+        # turned wrongly before anything resolved it, so with the read settled each gear is read and one that is
+        # not fully resolved refuses the Update here. Without the finding, find_component's own check stands.
+        resolving = getattr(findings, RESOLVED_ROUTE_FINDING, None) is not None
         for index, placement in enumerate(placements, 1):
-            sw.find_component(f"placed{index}", placement.component)
+            if resolving:
+                sw.find_component(f"placed{index}", placement.component, lightweight_ok=True)
+            else:
+                sw.find_component(f"placed{index}", placement.component)
+        if resolving:
+            for index, placement in enumerate(placements, 1):
+                if not sw.component_resolved(f"placed{index}"):
+                    raise BuildError(f"{placement.gear} ({placement.component}) is not fully resolved in "
+                                     f"{_file(assembly)}: SolidWorks loaded it lightweight, and a train with a "
+                                     "lightweight gear does not turn as it was built, so nothing is changed; in "
+                                     f"SolidWorks, right-click {_file(assembly)} and choose Set Lightweight to "
+                                     "Resolved, then press Update SolidWorks again.")
         for index, placement in enumerate(placements, 1):
             rotation, at = sw.component_frame(f"placed{index}")
             result.found[placement.gear] = (tuple(rotation), tuple(at))

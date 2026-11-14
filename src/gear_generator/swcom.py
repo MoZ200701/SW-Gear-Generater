@@ -100,6 +100,13 @@ ASSEMBLY_REBUILD_CALLS = {"ForceRebuild3(True)": ("ForceRebuild3", (True,)),
 COMPONENT_SUPPRESSED = 0
 COMPONENT_LIGHTWEIGHT = (1, 4)
 
+# Whether a component is fully resolved (Session.component_resolved), as probe round P0d will settle it: the finding
+# naming the read, the routes this code can make, and the finding giving the fully-resolved value(s). Placeholder
+# names until P0d is committed: rename here, in one place.
+RESOLVED_ROUTE_FINDING = "COMPONENT_RESOLVED_ROUTE"
+RESOLVED_VALUES_FINDING = "COMPONENT_FULLY_RESOLVED_STATES"
+RESOLVED_ROUTES = ("GetSuppression2",)
+
 
 class SolidWorksError(Exception):
     """Something about the SolidWorks connection did not work."""
@@ -2426,7 +2433,7 @@ class Session:
             raise SolidWorksError(f"SolidWorks would not open {path} (error {error}).")
         return doc
 
-    def find_component(self, handle: str, name: str) -> str:
+    def find_component(self, handle: str, name: str, *, lightweight_ok: bool = False) -> str:
         """Find a component of the build's assembly by the ``Name2`` recorded when it was inserted, and keep it as
         ``handle`` (so ``place_component``, ``fix_component``, ``unfix_component`` and ``component_frame`` work on
         it). Returns ``Name2`` as read back.
@@ -2444,6 +2451,10 @@ class Session:
         component is refused with what to do. Through the app on 2026
         (gearbox_smoke 2026-11-13): five components of a reopened assembly
         found by GetComponentByName, each state read without error.
+
+        ``lightweight_ok`` (keyword): the lightweight refusal is left to the caller, which then reads
+        :meth:`component_resolved` itself (a turning Update's check phase, with its own sentence); a suppressed
+        component is refused all the same.
         """
         route = getattr(findings, "COMPONENT_FIND_ROUTE", None)
         if route not in COMPONENT_FIND_ROUTES:
@@ -2465,12 +2476,36 @@ class Session:
         if state == COMPONENT_SUPPRESSED:
             raise SolidWorksError(f"{name} is suppressed in {title}, so it cannot be placed; unsuppress it in "
                                   "SolidWorks and try again.")
-        if state in COMPONENT_LIGHTWEIGHT or (state is None
-                                              and getattr(findings, "COMPONENTS_RESOLVED_AFTER_REOPEN", None) is not True):
+        if not lightweight_ok and (state in COMPONENT_LIGHTWEIGHT or (
+                state is None and getattr(findings, "COMPONENTS_RESOLVED_AFTER_REOPEN", None) is not True)):
             raise SolidWorksError(f"{name} is loaded lightweight in {title}, and resolving a component is not "
                                   "settled here; set it to Resolved in SolidWorks and try again.")
         self._handles[handle] = {"component": component, "path": self._component_path(component)}
         return kept
+
+    def component_resolved(self, handle: str) -> bool:
+        """Whether a kept component is fully resolved, read by the route probe round P0d settles
+        (:data:`RESOLVED_ROUTE_FINDING`, one of :data:`RESOLVED_ROUTES`) and judged by its fully-resolved values
+        (:data:`RESOLVED_VALUES_FINDING`). P0c drove a train whose components were lightweight and one gear turned
+        -24° where 2.5° was right, so a turning Update reads this before anything changes. Either finding missing,
+        or a route this code does not know: a sentence (callers read it only when the route finding is set)."""
+        route = getattr(findings, RESOLVED_ROUTE_FINDING, None)
+        values = getattr(findings, RESOLVED_VALUES_FINDING, None)
+        if route not in RESOLVED_ROUTES or not values:
+            raise SolidWorksError(f"Reading whether a component is fully resolved has not been settled on SolidWorks "
+                                  f"yet (findings.{RESOLVED_ROUTE_FINDING} is {route!r}, findings."
+                                  f"{RESOLVED_VALUES_FINDING} is {values!r}), so nothing is changed; run its probe "
+                                  "first.")
+        kept = self._handles.get(handle, {}).get("component") if hasattr(self, "_handles") else None
+        if kept is None:
+            raise SolidWorksError(f"No component is kept as {handle!r}, so whether it is resolved cannot be read; that "
+                                  "is a fault in Gear Generator, not in SolidWorks.")
+        value = _read(kept, route)
+        try:
+            return int(value) in tuple(int(v) for v in values)
+        except (TypeError, ValueError):
+            raise SolidWorksError(f"SolidWorks answered {value!r} when asked whether {call(kept, 'Name2')} is "
+                                  "resolved, which is not a state this code knows.") from None
 
     @staticmethod
     def _component_by(route: str, doc: Any, name: str) -> Any:
