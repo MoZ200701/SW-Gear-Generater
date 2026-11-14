@@ -1584,7 +1584,8 @@ def _layout_shafts(names: Sequence[str]) -> List[str]:
     return shafts
 
 
-def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes=None) -> Tuple[str, bool]:
+def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes=None,
+                          finished=None) -> Tuple[str, bool]:
     """A finished update's sentence (``UpdatePlan``, ``swbuild.GearboxUpdate``, ``Finished.dragged``), ending
     with :func:`save_to_keep` naming the documents whenever ``result.changed`` is not empty; *SolidWorks already
     matches the workbook: nothing was changed.* when nothing was. ``meshes``: the record's listed meshes (pairs of
@@ -1596,9 +1597,20 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
     stopped says every failure, not only the first: a lock that could not be
     turned back on after a put that failed is a failure of its own, naming
     the compound gears left unlocked (review M8), and must not be hidden
-    behind the put's. W4's static path reads as it always has."""
+    behind the put's. W4's static path reads as it always has.
+
+    ``finished`` (``workbook.gearbox.Finished``, the window passes it): when
+    its ``earlier_update`` is set — an earlier Update's changes to the
+    assembly were never saved, closed unsaved (``lost``) or not saved — what
+    was found off the record is not laid to the user, on either path: no
+    *had been moved* or *turned … in SolidWorks*, but
+    :func:`_earlier_update_sentence`. With ``earlier_update`` ``""`` (or no
+    ``finished``) every sentence is as before."""
     changed_docs = [_stem(p) for p in result.changed]
     motion = getattr(update, "motion", None) is not None
+    earlier = getattr(finished, "earlier_update", "") if finished is not None else ""
+    off_after = [g for g in getattr(finished, "off_after_update", ()) or () if g] if earlier else []
+    pairs_after = [tuple(p) for p in getattr(finished, "out_of_step_after_update", ()) or ()] if earlier else []
     if result.failures:
         what, why = result.failures[0]
         text = f"Update SolidWorks stopped. {what.strip()}: {_sentence(why)}"
@@ -1641,7 +1653,10 @@ def gearbox_update_status(update, result, dragged: Sequence[str] = (), *, meshes
             ok = False
     if motion:
         pieces.extend(_motion_pieces(update, result))
-    after = _motion_after(update, result) if motion else []
+    after = _motion_after(update, result, earlier) if motion else []
+    if earlier:
+        told = _earlier_update_sentence(update, result if motion else None, earlier, off_after, pairs_after)
+        after = ([told] if told else []) + after
     dragged = list(dragged)
     placed = [g for g in result.placed if g not in dragged]
     if placed:
@@ -2741,7 +2756,7 @@ def _pair_kind(update, pair: Tuple[str, str]) -> str:
     return "mesh"
 
 
-def _motion_after(update, result) -> List[str]:
+def _motion_after(update, result, earlier: str = "") -> List[str]:
     """What the motion path found and put right, each a whole sentence, after the pieces: a relation out of step
     (*G1 and G2 had been turned out of step with each other in SolidWorks; they are back in mesh.* — which of the
     two was turned cannot be told, so neither is said to be), then one sentence per train put
@@ -2751,27 +2766,37 @@ def _motion_after(update, result) -> List[str]:
     turned in SolidWorks.* (W5-DECISIONS answer 2: the train stays where it was turned, and the footer says so),
     or, when some mated gears were put and some not, *Any gear it did not put back stands where it was turned in
     SolidWorks.* (which train stood turned is not told), then the mates the app did not make, left alone
-    (``result.extra_mates``)."""
+    (``result.extra_mates``).
+
+    ``earlier`` (``Finished.earlier_update``, set when an earlier Update's
+    changes to the assembly were never saved): the frames on record are not
+    known to be what SolidWorks held, so nothing is laid to the user — the
+    relations out of step and the gears turned back are said by
+    :func:`_earlier_update_sentence` instead, and gears left standing are
+    *as they were found in SolidWorks*, not *where they were turned*."""
     out = []
-    for a, b in result.out_of_step:
-        back = "they are back in step" if _pair_kind(update, (a, b)) == "lock" else "they are back in mesh"
-        out.append(f"{a} and {b} had been turned out of step with each other in SolidWorks; {back}.")
-    for gears in result.restored:
-        gears = [g for g in gears if g]
-        if not gears:
-            continue
-        one = len(gears) == 1
-        out.append(f"{_and(gears)} had been turned in SolidWorks; {'its' if one else 'their'} train is back at the "
-                   "turn it was built at.")
+    if not earlier:
+        for a, b in result.out_of_step:
+            back = "they are back in step" if _pair_kind(update, (a, b)) == "lock" else "they are back in mesh"
+            out.append(f"{a} and {b} had been turned out of step with each other in SolidWorks; {back}.")
+        for gears in result.restored:
+            gears = [g for g in gears if g]
+            if not gears:
+                continue
+            one = len(gears) == 1
+            out.append(f"{_and(gears)} had been turned in SolidWorks; {'its' if one else 'their'} train is back at "
+                       "the turn it was built at.")
     if result.turned:
         # Answer 2: with nothing to put, the train stays where it was turned, and the sentence says so plainly.
         motion = getattr(update, "motion", None)
         mated = {g for m in getattr(motion, "mates", ()) or () for g in m.gears if g}
         put = mated & set(result.placed)
+        how = "as they were found" if earlier else "where they were turned"
         if not put:
-            out.append("The gears stand where they were turned in SolidWorks.")
+            out.append(f"The gears stand {how} in SolidWorks.")
         elif put != mated:
-            out.append("Any gear it did not put back stands where it was turned in SolidWorks.")
+            how = "as it was found" if earlier else "where it was turned"
+            out.append(f"Any gear it did not put back stands {how} in SolidWorks.")
     extra = [n for n in result.extra_mates if n]
     if extra:
         one = len(extra) == 1
@@ -2779,6 +2804,62 @@ def _motion_after(update, result) -> List[str]:
         out.append(f"{where} also has {'a suppressed mate' if one else 'suppressed mates'} the app did not make, "
                    f"{_and(extra)}; Update SolidWorks left {'it as it is' if one else 'them as they are'}.")
     return out
+
+
+def _pairs_text(pairs: Sequence[Tuple[str, str]]) -> str:
+    """``G2 and G3`` for one relation, ``G1 with G2 and G2 with G3`` for more."""
+    pairs = [(a, b) for a, b in pairs if a and b]
+    if len(pairs) == 1:
+        return f"{pairs[0][0]} and {pairs[0][1]}"
+    return _and(f"{a} with {b}" for a, b in pairs)
+
+
+def _earlier_update_sentence(update, result, earlier: str, off: Sequence[str],
+                             pairs: Sequence[Tuple[str, str]]) -> str:
+    """What an Update says when an earlier one's changes to the assembly were never saved (``Finished
+    .earlier_update``): the frames on record are that Update's, so a gear found off them, or a relation out of
+    step, is never said to be the user's doing.
+
+    ``lost`` (SolidWorks closed the assembly unsaved): *The last Update
+    SolidWorks was not saved before Reducer_12to1.SLDASM was closed, so its
+    changes were made again: G4 is back where the workbook has it.*
+    ``not saved`` (still open, or not known; the record cannot tell whether
+    that Update finished or stopped part way, so neither is claimed): *G4 was
+    not where the last Update SolidWorks, which is not saved, has it on
+    record; it is in place again.* and *G2 and G3 were not in step as that
+    Update has them on record either; they are in step again.* The gears
+    named are ``off`` (``Finished.off_after_update``) and, on the motion
+    path, those a put turned back (``result.restored``); the relations are
+    ``pairs`` (``Finished.out_of_step_after_update``)."""
+    from .workbook.gearbox import UPDATE_LOST
+    gears: List[str] = []
+    for gear in list(off) + [g for train in getattr(result, "restored", ()) or () for g in train]:
+        if gear and gear not in gears:
+            gears.append(gear)
+    rank = {g: i for i, g in enumerate(p.gear for p in update.placements)}
+    gears.sort(key=lambda g: rank.get(g, len(rank)))          # as the gears are listed, the order sort keeps
+    pairs = [(a, b) for a, b in pairs if a and b]
+    one = len(gears) == 1
+    if earlier == UPDATE_LOST:
+        asm = _file(update.assembly) if update.assembly else "the assembly"
+        found = []
+        if gears:
+            found.append(f"{_and(gears)} {'is' if one else 'are'} back where the workbook has "
+                         f"{'it' if one else 'them'}")
+        if pairs:
+            found.append(f"{_pairs_text(pairs)} are back in step{' with each other' if len(pairs) == 1 else ''}")
+        return (f"The last Update SolidWorks was not saved before {asm} was closed, so its changes were made again"
+                + (": " + "; ".join(found) if found else "") + ".")
+    out = []
+    if gears:
+        out.append(f"{_and(gears)} {'was' if one else 'were'} not where the last Update SolidWorks, which is not "
+                   f"saved, has {'it' if one else 'them'} on record; {'it is' if one else 'they are'} in place again.")
+    if pairs:
+        out.append(f"{_pairs_text(pairs)} were not in step as "
+                   + ("that Update has them on record either" if gears else
+                      "the last Update SolidWorks, which is not saved, has them on record")
+                   + "; they are in step again.")
+    return " ".join(out)
 
 
 def motion_update_lines(update, result) -> List[str]:

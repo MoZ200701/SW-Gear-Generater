@@ -2150,3 +2150,97 @@ def test_the_header_after_a_refused_mate_compares_with_the_read_the_refusal_came
     built.digest = "d1"
     assert ui_text.workbook_built_tag(built, "d1") == " · built from this version"
     assert ui_text.workbook_built_tag(built, "d2") == " · changed since it was built"
+
+
+# an Update after an earlier one whose changes to the assembly were never saved (package B's Finished fields)
+
+
+def _finished(earlier, off=(), pairs=()):
+    from gear_generator.workbook.gearbox import Finished
+    return Finished(earlier_update=earlier, off_after_update=list(off), out_of_step_after_update=list(pairs))
+
+
+PLACED = tuple(swbuild.Placement(g, f"{g}-1", (1, 0, 0, 0, 1, 0, 0, 0, 1), (0, 0, 0)) for g in ("G1", "G2", "G3", "G4"))
+
+
+def test_after_a_lost_update_its_changes_are_said_to_be_made_again_never_moved_by_the_user():
+    from gear_generator.workbook.gearbox import UPDATE_LOST
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], axial=["G4"])
+    text, ok = ui_text.gearbox_update_status(_motion_update(placements=PLACED), result,
+                                             finished=_finished(UPDATE_LOST, off=["G4"]))
+    assert (_clean(text), ok) == (
+        "Updated SolidWorks: moved G4 along S3, re-placed G1, G2, G3 and G4; no interference between the gears where "
+        "they stand. The last Update SolidWorks was not saved before Reducer_12to1.SLDASM was closed, so its changes "
+        "were made again: G4 is back where the workbook has it. Save Reducer_12to1 in SolidWorks to keep it.", True)
+    assert "had been" not in text
+    pairs = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], out_of_step=[("G2", "G3")],
+                   restored=[("G3", "G4")])
+    text, _ = ui_text.gearbox_update_status(_motion_update(placements=PLACED), pairs,
+                                            finished=_finished(UPDATE_LOST, pairs=[("G2", "G3")]))
+    assert "made again: G3 and G4 are back where the workbook has them; G2 and G3 are back in step with each " \
+           "other. Save" in _clean(text) and "out of step" not in text and "had been" not in text
+    nothing_off = _moved(placed=["G4"], changed=[ASM])
+    assert ui_text.gearbox_update_status(_motion_update(), nothing_off, finished=_finished(UPDATE_LOST))[0] == (
+        "Updated SolidWorks: re-placed G4; no interference between the gears where they stand. The last Update "
+        "SolidWorks was not saved before Reducer_12to1.SLDASM was closed, so its changes were made again. Save "
+        "Reducer_12to1 in SolidWorks to keep it.")
+
+
+def test_after_an_update_not_saved_neither_finishing_nor_stopping_is_claimed_and_the_user_is_never_blamed():
+    """The record cannot tell whether that Update finished or stopped part way: neither is said."""
+    from gear_generator.workbook.gearbox import UPDATE_NOT_SAVED
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], out_of_step=[("G2", "G3")],
+                    restored=[("G3",)], turned=True)
+    text, ok = ui_text.gearbox_update_status(_motion_update(placements=PLACED), result,
+                                             finished=_finished(UPDATE_NOT_SAVED, off=["G4"], pairs=[("G2", "G3")]))
+    assert (_clean(text), ok) == (
+        "Updated SolidWorks: re-placed G1, G2, G3 and G4; no interference between the gears where they stand. G3 and "
+        "G4 were not where the last Update SolidWorks, which is not saved, has them on record; they are in place "
+        "again. G2 and G3 were not in step as that Update has them on record either; they are in step again. Save "
+        "Reducer_12to1 in SolidWorks to keep it.", True)
+    for blame in ("had been", "turned in SolidWorks", "moved in SolidWorks", "stopped", "finished"):
+        assert blame not in text
+    one = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM])
+    assert ui_text.gearbox_update_status(_motion_update(), one, finished=_finished(UPDATE_NOT_SAVED, off=["G4"]))[0] \
+        .endswith("stand. G4 was not where the last Update SolidWorks, which is not saved, has it on record; it is in "
+                  "place again. Save Reducer_12to1 in SolidWorks to keep it.")
+    two_pairs = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], out_of_step=[("G1", "G2"), ("G2", "G3")])
+    assert ("stand. G1 with G2 and G2 with G3 were not in step as the last Update SolidWorks, which is not saved, has "
+            "them on record; they are in step again. Save") in ui_text.gearbox_update_status(
+        _motion_update(), two_pairs, finished=_finished(UPDATE_NOT_SAVED, pairs=[("G1", "G2"), ("G2", "G3")]))[0]
+    # Gears left standing are as they were found, never "where they were turned".
+    standing = _moved(turned=True, parts=[swbuild.UpdateResult(document="Gear_m1.5_N68.SLDPRT",
+                                                               changed=["No. of Teeth"], rebuilt=True)],
+                      changed=[_path("Gear_m1.5_N68")])
+    text, _ = ui_text.gearbox_update_status(_motion_update(parts=_update().parts), standing,
+                                            finished=_finished(UPDATE_NOT_SAVED))
+    assert "The gears stand as they were found in SolidWorks." in text and "where they were turned" not in text
+    nothing = _moved(turned=True)
+    assert ui_text.gearbox_update_status(_motion_update(), nothing, finished=_finished(UPDATE_NOT_SAVED)) == (
+        "SolidWorks already matches the workbook: nothing was changed. The gears stand as they were found in "
+        "SolidWorks.", True)
+
+
+def test_a_static_gearbox_after_an_earlier_update_says_the_same_and_never_had_been_moved():
+    from gear_generator.workbook.gearbox import UPDATE_LOST, UPDATE_NOT_SAVED
+    result = _updated(placed=["G2", "G3", "G4"])
+    lost, _ = ui_text.gearbox_update_status(_update(), result, finished=_finished(UPDATE_LOST, off=["G4"]))
+    assert lost == (
+        "Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), "
+        "moved S2 and S3 in Reducer_12to1_Layout, re-placed G2, G3 and G4; no interference between the gears. The "
+        "last Update SolidWorks was not saved before Reducer_12to1.SLDASM was closed, so its changes were made again: "
+        "G4 is back where the workbook has it. Save Gear_m1.5_N68, Reducer_12to1_Layout and Reducer_12to1 in "
+        "SolidWorks to keep them.")
+    kept, _ = ui_text.gearbox_update_status(_update(), result, finished=_finished(UPDATE_NOT_SAVED, off=["G3", "G4"]))
+    assert "gears. G3 and G4 were not where the last Update SolidWorks, which is not saved, has them on record; they " \
+           "are in place again. Save" in kept and "had been moved" not in kept
+
+
+def test_with_no_earlier_update_every_update_sentence_is_as_before():
+    result = _moved(placed=["G1", "G2", "G3", "G4"], changed=[ASM], out_of_step=[("G1", "G2")],
+                    restored=[("G1", "G2")])
+    plain = ui_text.gearbox_update_status(_motion_update(), result)
+    assert ui_text.gearbox_update_status(_motion_update(), result, finished=_finished("")) == plain
+    assert "G1 and G2 had been turned out of step with each other in SolidWorks" in plain[0]
+    static = ui_text.gearbox_update_status(_update(), _updated(), dragged=["G4"], finished=_finished(""))
+    assert static == ui_text.gearbox_update_status(_update(), _updated(), dragged=["G4"])
