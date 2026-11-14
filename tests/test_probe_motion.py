@@ -657,8 +657,10 @@ def test_an_idler_update_holds_only_with_both_gear_mates_remade_by_name():
     assert not p8.update_pass_holds({**p, "remakes": {"G1 meshes G2": both["G1 meshes G2"]}}, teeth, p8.IDLER)
     assert not p8.update_pass_holds({**p, "remakes": {**both, "G2 meshes G3": {"name": "GearMate4"}}}, teeth, p8.IDLER)
     assert p8.remakes_of({"remake": {"name": "G3 meshes G4"}}) == {"G3 meshes G4": {"name": "G3 meshes G4"}}
-    assert p8.interference_control({"interference_before_put": {"count": 3}, "interference": {"count": 0}}) == \
-        {"before_put": 3, "after": 0}
+    assert p8.interference_control({"interference_before_put": {"count": 0}, "interference_half_pitch": {"count": 3},
+                                    "interference": {"count": 0}}) == {"before_put": 0, "half_pitch": 3, "after": 0}
+    assert p8.IDLER.control == "G2" and p8.REDUCER.control == "G4"   # a gear whose teeth change
+    assert all(fx.control in dict(fx.change) for fx in (p8.IDLER, p8.REDUCER))
 
 
 def test_a_mate_not_made_is_said_in_a_sentence():

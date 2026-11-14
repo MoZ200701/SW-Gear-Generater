@@ -2595,6 +2595,7 @@ class UpdateFixture:
     anchors: Tuple[Tuple[str, str], ...]
     locks: Tuple[Tuple[str, str], ...]
     meshes: Tuple[Tuple[str, str], ...]
+    control: str = ""        # the gear the half-pitch control turns: one whose teeth change
 
     @property
     def gears(self) -> List[str]:
@@ -2637,7 +2638,8 @@ REDUCER = UpdateFixture(
     rows=(("G1", "S1", "7.5", "1.5", "15", "8"), ("G2", "S2", "7.5", "1.5", "15", "12"),
           ("G3", "S2", "27", "2", "20", "12"), ("G4", "S3", "27", "2", "20", "16")),
     teeth=(("G1", 17), ("G2", 68), ("G3", 17), ("G4", 51)), change=tuple(UPDATE_TEETH.items()),
-    anchors=(("G1", "S1"), ("G2", "S2"), ("G4", "S3")), locks=(("G2", "G3"),), meshes=(("G1", "G2"), ("G3", "G4")))
+    anchors=(("G1", "S1"), ("G2", "S2"), ("G4", "S3")), locks=(("G2", "G3"),), meshes=(("G1", "G2"), ("G3", "G4")),
+    control="G4")
 
 #: A simple train with an idler: G2 sits in two gear mates and its teeth change, so both are remade. Module 2,
 #: 17/30/40 -> 15/32/38: both centre distances (47 mm, 70 mm) hold, so no shaft moves; every gear takes new teeth
@@ -2648,7 +2650,7 @@ IDLER = UpdateFixture(
     rows=(("G1", "S1", "7.5", "2", "15", "8"), ("G2", "S2", "7.5", "2", "15", "10"),
           ("G3", "S3", "7.5", "2", "15", "12")),
     teeth=(("G1", 17), ("G2", 30), ("G3", 40)), change=(("G1", "15"), ("G2", "32"), ("G3", "38")),
-    anchors=(("G1", "S1"), ("G2", "S2"), ("G3", "S3")), locks=(), meshes=(("G1", "G2"), ("G2", "G3")))
+    anchors=(("G1", "S1"), ("G2", "S2"), ("G3", "S3")), locks=(), meshes=(("G1", "G2"), ("G2", "G3")), control="G2")
 
 
 def update_spec(folder: str, teeth: Optional[Mapping[str, str]] = None, fx: UpdateFixture = REDUCER) -> Any:
@@ -2847,6 +2849,13 @@ def _update_pass(px: Px, swbuild: Any, doc: Any, asm_title: str, comps: Mapping[
             out["remakes"][name] = remake_gear_mate(px, doc, names, name, a, b, (float(new[a]), float(new[b])), name)
         out["mates_after_remake"] = mate_names(doc)
         out["interference_before_put"] = interferences(px, doc, "at the old frames, before the put")
+        if fx.control:
+            # The second control: the control gear put half a pitch off its new built phase, which must clash
+            # (the old frames need not: a phase that changed can still happen to clear). The puts below set it right.
+            matrix, at = wanted[fx.control]
+            half = 180.0 / float(new[fx.control])
+            put(px, doc, comps[fx.control], crossed.multiply(matrix, crossed.rot_z(half)), at, top_only=TOP_ONLY)
+            out["interference_half_pitch"] = interferences(px, doc, f"{fx.control} half a pitch off its built phase")
         for gear, (matrix, at) in wanted.items():
             put(px, doc, comps[gear], matrix, at, top_only=TOP_ONLY)
     finally:
@@ -2934,6 +2943,7 @@ def remade_positions(p: Mapping[str, Any]) -> Dict[str, Any]:
 def interference_control(p: Mapping[str, Any]) -> Dict[str, Any]:
     """The interference reading at the old frames (before the put) beside the one at the new built phase."""
     return {"before_put": (p.get("interference_before_put") or {}).get("count"),
+            "half_pitch": (p.get("interference_half_pitch") or {}).get("count"),
             "after": (p.get("interference") or {}).get("count")}
 
 
@@ -3090,7 +3100,7 @@ def run_update(px: Px, fx: UpdateFixture) -> Tuple[Dict[str, Any], Dict[str, boo
     px.check(True, f"the interference control: at the old frames, then at the new built phase: {control}")
     held = {"mated": bool(mated_ok), "unsaved": update_pass_holds(a, new_teeth, fx), "as_saved": bool(as_saved),
             "saved": update_pass_holds(b, new_teeth, fx), "reopened": bool(reopened_ok),
-            "interference_control": all((c["before_put"] or 0) > 0 and c["after"] == 0 for c in control.values())}
+            "interference_control": all((c["half_pitch"] or 0) > 0 and c["after"] == 0 for c in control.values())}
     facts["interference_control"] = control
     return facts, held
 
@@ -4796,12 +4806,18 @@ def lightweight_remake(px: Px) -> None:
     tries = [("silent and lightweight", silent | light)]
     if override:
         tries.append(("silent, lightweight, overriding the default", silent | light | override))
+    got, pid = px.attempt("ISldWorks.GetProcessID", lambda: call(sc.app(px), "GetProcessID"))
+    px.require(got and isinstance(pid, int) and pid > 0, f"GetProcessID answered the session's process ({pid!r})")
     try:
         for label, flags in tries:
             errors, warnings = sc.out_long(), sc.out_long()
-            got, result = px.attempt(f"OpenDoc6({os.path.basename(path)}, options {flags}: {label})",
-                                     lambda flags=flags: call(sc.app(px), "OpenDoc6", path, sc.SW_DOC_ASSEMBLY, flags,
-                                                              "", errors, warnings))
+            # Watched: on 2026 the open with the override made the components lightweight, and an add-in
+            # (SOLIDWORKS CAM) answered with a modal error box that blocked OpenDoc6 until it was closed.
+            with DialogWatch(pid) as watch:
+                got, result = px.attempt(f"OpenDoc6({os.path.basename(path)}, options {flags}: {label})",
+                                         lambda flags=flags: call(sc.app(px), "OpenDoc6", path, sc.SW_DOC_ASSEMBLY,
+                                                                  flags, "", errors, warnings))
+            facts.setdefault("dialogs", {})[label] = watch.report()
             doc = result[0] if got and isinstance(result, tuple) else result
             px.require(got and doc is not None, "the train opens")
             title = str(call(doc, "GetTitle"))
@@ -4832,6 +4848,9 @@ def lightweight_remake(px: Px) -> None:
     finally:
         _close_quietly(px, paths)
     px.fact("lightweight_remake", facts)
+    px.fact("lightweight_open_dialogs", {label: [[w["title"], w["children"]] for w in r["windows"]]
+                                         for label, r in facts.get("dialogs", {}).items()},
+            "the windows SolidWorks opened while each OpenDoc6 was blocked (each closed by WM_CLOSE)")
     if not any(facts.get("lightweight", {}).values()):
         px.fact("lightweight_remake_holds", None, f"not probed: OpenDoc6 left every component "
                                                  f"{set(facts.get('suppression', {}).values())}, by "
