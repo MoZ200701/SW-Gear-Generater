@@ -798,7 +798,9 @@ MATED_BUILD_KEEPS_COMPONENTS_UNMODIFIED = True
 # with an idler (17/30/40 -> 15/32/38, module 2, no shaft moved), built by the app and mated as
 # W5 does, carried the change as an Update. Both of the idler's gear mates were deleted, made
 # again at the new ratio and given their old names (found by name; they were last in the mate
-# group already and stayed there). Every gear stood at its new built frame to 8e-15. The check
+# group already and stayed there). Only G2's built phase changes (-0.375°); G1's and G3's are
+# the same before and after, so the put tells success from failure on G2 alone. Every gear
+# stood at its new built frame to 8e-15. The check
 # was clean and a full rebuild moved nothing. Driven 30°, G2 turned -14.0625° and G3 +11.842°.
 # Interference was 0 after the put. At the old frames it was 0 too (a changed phase can happen
 # to clear), and with G2 half a pitch off it was 6, so the half-pitch reading is the control.
@@ -812,9 +814,9 @@ UPDATE_INTERFERENCE_CONTROL_HOLDS = True        # a gear half a pitch off clashe
 # the assembly returned at once (0.34 s) with no window opened. The two parts stayed open,
 # still modified, and CloseDoc on each closed it silently. On disk afterwards nothing had been
 # written and the parts still had their saved teeth. QuitDoc did exactly the same. On 2024 too:
-# no "Save Modified Documents" here. That dialog (scaffold.save_created_parts, 2026-11-02) came
-# from parts modified while loaded only as components, not from parts open in their own
-# windows, as Update opens them.
+# no "Save Modified Documents" here. The earlier 2024 dialog (scaffold.save_created_parts,
+# 2026-11-02) was not measured again by this round; what is known of it is consistent with parts
+# modified while loaded only as components, where Update has its parts open in their own windows.
 UNSAVED_UPDATE_CLOSE_ASKS = False
 UNSAVED_UPDATE_CLOSE_DISCARDS = True            # CloseDoc and QuitDoc alike, assembly first then each part
 
@@ -879,7 +881,8 @@ LIGHTWEIGHT_OPEN_RAISES_AN_ADDIN_DIALOG = True  # SOLIDWORKS CAM, modal, on this
 # was no dialog, no refusal and no name clash, and both closed afterwards.
 SECOND_ASSEMBLY_BESIDE_UNSAVED_HOLDS = True
 
-# drag_operator_turns_train (optional): the saved 12 : 1 train, its drives suppressed, dragged by
+# drag_operator_turns_train (optional): the saved 12 : 1 trains, undriven (both drive mates
+# suppressed, so nothing held the input but its gear mates), dragged by
 # SW-Macro-Database entries/assemblies/05's recipe: AddComponent(gear, False), TransformType 0,
 # UseAbsoluteTransform False, DragMode left at 3, BeginDrag, Drag with a relative turn per step
 # about the gear's own axis, EndDrag. It was dragged 10°, since 30° on the output would turn the
