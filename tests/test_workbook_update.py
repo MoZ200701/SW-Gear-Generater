@@ -577,3 +577,304 @@ def test_every_field_a_structural_change_names_is_said_in_the_workbooks_words():
     assert update._structural({"groove": "2"}, {}).startswith("A centre groove cannot be added")
     assert swbuild.structural_change(base, dict(base, recipe="B")) == (
         "The recipe changed from 'A' to 'B'; build it again as a new part.")         # the strip's, unchanged
+
+
+# -- W5: classify and finish a gearbox built to turn (W5-PLAN §3.2 B, as W5-DECISIONS and W5-INTERFACES amend it) --
+
+import copy  # noqa: E402
+import dataclasses  # noqa: E402
+
+from gear_generator.gears.base import GlobalVariable as Global  # noqa: E402
+from gear_generator.workbook import motion  # noqa: E402
+
+REBUILD = "so the gearbox needs building again."
+
+
+def with_pair(spec, s5_role=""):
+    """The reducer and a second pair on S4 and S5, apart from the first train: S5 fixed holds S4 still (M9)."""
+    return replace(spec,
+                   shafts=spec.shafts + (Shaft("S4", "frame", "0", "100", "0", "Z+", ""),
+                                         Shaft("S5", "frame", "63.75", "100", "0", "Z+", s5_role)),
+                   gears=spec.gears + (Gear("G5", "S4", "7.5", "spur", "external", "17", "1.5", "", "15", "8"),
+                                       Gear("G6", "S5", "7.5", "spur", "external", "68", "1.5", "", "15", "12")),
+                   meshes=spec.meshes + (Mesh("G5", "G6"),))
+
+
+def built_from(spec):
+    disk = Disk()
+    _, _, record = build(assessed(spec), None, disk)
+    return disk, record
+
+
+@pytest.fixture
+def turned(turning):
+    """The 12 : 1 reducer built to turn: (disk, record)."""
+    disk, record = built_from(reducer())
+    assert record.gearbox.kind == motion.MOTION
+    return disk, record
+
+
+def structural(plan, *starts):
+    for start in starts:
+        assert any(s.startswith(start) for s in plan.structural), (start, plan.structural)
+    assert plan.needs_new_revision and all(s.endswith(".") and s[:1].isupper() for s in plan.structural)
+
+
+def test_a_turning_gearbox_unchanged_gives_the_worker_its_mates_links_and_globals(turned):
+    disk, record = turned
+    plan = classify(turned, reducer())
+    assert nothing(plan) and plan.axial == () and plan.ratios == ()
+    m = plan.motion
+    assert [r.name for r in m.mates] == [e.name for e in record.gearbox.mates]
+    assert m.meshes == (swbuild.MeshLink("G1", "G2", -0.25, 360 / 68), swbuild.MeshLink("G3", "G4", -1 / 3, 360 / 51))
+    assert m.recorded_meshes == m.meshes and m.locks == (swbuild.LockLink("G2", "G3", 360 / 17),)
+    assert [(p.gear, p.component, p.pitch) for p in m.recorded] == [
+        ("G1", "Gear_m1.5_N17-1", 360 / 17), ("G2", "Gear_m1.5_N68-1", 360 / 68), ("G3", "Gear_m2_N17-1", 360 / 17),
+        ("G4", "OutputGear-1", 360 / 51)]
+    assert [p.rotation for p in m.recorded] == [tuple(c.rotation) for c in record.gearbox.components]
+    assert m.face_globals == (("G4", Global("G4 Face Z", "17")),) and (m.ratios, m.fixed) == ((), ())
+    assert plan.update_kwargs()["motion"] is m
+
+
+def test_a_static_gearbox_keeps_w4s_path_even_once_gears_can_turn(built, turning):
+    assert built[1].gearbox.kind == motion.STATIC
+    plan = classify(built, gears(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), G2=dict(teeth="69")))
+    assert plan.motion is None and plan.structural == () and "motion" not in plan.update_kwargs()
+
+
+def demonstration():
+    return gears(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), G2=dict(teeth="69"))
+
+
+def test_the_w4_demonstration_edit_on_a_turning_gearbox_waits_for_the_ratio_route(turned):
+    plan = classify(turned, demonstration())
+    assert plan.structural == (
+        "G2's teeth (68 → 69) change the gear mate G1 meshes G2 from 17 : 68 to 17 : 69, and a gear mate's ratio "
+        "cannot be changed in a built assembly until the probes settle how (findings.GEAR_MATE_RATIO_ROUTE), "
+        f"{REBUILD}",)
+    # The moves alone are an Update, with the mates following the layout.
+    moved = classify(turned, shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")))
+    assert moved.structural == () and moved.moved_shafts == ("S2", "S3") and moved.replaced == ("G2", "G3", "G4")
+    assert [(v.name, v.expression) for v in moved.layout.variables] == [("S2 X", "64.5"), ("S3 X", "132.5")]
+    assert moved.motion.face_globals == (("G4", Global("G4 Face Z", "17")),) and moved.axial == ()
+
+
+def test_modify_definition_is_never_taken_and_says_what_2024_does(turned, monkeypatch):
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "modify definition")
+    plan = classify(turned, demonstration())
+    structural(plan, "G2's teeth (68 → 69) change the gear mate G1 meshes G2")
+    assert "leaves an assembly SolidWorks 2024 cannot close" in plan.structural[0]
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "something else")
+    assert "'something else', which this version does not know how to follow" in classify(
+        turned, demonstration()).structural[0]
+
+
+def test_a_tooth_change_by_remake_is_an_update_in_the_records_gear_order(turned, monkeypatch):
+    """D7's Update branch, coded and tested behind the finding; M10: the Meshes row reversed changes nothing."""
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    spec = replace(demonstration(), meshes=(Mesh("G2", "G1"), Mesh("G3", "G4")))
+    plan = classify(turned, spec)
+    assert plan.structural == () and plan.ratios == ("G1 meshes G2",)
+    assert plan.motion.ratios == (("G1 meshes G2", 17, 69),)
+    assert plan.motion.meshes[0] == swbuild.MeshLink("G1", "G2", -17 / 69, 360 / 69)
+    assert plan.motion.recorded_meshes[0] == swbuild.MeshLink("G1", "G2", -0.25, 360 / 68)
+    assert plan.motion.recorded[1].pitch == pytest.approx(360 / 68)          # as built, not as now wanted
+    assert next(p for p in plan.placements if p.gear == "G2").pitch == pytest.approx(360 / 69)
+
+
+def test_a_meshes_row_rewritten_the_other_way_round_is_no_change(turned):
+    plan = classify(turned, replace(reducer(), meshes=(Mesh("G2", "G1"), Mesh("G4", "G3"))))
+    assert nothing(plan) and plan.ratios == () and plan.motion.meshes[0].a == "G1"
+
+
+def test_a_flipped_mated_shaft_is_built_again(turned):
+    spec = shafts(gears(reducer(), G4=dict(at="-27")), S3=dict(axis="Z-"))
+    plan = classify(turned, spec)
+    structural(plan, "S3's axis is now Z- where it was built Z+: the mate G4 on S3 Axis keeps the direction it was "
+                     f"made with, {REBUILD}")
+    assert len(plan.structural) == 1                       # its anchor's new front face is not said twice
+
+
+def test_a_gear_moved_to_another_shaft_is_built_again(turned):
+    plan = classify(turned, gears(reducer(), G3=dict(shaft="S3", at="50")))
+    structural(plan, f"G3 is now on S3 where it was built on S2: the mate G3 locked to G2 holds it to S2, {REBUILD}")
+    plan = classify(turned, gears(reducer(), G4=dict(shaft="S2", at="50")))
+    structural(plan, "G4 is now on S2 where it was built on S3: the mates G4 on S3 Axis and G4 along S3 hold it to "
+                     f"S3, {REBUILD}")
+
+
+@pytest.mark.parametrize("edit_, sentence", [
+    (lambda s: gears(s, G1=dict(face_width="20")),
+     "G1's face width (15 → 20) moves its front face off the Front plane (z 0 → -2.5): the mate G1 along S1 holds "
+     "it on that plane and cannot take a distance"),
+    (lambda s: gears(s, G1=dict(at="10")),
+     "G1's At (7.5 → 10) moves its front face off the Front plane (z 0 → 2.5): the mate G1 along S1 holds it on "
+     "that plane and cannot take a distance"),
+    (lambda s: gears(s, G2=dict(face_width="20", at="12")),
+     "G2's face width (15 → 20) and At (7.5 → 12) move its front face off the Front plane (z 0 → 2)"),
+    (lambda s: gears(s, G4=dict(at="10")),
+     "G4's At (27 → 10) moves its front face onto the Front plane (z 17 → 0): the mate G4 along S3 holds it at a "
+     "distance from that plane and cannot reach it"),
+    (lambda s: shafts(s, S3=dict(z="-40")),
+     "S3's Z (0 → -40) moves G4's front face across the Front plane (z 17 → -23): the mate G4 along S3 cannot "
+     "carry its distance across that plane"),
+])
+def test_an_anchors_front_face_reaching_leaving_or_crossing_the_front_plane_names_the_edit(turned, edit_, sentence):
+    """W5-DECISIONS answer 3: structural, and the sentence names the edit, never only the plane."""
+    plan = classify(turned, edit_(reducer()))
+    structural(plan, sentence)
+    assert plan.structural[0].endswith(REBUILD)
+
+
+def test_an_anchors_move_along_its_shaft_on_one_side_of_the_front_plane_is_an_update(turned):
+    for spec in (gears(reducer(), G4=dict(at="30")), shafts(reducer(), S3=dict(z="3"))):
+        plan = classify(turned, spec)
+        assert plan.structural == () and plan.axial == ("G4",) and "G4" in plan.replaced
+        assert plan.motion.face_globals == (("G4", Global("G4 Face Z", "20")),)
+    keeps = classify(turned, gears(reducer(), G1=dict(face_width="20", at="10")))        # front face stays at 0
+    assert keeps.structural == () and keeps.axial == ()
+
+
+@pytest.mark.parametrize("value, why", [
+    (True, None),
+    (None, "whether its lock to G2 takes a new place along the shaft is not settled (findings.LOCK_RETAKES_AN_OFFSET)"),
+    (False, "the probes found that its lock to G2 does not take a new place along the shaft "
+            "(findings.LOCK_RETAKES_AN_OFFSET)"),
+])
+def test_a_followers_at_or_face_width_is_an_update_only_while_the_lock_retakes_an_offset(turned, monkeypatch, value,
+                                                                                         why):
+    monkeypatch.setattr(findings, "LOCK_RETAKES_AN_OFFSET", value)
+    for spec, edit_ in ((gears(reducer(), G3=dict(at="30")), "G3's At (27 → 30) moves its front face along S2 "
+                                                              "(z 17 → 20)"),
+                        (gears(reducer(), G3=dict(face_width="14")), "G3's face width (20 → 14) moves its front "
+                                                                     "face along S2 (z 17 → 20)")):
+        plan = classify(turned, spec)
+        if why is None:
+            assert plan.structural == () and "G3" in plan.replaced and plan.axial == ()
+        else:
+            assert plan.structural == (f"{edit_}, and {why}, {REBUILD}",)
+
+
+def test_a_reordered_gears_sheet_keeps_the_recorded_anchors(turned):
+    spec = reducer()
+    spec = replace(spec, gears=(spec.gears[0], spec.gears[2], spec.gears[1], spec.gears[3]))
+    plan = classify(turned, spec)
+    assert nothing(plan)
+    assert [r.name for r in plan.motion.mates] == [e.name for e in turned[1].gearbox.mates]
+    assert plan.motion.locks == (swbuild.LockLink("G2", "G3", 360 / 17),)
+    # G3 now first on S2: its At change is still a follower's, never an anchor's front face.
+    assert classify(turned, gears(spec, G3=dict(at="30"))).structural == ()
+
+
+def test_a_shaft_whose_role_becomes_or_stops_being_fixed_is_built_again(turning):
+    free = built_from(with_pair(reducer()))
+    assert free[1].gearbox.fixed == [] and free[1].gearbox.drag == ["G1", "G5"]
+    plan = classify(free, with_pair(reducer(), s5_role="fixed"))
+    assert plan.structural == (                             # in Shafts-sheet order
+        "S4 now stands still, held through the fixed shaft S5, but G5 was built mated to turn, so the gearbox needs "
+        "building again to hold it fixed.",
+        "S5's Role is now fixed, but G6 was built mated to turn, so the gearbox needs building again to hold it "
+        "fixed.")
+    held = built_from(with_pair(reducer(), s5_role="fixed"))
+    assert held[1].gearbox.fixed == ["G5", "G6"] and held[1].gearbox.drag == ["G1"]
+    plan = classify(held, with_pair(reducer()))
+    assert plan.structural == (
+        "G5 was built fixed, but S4 now turns (its Role is not fixed and no fixed shaft holds it still), so the "
+        "gearbox needs building again to mate it to turn.",
+        "G6 was built fixed, but S5 now turns (its Role is not fixed and no fixed shaft holds it still), so the "
+        "gearbox needs building again to mate it to turn.")
+    still = classify(held, with_pair(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), s5_role="fixed"))
+    assert still.structural == () and still.motion.fixed == ("G5", "G6")
+
+
+def test_a_recorded_mate_update_cannot_read_is_refused_with_a_sentence(turned):
+    disk, record = turned
+    cases = [
+        (dict(kind="angle"), "as a 'angle' mate, which is not a kind of mate the app makes"),
+        (dict(gears=["G1"]), "with 1 gear where a mesh mate holds 2"),
+        (dict(gears=[]), "with 0 gears where a mesh mate holds 2"),
+        (dict(ratio=[17]), "with the ratio [17], where a gear mate holds two tooth counts"),
+        (dict(ratio=[17, 0]), "with the ratio [17, 0], where a gear mate holds two tooth counts"),
+        (dict(gears=["G1", "G9"]), "on G9, which is not in the assembly on record"),
+        (dict(name=""), "The record of what was built lists a mate with no name, and Update SolidWorks finds each "
+                        "mate by its name"),
+    ]
+    for change, said in cases:
+        bad = copy.deepcopy(record)
+        mesh = next(e for e in bad.gearbox.mates if e.kind == motion.MESH)
+        for key, value in change.items():
+            setattr(mesh, key, value)
+        plan = update.classify(bad, assessed(reducer()), exists=disk.exists)
+        assert said in plan.refusal and plan.refusal.endswith(
+            "so Update SolidWorks cannot act on the gearbox the record describes."), plan.refusal
+        assert plan.motion is None
+    bad = copy.deepcopy(record)
+    bad.gearbox.mates[1].shaft = ""
+    assert "with no shaft" in update.classify(bad, assessed(reducer()), exists=disk.exists).refusal
+
+
+def test_a_turning_gearbox_whose_update_findings_are_not_settled_is_refused(turned, monkeypatch):
+    monkeypatch.setattr(findings, "MESH_PHASE_ROUTE", None)
+    plan = classify(turned, reducer())
+    assert plan.refusal == motion.update_reason() != "" and plan.motion is None
+
+
+def turned_by(rotation, degrees):
+    c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+    r = [rotation[i * 3:i * 3 + 3] for i in range(3)]
+    z = [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]]
+    return tuple(sum(r[i][k] * z[k][j] for k in range(3)) for i in range(3) for j in range(3))
+
+
+def test_finishing_a_turning_update_drags_only_gears_found_off_their_axis(turned):
+    disk, record = turned
+    plan = classify(turned, reducer())
+    found = {c.gear: (tuple(c.rotation), tuple(c.at)) for c in record.gearbox.components}
+    found["G1"] = (turned_by(found["G1"][0], 30.0), found["G1"][1])           # turned by the user: not a drag
+    found["G4"] = (found["G4"][0], (140.0, 3.0, 17.0))                         # pulled off its axis: a drag
+    result = worker_answer(plan, found=found, placed=("G1", "G2", "G3", "G4"), changed_parts=())
+    result.off_axis = ["G4"]
+    done = update.finish_update(plan, result, record, digest="d2", read_sidecar=disk.read_sidecar,
+                                mtime=lambda p: 1.0)
+    assert done.dragged == ["G4"]
+    assert [c.rotation for c in done.record.gearbox.components] == [c.rotation for c in record.gearbox.components]
+
+
+def test_finishing_a_turning_update_drags_a_fixed_gear_by_w4s_rule(turning):
+    disk, record = built_from(with_pair(reducer(), s5_role="fixed"))
+    plan = classify((disk, record), with_pair(reducer(), s5_role="fixed"))
+    found = {c.gear: (tuple(c.rotation), tuple(c.at)) for c in record.gearbox.components}
+    found["G6"] = (turned_by(found["G6"][0], 1.0), found["G6"][1])
+    found["G1"] = (turned_by(found["G1"][0], 1.0), found["G1"][1])
+    done = update.finish_update(plan, worker_answer(plan, found=found, placed=("G6",), changed_parts=()), record,
+                                digest="d2", read_sidecar=disk.read_sidecar, mtime=lambda p: 1.0)
+    assert done.dragged == ["G6"]
+
+
+def test_finishing_a_turning_update_follows_the_ratios_and_face_globals_set(turned, monkeypatch):
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    disk, record = turned
+    spec = gears(reducer(), G2=dict(teeth="69"), G4=dict(at="30"))
+    plan = classify(turned, spec)
+    assert plan.structural == () and plan.ratios == ("G1 meshes G2",) and plan.axial == ("G4",)
+    result = worker_answer(plan, placed=("G1", "G2", "G3", "G4"))
+    result.ratios, result.axial = ["G1 meshes G2"], ["G4"]
+    done = update.finish_update(plan, result, record, digest="d2", read_sidecar=disk.read_sidecar,
+                                mtime=lambda p: 1.0)
+    mates = {e.name: e for e in done.record.gearbox.mates}
+    assert mates["G1 meshes G2"].ratio == [17, 69] and mates["G3 meshes G4"].ratio == [17, 51]
+    assert mates["G4 along S3"].z_front == 20.0 and mates["G1 along S1"].z_front == 0.0
+    assert {e.name: e for e in record.gearbox.mates}["G4 along S3"].z_front == 17.0      # the input is not changed
+    after = update.classify(done.record, assessed(spec), exists=disk.exists)
+    assert after.ratios == () and after.axial == () and after.structural == ()
+    # Not set (the worker failed before them): the record keeps what the assembly holds.
+    result.ratios, result.axial = [], []
+    kept = update.finish_update(plan, result, record, digest="d2", read_sidecar=disk.read_sidecar,
+                                mtime=lambda p: 1.0)
+    assert {e.name: e.ratio for e in kept.record.gearbox.mates}["G1 meshes G2"] == [17, 68]
+
+
+# -- the turning round trip (plan -> fake build -> finish -> classify -> update -> finish -> classify) --------------
+#
+# SECOND PASS (W5-INTERFACES §5): written once package A's fake SolidWorks carries mates and update_gearbox's motion
+# path exists. Nothing here yet: the tests above pin B's rules against hand-made worker answers.
