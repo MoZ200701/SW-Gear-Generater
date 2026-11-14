@@ -848,14 +848,25 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
             handle = f"{layout.GEAR_HANDLE}{index}"
             handles[handle] = gear.id
             components.append((handle, part_of[gear.id], frames[gear.id]))
+    # W5: the turning assembly whenever every finding it needs is settled; else W4's static one, and why (D1's
+    # static-by-necessity case, said before Build). A continued revision is planned the same way.
+    static_reason = motion.motion_reason()
+    turning: Optional[MotionPlan] = None
     try:
         layout_item: Union[BuildPlan, LayoutReuse] = chosen.layout_reuse or layout.layout_plan(
             shafts, part_tpl, chosen.layout_path)
-        assembly = layout.assembly_plan(chosen.layout_path, components, asm_tpl, chosen.assembly_path)
+        if static_reason:
+            assembly = layout.assembly_plan(chosen.layout_path, components, asm_tpl, chosen.assembly_path)
+        else:
+            turning = motion.motion_plan(spec, a.report, frames)
+            assembly = motion.motion_assembly_plan(chosen.layout_path, components,
+                                                   {gear: handle for handle, gear in handles.items()}, turning,
+                                                   asm_tpl, chosen.assembly_path)
     except ValueError as exc:
         return GearboxPlan(revision=n, name=name, refusal=str(exc), **empty)
     fields.update(layout_path=chosen.layout_path, assembly_path=chosen.assembly_path, shafts=shafts,
-                  frames=frames, layout=layout_item, assembly=assembly, handles=handles)
+                  frames=frames, layout=layout_item, assembly=assembly, handles=handles, motion=turning,
+                  static_reason=static_reason)
     return GearboxPlan(revision=n, name=name, revision_reason=reason, **fields)
 
 
@@ -980,6 +991,32 @@ def _merge(record: LinkRecord, entry: PartEntry) -> None:
     record.parts.append(entry)
 
 
+_KIND_WORDS = {motion.MOTION: "to turn", motion.STATIC: "static"}
+
+
+def _record_kind(gearbox: GearboxRecord, plan: GearboxPlan, result: GearboxResult, out: Finished) -> None:
+    """A saved assembly's kind and mates, from the plan alone (W5-INTERFACES ``finish_build``): MOTION with the
+    plan's mates, unmated meshes, fixed gears and drag gears when ``plan.motion`` is set, else STATIC with the
+    plan's ``static_reason``. A non-empty ``result.kind`` that disagrees is a note; an empty one says nothing."""
+    turning = plan.motion
+    kind = motion.MOTION if turning is not None else motion.STATIC
+    gearbox.kind = kind
+    if turning is not None:
+        gearbox.mates = [motion.mate_entry(m) for m in turning.mates]
+        gearbox.unmated = [list(pair) for pair in turning.unmated]
+        gearbox.fixed = list(turning.fixed)
+        gearbox.drag = list(turning.drag)
+        gearbox.static_reason = ""
+    else:
+        gearbox.mates, gearbox.unmated, gearbox.fixed, gearbox.drag = [], [], [], []
+        gearbox.static_reason = plan.static_reason
+    reported = getattr(result, "kind", "") or ""
+    if reported and reported != kind:
+        said = _KIND_WORDS.get(reported, repr(reported))
+        out.notes.append(f"The job reported the assembly as built {said}, but it was planned {_KIND_WORDS[kind]}; "
+                         "the record keeps what was planned.")
+
+
 def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[LinkRecord], *, workbook: str,
                  digest: str, written_by: str,
                  read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar,
@@ -1035,6 +1072,18 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     so another path to this workbook is never taken for a copy (N1a). The
     window writes ``finished.record`` beside this workbook — even when it is
     the other workbook's record with the journal taken out.
+
+    W5 (W5-INTERFACES ``finish_build``): once the assembly saved, the
+    gearbox's ``kind`` comes from the plan alone — MOTION with the plan's
+    mates, unmated meshes, fixed gears and drag gears when ``plan.motion``
+    is set, else STATIC with ``plan.static_reason`` — and a non-empty
+    ``result.kind`` that disagrees is a sentence in ``notes``. Whenever the
+    assembly was attempted, ``mate_problems`` are what SolidWorks refused or
+    flagged (``result.assembly.mate_problems``) and ``mate_problems_digest``
+    the read they came from (``""`` with none). A refused train thus leaves
+    W4's continued revision — parts and layout on record, ``assembly``
+    ``""`` — with the problems; one refused again with nothing made changes
+    only those two fields, and is written only when they change.
     """
     stamp = stamp or store.now()
     out = Finished()
@@ -1140,8 +1189,11 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     assembly_path = _saved(result.assembly) if layout_path else ""
     if _saved(result.layout) or assembly_path:
         saved_any = True
+    problems_noted = False
+    before: Optional[GearboxRecord] = None
     if layout_path:
         old = rec.gearbox
+        before = copy.deepcopy(old) if old is not None and old.revision == plan.revision else None
         if old is not None and old.revision != plan.revision:
             in_use = list(plan.part_of.values())
             gone = [p for p in rec.parts if not _in(p.path, in_use)]
@@ -1169,6 +1221,16 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
             if missing:
                 out.notes.append(f"SolidWorks did not say what it named {', '.join(missing)} in the assembly, so "
                                  "Update SolidWorks cannot find them; build again to replace it.")
+            _record_kind(gearbox, plan, result, out)
+        if result.assembly is not None:
+            # The assembly was attempted: what SolidWorks refused or flagged, and the read it came from, so the
+            # footer never invites a retry of an unchanged workbook (W5-DECISIONS answer 1).
+            problems = list(getattr(result.assembly, "mate_problems", []) or [])
+            noted = (problems, digest if problems else "")
+            problems_noted = noted != (gearbox.mate_problems, gearbox.mate_problems_digest)
+            gearbox.mate_problems, gearbox.mate_problems_digest = noted
+            if before is not None:
+                before.mate_problems, before.mate_problems_digest = noted
         rec.gearbox = gearbox
 
     left = settled_journal(mine, rec, exists=exists, read_sidecar=read_sidecar, written=[p for p, _ in out.sidecars])
@@ -1181,6 +1243,12 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     if not saved_any:
         if marked_any:
             out.record = rec               # nothing made, but what the checks found is on record for the next plan
+        elif problems_noted:
+            # Nothing made (a continued revision whose assembly SolidWorks refused again): only what it refused, and
+            # the read it came from, change on record.
+            if before is not None:
+                rec.gearbox = before
+            out.record = rec
         elif settled and other is not None:
             kept = copy.deepcopy(other)    # a copy's journal, written into the record that came with it: settled
             kept.pending, kept.pending_for = left, (other.pending_for if left else "")

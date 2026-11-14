@@ -8,7 +8,7 @@ import pytest
 from gear_generator import findings, store, swbuild
 from gear_generator.gears.base import (AddComponent, BuildPlan, GlobalVariable, NewAssembly, NewPart, SaveAs)
 from gear_generator.spec import GearSpec
-from gear_generator.workbook import assess, gearbox, layout
+from gear_generator.workbook import assess, gearbox, layout, motion
 from gear_generator.workbook.build import PartJob
 from gear_generator.workbook.gearbox import GearboxPlan, LayoutReuse, PartReuse
 from gear_generator.workbook.model import Gear, replace
@@ -24,6 +24,23 @@ TIER_7 = {"LAYOUT_PLUS_FLIP": {"right": False, "top": False}, "LAYOUT_NEGATED_LI
 def tier_7(monkeypatch):
     for name, value in TIER_7.items():
         monkeypatch.setattr(findings, name, value, raising=False)
+
+
+# W4's tests pin the static assembly and run it end to end on the fake SolidWorks, whose turning half is package
+# A's. They stay static by making motion.motion_reason give a sentence, as a missing W5 finding would
+# (W5-INTERFACES §5); a test of the turning gearbox asks for ``turning``, which puts the real one back.
+STATIC_FOR_W4 = "This test pins phase W4's static assembly, so its gears are placed fixed."
+MOTION_REASON = motion.motion_reason
+
+
+@pytest.fixture(autouse=True)
+def static_w4(monkeypatch):
+    monkeypatch.setattr(motion, "motion_reason", lambda: STATIC_FOR_W4)
+
+
+@pytest.fixture
+def turning(monkeypatch, static_w4):
+    monkeypatch.setattr(motion, "motion_reason", MOTION_REASON)
 
 
 def _plan(**changes):
@@ -1307,3 +1324,144 @@ def test_after_no_with_the_original_gone_nothing_says_it_is_still_there():
     p = plan_for(a, record, disk)
     assert p.foreign_said is False and "which is still there" in ui_text.workbook_footer(
         a, record=None, plan=p, update=None, folder=FOLDER).text
+
+
+# -- W5: the gearbox that turns (W5-PLAN §3.2 B, as W5-INTERFACES and W5-DECISIONS amend it) ----------------------
+
+from gear_generator.gears.base import Mate  # noqa: E402
+
+REFUSED = "SolidWorks would not make the mate G3 locked to G2."
+
+
+def components_of(plan):
+    return [(h, plan.part_of[g], plan.frames[g]) for h, g in plan.handles.items()]
+
+
+def test_a_turning_plan_carries_its_motion_plan_and_the_mated_assembly(turning):
+    plan = plan_for(assessed(), None, Disk())
+    assert plan.refusal == "" and plan.static_reason == "" and plan.motion is not None
+    assert dict(plan.motion.anchors) == {"S1": "G1", "S2": "G2", "S3": "G4"} and plan.motion.drag == ("G1",)
+    a = assessed()
+    assert plan.motion == motion.motion_plan(a.spec, a.report, plan.frames)
+    assert plan.assembly == motion.motion_assembly_plan(plan.layout_path, components_of(plan),
+                                                        {g: h for h, g in plan.handles.items()}, plan.motion,
+                                                        plan.assembly_template, plan.assembly_path)
+    assert plan.assembly.check() == [] and swbuild.is_mated(plan.assembly)
+    kwargs = plan.build_kwargs()
+    assert set(kwargs) == {"parts", "reuse", "layout", "assembly", "gears"} and kwargs["assembly"] is plan.assembly
+    assert gearbox.journal(plan)[-1].path == plan.assembly_path
+
+
+def test_a_w5_finding_missing_plans_w4s_static_assembly_and_says_why(turning, monkeypatch):
+    monkeypatch.delattr(findings, "COMPOUND_LOCK_ROUTE")
+    plan = plan_for(assessed(), None, Disk())
+    assert plan.refusal == "" and plan.motion is None
+    assert plan.static_reason == motion.motion_reason() and "findings.COMPOUND_LOCK_ROUTE" in plan.static_reason
+    assert plan.assembly == layout.assembly_plan(plan.layout_path, components_of(plan), plan.assembly_template,
+                                                 plan.assembly_path)
+    assert not any(isinstance(op, Mate) for op in plan.assembly.ops)
+
+
+def test_a_parts_only_or_refused_plan_has_neither_motion_nor_a_static_reason(turning):
+    plan = plan_for(assessed(), None, Disk(), parts_only=True)
+    assert (plan.motion, plan.static_reason, plan.assembly) == (None, "", None)
+
+
+def test_a_continued_revision_is_planned_turning_too(turning):
+    disk, a = Disk(), assessed()
+    _, _, record = build(a, None, disk, fail_assembly=True)
+    again = plan_for(a, record, disk)
+    assert isinstance(again.layout, LayoutReuse) and again.motion is not None and swbuild.is_mated(again.assembly)
+
+
+def test_finishing_a_turning_build_records_its_mates_unmated_fixed_and_drag(turning):
+    disk = Disk()
+    plan, result, record = build(assessed(), None, disk)
+    box = record.gearbox
+    assert box.kind == motion.MOTION and box.static_reason == ""
+    assert box.mates == [motion.mate_entry(m) for m in plan.motion.mates]
+    assert [motion.mate_ref(e) for e in box.mates][4] == swbuild.MateRef("G3 locked to G2", "lock", ("G2", "G3"))
+    assert (box.unmated, box.fixed, box.drag) == ([], [], ["G1"])
+    assert (box.mate_problems, box.mate_problems_digest) == ([], "")
+    again = store.link_record_from_json(store.link_record_to_json(record))
+    assert again.gearbox.mates == box.mates and again.gearbox.kind == motion.MOTION
+
+
+def test_finishing_a_static_build_records_why_it_is_static(turning, monkeypatch):
+    monkeypatch.setattr(findings, "MOTION_ROUTE", None)
+    plan, _, record = build(assessed(), None, Disk())
+    box = record.gearbox
+    assert box.kind == motion.STATIC and box.static_reason == plan.static_reason != ""
+    assert (box.mates, box.unmated, box.fixed, box.drag) == ([], [], [], [])
+
+
+def test_w4s_tests_build_static_for_the_reason_their_fixture_gives():
+    plan, _, record = build(assessed(), None, Disk())
+    assert plan.motion is None and not swbuild.is_mated(plan.assembly)
+    assert record.gearbox.kind == motion.STATIC and record.gearbox.static_reason == STATIC_FOR_W4
+
+
+def finish(plan, result, record=None, digest="d1", disk=None):
+    return gearbox.finish_build(plan, result, record, workbook=WORKBOOK, digest=digest, written_by="test",
+                                read_sidecar=(disk or Disk()).read_sidecar, stamp="2026-11-14T00:00:00Z")
+
+
+@pytest.mark.parametrize("reported,note", [("", False), (motion.MOTION, False), (motion.STATIC, True),
+                                           ("odd", True)])
+def test_the_plan_alone_decides_the_kind_and_a_worker_that_disagrees_is_noted(turning, reported, note):
+    disk = Disk()
+    plan = plan_for(assessed(), None, disk)
+    result = run(plan, disk)
+    result.kind = reported
+    done = finish(plan, result, disk=disk)
+    assert done.record.gearbox.kind == motion.MOTION
+    said = [n for n in done.notes if "planned to turn" in n]
+    assert bool(said) == note
+    if note:
+        assert said[0].startswith("The job reported the assembly as built ") and said[0].endswith(".")
+
+
+def refused(plan, disk, problems=(REFUSED,)):
+    result = run(plan, disk, fail_assembly=True)
+    result.assembly.mate_problems = list(problems)
+    result.assembly.failures = [("mate", p) for p in problems] or result.assembly.failures
+    return result
+
+
+def test_a_refused_mate_keeps_the_parts_and_layout_and_records_what_was_refused_and_for_which_read(turning):
+    disk = Disk()
+    plan = plan_for(assessed(), None, disk)
+    done = finish(plan, refused(plan, disk), disk=disk)
+    disk.write(done)
+    box = done.record.gearbox
+    assert (box.layout, box.assembly, box.components) == (plan.layout_path, "", [])
+    assert (box.mate_problems, box.mate_problems_digest) == ([REFUSED], "d1")
+    assert box.kind == motion.STATIC and box.mates == [] and done.record.digest == ""
+    assert len(done.record.parts) == 4
+    record = done.record
+
+    # The same read refused again on a continued revision (nothing made): nothing new to record.
+    again = plan_for(assessed(), record, disk)
+    assert again.motion is not None and isinstance(again.layout, LayoutReuse)
+    assert finish(again, refused(again, disk), record, disk=disk).record is None
+
+    # A changed workbook refused again: only the problems and their read change on record.
+    other = finish(again, refused(again, disk, ("The mate G1 meshes G2 is in error in SolidWorks.",)), record,
+                   digest="d2", disk=disk)
+    assert other.record.gearbox.mate_problems == ["The mate G1 meshes G2 is in error in SolidWorks."]
+    assert other.record.gearbox.mate_problems_digest == "d2"
+    assert other.record.gearbox.built == record.gearbox.built and other.record.digest == ""
+    record = other.record
+
+    # Built at last: the problems go, the kind and mates come.
+    last = finish(again, run(again, disk), record, digest="d3", disk=disk)
+    box = last.record.gearbox
+    assert (box.mate_problems, box.mate_problems_digest, box.kind) == ([], "", motion.MOTION)
+    assert box.assembly == plan.assembly_path and last.record.digest == "d3"
+
+
+def test_an_assembly_failure_that_is_no_refusal_leaves_no_mate_problem(turning):
+    disk = Disk()
+    plan = plan_for(assessed(), None, disk)
+    done = finish(plan, run(plan, disk, fail_assembly=True), disk=disk)
+    assert (done.record.gearbox.mate_problems, done.record.gearbox.mate_problems_digest) == ([], "")

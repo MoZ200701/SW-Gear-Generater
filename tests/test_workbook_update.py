@@ -47,6 +47,7 @@ from gear_generator import findings, store  # noqa: E402
 from gear_generator.workbook import assess, layout, update  # noqa: E402
 from gear_generator.workbook.model import Gear, Mesh, Shaft, replace  # noqa: E402
 from test_workbook_gearbox import FOLDER, WORKBOOK, Disk, build, norm, stem  # noqa: E402
+from test_workbook_gearbox import static_w4, turning  # noqa: E402,F401  (W4's tests stay static: W5-INTERFACES §5)
 from test_workbook_model import edit, read, reducer, write  # noqa: E402
 
 
