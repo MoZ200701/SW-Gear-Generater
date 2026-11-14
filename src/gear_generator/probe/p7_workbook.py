@@ -1377,6 +1377,14 @@ def _feature_errors(px: Px, doc: Any) -> Dict[str, Any]:
     return out
 
 
+def _invoke_method(obj: Any, name: str, *args: Any) -> Any:
+    """Invoke a COM member as a method, where late binding would reach it as a property get (p4_nonparallel's way)."""
+    import pythoncom  # noqa: PLC0415 - Windows only, and only ever on the worker
+
+    oleobj = obj._oleobj_  # noqa: SLF001
+    return oleobj.Invoke(oleobj.GetIDsOfNames(name), 0, pythoncom.DISPATCH_METHOD, True, *args)
+
+
 def _axis_from_right(px: Px, asm: Any, axis_ref: str) -> Dict[str, Any]:
     """``IModelDocExtension.CreateMeasure`` between a layout axis in the assembly and the assembly's Right plane.
 
@@ -1397,8 +1405,12 @@ def _axis_from_right(px: Px, asm: Any, axis_ref: str) -> Dict[str, Any]:
         if not got or measure is None:
             out["measure"] = None
             return out
-        for label, argument in (("Calculate(None)", None), ("Calculate(null dispatch)", sc.null())):
-            ok, value = px.attempt(f"IMeasure.{label}", lambda a=argument: call(measure, "Calculate", a))
+        # The first run (2026, 34.1.1) found late binding reaching Calculate as a property get: it answered a bool
+        # and "'bool' object is not callable" for the argument, as CreateTransform did (make_transform). So it is
+        # invoked as the method it is, with VBA's Nothing first, then an empty argument.
+        for label, argument in (("Calculate(null dispatch), invoked as a method", sc.null()),
+                                ("Calculate(None), invoked as a method", None)):
+            ok, value = px.attempt(f"IMeasure.{label}", lambda a=argument: _invoke_method(measure, "Calculate", a))
             if ok and value:
                 out["calculate"] = label
                 break
