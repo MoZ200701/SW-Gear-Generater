@@ -73,6 +73,8 @@ TABLE_HEAD = ("Gear", "Shaft", "Kind", "Teeth", "Module", "Face", "Part", "")
 TABLE_WIDTHS = (40, 44, 56, 44, 52, 40, 0, 128)     # 0: the column that takes the room left
 PATH_CHARS = 52     # a path longer than this is shortened in the middle, so the window keeps its width
 FOOTER_COLUMNS = {"build_button": 4, "update_button": 5}    # Export, Export as…, then these two
+BODY_PAD = 12               # around the window's body, px
+STATUS_MIN_WRAP = 400       # the footer's sentence wraps in the room the buttons leave, never narrower than this
 
 
 def open_in_excel(path: str) -> None:
@@ -189,7 +191,7 @@ class WorkbookWindow(tk.Toplevel):
     def _layout(self) -> None:
         f = self.fonts
         body = tk.Frame(self, bg=theme.WINDOW)
-        body.pack(fill="both", expand=True, padx=px(12), pady=px(12))
+        body.pack(fill="both", expand=True, padx=px(BODY_PAD), pady=px(BODY_PAD))
         body.columnconfigure(0, weight=1)
 
         head = tk.Frame(body, bg=theme.WINDOW)
@@ -268,7 +270,7 @@ class WorkbookWindow(tk.Toplevel):
         self.status_dot = widgets.Dot(foot, theme.OK, size=8, bg=theme.WINDOW)
         self.status_dot.grid(row=0, column=0, sticky="n", pady=(px(5), 0), padx=(0, px(8)))
         self.status_label = tk.Label(foot, textvariable=self.status, bg=theme.WINDOW, fg=theme.OK, font=f.label,
-                                     anchor="w", justify="left", wraplength=px(WINDOW_WIDTH - 420))
+                                     anchor="w", justify="left", wraplength=px(STATUS_MIN_WRAP))
         self.status_label.grid(row=0, column=1, sticky="w")
         self.export_button = widgets.Button(foot, "Export", command=self.export, height=32, bg=theme.WINDOW)
         self.export_button.grid(row=0, column=2, sticky="e", padx=(px(12), 0))
@@ -280,6 +282,23 @@ class WorkbookWindow(tk.Toplevel):
         self.build_button = self._footer_button(ui_text.BUILD_LABELS[ui_text.BUILD], self.press_build, True, 4)
         self.update_button = self._footer_button("Update SolidWorks", self.press_update, False, 5)
         self.update_button.grid_remove()
+
+    def _wrap_status(self) -> None:
+        """Wrap the footer's sentence in the room the buttons leave beside it, so the window keeps its designed
+        width whichever buttons show (Update SolidWorks, a longer Build again…) and however long the sentence.
+        Measured from the widgets themselves, so it holds at any scaling."""
+        self._foot.update_idletasks()
+        used = 0
+        for child in self._foot.grid_slaves(row=0):
+            if child is self.status_label:
+                continue
+            pads = child.grid_info().get("padx", 0)
+            pads = pads if isinstance(pads, (tuple, list)) else str(pads).split()
+            used += child.winfo_reqwidth() + sum(int(float(p)) for p in pads)
+        room = px(WINDOW_WIDTH) - 2 * px(BODY_PAD) - used - px(2)     # the body's padding either side
+        wrap = max(px(STATUS_MIN_WRAP), room)
+        if int(float(str(self.status_label.cget("wraplength")))) != wrap:
+            self.status_label.configure(wraplength=wrap)
 
     def _footer_button(self, text: str, command: Callable[[], None], primary: bool, column: int) -> widgets.Button:
         button = widgets.Button(self._foot, text, command=command, primary=primary, height=32, bg=theme.WINDOW)
@@ -506,6 +525,7 @@ class WorkbookWindow(tk.Toplevel):
         self._shape_button("build_button", footer.build_label, footer.build_primary, footer.build_enabled)
         self._shape_button("update_button", "Update SolidWorks", footer.update_primary, footer.update_enabled,
                            shown=footer.update_shown)
+        self._wrap_status()
         # Not from a provisional read either: anything written from Excel's old formula values would be wrong.
         can_export = self.reading is not None and not self.error and self._pending is None and not self.recalc
         self.export_button.configure(state="normal" if can_export else "disabled")
@@ -537,7 +557,7 @@ class WorkbookWindow(tk.Toplevel):
         self.consequence, self._raw = None, None
         self._results_waiting = self.results_due = False
         self._last_digest = ""
-        self.note = (carried, False) if carried else None
+        self.note = ui_text.Standing((carried, False)) if carried else None     # of this Locate…, not of a job
         self.reread()
 
     # ---------------------------------------------------------------- painting
@@ -672,8 +692,8 @@ class WorkbookWindow(tk.Toplevel):
         offered = [f for fs in self._assess(reading.spec, reading.diagnostics).report.fixes.values() for f in fs]
         kept = [f for f in self.chosen if f in offered]
         if len(kept) < len(self.chosen):
-            self.note = ("The workbook changed, so the fix you chose no longer applies as it was and was set "
-                         "aside; choose again from Checks.", False)
+            # Said of the save just read, not of a job: what the footer goes on to say is as of that save too.
+            self.note = ui_text.Standing((ui_text.FIX_SET_ASIDE, False))
         self.chosen = kept
 
     def choose(self, fix: wb_fixes.Fix) -> None:

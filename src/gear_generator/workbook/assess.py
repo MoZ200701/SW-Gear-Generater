@@ -68,7 +68,7 @@ class Assessment:
 
     def build_refusal(self) -> str:
         """Why Build parts may not go ahead, or ``""``. A fix waiting for Export, and a provisional read, are
-        the window's footer to say first (``ui_text.workbook_state``)."""
+        the window's footer to say first (``ui_text.workbook_footer``)."""
         return build_refusal(self.parts, self.diagnostics, self.folder)
 
     def lay_out_refusal(self) -> str:
@@ -83,9 +83,8 @@ class Assessment:
         the file is there and read whole (not gone, half-saved or unreadable),
         that no build is running, that the output folder exists on disk, and
         that it passed ``provisional=True`` to :func:`assess` while Excel has
-        yet to recalculate an Export (the window's ``recalc``). The window asks
-        those in ``ui_text.workbook_state`` for Build parts; W4's button asks
-        the same.
+        yet to recalculate an Export (the window's ``recalc``). The window
+        asks those, for every button, in ``ui_text.workbook_footer``.
         """
         if self.provisional:
             return PROVISIONAL

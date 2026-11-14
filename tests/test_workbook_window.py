@@ -342,7 +342,11 @@ def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk)
     start = len(desk.sw.calls)
     desk.finish(window)
     text = window.status.get()
-    assert text.startswith("Updated SolidWorks: changed ") and text.endswith(ui_text.SAVE_TO_KEEP)
+    assert text.startswith("Updated SolidWorks: changed ") and f"; no interference between the gears. " \
+        f"{ui_text.SAVE_TO_KEEP} " in text
+    # Build again… is greyed until those are saved, and says so (a part Update changed is not reused unsaved).
+    assert not window.build_button._enabled and text.endswith(
+        f"Build again… waits until Gear_m1.5_N68, {NAME} and {NAME}_Layout are saved in SolidWorks.")
     assert "Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name)" in text
     assert f"moved S2 and S3 in {NAME}_Layout" in text and "re-placed G2, G3 and G4" in text
     sets = [args for name, args in desk.sw.calls[start:] if name == "set_global_variable"]
@@ -361,12 +365,13 @@ def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk)
     window.note = None
     window._refresh_state()
     assert window.status.get().endswith("have changes from Update SolidWorks that are not saved: save them in "
-                                        "SolidWorks to keep them.")
+                                        "SolidWorks to keep them. Build again… waits for that save.")
     assert not window.footer().build_enabled and "has not been saved since" in window.plan.refusal
     for path in record.unsaved:
         touch_later(path)                                      # saved in SolidWorks
     window._tick()
-    assert "not saved" not in window.status.get() and window.footer().build_enabled
+    assert "not saved" not in window.status.get() and "waits" not in window.status.get()
+    assert window.footer().build_enabled
 
 
 def test_an_update_that_stops_part_way_records_what_it_changed_and_the_next_press_finishes(desk):
@@ -601,3 +606,82 @@ def test_a_clash_beside_a_mesh_is_said_where_they_meet_and_stands_out(desk):
     desk.finish(window)
     assert f"Check: G1 and G4 interfere, 2 mm³; look where they meet in {NAME}.SLDASM." in window.status.get()
     assert window.status_label.cget("fg") == __import__("gear_generator.theme", fromlist=["x"]).ERROR
+
+
+# -- the window keeps its width whatever the footer holds ------------------------------------------------------
+
+
+LONG = ("Updated SolidWorks: changed 1 variable in Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name), "
+        "moved S2 and S3 in Reducer_12to1_Layout, re-placed G2, G3 and G4. Check: G1 and G4 interfere, 2 mm³; "
+        "G2 and G3 interfere, 0.5 mm³; look where they meet in Reducer_12to1.SLDASM. Save in SolidWorks to keep it.")
+
+
+def width_and_height(window):
+    """The size :meth:`WorkbookWindow._fit` gives the window (a withdrawn window does not report one back)."""
+    asked = []
+    real = window.geometry
+    window.geometry = lambda spec=None: asked.append(spec) if spec else real()
+    try:
+        window._fit()
+    finally:
+        del window.geometry
+    w, h = (int(v) for v in asked[-1].split("+")[0].split("x"))
+    return w, h
+
+
+def test_the_window_keeps_its_width_with_update_shown_and_a_long_sentence(desk):
+    from gear_generator import workbook_gui
+    from gear_generator.theme import px
+    fresh = desk.open(name="Fresh.xlsx")
+    fresh.note = (LONG, False)
+    fresh._refresh_state()
+    assert not fresh.update_button.winfo_manager()
+    fresh_size = width_and_height(fresh)
+
+    window = built(desk)                                       # Export, Export as…, Build again…, Update SolidWorks
+    short_height = width_and_height(window)[1]
+    window.note = (LONG, False)
+    window._refresh_state()
+    assert window.update_button.winfo_manager() and window.build_button.label.cget("text") == "Build again…"
+    size = width_and_height(window)
+
+    assert fresh_size[0] == size[0] == px(workbook_gui.WINDOW_WIDTH)
+    assert window.winfo_reqwidth() <= px(workbook_gui.WINDOW_WIDTH)
+    # With less room beside the buttons the sentence wraps sooner, and the window grows taller to hold it all.
+    assert int(str(window.status_label.cget("wraplength"))) < int(str(fresh.status_label.cget("wraplength")))
+    lines = window.status_label.winfo_reqheight() // window.fonts.label.metrics("linespace")
+    assert lines >= 3                                          # the long update-and-clash sentence, wrapped
+    assert size[1] == window.winfo_reqheight() > short_height
+
+
+# -- notes that answer rather than report a job join the state plainly ---------------------------------------------
+
+
+def test_a_fix_set_aside_by_a_save_is_joined_plainly_to_what_the_save_left(desk):
+    window = desk.open()
+    save_in_excel(window, {"Shafts": {"C3": 64, "C4": 132}})
+    window.choose(window.report.fixes["Meshes!A2"][0])
+    save_in_excel(window, {"Shafts": {"C3": 64.5, "C4": 132.5}}, seconds=4)   # the move chosen no longer fits
+    assert window.chosen == [] and isinstance(window.note, ui_text.Standing)
+    text = window.status.get()
+    assert text.startswith(ui_text.FIX_SET_ASIDE + " Fix the workbook before building: Meshes!A2:")
+    assert "Since then" not in text
+
+
+def test_a_record_locate_could_not_carry_is_joined_plainly_to_the_state(desk, monkeypatch):
+    from gear_generator import workbook_gui
+    window = desk.open()
+    old_record = pathlib.Path(store.link_record_path(window.link.path))
+    old_record.write_text(json.dumps({"link_schema_version": 3, "workbook": window.link.path}))
+    moved = desk.tmp / "Moved.xlsx"
+    os.replace(window.link.path, moved)
+    desk.folder.rmdir()                                        # and the output folder is gone too
+    monkeypatch.setattr(workbook_gui.filedialog, "askopenfilename", lambda **kwargs: str(moved))
+    window.locate()
+    text = window.status.get()
+    assert isinstance(window.note, ui_text.Standing) and "Since then" not in text
+    assert text.startswith("The record of what was built stays beside the workbook's old place: The record of what "
+                           "was built, Reducer_12to1.workbook.json, cannot be read: it was written by a newer Gear "
+                           "Generator")
+    assert text.endswith("does not exist; make it, or change it on the Box sheet.")
+    assert not os.path.exists(store.link_record_path(str(moved)))
