@@ -65,8 +65,14 @@ def test_decisions(evidence):
 def test_units(evidence):
     _, records, _ = evidence
     units = facts(records, "document_units")
-    assert units["units_2026_folder"] == {"linear": findings.LENGTH_MM, "system": findings.UNIT_SYSTEM_MMGS,
-                                          "path": units["units_2026_folder"]["path"]}
+    if "units_2026_folder" in units:
+        assert units["units_2026_folder"] == {"linear": findings.LENGTH_MM, "system": findings.UNIT_SYSTEM_MMGS,
+                                              "path": units["units_2026_folder"]["path"]}
+    else:
+        # On the machine of the 34.1.1 run the default template IS the 2026 folder's Part.PRTDOT, so the probe read
+        # it once, as the default: millimetres, with the unit system that template carries there (4, custom).
+        assert units["units_default"]["path"].lower().endswith(r"solidworks 2026\templates\part.prtdot")
+        assert units["units_default"]["linear"] == findings.LENGTH_MM
     if units["default_template_is_mm"]:
         # A millimetre default template leaves nothing to set (probe/results/probe-results-20260915-023929.json
         # is the run on an inch default, where setting MMGS made a part millimetres).
@@ -428,3 +434,52 @@ def test_update_after_motion(tier_eight):
     assert decided["axial_global_moves_gear"] is findings.AXIAL_GLOBAL_MOVES_GEAR
     move = facts(records, "motion_update")["turn_on_a_shaft_move"]
     assert move["as_a_multiple_of_the_need"] == pytest.approx(-1.0)          # SolidWorks turns it the wrong way
+
+
+# -- tier 7, item 6, on both versions: which rebuild Update SolidWorks gives an assembly
+
+# assembly_rebuild_scope and what it needs on 2024, in a SolidWorks started for the run.
+SW2024_REBUILD = LATEST.parent / "sw2024" / "probe-results-20261114-014813.json"
+
+
+@pytest.fixture(scope="module", params=["2026", "2024"])
+def rebuild_scope(request):
+    path = LATEST if request.param == "2026" else SW2024_REBUILD
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["meta"]["version"].startswith(f"SolidWorks {request.param} ")
+    records = {r["name"]: r for r in data["records"]}
+    return records, decide.decide(records)
+
+
+def test_the_assembly_rebuild_route(rebuild_scope):
+    """Probe assembly_rebuild_scope: a top-only rebuild shows every change, reports a failure and marks only what changed."""
+    records, decided = rebuild_scope
+    scope = facts(records, "assembly_rebuild_scope")
+    assert decided["assembly_rebuild_route"] == findings.ASSEMBLY_REBUILD_ROUTE
+    assert findings.ASSEMBLY_REBUILD_ROUTE == f"ForceRebuild3({findings.ASSEMBLY_REBUILD_TOP_ONLY})"
+    assert decided["assembly_rebuild_keeps_components_unmodified"] is findings.ASSEMBLY_REBUILD_KEEPS_COMPONENTS_UNMODIFIED
+    assert decided["full_rebuild_marks_components_modified"] is findings.FULL_ASSEMBLY_REBUILD_MARKS_COMPONENTS_MODIFIED
+    assert decided["put_needs_rebuild"] is findings.PUT_NEEDS_REBUILD
+    assert decided["opened_reads_unmodified"] is findings.OPENED_READS_UNMODIFIED
+    verdicts = scope["rebuild_verdicts"]
+    # What shows does not depend on the route, not even on rebuilding at all.
+    for route, verdict in verdicts.items():
+        for criterion in ("frame_after_put", "interference_after_put", "layout_move_shown", "part_change_shown"):
+            assert verdict[criterion] is True, (route, criterion)
+    # What is marked and reported does.
+    assert all(verdicts[r]["only_changed_marked"] and verdicts[r]["failure_reported"]
+               for r in ("ForceRebuild3(True)", "EditRebuild3"))
+    assert verdicts["ForceRebuild3(False)"]["only_changed_marked"] is False
+    assert verdicts["none"]["failure_reported"] is False
+    marked = scope["rebuild_marked"]
+    assert marked["ForceRebuild3(False)"]["put"] == ["assembly", "layout", "G1", "G2"]
+    assert (marked["none"]["put"] == ["assembly"]) is findings.PUT_MARKS_ASSEMBLY_MODIFIED
+    cases = scope["rebuild_cases"]
+    for route in ("ForceRebuild3(True)", "EditRebuild3", "ForceRebuild3(False)"):
+        failure = cases[route]["failure"]
+        assert failure["how"] == "Bore Diameter = 500" and failure["rebuild"]["returned"] is False, route
+        assert failure["restored"]["rebuild"]["returned"] is True, route
+        assert cases[route]["layout"]["measure"]["Distance_mm"] == pytest.approx(68.75)
+        assert cases[route]["layout"]["measure_before"]["Distance_mm"] == pytest.approx(63.75)
+    width = cases["ForceRebuild3(True)"]["failure"]["tried"][0]
+    assert width["global"] == "Face Width" and width["part_rebuild"] is True and width["part_errors"] == {}

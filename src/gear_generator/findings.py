@@ -1,7 +1,8 @@
 """What the probe settled about the SolidWorks API, as constants the tool reads.
 
 Every value here is a finding, not a preference: each names the probe it came
-from, and every one of them was observed on SolidWorks 2026 (revision 34.0.0).
+from, and every one of them was observed on SolidWorks 2026 (revision 34.0.0,
+and again in a full run on 34.1.1, which latest.json now is).
 SolidWorks 2024 (revision 32.5.0) reached the same decisions; its runs are in
 ``probe/results/sw2024/``, where the README says what each one showed.
 ``tests/test_findings.py`` checks them against ``probe/results/latest.json``
@@ -12,7 +13,7 @@ someone who never ran the probe.
 
 from __future__ import annotations
 
-VERIFIED_ON = "SolidWorks 2026 (revision 34.0.0)"
+VERIFIED_ON = "SolidWorks 2026 (revision 34.1.1)"
 
 # -- decisions -------------------------------------------------------------
 
@@ -431,6 +432,48 @@ COMPONENTS_RESOLVED_AFTER_REOPEN = True
 # Items 1-4 of PLAN-WORKBOOK §4.2 and the body-less layout part all passed, so the
 # layout part and the static assembly are built.
 WORKBOOK_LAYOUT_ROUTE = "layout"
+
+# -- which rebuild Update SolidWorks gives an assembly (tier 7, item 6) ------
+#
+# assembly_rebuild_scope, after the W4 rerun on 2026 found ForceRebuild3(False) on an
+# assembly marking every component modified (docs/notes-workbook/W4-RERUN-2026.md).
+# Observed on SolidWorks 2026 (34.1.1, a full run, latest.json) and 2024 (32.5.0, this
+# item and what it needs, sw2024/probe-results-20261114-014813) on 2026-11-14, with every
+# decision the same. Each route ran on a two-gear gearbox of its own (17 and 68 teeth,
+# module 1.5) built by assess, plan_gearbox and build_gearbox, saved, closed and opened
+# again (every document then read GetSaveFlag False, as W4's a3 expects of a document
+# just opened). Then: a raw Transform2 put turning G2 half a pitch and back; S2 X moved
+# 63.75 -> 68.75 in the layout part's own document (opened by path, rebuilt there); G2
+# given 69 teeth by update_variables in its own document; and G2's Bore Diameter set
+# to 500, which failed its Bore cut (error code 1). After each, the route ran on the
+# assembly, and the frame, the interferences, CreateMeasure from the layout's S2 Axis
+# in the assembly to the assembly's Right plane, and every document's GetSaveFlag were
+# read.
+#
+# What shows does not depend on the route: with every route, and with no rebuild at
+# all, the put's frame read back, G2 half a pitch round clashed with G1 and was clean
+# put back, the layout axis measured 68.75 mm from Right in the assembly, and the
+# 69-tooth G2 at its old frame clashed with G1. What differs is what is marked and
+# what is reported:
+# - ForceRebuild3(False) marked G1, which nothing changed, and every other document
+#   modified at the first step; the fault the rerun found.
+# - ForceRebuild3(True) and EditRebuild3 marked exactly the documents changed on
+#   purpose at every step (the assembly; then the layout; then G2), G1 never, both
+#   before and after the interference check; and both returned False while G2 was in
+#   error and True once it was put right. ForceRebuild3(True) is the app's existing
+#   call with its one argument turned over, so it is taken.
+# - With no rebuild the put did not mark the assembly modified at all (only the
+#   interference check afterwards did), and nothing reports G2's failure; so a put is
+#   always followed by the rebuild, though it shows without one.
+# A Face Width of 0 failed nothing: G2's rebuild returned True with no feature error
+# and the global was taken (as a negative layout global is, OFFSET_GLOBAL_CROSSES_ZERO).
+ASSEMBLY_REBUILD_ROUTE = "ForceRebuild3(True)"
+ASSEMBLY_REBUILD_TOP_ONLY = True          # the argument ForceRebuild3 takes for that route
+ASSEMBLY_REBUILD_KEEPS_COMPONENTS_UNMODIFIED = True
+FULL_ASSEMBLY_REBUILD_MARKS_COMPONENTS_MODIFIED = True   # ForceRebuild3(False): every component
+PUT_NEEDS_REBUILD = False                 # to show; the rebuild still follows, for the mark and the report
+PUT_MARKS_ASSEMBLY_MODIFIED = False       # a Transform2 put on its own
+OPENED_READS_UNMODIFIED = True            # every document of an assembly just opened
 
 # -- the workbook gearbox that turns (tier 8) --------------------------------
 #
