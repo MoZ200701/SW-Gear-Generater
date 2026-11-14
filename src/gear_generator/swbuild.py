@@ -238,6 +238,10 @@ TRAIN_CHECK_FINDINGS = (("ADD_MATE_NO_ERROR", _SET), ("ADD_MATE_OVER_DEFINED", _
 LOCK_FINDINGS = (("COMPOUND_LOCK_ROUTE", "lock alone"), ("LOCK_SELECT_ROUTE", "Select4 with a mark-1 select data"),
                  ("MATE_LOCK", _SET), ("MATE_ALIGN_CLOSEST", _SET))
 RENAME_FINDINGS = (("MATE_RENAME_ROUTE", "IFeature.Name put"),)
+# A Build makes its mates in one batch with CommandInProgress on (_run: set_rebuild_suppressed), and renames each one
+# straight after its AddMate5 in the new, unsaved assembly: probe round P0c, mates_under_command_in_progress.
+BUILD_MATE_FINDINGS = (("MATES_UNDER_COMMAND_IN_PROGRESS", True),)
+BUILD_RENAME_FINDINGS = (("MATE_RENAME_AT_ONCE", True),)
 # What swcom.Session.add_mate and _gear_mate read for each kind of mate a train plan makes (W4-era members, read there
 # mid-build): an axis mate (coincident), an anchor's origin on or at a distance from the Front plane, a gear mate.
 MATE_KIND_FINDINGS = {
@@ -283,10 +287,12 @@ def _train_gate(plan: Optional[BuildPlan] = None, *, building: bool = False) -> 
                              "changed; run probe tier 8 again.")
     needed = list(TRAIN_CHECK_FINDINGS)
     mates = [op for op in plan.ops if isinstance(op, base.Mate)] if plan is not None else []
+    if building and mates:
+        needed += BUILD_MATE_FINDINGS
     if any(op.kind == "lock" for op in mates):
         needed += LOCK_FINDINGS
     if any(op.name for op in mates):
-        needed += RENAME_FINDINGS
+        needed += RENAME_FINDINGS + (BUILD_RENAME_FINDINGS if building else ())
     for kind in dict.fromkeys(op.kind for op in mates):
         needed += MATE_KIND_FINDINGS.get(kind, ())
     missing = _settled(needed)
@@ -2364,6 +2370,10 @@ MOTION_UPDATE_FINDINGS = (
     ("LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE", True, "a lock keeping the angle a gear was put at", "locks"),
     ("AXIAL_GLOBAL_MOVES_GEAR", True, "a gear moved along its shaft by its Face Z global", "face_globals"),
     ("GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", _SET, "reading a gear mate's ratio", "meshes"),
+    # The check phase reads every recorded gear mate's definition before anything changes, so an Update with nothing
+    # to do must leave every document unmarked (probe round P0c, gear_mate_definition_read).
+    ("GEAR_MATE_DEFINITION_READ_MARKS", "nothing", "reading a gear mate's ratio without marking the assembly",
+     "meshes"),
     ("GEAR_MATE_RATIO_REMAKE_WORKS", True, "making a gear mate again at a new ratio", "ratios"),
     ("MATE_DELETE_ROUTE", "Select2 then EditDelete()", "making a gear mate again at a new ratio", "ratios"),
     ("MATE_RENAME_ROUTE", "IFeature.Name put", "making a gear mate again at a new ratio", "ratios"),
@@ -2401,6 +2411,25 @@ def _remake_gate() -> None:
         if value is None or (wanted is not _SET and value != wanted):
             raise BuildError(f"Update SolidWorks on a gearbox built to turn needs {what} settled on SolidWorks "
                              f"(findings.{name} is {value!r}), so nothing is changed; run probe tier 8 first.")
+
+
+def _idler_gate(motion: MotionUpdate, remakes: Sequence[Tuple[str, int, int]]) -> None:
+    """A remake on a gear that carries two (or more) recorded gear mates — an idler — rests on probe round P0c's
+    idler_update (``findings.IDLER_UPDATE_HOLDS``): refused before anything changes while that is not True. A train
+    whose remade gear mates touch no such gear (the 12 : 1) does not read it."""
+    carried: Dict[str, int] = {}
+    for mate in motion.mates:
+        if mate.kind == "mesh":
+            for gear in mate.gears:
+                carried[gear] = carried.get(gear, 0) + 1
+    remade = {name for name, _, _ in remakes}
+    idlers = [g for m in motion.mates if m.kind == "mesh" and m.name in remade for g in m.gears if carried[g] > 1]
+    value = getattr(findings, "IDLER_UPDATE_HOLDS", None)
+    if idlers and value is not True:
+        gear = idlers[0]
+        raise BuildError(f"Giving a new ratio to a gear mate of {gear}, which carries two gear mates, has not been "
+                         f"settled on SolidWorks (findings.IDLER_UPDATE_HOLDS is {value!r}), so nothing is changed; "
+                         "run probe tier 8 first, or build the gearbox again.")
 
 
 def _wanted_teeth(motion: MotionUpdate) -> Dict[str, Tuple[int, int]]:
@@ -2631,6 +2660,7 @@ def _update_motion(sw: SolidWorks, parts: Sequence[DocumentValues], layout: Opti
                 result.ratios_found.append(mate.name)
         if remakes:
             _remake_gate()
+            _idler_gate(motion, remakes)
         held = _held(sw.equations()) if motion.face_globals else {}
         for gear, variable in motion.face_globals:
             if variable.name not in held:
@@ -2818,7 +2848,8 @@ def _put_train(sw: SolidWorks, result: GearboxUpdate, motion: MotionUpdate, trai
 
     A lock counts as tried the moment its suppression is asked for, so one whose suppression took before the call
     raised (a read-back that failed) is still turned back on. Turning back on, each lock is read first and one that
-    reads not suppressed is skipped, never called: unsuppressing a lock that is on has not been probed."""
+    reads not suppressed is skipped, never called: unsuppressing a lock that is on marks the assembly modified
+    (probe round P0c, ``findings.UNSUPPRESS_ON_LOCK_ALREADY_ON_MARKS_MODIFIED``)."""
     off: List[LockLink] = []
     pending: Optional[BaseException] = None
     try:

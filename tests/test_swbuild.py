@@ -153,7 +153,9 @@ class FakeSolidWorks:
     (code, warning)}``, ``constrained={Name2 or handle: n}``. So a default ``FakeSolidWorks()`` answers clean
     mate states for an undoctored plan. ``link_dimension`` remembers which global a mate's D1 is linked to.
     ``mate_states(others=[...])`` also names the document's ``user_folder``s (sub-features of the MateGroup that
-    are not mates); ``raises_after`` is ``raises`` for ``set_mate_suppressed``, raised once the suppression took.
+    are not mates: a folder's two "FtrFolder" entries, skipped by ``findings.MATE_FOLDER_TYPE_NAME`` as swcom skips
+    them, and ``user_entry``s of any other type); ``raises_after`` is ``raises`` for ``set_mate_suppressed``,
+    raised once the suppression took.
 
     A rebuild of an assembly holding mates (``rebuild`` and every put's own) solves them as far as the fake can:
     each anchor with an unsuppressed axis mate goes to its shaft's axis as the layout document's ``"<Shaft> X"``
@@ -586,8 +588,14 @@ class FakeSolidWorks:
                                                       suppressed=suppressed))
 
     def user_folder(self, path, name):
-        """A folder the user made among the mates in SolidWorks, in the open document."""
-        self.mate_folders.setdefault(_key(path), []).append(name)
+        """A folder the user made among the mates in SolidWorks, in the open document, as probe round P0c saw one in
+        the MateGroup walk: two entries of type "FtrFolder" (the folder and its "…___EndTag___" marker), the mates
+        it holds left in place as ordinary siblings (the fake does not model where in the walk they sit)."""
+        self.mate_folders.setdefault(_key(path), []).extend([(name, "FtrFolder"), (f"{name}___EndTag___", "FtrFolder")])
+
+    def user_entry(self, path, name, type_name):
+        """Anything else in the mate group that is not a mate, of a type no probe has met."""
+        self.mate_folders.setdefault(_key(path), []).append((name, type_name))
 
     def drop_mate(self, path, name):
         """A mate deleted (or renamed) by the user in SolidWorks, in the open document."""
@@ -636,8 +644,11 @@ class FakeSolidWorks:
 
     def mate_states(self, *, others=None):
         self._log("mate_states")
-        if others is not None:
-            others.extend(self.mate_folders.get(_key(self.current), []) if self.current else [])
+        if others is not None and self.current:
+            # As swcom.Session.mate_states: a folder's entries are skipped by findings.MATE_FOLDER_TYPE_NAME.
+            folder = getattr(findings, "MATE_FOLDER_TYPE_NAME", None)
+            others.extend(name for name, type_name in self.mate_folders.get(_key(self.current), [])
+                          if not (folder is not None and type_name == folder))
         out = []
         for m in self.mates:
             code, warning = self.mate_codes.get(m.name, (m.code, m.warning))
@@ -706,6 +717,9 @@ def _train_routes_agree(monkeypatch):
     monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
     monkeypatch.setattr(findings, "MATED_BUILD_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
     monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND", True, raising=False)
+    for name, value in (("GEAR_MATE_DEFINITION_READ_MARKS", "nothing"), ("MATES_UNDER_COMMAND_IN_PROGRESS", True),
+                        ("MATE_RENAME_AT_ONCE", True)):
+        monkeypatch.setattr(findings, name, value, raising=False)
 
 
 def plan(spec=None, recipe="A", path=PATH):
@@ -2694,7 +2708,8 @@ def test_a_train_whose_template_is_missing_fails_as_in_w4_with_no_mate_problem()
 @pytest.mark.parametrize("name", ["ADD_MATE_NO_ERROR", "COMPONENT_UNDER_DEFINED", "MATE_FIND_ROUTE", "THIS_CONFIGURATION",
                                   "COMPOUND_LOCK_ROUTE", "LOCK_SELECT_ROUTE", "MATE_LOCK", "MATE_RENAME_ROUTE",
                                   "MATE_COINCIDENT", "MATE_DISTANCE", "MATE_GEAR", "GEAR_MATE_ROUTE",
-                                  "GEAR_MATE_NUMERATOR_FIRST", "ORIGIN_POINT"])
+                                  "GEAR_MATE_NUMERATOR_FIRST", "ORIGIN_POINT", "MATES_UNDER_COMMAND_IN_PROGRESS",
+                                  "MATE_RENAME_AT_ONCE"])
 def test_a_train_is_refused_before_anything_is_made_while_a_finding_it_needs_is_not_settled(monkeypatch, name):
     """Every finding the build's SolidWorks calls rest on is read before anything is made: the check's, and the
     lock's and the rename's for a plan that locks a gear and names its mates (the review of package A)."""
@@ -3224,9 +3239,10 @@ def test_a_remake_that_fails_still_lists_the_assembly_as_changed(monkeypatch, re
     assert not fake.mate("G3 locked to G2", T_ASM).suppressed
 
 
-def test_a_folder_among_the_mates_refuses_the_update_before_anything_changes():
+def test_an_entry_among_the_mates_that_is_neither_a_mate_nor_a_folder_refuses_the_update(monkeypatch):
+    monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", "FtrFolder")
     fake = _built_train()
-    fake.user_folder(T_ASM, "Train mates")
+    fake.user_entry(T_ASM, "Train mates", "SomethingNew")
     with pytest.raises(swbuild.BuildError) as raised:
         _update_train(fake, layout=_train_layout_values("64.5"),
                       placements=_train_placements(_train_frames(s3=(64.5, 51.0))))
@@ -3238,7 +3254,32 @@ def test_a_folder_among_the_mates_refuses_the_update_before_anything_changes():
     assert not any(n in CHANGING for n in names(fake))
 
 
-def test_a_recorded_mate_moved_into_a_folder_still_reads_renamed_or_deleted():
+def test_without_the_folder_finding_a_folder_among_the_mates_refuses_as_before(monkeypatch):
+    monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", None)
+    fake = _built_train()
+    fake.user_folder(T_ASM, "Folder1")
+    with pytest.raises(swbuild.BuildError, match='^T.SLDASM holds "Folder1", "Folder1___EndTag___" among its mates, '
+                                                 "which are not mates"):
+        _update_train(fake)
+    assert not any(n in CHANGING for n in names(fake))
+
+
+def test_gear_mates_in_a_folder_are_found_read_and_remade_and_the_update_goes_ahead(monkeypatch, remake_route):
+    """Probe round P0c, mate_folders: a folder's two "FtrFolder" entries are skipped and the mates in it are read and
+    found as any other. A gear mate remade lands at the end of the mate group, outside the folder: left so, since no
+    probe covers putting it back."""
+    monkeypatch.setattr(findings, "MATE_FOLDER_TYPE_NAME", "FtrFolder")
+    fake = _built_train()
+    fake.user_folder(T_ASM, "Folder1")
+    _drag(fake, 10.0)
+    result = _update_train(fake, motion=_motion(meshes=MESHES_69, ratios=(("G1 meshes G2", 17, 69),)))
+    assert result.ok, result.log_lines()
+    assert result.ratios == ["G1 meshes G2"] and result.placed == list(TRAIN_ORDER) and result.extra_mates == []
+    assert fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 69.0) and fake.mates[-1].name == "G1 meshes G2"
+    assert fake.locked_puts == [] and not fake.mate("G3 locked to G2", T_ASM).suppressed
+
+
+def test_a_recorded_mate_deleted_beside_a_folder_still_reads_renamed_or_deleted():
     fake = _built_train()
     fake.drop_mate(T_ASM, "G1 meshes G2")
     fake.user_folder(T_ASM, "Train mates")
@@ -3480,3 +3521,47 @@ def test_a_remake_found_live_is_refused_before_anything_changes_while_a_remake_f
     assert f"(findings.{name} is None), so nothing is changed; run probe tier 8 first." in str(raised.value)
     assert "gear_mate_ratio" in names(fake) and not any(n in CHANGING for n in names(fake))
     assert fake.mate("G1 meshes G2", T_ASM).ratio == (17.0, 68.0)
+
+
+
+# -- probe round P0c's findings in the gates
+
+def test_an_update_does_not_need_the_build_only_findings(monkeypatch):
+    """Mates made under CommandInProgress and renamed at once in an unsaved assembly are a Build's doing."""
+    fake = _built_train()
+    for name in ("MATES_UNDER_COMMAND_IN_PROGRESS", "MATE_RENAME_AT_ONCE"):
+        monkeypatch.setattr(findings, name, None)
+    fake.turn("gear4-1", 3.0)
+    assert _update_train(fake).ok
+
+
+@pytest.mark.parametrize("value", [None, "the assembly"])
+def test_an_update_whose_ratio_read_may_mark_the_assembly_is_refused_before_anything_is_read(monkeypatch, value):
+    fake = _built_train()
+    monkeypatch.setattr(findings, "GEAR_MATE_DEFINITION_READ_MARKS", value)
+    with pytest.raises(swbuild.BuildError) as raised:
+        _update_train(fake)
+    assert str(raised.value) == ("Update SolidWorks on a gearbox built to turn needs reading a gear mate's ratio without "
+                                 "marking the assembly settled on SolidWorks (findings.GEAR_MATE_DEFINITION_READ_MARKS "
+                                 f"is {value!r}), so nothing is changed; run probe tier 8 first.")
+    assert fake.calls == []
+
+
+def test_a_remake_on_a_gear_carrying_two_gear_mates_needs_the_idler_finding(monkeypatch):
+    idler = _motion(mates=MATE_REFS + (MateRef("G2 meshes G4", "mesh", ("G2", "G4")),))
+    monkeypatch.setattr(findings, "IDLER_UPDATE_HOLDS", None)
+    with pytest.raises(swbuild.BuildError) as raised:
+        swbuild._idler_gate(idler, [("G1 meshes G2", 17, 69)])
+    assert str(raised.value) == ("Giving a new ratio to a gear mate of G2, which carries two gear mates, has not been "
+                                 "settled on SolidWorks (findings.IDLER_UPDATE_HOLDS is None), so nothing is changed; "
+                                 "run probe tier 8 first, or build the gearbox again.")
+    swbuild._idler_gate(_motion(), [("G1 meshes G2", 17, 69)])            # the 12 : 1: no gear carries two
+    monkeypatch.setattr(findings, "IDLER_UPDATE_HOLDS", True)
+    swbuild._idler_gate(idler, [("G1 meshes G2", 17, 69)])
+
+
+def test_the_twelve_to_one_remake_does_not_read_the_idler_finding(monkeypatch, remake_route):
+    monkeypatch.setattr(findings, "IDLER_UPDATE_HOLDS", None)
+    fake = _built_train()
+    result = _update_train(fake, motion=_motion(meshes=MESHES_69, ratios=(("G1 meshes G2", 17, 69),)))
+    assert result.ok and result.ratios == ["G1 meshes G2"], result.log_lines()

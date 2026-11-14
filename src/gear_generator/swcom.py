@@ -2072,12 +2072,16 @@ class Session:
         ``Name``; ``GetErrorCode2`` with a by-reference bool for ``IsWarning`` (a tuple back, or the out
         parameter's ``.value``); ``IsSuppressed2(findings.THIS_CONFIGURATION, null dispatch)`` (a tuple or list
         back: its first item). An assembly with no MateGroup has no mates: ``[]``. A sub-feature that is not a
-        mate (a folder: :meth:`_is_mate`) is left out; given ``others`` (a list), each one's name is appended to it,
-        so a caller can refuse what no probe has read yet (W5 review: how a folder in the MateGroup reads)."""
+        mate (:meth:`_is_mate`) is left out; given ``others`` (a list), each one's name is appended to it, so a
+        caller can refuse what no probe has read — except a folder's two entries, ``GetTypeName2`` equal to
+        ``findings.MATE_FOLDER_TYPE_NAME`` (probe round P0c, mate_folders: the folder and its "…___EndTag___"
+        marker, the mates inside it listed as ordinary following siblings, so this walk still sees each one).
+        With that finding missing a folder is listed like any other entry that is not a mate."""
+        folder = getattr(findings, "MATE_FOLDER_TYPE_NAME", None)
         out: List[MateState] = []
         for feature in self._mate_group():
             if not self._is_mate(feature):
-                if others is not None:
+                if others is not None and not (folder is not None and _type_name(feature) == folder):
                     others.append(str(call(feature, "Name")))
                 continue
             flag = _out_bool()
