@@ -16,6 +16,7 @@ from gear_generator.gears import pair
 from gear_generator.gears.base import AddGlobal, Mate, Place, Unfix
 from gear_generator.probe import decide
 from gear_generator.spec import GearSpec, InputError, PairSpec
+from gear_generator.swcom import ASSEMBLY_PAIR
 
 from test_swbuild import FakeSolidWorks, never_exists
 
@@ -93,7 +94,9 @@ def test_bevel_and_crossed_pairs_are_not_built_turning(settled):
 
 def test_a_turning_pair_builds_against_the_fake_in_order(settled):
     fake = FakeSolidWorks()
-    result = swbuild.build(fake, pair.assembly_plan(A, B, *PATHS, motion="gear mate"), never_exists)
+    # A pair, as build_pair builds it (its own kind: the full rebuild, no train gate, no mate check), not a train.
+    result = swbuild.build(fake, pair.assembly_plan(A, B, *PATHS, motion="gear mate"), never_exists,
+                           kind=ASSEMBLY_PAIR)
     assert result.ok, result.log_lines()
     names = [name for name, _ in fake.calls]
     assert names.index("unfix_component") < names.index("add_mate")

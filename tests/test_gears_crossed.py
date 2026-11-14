@@ -8,6 +8,7 @@ from gear_generator import swbuild
 from gear_generator.gears import KINDS, crossed, pair
 from gear_generator.gears.base import AddGlobal, LinkDimension, Mate, Place
 from gear_generator.spec import GearSpec, InputError, PairSpec, pair_stems
+from gear_generator.swcom import ASSEMBLY_PAIR
 
 from test_swbuild import FakeSolidWorks, never_exists
 
@@ -195,7 +196,7 @@ def test_a_crossed_assembly_builds_against_the_fake():
     plan = pair.crossed_assembly_plan(a, b, r"C:\G\a.SLDPRT", r"C:\G\b.SLDPRT", "", r"C:\G\p.SLDASM", 90.0,
                                       pair.ROUTE_MATES)
     fake = FakeSolidWorks()
-    result = swbuild.build(fake, plan, never_exists)
+    result = swbuild.build(fake, plan, never_exists, kind=ASSEMBLY_PAIR)      # a pair, as build_pair builds it
     assert result.ok, result.failures
     called = [name for name, _ in fake.calls]
     assert called.index("place_component") < called.index("add_mate")
