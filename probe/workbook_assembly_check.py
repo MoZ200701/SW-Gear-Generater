@@ -30,10 +30,13 @@ The sections, each in its own folder under the output folder:
 - ``a``: the Windows-saved 12 : 1 fixture. Build; measure. Then Excel sets Shafts!C3 S2 X 63.75 -> 64.5 and
   Gears!F3 G2 Teeth 68 -> 69 (S3 X follows by its formula to 132.5); ``Link.poll``; ``classify`` (no structural
   change); Update SolidWorks; measure, including that G2's part holds 69 teeth and that the ASSEMBLY shows the
-  69-tooth gear (back at its old frame it now clashes with G1). Nothing saved by Update, and the record marks
-  the documents unsaved. Then a structural edit (G1's bore cleared): the build-again plan refuses until the
-  documents Update changed are saved; they are saved, as a person would in SolidWorks; then ``_r2`` is built,
-  reusing what has not changed, and every earlier file's sha256 and mtime are compared with what they were.
+  69-tooth gear (back at its old frame it now clashes with G1). Nothing saved by Update, the record marks the
+  documents unsaved, and SolidWorks marks modified only the documents Update changed (W4 review S2: the parts it
+  did not change are left unmodified). Then a structural edit (G1's bore cleared) with those documents still
+  unsaved: the build-again plan does not wait for a save (review B2) — G2's part, changed by Update and not
+  saved, is made new as Gear_m1.5_N69 instead of reused, G1's as Gear_m1.5_N17_r2 — and ``_r2`` is built
+  without saving anything, reusing G3's and G4's parts; every earlier file's sha256 and mtime are compared with
+  what they were (Gear_m1.5_N68.SLDPRT still holds 68 teeth on disk).
 - ``a2``: the same fixture, built with an assembly template that is not there, so the build stops after the
   parts and the layout; the cell cleared in Excel, Build carries on reusing them; then Build pressed again with
   nothing changed.
@@ -863,6 +866,15 @@ def section_a(worker, excel):
     unsaved = sorted(os.path.basename(p) for p in desk.record.unsaved)
     check(unsaved == ["Gear_m1.5_N68.SLDPRT", "Reducer_12to1.SLDASM", "Reducer_12to1_Layout.SLDPRT"],
           f"the record marks them unsaved: {unsaved}")
+    n68 = desk.record.parts[1].path
+    marked = store.read_sidecar(n68)
+    check(marked is not None and marked.record.unsaved_since > 0 and marked.record.spec.get("teeth") == "69",
+          f"Gear_m1.5_N68.gear.json says 69 teeth, marked unsaved since {marked and marked.record.unsaved_since}")
+    flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in before_update]))
+    say(f"        marked modified in SolidWorks right after the update: {flags}")
+    check(sorted(n for n, f in flags.items() if f) == unsaved,
+          "SolidWorks marks modified exactly the documents Update changed (review S2: the trig check no longer "
+          f"touches the parts it leaves alone): {sorted(n for n, f in flags.items() if f)}")
     desk.say_footer("after the update")
     say(f"tag     {ui_text.workbook_built_tag(desk.record, desk.reading.digest)!r}")
     measure_frames(worker, desk, "a updated")
@@ -896,22 +908,24 @@ def section_a(worker, excel):
     desk.poll()
     desk.say_update()
     check(desk.update is not None and desk.update.needs_new_revision, "classify: a new revision is needed")
-    desk.say_plan(full=False)
-    check(desk.plan is not None and "has not been saved since" in desk.plan.refusal,
-          "build again waits for the documents Update changed to be saved")
-    say(f"question {ui_text.build_again_question(desk.update, desk.plan)}")
-    desk.say_footer("structural, unsaved")
-    saved = run(worker, lambda s: save_docs(s, list(desk.record.unsaved)))
-    say(f"person  saved in SolidWorks: {saved}")
-    desk.plan_solidworks()
-    check(desk.record.unsaved == {}, f"clear_saved: nothing on record is unsaved now: {desk.record.unsaved}")
+    check(sorted(os.path.basename(p) for p in desk.record.unsaved) == unsaved,
+          "the documents Update changed are still unsaved (nothing saved them)")
     desk.say_plan()
     p = desk.plan
-    check(p is not None and not p.refusal and p.revision == 2 and [j.stem for j in p.build] == ["Gear_m1.5_N17_r2"]
-          and sorted(r.stem for r in p.reuse) == ["Gear_m1.5_N68", "Gear_m2_N17", "OutputGear"],
-          "the plan: Reducer_12to1_r2, a new G1 part, G2-G4 reused")
+    for m in (p.made_new if p is not None else ()):
+        say(f"        made new: {m.why}: {m.sentence}")
+    check(p is not None and not p.refusal and p.revision == 2
+          and [j.stem for j in p.build] == ["Gear_m1.5_N17_r2", "Gear_m1.5_N69"]
+          and sorted(r.stem for r in p.reuse) == ["Gear_m2_N17", "OutputGear"],
+          "the plan, with Update's changes unsaved: Reducer_12to1_r2, new parts for G1 (Gear_m1.5_N17_r2) and G2 "
+          "(Gear_m1.5_N69), G3 and G4 reused")
+    check(p is not None and [(m.gear_ids, os.path.basename(m.old), os.path.basename(m.new))
+                             for m in p.unsaved_made_new] == [(("G2",), "Gear_m1.5_N68.SLDPRT", "Gear_m1.5_N69.SLDPRT")],
+          "review B2: G2's part is made new because Gear_m1.5_N68 is not saved, and nothing waits for a save")
     say(f"question {ui_text.build_again_question(desk.update, desk.plan)}")
-    desk.say_footer("structural, saved")
+    f = desk.say_footer("structural, unsaved")
+    check(f.build_enabled and f.update_enabled, "neither Build again… nor Update SolidWorks is held by the unsaved "
+          "documents")
     guard()
     earlier = stamps(folder)
     say(f"stamps  {len(earlier)} earlier files: " + ", ".join(sorted(earlier)))
@@ -920,15 +934,19 @@ def section_a(worker, excel):
     touched = [n for n in earlier if later.get(n) != earlier[n]]
     new = sorted(n for n in later if n not in earlier)
     check(touched == [], f"build again: every earlier file's sha256 and mtime unchanged: changed {touched}")
-    check(new == ["Gear_m1.5_N17_r2.SLDPRT", "Gear_m1.5_N17_r2.gear.json", "Reducer_12to1_r2.SLDASM",
-                  "Reducer_12to1_r2_Layout.SLDPRT"], f"new files only where needed: {new}")
+    check(new == ["Gear_m1.5_N17_r2.SLDPRT", "Gear_m1.5_N17_r2.gear.json", "Gear_m1.5_N69.SLDPRT",
+                  "Gear_m1.5_N69.gear.json", "Reducer_12to1_r2.SLDASM", "Reducer_12to1_r2_Layout.SLDPRT"],
+          f"new files only where needed: {new}")
     rec = desk.record
     check(rec.gearbox.revision == 2 and [e.revision for e in rec.earlier] == [0]
-          and [os.path.basename(p) for e in rec.earlier for p in e.parts] == ["Gear_m1.5_N17.SLDPRT"],
-          f"the record: revision 2 current; revision 0 earlier, with the G1 part it no longer uses")
+          and [os.path.basename(p) for e in rec.earlier for p in e.parts] == ["Gear_m1.5_N17.SLDPRT",
+                                                                              "Gear_m1.5_N68.SLDPRT"],
+          f"the record: revision 2 current; revision 0 earlier, with the G1 and G2 parts it no longer uses")
     flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in earlier if n.endswith(
         (".SLDPRT", ".SLDASM"))]))
     say(f"        marked modified in SolidWorks now (not saved): {flags}")
+    check(flags.get("Gear_m1.5_N17.SLDPRT") is False, "the superseded G1 part, which Update never changed, is not "
+          "marked modified (it read True before review S2)")
     desk.say_footer("after build again")
     measure(worker, desk, "a _r2")
     book.close()
@@ -1037,6 +1055,11 @@ def section_b(worker, excel):
           and sorted(result.layout.changed) == ["S2 X", "S2 Y", "S3 X", "S3 Y"],
           f"Update: no part touched; the layout's S2 X, S2 Y, S3 X, S3 Y set: {result.layout and result.layout.changed}; "
           f"re-placed {result.placed}")
+    flags = run(worker, lambda s: save_flags(s, [os.path.join(folder, n) for n in before]))
+    say(f"        marked modified in SolidWorks right after the update: {flags}")
+    check(sorted(n for n, f in flags.items() if f) == ["Arc_Move.SLDASM", "Arc_Move_Layout.SLDPRT"],
+          "SolidWorks marks modified only the layout and the assembly: Update left every part as it was (review "
+          f"S2): {sorted(n for n, f in flags.items() if f)}")
     check(result.clashes == [] and not result.interference_error, f"no interference after the move: {result.clashes}")
     after = stamps(folder, solidworks_only=True)
     check([n for n in before if before[n] != after.get(n)] == [], f"Update saved nothing ({len(before)} SolidWorks "
