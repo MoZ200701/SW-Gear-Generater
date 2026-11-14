@@ -845,7 +845,9 @@ ORIGIN_NOISE_AFTER_A_DRIVE_MM = 2.8474599777423056e-14   # from before the drive
 # AddMate5, in a new unsaved assembly, read its new name back at once and was found by it; saved
 # and reopened, every mate was found by its new name and no first name was left.
 # SetSuppression2(unsuppress) on a lock already on returned True, left it on, raised no error,
-# and marked the assembly modified. Suppressed, a sound lock and a conflicting angle mate both
+# and marked the assembly modified. The mark is the call's own (P0d): every GetSaveFlag read
+# straight before it and straight after, nothing between, went from False to True for the
+# assembly alone (the layout and part stayed False). Suppressed, a sound lock and a conflicting angle mate both
 # read GetErrorCode2 0 with the warning flag False.
 MATES_UNDER_COMMAND_IN_PROGRESS = True
 MATE_RENAME_AT_ONCE = True
@@ -859,20 +861,44 @@ SUPPRESSED_MATE_ERROR_CODE = 0                  # warning flag False, whatever t
 # type met: FtrFolder, MateCoincident, MateDistanceDim, MateGearDim, MateLock,
 # MatePlanarAngleDim. A walk that keeps only types starting with "Mate" skips both folder
 # entries and still sees every mate.
+# P0d: the same held in every case walked. With a folder inside the folder holding a mate (made
+# by the same call, the mate inside selected), the walk reads the outer folder, its mate, the
+# inner folder, its mate, "Folder2___EndTag___", then "Folder1___EndTag___". Saved under its own
+# name, closed and reopened, the walk read the same and FeatureByName found both mates. The outer
+# folder suppressed by SetSuppression2 (the call that suppresses a mate) suppressed both mates in
+# it (IsSuppressed2 True), and the walk still listed them; unsuppressing it brought both back with
+# no error. So a walk on a reopened assembly sees every mate, however deep the folders. A mate
+# in a suppressed folder reads suppressed, so a walk must read IsSuppressed2 on each mate.
 MATE_FOLDER_ROUTE = "IFeatureManager.InsertFeatureTreeFolder2(swFeatureTreeFolder_Containing)"
 MATE_FOLDER_TYPE_NAME = "FtrFolder"
-MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER = True
+MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER = True    # one folder, nested folders, reopened, folder suppressed
+MATE_FOLDER_SUPPRESSION_SUPPRESSES_ITS_MATES = True
 
 # lightweight_remake: OpenDoc6 with swOpenDocOptions_LoadLightweight (128) alone left every
 # component swComponentFullyResolved. Adding swOpenDocOptions_OverrideDefaultLoadLightweight
 # (64) made all eight swComponentLightweight. On both versions the SOLIDWORKS CAM add-in then put
 # up a modal "SOLIDWORKS CAM Error" box ("...loading of lightweight parts has been detected"),
-# which blocks OpenDoc6 until it is closed: the probe's watch closed it with WM_CLOSE. Lightweight,
-# a component's "Gear Axis" was found, the remake made the gear mate (status 1, no error), and
-# the train turned at the new ratio (TG4 2.125° for 30°). Every component was fully resolved
-# afterwards. W5 does not open lightweight; if it ever does, the add-in's box must be expected.
+# which blocks OpenDoc6 until it is closed: the probe's watch closed it with WM_CLOSE.
+# P0d read every gear's IComponent2.GetSuppression2 at each step. After the open, and after
+# FeatureByName("Gear Axis") found the axis on two of them, every gear read 1
+# (swComponentLightweight). The first drive, 30° on the input, turned TG4 -24.17° where 2.5° is
+# right (TG1-TG3 and the other train right). After that drive every gear read 2
+# (swComponentFullyResolved). So the remake ran on resolved components: it made the gear mate
+# (status 1, no error) and the train turned at the new ratio (TG4 2.125° for 30°), still 2 after.
+# "Holds" therefore means: once resolved, not while lightweight. A lightweight train must not be
+# driven or judged before its components read fully resolved. W5 does not open lightweight; if it
+# ever does, the add-in's box must be expected.
 LIGHTWEIGHT_FORCED_BY = "swOpenDocOptions_LoadLightweight | swOpenDocOptions_OverrideDefaultLoadLightweight"
-LIGHTWEIGHT_REMAKE_HOLDS = True
+LIGHTWEIGHT_REMAKE_HOLDS = True                 # on components already resolved by the first drive
+LIGHTWEIGHT_FIRST_DRIVE_RIGHT = False           # TG4 -24.17° where 2.5° is right, on both versions
+LIGHTWEIGHT_RESOLVED_BY = "the first drive"     # a top-only rebuild after a global changed
+
+# The read an Update gates on (P0d, package A): IComponent2.GetSuppression2 of each gear
+# component. After a plain OpenDoc6 (silent, no lightweight option: this machine's default) every
+# gear read 2, swComponentFullyResolved, on both versions; lightweight read 1. Only 2 was seen
+# for a resolved gear (swComponentResolved, 3, never came), so 2 alone means fully resolved.
+COMPONENT_RESOLVED_ROUTE = "GetSuppression2"
+COMPONENT_FULLY_RESOLVED_STATES = (2,)
 LIGHTWEIGHT_OPEN_RAISES_AN_ADDIN_DIALOG = True  # SOLIDWORKS CAM, modal, on this machine's install
 
 # second_assembly_beside_unsaved: a new assembly left open and unsaved ("Assem20"), holding a

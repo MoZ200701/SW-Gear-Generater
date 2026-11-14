@@ -809,3 +809,56 @@ def test_the_drag_operator_by_the_knowledge_base_recipe_turns_only_the_gear_it_d
         assert turned == {c["dragged"]: pytest.approx(p8.DRAG_DEGREES)}, label
         assert all(ok is True for ok in c["calls"]["Drag"]) and not c["errors"], label
         assert c["calls"]["TransformType as it came"] == 0 and c["calls"]["DragMode as it came"] == 3, label
+
+
+P0D_2026 = LATEST.parent / "probe-results-20261114-105135.json"
+P0D_2024 = LATEST.parent / "sw2024" / "probe-results-20261114-111150.json"
+
+
+@pytest.fixture(params=["2026", "2024"])
+def round_p0d(request):
+    data = json.loads((P0D_2026 if request.param == "2026" else P0D_2024).read_text(encoding="utf-8"))
+    assert data["meta"]["version"].startswith(f"SolidWorks {request.param} ")
+    records = {r["name"]: r for r in data["records"]}
+    assert all(r["status"] == "pass" for r in records.values())
+    return records, decide.decide(records), request.param
+
+
+def test_the_unsuppress_on_a_lock_already_on_marks_the_assembly_by_the_call_itself(round_p0d):
+    """Probe mates_under_command_in_progress (P0d): every save flag straight before the call and straight after."""
+    records, _decided, _version = round_p0d
+    u = facts(records, "mates_under_command_in_progress")["unsuppress_on_a_lock_already_on"]
+    assert u["flags_before_call"] == {"assembly": False, "layout": False, "part": False}
+    assert u["flags_after_call"] == {"assembly": True, "layout": False, "part": False}
+    assert (u["marked_by_the_call"] == ["assembly"]) is findings.UNSUPPRESS_ON_LOCK_ALREADY_ON_MARKS_MODIFIED
+
+
+def test_mates_in_folders_stay_siblings_nested_reopened_and_suppressed(round_p0d):
+    """Probe mate_folders (P0d): one folder, a folder inside it, saved and reopened, the folder suppressed."""
+    records, decided, _version = round_p0d
+    assert decided["mate_folders_hold_in_every_case"] is findings.MATE_GROUP_WALK_SEES_MATES_IN_A_FOLDER is True
+    cases = facts(records, "mate_folders")["mate_folder_cases"]
+    assert set(cases) == {"one folder", "a folder in a folder", "reopened", "folder suppressed"}
+    folders = facts(records, "mate_folders")["mate_folders"]
+    walk = [(w["name"], w["type"]) for w in folders["cases"]["reopened"]["walk"] if w["type"] == "FtrFolder"]
+    assert walk == [("Probe W8 Mate Folder", "FtrFolder"), ("Probe W8 Inner Folder", "FtrFolder"),
+                    ("Folder2___EndTag___", "FtrFolder"), ("Folder1___EndTag___", "FtrFolder")]
+    sup = folders["folder_suppression"]
+    assert all(sup["mates_suppressed"].values()) is findings.MATE_FOLDER_SUPPRESSION_SUPPRESSES_ITS_MATES
+    assert not any(sup["mates_after"].values()) and not sup["errors_after"]
+
+
+def test_a_lightweight_train_resolves_on_its_first_drive_and_a_plain_open_reads_fully_resolved(round_p0d):
+    """Probe lightweight_remake (P0d): GetSuppression2 at every step, and after a plain OpenDoc6."""
+    records, decided, _version = round_p0d
+    assert decided["lightweight_remake"] is findings.LIGHTWEIGHT_REMAKE_HOLDS
+    assert decided["lightweight_first_drive_right"] is findings.LIGHTWEIGHT_FIRST_DRIVE_RIGHT is False
+    assert decided["lightweight_resolved_by"] == "after the first drive"
+    light = facts(records, "lightweight_remake")["lightweight_remake"]
+    assert light["turns_before"]["TG4"] == pytest.approx(-24.166666658) and light["turns"]["TG4"] == pytest.approx(2.125)
+    values = {stage: {v[0] for v in read.values()} for stage, read in light["states"].items()}
+    assert values["after the open"] == values["after FeatureByName('Gear Axis')"] == {1}
+    assert values["after the first drive"] == values["after the remake"] == values["after the drive that follows"] == {2}
+    read = decided["component_resolved_read"]
+    assert read["call"] == "IComponent2.GetSuppression2" and findings.COMPONENT_RESOLVED_ROUTE == "GetSuppression2"
+    assert tuple(read["plain_open_values"]) == findings.COMPONENT_FULLY_RESOLVED_STATES == (read["fully_resolved"],)
