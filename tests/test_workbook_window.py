@@ -147,7 +147,9 @@ def unexpected_question(parent, title, text):
 # GEAR_MATE_RATIO_ROUTE to "remake" itself (both branches are tested below).
 W5_FINDINGS = {"GEAR_MATE_RATIO_ROUTE": None, "GEAR_MATE_RATIO_REMAKE_WORKS": True, "LOCK_RETAKES_AN_OFFSET": True,
                "MATED_ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(True)",
-               "MATED_BUILD_REBUILD_ROUTE": "ForceRebuild3(True)"}
+               "MATED_BUILD_REBUILD_ROUTE": "ForceRebuild3(True)",
+               "GEAR_MATE_DEFINITION_READ_MARKS": "nothing", "MATES_UNDER_COMMAND_IN_PROGRESS": True,
+               "MATE_RENAME_AT_ONCE": True, "IDLER_UPDATE_HOLDS": True}
 
 
 @pytest.fixture(autouse=True)
