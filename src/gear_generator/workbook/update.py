@@ -46,13 +46,13 @@ import copy
 import math
 import os
 from dataclasses import asdict, dataclass, field, replace
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .. import findings, store
 from ..gears import equations, kind_for
 from ..gears.base import GlobalVariable
 from ..spec import GearSpec, InputError
-from ..store import GearboxRecord, LinkRecord, PartEntry, ShaftEntry, Sidecar
+from ..store import GearboxRecord, LinkRecord, MateEntry, PartEntry, ShaftEntry, Sidecar
 from ..swbuild import (POSE_TOLERANCE, DocumentValues, GearboxUpdate, MotionUpdate, Placement, same_frame,
                        structural_change)
 from . import gearbox, layout, motion, schema
@@ -124,6 +124,7 @@ class UpdatePlan:
     motion: Optional[MotionUpdate] = None
     axial: Tuple[str, ...] = ()
     ratios: Tuple[str, ...] = ()
+    drag: Tuple[str, ...] = ()                 # a turning gearbox's drag gear per train, now (Agent B, additive)
 
     @property
     def changed_parts(self) -> Tuple[PartUpdate, ...]:
@@ -426,7 +427,7 @@ def classify(record: Optional[LinkRecord], a: Assessment, *,
     return UpdatePlan(parts=tuple(parts), layout=layout_values, assembly=assembly, placements=tuple(placements),
                       moved_shafts=tuple(moved), replaced=tuple(replaced), structural=tuple(structural),
                       missing=tuple(dict.fromkeys(missing)), unsaved=tuple(record.current_marks(record.unsaved)),
-                      shafts=shafts, motion=turn.motion, axial=turn.axial, ratios=turn.ratios)
+                      shafts=shafts, motion=turn.motion, axial=turn.axial, ratios=turn.ratios, drag=turn.drag)
 
 
 # -- a gearbox built to turn (W5-PLAN §1.6's classify, as W5-DECISIONS and W5-INTERFACES amend it) ------------------
@@ -458,14 +459,16 @@ def _bad_mates(box: GearboxRecord) -> str:
     two whole tooth counts, an along mate whose distance is not a number, or a gear not in the assembly on record
     — else ``""``. A hand-edited or damaged record is refused with a sentence, never an IndexError."""
     known = {c.gear for c in box.components}
-    tail = ", so Update SolidWorks cannot act on the gearbox the record describes."
+    tail = (", so Update SolidWorks cannot act on the gearbox the record describes: Build again… makes a new revision "
+            "from the workbook instead.")
     for entry in box.mates:
         name = entry.name if isinstance(entry.name, str) else ""
         label = f"The record of what was built lists the mate \"{name}\"" if name else (
             "The record of what was built lists a mate with no name")
         kind = entry.kind
         if kind not in motion.MATE_KINDS:
-            return f"{label} as a {kind!r} mate, which is not a kind of mate the app makes{tail}"
+            article = "an" if str(kind)[:1].lower() in "aeiou" else "a"
+            return f"{label} as {article} {kind!r} mate, which is not a kind of mate the app makes{tail}"
         want = 1 if kind in (motion.AXIS, motion.ALONG) else 2
         gears = list(entry.gears) if isinstance(entry.gears, (list, tuple)) else []
         if len(gears) != want or not all(isinstance(g, str) and g for g in gears):
@@ -497,6 +500,7 @@ class _Turning:
     motion: Optional[MotionUpdate] = None
     axial: Tuple[str, ...] = ()
     ratios: Tuple[str, ...] = ()
+    drag: Tuple[str, ...] = ()
 
 
 def _built_part(entries: Sequence[PartEntry], gear: str) -> Dict[str, Any]:
@@ -526,6 +530,40 @@ def _axial_edit(gear: str, shaft: str, z_front: float, sigma: int, built_shaft_z
         return f"{gear}'s front face moves", ""
     verb = "moves" if len(gear_edits) + moved == 1 else "move"
     return f"{' and '.join(parts)} {verb}", ("its front face" if not moved else f"{gear}'s front face")
+
+
+def _drag(spec: Any, of_kind: Mapping[str, Sequence[MateEntry]], built_on: Mapping[str, str]) -> Tuple[str, ...]:
+    """Each train's drag gear as the workbook now has it, from the record's mates (``motion.motion_plan``'s rule:
+    the shafts the gear mates join, input shafts first then Shafts-sheet order, the trains in the order of their
+    first shaft; the anchor of each train's first shaft). Moving the input to another shaft is an Update, and the
+    footer's drag gear follows it."""
+    order = {s.id: i for i, s in enumerate(spec.shafts)}
+    role = {s.id: s.role for s in spec.shafts}
+    anchor_of = {m.shaft: m.gears[0] for m in of_kind[motion.AXIS]}
+    parent: Dict[str, str] = {}
+
+    def root(x: str) -> str:
+        while parent.setdefault(x, x) != x:
+            x = parent[x]
+        return x
+    joined: List[str] = []
+    for m in of_kind[motion.MESH]:
+        a, b = (built_on.get(g) for g in m.gears)
+        if a and b:
+            parent[root(a)] = root(b)
+            joined += [s for s in (a, b) if s not in joined]
+    joined.sort(key=lambda s: order.get(s, len(order)))
+    out: List[str] = []
+    seen = set()
+    for shaft in joined:
+        if root(shaft) in seen:
+            continue
+        seen.add(root(shaft))
+        members = [s for s in joined if root(s) == root(shaft)]
+        first = next((s for s in members if role.get(s) == "input"), members[0])
+        if first in anchor_of:
+            out.append(anchor_of[first])
+    return tuple(out)
 
 
 def _turning(box: GearboxRecord, entries: Sequence[PartEntry], a: Assessment,
@@ -578,6 +616,9 @@ def _turning(box: GearboxRecord, entries: Sequence[PartEntry], a: Assessment,
     for gear, shaft in built_on.items():
         row = gear_of.get(gear)
         if row is None or row.shaft == shaft or gear in told:
+            continue
+        if shaft not in now:
+            told.add(gear)                         # its shaft is gone or renamed, which is said already
             continue
         holding = [m.name for m in mates if (m.kind in (motion.AXIS, motion.ALONG) and m.gears[0] == gear)
                    or (m.kind == motion.LOCK and m.gears[1] == gear)]
@@ -677,8 +718,8 @@ def _turning(box: GearboxRecord, entries: Sequence[PartEntry], a: Assessment,
             continue
         built = (int(m.ratio[0]), int(m.ratio[1]))
         new = (teeth[a_], teeth[b_])
-        if built == new:
-            continue
+        if built == new or built[0] * new[1] == built[1] * new[0]:
+            continue                               # the gear mate already turns the train at this ratio
         if route == "remake":
             ratios.append((m.name, new[0], new[1]))
             continue
@@ -696,6 +737,7 @@ def _turning(box: GearboxRecord, entries: Sequence[PartEntry], a: Assessment,
                               f"{new[0]} : {new[1]}, {why}, {_REBUILD}.")
     out.axial = tuple(axial)
     out.ratios = tuple(name for name, _, _ in ratios)
+    out.drag = _drag(spec, of_kind, built_on)
 
     mated = {g for m in mates for g in m.gears}
     if not all(g in placed for g in mated):
@@ -755,6 +797,14 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     (``result.found``) differed from the recorded one while the recorded one
     was already the wanted one: moved by hand in SolidWorks, and put back.
     Pure but for ``read_sidecar`` and ``mtime``.
+
+    A gearbox built to turn (``plan.motion`` set): a mated gear is dragged
+    only when the worker found it off its axis (a turn is never a drag),
+    fixed gears by W4's rule; mated gears' frames go on record a whole
+    train at a time (:func:`_follow_trains`); the record's mates follow the
+    ratios and Face Z globals set, and a ratio the parts now hold at the
+    same proportion (:func:`_follow_mates`); ``drag`` follows the workbook
+    (``plan.drag``).
 
     Marks (second W4 review N2): a document the job loaded from its file
     (``result.opened``) and found holding what the workbook asks is neither
@@ -845,11 +895,15 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
             elif found is not None and recorded_is_wanted and not same_frame(
                     component.rotation, component.at, found[0], found[1], p.pitch):
                 out.dragged.append(component.gear)
+            if turning and component.gear not in held:
+                continue                    # a mated gear's frame follows its whole train (below)
             if component.gear in result.placed or (found is not None and same_frame(found[0], found[1], p.rotation,
                                                                                      p.at, p.pitch)):
                 component.rotation, component.at = list(p.rotation), list(p.at)
         if turning:
+            _follow_trains(box, plan, result, held)
             _follow_mates(box, plan, result)
+            box.drag = list(plan.drag)
         if changed:
             box.updated = stamp
 
@@ -887,10 +941,62 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     return out
 
 
+def _follow_trains(box: GearboxRecord, plan: UpdatePlan, result: GearboxUpdate, held: set) -> None:
+    """A turning gearbox's mated gears take their wanted frames on record a whole train at a time, or not at all
+    (review M1's spirit: a record mixing new and old frames within one train reads out of step next time). A train
+    every gear of which was put takes them; so does every train when the update ran to its end with no failure,
+    since the worker then left a train unput only because it already stood in step with its wanted frames. Trains
+    are the mated gears joined by the meshes and locks given to the worker."""
+    wanted = {p.gear: p for p in plan.placements}
+    mated = [c.gear for c in box.components if c.gear in wanted and c.gear not in held]
+    parent = {g: g for g in mated}
+
+    def root(g: str) -> str:
+        while parent[g] != g:
+            g = parent[g]
+        return g
+    links = [(m.a, m.b) for m in plan.motion.meshes] + [(k.anchor, k.follower) for k in plan.motion.locks]
+    for a, b in links:
+        if a in parent and b in parent:
+            parent[root(a)] = root(b)
+    whole = not (result.failures or result.skipped)
+    placed = set(result.placed)
+    trains: Dict[str, List[str]] = {}
+    for g in mated:
+        trains.setdefault(root(g), []).append(g)
+    take = {g for train in trains.values() if whole or all(g in placed for g in train) for g in train}
+    for component in box.components:
+        if component.gear in take:
+            p = wanted[component.gear]
+            component.rotation, component.at = list(p.rotation), list(p.at)
+
+
+def _teeth_held(plan: UpdatePlan, result: GearboxUpdate) -> Dict[str, int]:
+    """Each gear's teeth as its part now holds them: the parts the update reached without a failure."""
+    out: Dict[str, int] = {}
+    for update, done in zip(plan.parts, result.parts):
+        if done.failures or not (done.changed or done.unchanged):
+            continue
+        teeth = _number_or_none(getattr(update.spec, "teeth", None))
+        if teeth:
+            out.update({g: int(teeth) for g in update.gear_ids})
+    return out
+
+
 def _follow_mates(box: GearboxRecord, plan: UpdatePlan, result: GearboxUpdate) -> None:
     """The record's mates follow what Update set: a MESH entry's ``ratio`` for each gear mate in
     ``result.ratios`` (the ratio given, in the mate's own gear order), and an ALONG entry's ``z_front`` for each
-    gear in ``result.axial`` (where its wanted frame puts its front face)."""
+    gear in ``result.axial`` (where its wanted frame puts its front face). A MESH whose gears' parts now hold teeth
+    at the same ratio as the mate (17 : 68 → 34 : 136: no remake needed) takes those counts too, so a later
+    classify does not read it as a change, and its pitch is the teeth the parts hold."""
+    teeth = _teeth_held(plan, result)
+    for entry in box.mates:
+        if entry.kind != motion.MESH or len(entry.gears) != 2 or len(entry.ratio) != 2:
+            continue
+        a, b = entry.gears
+        if a in teeth and b in teeth and (teeth[a], teeth[b]) != tuple(entry.ratio) and \
+                entry.ratio[0] * teeth[b] == entry.ratio[1] * teeth[a]:
+            entry.ratio = [teeth[a], teeth[b]]
     set_ratios = set(getattr(result, "ratios", []) or [])
     moved = set(getattr(result, "axial", []) or [])
     given = {name: [int(n), int(d)] for name, n, d in plan.motion.ratios}

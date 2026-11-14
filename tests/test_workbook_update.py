@@ -590,10 +590,11 @@ from gear_generator.workbook import motion  # noqa: E402
 REBUILD = "so the gearbox needs building again."
 
 
-def with_pair(spec, s5_role=""):
+def with_pair(spec, s5_role="", s4_role=""):
     """The reducer and a second pair on S4 and S5, apart from the first train: S5 fixed holds S4 still (M9)."""
     return replace(spec,
-                   shafts=spec.shafts + (Shaft("S4", "frame", "0", "100", "0", "Z+", ""),
+                   shafts=spec.shafts + (Shaft("S4", "frame", "0", "100", "0", "Z+", s4_role, "",
+                                               "100" if s4_role == "input" else ""),
                                          Shaft("S5", "frame", "63.75", "100", "0", "Z+", s5_role)),
                    gears=spec.gears + (Gear("G5", "S4", "7.5", "spur", "external", "17", "1.5", "", "15", "8"),
                                        Gear("G6", "S5", "7.5", "spur", "external", "68", "1.5", "", "15", "12")),
@@ -790,7 +791,7 @@ def test_a_shaft_whose_role_becomes_or_stops_being_fixed_is_built_again(turning)
 def test_a_recorded_mate_update_cannot_read_is_refused_with_a_sentence(turned):
     disk, record = turned
     cases = [
-        (dict(kind="angle"), "as a 'angle' mate, which is not a kind of mate the app makes"),
+        (dict(kind="angle"), "as an 'angle' mate, which is not a kind of mate the app makes"),
         (dict(gears=["G1"]), "with 1 gear where a mesh mate holds 2"),
         (dict(gears=[]), "with 0 gears where a mesh mate holds 2"),
         (dict(ratio=[17]), "with the ratio [17], where a gear mate holds two tooth counts"),
@@ -806,7 +807,8 @@ def test_a_recorded_mate_update_cannot_read_is_refused_with_a_sentence(turned):
             setattr(mesh, key, value)
         plan = update.classify(bad, assessed(reducer()), exists=disk.exists)
         assert said in plan.refusal and plan.refusal.endswith(
-            "so Update SolidWorks cannot act on the gearbox the record describes."), plan.refusal
+            "so Update SolidWorks cannot act on the gearbox the record describes: Build again… makes a new revision "
+            "from the workbook instead."), plan.refusal
         assert plan.motion is None
     bad = copy.deepcopy(record)
     bad.gearbox.mates[1].shaft = ""
@@ -874,7 +876,273 @@ def test_finishing_a_turning_update_follows_the_ratios_and_face_globals_set(turn
     assert {e.name: e.ratio for e in kept.record.gearbox.mates}["G1 meshes G2"] == [17, 68]
 
 
+def test_a_renamed_shaft_is_said_once_not_again_as_its_gears_moving(turned):
+    spec = reducer()
+    spec = replace(spec, shafts=spec.shafts[:2] + (replace(spec.shafts[2], id="Out"),),
+                   gears=spec.gears[:3] + (replace(spec.gears[3], shaft="Out"),))
+    plan = classify(turned, spec)
+    assert "Shaft S3 is no longer in the workbook, and its axis cannot be taken out of the layout part." in \
+        plan.structural
+    assert not any(s.startswith("G4 is now on") for s in plan.structural)
+
+
+def test_moving_the_input_is_an_update_whose_drag_gear_follows(turned):
+    disk, record = turned
+    spec = shafts(reducer(), S1=dict(role="", speed="", torque=""), S3=dict(role="input", speed="125"))
+    plan = classify(turned, spec)
+    assert plan.structural == () and plan.drag == ("G4",)
+    done = update.finish_update(plan, worker_answer(plan, placed=("G1", "G2", "G3", "G4"), changed_parts=()),
+                                record, digest="d2", read_sidecar=disk.read_sidecar, mtime=lambda p: 1.0)
+    assert done.record.gearbox.drag == ["G4"] and record.gearbox.drag == ["G1"]
+
+
+def test_a_trains_frames_go_on_record_whole_or_not_at_all(turned):
+    """Should-fix 3: a train put only in part by an update that failed keeps every frame it had on record."""
+    disk, record = turned
+    spec = shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5"))
+    plan = classify(turned, spec)
+    wanted = {p.gear: list(p.rotation) + list(p.at) for p in plan.placements}
+
+    def kept(placed, failures):
+        result = worker_answer(plan, placed=placed, changed_parts=(), failures=failures)
+        done = update.finish_update(plan, result, record, digest="d2", read_sidecar=disk.read_sidecar,
+                                    mtime=lambda p: 1.0)
+        return {c.gear: (c.rotation + c.at) == wanted[c.gear] for c in done.record.gearbox.components}
+    assert kept(("G1", "G2"), True) == {"G1": True, "G2": False, "G3": False, "G4": False}     # S1 did not move
+    assert kept(("G1", "G2", "G3", "G4"), True) == {"G1": True, "G2": True, "G3": True, "G4": True}
+    assert kept((), False) == {"G1": True, "G2": True, "G3": True, "G4": True}
+
+
 # -- the turning round trip (plan -> fake build -> finish -> classify -> update -> finish -> classify) --------------
 #
-# SECOND PASS (W5-INTERFACES §5): written once package A's fake SolidWorks carries mates and update_gearbox's motion
-# path exists. Nothing here yet: the tests above pin B's rules against hand-made worker answers.
+# On package A's fake SolidWorks (tests/test_swbuild.py), written against what the contract pins
+# (W5-INTERFACES §3), never against A's incidental call order: what the record, the classify after, and the fake's
+# own state (frames, mates, locked_puts, touched) say.
+
+
+def fake_build(spec, sw=None, record=None, digest="d1"):
+    """plan_gearbox -> build_gearbox on the fake -> finish_build: (sw, plan, result, record)."""
+    from gear_generator.workbook import gearbox
+    from test_swbuild import FakeSolidWorks
+    sw = sw or FakeSolidWorks()
+    plan = gearbox.plan_gearbox(assessed(spec), record, exists=sw.exists, read_sidecar=lambda p: None)
+    assert plan.refusal == "", plan.refusal
+    result = swbuild.build_gearbox(sw, **plan.build_kwargs(), exists=sw.exists)
+    done = gearbox.finish_build(plan, result, record, workbook=WORKBOOK, digest=digest, written_by="test",
+                                read_sidecar=lambda p: None, exists=sw.exists)
+    return sw, plan, result, done.record or record
+
+
+def press(sw, record, spec, digest="d2"):
+    """classify -> update_gearbox on the fake -> finish_update: (plan, result, finished)."""
+    plan = update.classify(record, assessed(spec), exists=lambda p: True)
+    assert plan.refusal == "" and not plan.needs_new_revision, (plan.refusal, plan.structural)
+    result = swbuild.update_gearbox(sw, **plan.update_kwargs(), exists=lambda p: True, mtime=lambda p: 5.0)
+    finished = update.finish_update(plan, result, record, digest=digest, read_sidecar=lambda p: None,
+                                    mtime=lambda p: 5.0)
+    return plan, result, finished
+
+
+def name2(record, gear):
+    return next(c.name for c in record.gearbox.components if c.gear == gear)
+
+
+def frames_of(sw, record):
+    return {c.gear: tuple(map(tuple, sw.frames[c.name])) for c in record.gearbox.components}
+
+
+def in_step_on_record(sw, record, spec):
+    """The fake's gears against the record, as the next Update's check phase reads them."""
+    plan = update.classify(record, assessed(spec), exists=lambda p: True)
+    fixed = set(plan.motion.fixed)
+    recorded = {p.gear: (p.rotation, p.at) for p in plan.motion.recorded if p.gear not in fixed}
+    found = {g: f for g, f in frames_of(sw, record).items() if g in recorded}
+    return swbuild.train_check(found, recorded, plan.motion.recorded_meshes, plan.motion.locks,
+                               {p.gear: p.pitch for p in plan.motion.recorded})
+
+
+def no_lock_left_off(sw, record):
+    asm = record.gearbox.assembly
+    locks = [e.name for e in record.gearbox.mates if e.kind == motion.LOCK]
+    return sw.locked_puts == [] and all(not sw.mate(name, asm).suppressed for name in locks)
+
+
+def wanted_frames(record, spec):
+    plan = update.classify(record, assessed(spec), exists=lambda p: True)
+    return {p.gear: (p.rotation, p.at) for p in plan.placements}
+
+
+def at_wanted(sw, record, spec, gears_=None):
+    live, wanted = frames_of(sw, record), wanted_frames(record, spec)
+    return all(swbuild.same_frame(live[g][0], live[g][1], wanted[g][0], wanted[g][1]) for g in (gears_ or wanted))
+
+
+def turn_train(sw, record, degrees, links=None):
+    """The user drags the 12 : 1's input: each gear turns δ_i = θ·ω_i/ω_in about its own axis (review M2)."""
+    for gear, k in (links or {"G1": 1.0, "G2": -0.25, "G3": -0.25, "G4": 1 / 12}).items():
+        sw.turn(name2(record, gear), degrees * k)
+
+
+@pytest.fixture
+def on_fake(turning):
+    sw, plan, result, record = fake_build(reducer())
+    return sw, record
+
+
+def test_round_trip_a_clean_build_records_a_turning_gearbox(on_fake):
+    sw, record = on_fake
+    box = record.gearbox
+    assert box.kind == motion.MOTION and box.assembly and box.mate_problems == [] and box.drag == ["G1"]
+    assert [e.name for e in box.mates] == [m.name for m in sw.mates]
+    assert all(sw.mate(e.name, box.assembly).status == findings.ADD_MATE_NO_ERROR for e in box.mates)
+    assert nothing(update.classify(record, assessed(reducer()), exists=lambda p: True))
+    _, result, _ = press(sw, record, reducer())
+    assert result.ok and result.placed == [] and not result.turned
+
+
+def test_round_trip_a_train_turned_only_is_left_where_it_was_turned(on_fake):
+    sw, record = on_fake
+    turn_train(sw, record, 30.0)
+    before = frames_of(sw, record)
+    sw.touched.clear()
+    plan, result, finished = press(sw, record, reducer())
+    assert result.ok and result.turned and result.placed == [] and result.restored == []
+    assert result.out_of_step == [] and result.off_axis == []
+    assert frames_of(sw, record) == before and record.gearbox.assembly not in result.changed
+    assert not any(k.endswith(".sldasm") for k in sw.touched)
+    assert finished.dragged == [] and finished.record.unsaved == {}
+    assert [c.rotation for c in finished.record.gearbox.components] == [c.rotation for c in record.gearbox.components]
+    check = in_step_on_record(sw, finished.record, reducer())
+    assert check.in_step and check.turned
+
+
+def test_round_trip_a_layout_move_puts_the_whole_train_back_with_its_locks_off_around_the_puts(on_fake):
+    sw, record = on_fake
+    turn_train(sw, record, 30.0)                              # turned first: the put returns it (D4)
+    spec = shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5"))
+    plan, result, finished = press(sw, record, spec)
+    assert result.ok, result.failures
+    assert sorted(result.placed) == ["G1", "G2", "G3", "G4"] and result.restored == [("G1", "G2", "G3", "G4")]
+    assert no_lock_left_off(sw, record) and at_wanted(sw, record, spec)
+    assert finished.dragged == [] and nothing(update.classify(finished.record, assessed(spec),
+                                                              exists=lambda p: True))
+    assert in_step_on_record(sw, finished.record, spec).in_step
+
+
+def test_round_trip_an_anchors_face_z_moves_it_and_the_record_follows(on_fake):
+    sw, record = on_fake
+    spec = gears(reducer(), G4=dict(at="30"))
+    plan, result, finished = press(sw, record, spec)
+    assert plan.axial == ("G4",) and result.ok and result.axial == ["G4"]
+    assert sw.frames[name2(record, "G4")][1][2] == pytest.approx(20.0) and at_wanted(sw, record, spec)
+    assert {e.name: e for e in finished.record.gearbox.mates}["G4 along S3"].z_front == 20.0
+    assert nothing(update.classify(finished.record, assessed(spec), exists=lambda p: True))
+
+
+def test_round_trip_a_followers_at_is_carried_by_a_put_under_its_suppressed_lock(on_fake):
+    sw, record = on_fake
+    spec = gears(reducer(), G3=dict(at="30"))
+    plan, result, finished = press(sw, record, spec)
+    assert result.ok, result.failures
+    assert "G3" in result.placed and no_lock_left_off(sw, record) and at_wanted(sw, record, spec)
+    assert nothing(update.classify(finished.record, assessed(spec), exists=lambda p: True))
+    assert in_step_on_record(sw, finished.record, spec).in_step
+
+
+def test_round_trip_a_refused_mate_keeps_parts_and_layout_and_the_next_build_carries_on(turning):
+    from test_swbuild import FakeSolidWorks
+    sw = FakeSolidWorks(mate_codes={"G3 locked to G2": (46, False)})
+    sw, plan, result, record = fake_build(reducer(), sw)
+    assert result.assembly.mate_problems and not result.assembly.saved and result.kind == ""
+    box = record.gearbox
+    assert (box.layout, box.assembly, box.components) == (plan.layout_path, "", [])
+    assert box.mate_problems == result.assembly.mate_problems and box.mate_problems_digest == "d1"
+    assert len(record.parts) == 4 and record.digest == ""
+    assert update.classify(record, assessed(reducer()), exists=lambda p: True).refusal
+    sw.mate_codes = {}                                        # the workbook changed; SolidWorks takes it now
+    sw, again, result, record = fake_build(reducer(), sw, record, digest="d2")
+    assert isinstance(again.layout, gearbox_module().LayoutReuse) and len(again.reuse) == 4 and result.ok
+    box = record.gearbox
+    assert box.kind == motion.MOTION and box.assembly and (box.mate_problems, box.mate_problems_digest) == ([], "")
+    assert nothing(update.classify(record, assessed(reducer()), exists=lambda p: True))
+
+
+def gearbox_module():
+    from gear_generator.workbook import gearbox
+    return gearbox
+
+
+def test_round_trip_a_tooth_change_by_remake(on_fake, monkeypatch):
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    sw, record = on_fake
+    spec = gears(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), G2=dict(teeth="69"))
+    plan, result, finished = press(sw, record, spec)
+    assert result.ok, result.failures
+    assert result.ratios == ["G1 meshes G2"] and sw.mate("G1 meshes G2", record.gearbox.assembly).ratio == (17, 69)
+    assert {e.name: e.ratio for e in finished.record.gearbox.mates}["G1 meshes G2"] == [17, 69]
+    assert no_lock_left_off(sw, record) and at_wanted(sw, record, spec)
+    assert nothing(update.classify(finished.record, assessed(spec), exists=lambda p: True))
+
+
+def test_round_trip_teeth_doubled_at_half_the_module_keep_the_ratio_and_need_no_remake(on_fake):
+    """Should-fix 1: 17 : 68 -> 34 : 136 is the same 1 : 4, an Update as in W4, and the record's ratio follows."""
+    sw, record = on_fake
+    spec = gears(reducer(), G1=dict(teeth="34", module="0.75"), G2=dict(teeth="136", module="0.75"))
+    plan, result, finished = press(sw, record, spec)
+    assert plan.ratios == () and plan.motion.ratios == () and result.ok and result.ratios == []
+    assert sw.mate("G1 meshes G2", record.gearbox.assembly).ratio == (17.0, 68.0)
+    assert {e.name: e.ratio for e in finished.record.gearbox.mates}["G1 meshes G2"] == [34, 136]
+    after = update.classify(finished.record, assessed(spec), exists=lambda p: True)
+    assert nothing(after) and after.motion.recorded_meshes[0] == swbuild.MeshLink("G1", "G2", -0.25, 360 / 136)
+    assert in_step_on_record(sw, finished.record, spec).in_step
+
+
+def test_round_trip_a_gear_dragged_off_its_axis_is_put_back_and_said(on_fake):
+    sw, record = on_fake
+    rotation, at = sw.frames[name2(record, "G4")]
+    sw.frames[name2(record, "G4")] = (rotation, (at[0] + 3.0, at[1] - 2.0, at[2]))
+    plan, result, finished = press(sw, record, reducer())
+    assert result.ok and result.off_axis == ["G4"] and "G4" in result.placed
+    assert finished.dragged == ["G4"] and at_wanted(sw, record, reducer()) and no_lock_left_off(sw, record)
+
+
+def test_round_trip_a_gear_held_still_by_a_fixed_shaft_is_re_placed_as_w4_does(turning):
+    spec = with_pair(reducer(), s5_role="fixed")
+    sw, _, result, record = fake_build(spec)
+    assert result.ok and record.gearbox.fixed == ["G5", "G6"]
+    sw.turn(name2(record, "G5"), 4.0)                         # S4 is held still (M9): a turn there is a drag
+    turn_train(sw, record, 30.0)
+    plan, result, finished = press(sw, record, spec)
+    assert result.ok and result.placed == ["G5"] and result.turned
+    assert finished.dragged == ["G5"] and at_wanted(sw, record, spec, ["G5", "G6"])
+
+
+def test_round_trip_two_trains_and_only_the_one_that_moved_is_put(turning):
+    spec = with_pair(reducer(), s4_role="input")
+    sw, _, result, record = fake_build(spec)
+    assert result.ok and record.gearbox.drag == ["G1", "G5"]
+    turn_train(sw, record, 20.0, {"G5": 1.0, "G6": -0.25})    # the second train turned by hand
+    moved = shafts(spec, S2=dict(x="64.5"), S3=dict(x="132.5"))
+    second = frames_of(sw, record)
+    plan, result, finished = press(sw, record, moved)
+    assert result.ok and sorted(result.placed) == ["G1", "G2", "G3", "G4"] and no_lock_left_off(sw, record)
+    assert {g: f for g, f in frames_of(sw, record).items() if g in ("G5", "G6")} == {
+        g: second[g] for g in ("G5", "G6")}
+    assert nothing(update.classify(finished.record, assessed(moved), exists=lambda p: True))
+    check = in_step_on_record(sw, finished.record, moved)
+    assert check.in_step and check.turned                    # the second train still stands where it was turned
+
+
+def test_round_trip_moving_the_input_refreshes_the_drag_gear_and_records_the_train_whole(on_fake):
+    """Should-fixes 2 and 3: Role input from S1 to S3 is an Update; G3's built turn moves a whole pitch, so the
+    lock is out of step against the new frames and the whole train is put; the record takes every frame of it and
+    the next check finds the train in step; the drag gear is now S3's anchor."""
+    sw, record = on_fake
+    turn_train(sw, record, 360 / 17)                          # one tooth of G1: G1 and G2 whole teeth, G3 and G4 not
+    spec = shafts(reducer(), S1=dict(role="", speed="", torque=""), S3=dict(role="input", speed="125"))
+    plan, result, finished = press(sw, record, spec)
+    assert plan.structural == () and plan.drag == ("G4",)
+    assert result.ok and sorted(result.placed) == ["G1", "G2", "G3", "G4"] and no_lock_left_off(sw, record)
+    assert finished.record.gearbox.drag == ["G4"]
+    check = in_step_on_record(sw, finished.record, spec)
+    assert check.in_step and not check.turned
