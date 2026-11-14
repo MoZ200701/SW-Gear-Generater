@@ -47,8 +47,8 @@ class DiskSolidWorks(FakeSolidWorks):
         self.names[handle] = name
         return name
 
-    def place_component(self, handle, rotation, at):
-        super().place_component(handle, rotation, at)
+    def place_component(self, handle, rotation, at, mated=False):
+        super().place_component(handle, rotation, at, mated)
         if handle in self.names:
             self.frames[self.names[handle]] = (tuple(rotation), tuple(at))
 

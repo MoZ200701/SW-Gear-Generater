@@ -1257,3 +1257,35 @@ def test_an_unsettled_assembly_rebuild_is_refused_before_anything_is_changed(com
     assert gear.Transform2.ArrayData == before                 # refused before the put, not after it
     assert not any(e[0] in ("CreateTransform", "Transform2 put", "ForceRebuild3", "EditRebuild3") for e in com.log)
     assert _marked(com) == []
+
+
+# -- a MATED assembly keeps the full rebuild (the review of 9c39fb8): the caller says which kind it is
+
+
+@pytest.mark.parametrize("workbook_route", ["ForceRebuild3(True)", None])
+def test_a_mated_assembly_rebuilds_in_full_as_it_always_did(com, monkeypatch, workbook_route):
+    monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", workbook_route)
+    assert getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None) is None
+    _gearbox_world(com)
+    assert _session(com).rebuild(mated=True) is True
+    assert _calls(com, "ForceRebuild3") == [("ForceRebuild3", "R.SLDASM", False)]
+    assert swcom.rebuild_call(swcom.DOC_ASSEMBLY, mated=True) == ("ForceRebuild3", (False,))
+
+
+def test_a_put_in_a_mated_assembly_is_rebuilt_in_full(com, monkeypatch):
+    session, _gear = _placing(com, monkeypatch)
+    monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)        # a pair never leans on the workbook finding
+    session.place_component("gear2", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (64.5, 0.0, 0.0), mated=True)
+    assert _calls(com, "ForceRebuild3") == [("ForceRebuild3", "R.SLDASM", False)]
+
+
+def test_a_mated_route_once_set_is_taken_and_an_unknown_one_refused(com, monkeypatch):
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "EditRebuild3", raising=False)
+    assert swcom.rebuild_call(swcom.DOC_ASSEMBLY, mated=True) == ("EditRebuild3", ())
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "guess", raising=False)
+    _gearbox_world(com)
+    with pytest.raises(swcom.SolidWorksError) as raised:
+        _session(com).rebuild(mated=True)
+    assert str(raised.value) == ("findings.MATED_ASSEMBLY_REBUILD_ROUTE is 'guess', which is not a rebuild this code "
+                                 "knows, so no mated assembly is changed; run probe tier 8 again.")
+    assert _calls(com, "ForceRebuild3") == [] and _marked(com) == []

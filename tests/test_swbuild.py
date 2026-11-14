@@ -59,6 +59,11 @@ class FakeSolidWorks:
     (``assembly_components`` keeps each saved assembly's inserted paths); any
     component in ``failed_documents`` makes it return False, top-only or not.
     A put alone marks nothing (``findings.PUT_MARKS_ASSEMBLY_MODIFIED``).
+    Running interference detection marks the assembly. The kind each rebuild
+    was asked for (``mated``) and the member it took are kept in
+    ``rebuild_kinds`` and ``rebuild_members``. Nothing unprobed is modelled:
+    not a rebuild under ``CommandInProgress``, not what a top-only rebuild
+    does to mates.
     """
 
     def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None,
@@ -93,6 +98,8 @@ class FakeSolidWorks:
         self.adding = []               # the paths inserted into the new assembly so far
         self.assembly_components = {}  # lower-cased .sldasm path -> the paths it was saved with
         self.failed_documents = {_key(p) for p in failed_documents}
+        self.rebuild_kinds = []        # the ``mated`` each rebuild was asked with
+        self.rebuild_members = []      # what rebuild_call gave each rebuild, a put's own included
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -136,17 +143,19 @@ class FakeSolidWorks:
         self._log("suppress", suppressed)
         self.suppressed = suppressed
 
-    def rebuild(self):
+    def rebuild(self, mated=False):
         self._log("rebuild", self.suppressed)
-        return self._rebuilt()
+        self.rebuild_kinds.append(mated)
+        return self._rebuilt(mated)
 
     def _is_assembly(self):
         return self.current.lower().endswith(".sldasm") if self.current else self.kind == 2
 
-    def _rebuilt(self):
+    def _rebuilt(self, mated=False):
         """What a rebuild of the current document does to the marks, and what it returns (see the class)."""
         from gear_generator import swcom
-        member, args = swcom.rebuild_call(swcom.DOC_ASSEMBLY if self._is_assembly() else swcom.DOC_PART)
+        member, args = swcom.rebuild_call(swcom.DOC_ASSEMBLY if self._is_assembly() else swcom.DOC_PART, mated)
+        self.rebuild_members.append((member, args))
         self._touch()
         if not self._is_assembly():
             return self.rebuild_ok
@@ -309,17 +318,18 @@ class FakeSolidWorks:
         return (name or f"Mate{len(self.calls)}"), ("D7" if kind in ("distance", "angle", "axis angle",
                                                                     "point distance") else "")
 
-    def place_component(self, handle, rotation, at):
+    def place_component(self, handle, rotation, at, mated=False):
         self._log("place_component", handle)
         if getattr(findings, "PUT_MARKS_ASSEMBLY_MODIFIED", False):
             self._touch()
         self.frames[handle] = (tuple(rotation), tuple(at))
         if handle in self.found:
             self.frames[self.found[handle]] = (tuple(rotation), tuple(at))
-        self._rebuilt()                # Session.place_component's rebuild of its own, after the put
+        self._rebuilt(mated)           # Session.place_component's rebuild of its own, after the put
 
     def interference_count(self):
         self._log("interference_count")
+        self._touch()                  # interference detection marks the assembly (see interferences)
         return self.interference
 
     def set_custom_property(self, name, value):
@@ -370,7 +380,10 @@ class FakeSolidWorks:
         return self.frames.get(handle, self.frames.get(self.found.get(handle), identity))
 
     def interferences(self):
+        """As probe assembly_rebuild_scope recorded it (``flags_after_reads``): running the interference check marks
+        the assembly modified, after a rebuild or with none."""
         self._log("interferences")
+        self._touch()
         return list(self.clashes)
 
     def exists(self, path):
@@ -1602,8 +1615,9 @@ def test_every_same_named_document_open_elsewhere_is_named_in_one_refusal():
 #
 # The W4 rerun on SolidWorks 2026 failed three checks for one fault: the app rebuilt assemblies with
 # ForceRebuild3(False), which marks every component modified, so SolidWorks asked to save parts no job had changed
-# (parts earlier revisions share among them). The fake rebuilds as SolidWorks did (its docstring), choosing the
-# member through swcom.rebuild_call as Session does; FULL is the route the app used to take, to show the fault.
+# (parts earlier revisions share among them). The fake marks what probe assembly_rebuild_scope saw each rebuild
+# mark (its docstring), choosing the member through swcom.rebuild_call as Session does; FULL is the route the app
+# used to take for the static gearbox, to show the fault.
 
 FULL = {"ASSEMBLY_REBUILD_ROUTE": "ForceRebuild3(False)", "ASSEMBLY_REBUILD_TOP_ONLY": False}
 R1_LAYOUT, R1_ASM = W + "R_r1_Layout.SLDPRT", W + "R_r1.SLDASM"
@@ -1625,15 +1639,15 @@ def _build_again(fake):
 def test_a_fresh_build_leaves_every_part_and_the_layout_as_saved():
     fake, result = _build()
     assert result.ok and result.assembly.rebuilt
-    # Every part and the layout read as saved. (On SolidWorks the interference check after the assembly's save marks
-    # the assembly itself, as probe assembly_rebuild_scope saw; the fake does not model that check's mark.)
-    assert fake.touched == set()
+    # Every part and the layout read as saved; the assembly reads modified, because the interference check run
+    # after its save marks it (probe assembly_rebuild_scope's flags_after_reads), with nothing lost by not saving it.
+    assert fake.touched == {_key(ASM)}
 
 
 def test_a_fresh_build_with_the_old_full_rebuild_left_every_part_marked(monkeypatch):
     _full_rebuild(monkeypatch)
     fake, result = _build()
-    assert result.ok and fake.touched == {_key(P17), _key(P68), _key(LAYOUT)}      # the fault the rerun found
+    assert result.ok and fake.touched == {_key(P17), _key(P68), _key(LAYOUT), _key(ASM)}   # the rerun's fault
 
 
 def test_a_build_again_leaves_the_part_it_reuses_as_saved():
@@ -1641,7 +1655,7 @@ def test_a_build_again_leaves_the_part_it_reuses_as_saved():
     fake = _built_gearbox()
     fake.touched.clear()
     _build_again(fake)
-    assert fake.touched == set()
+    assert fake.touched == {_key(R1_ASM)}            # its interference check's mark alone
 
 
 def test_a_build_again_with_the_old_full_rebuild_marked_the_shared_part(monkeypatch):
@@ -1733,13 +1747,12 @@ def test_an_update_refuses_an_unsettled_assembly_rebuild_before_changing_anythin
 
 
 @pytest.mark.parametrize("unsettled, sentence", UNSETTLED)
-def test_a_build_refuses_an_unsettled_assembly_rebuild_before_making_anything(monkeypatch, unsettled, sentence):
+def test_a_static_build_refuses_an_unsettled_assembly_rebuild_before_making_anything(monkeypatch, unsettled,
+                                                                                    sentence):
     for name, value in unsettled.items():
         monkeypatch.setattr(findings, name, value)
     for make in (lambda fake: _build(fake),
-                 lambda fake: swbuild.build(fake, _assembly_plan(), never_exists),
-                 lambda fake: swbuild.build_pair(fake, plan(S17, path=r"C:\g\a.SLDPRT"),
-                                                 plan(S68, path=r"C:\g\b.SLDPRT"), _assembly_plan(), never_exists)):
+                 lambda fake: swbuild.build(fake, _gearbox_assembly(), never_exists)):
         fake = FakeSolidWorks()
         with pytest.raises(swbuild.BuildError) as raised:
             make(fake)
@@ -1751,3 +1764,142 @@ def test_parts_alone_are_built_whatever_the_assembly_route_says(monkeypatch):
     monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)
     fake, result = _build(layout=None, assembly=None)
     assert result.ok and [r.saved for r in result.parts.built] == [P17, P68]
+
+
+# -- the review of 9c39fb8: a MATED assembly keeps the full rebuild every pair result on record ran --------------
+#
+# Probe assembly_rebuild_scope tried fixed components only, with no mate and no assembly equation, so a pair (and
+# anything a Mate op is in) stays on ForceRebuild3(False), for every rebuild and every put, the puts before its
+# mates included, until findings.MATED_ASSEMBLY_REBUILD_ROUTE says otherwise. A pair build does not depend on the
+# tier-7 workbook finding at all.
+
+FULL_CALL = ("ForceRebuild3", (False,))
+TOP_CALL = ("ForceRebuild3", (True,))
+PAIR_PATHS = (r"C:\g\a.SLDPRT", r"C:\g\b.SLDPRT", "", r"C:\g\Pair.SLDASM")
+
+
+def _pair_kinds():
+    """Every kind of pair assembly the app builds, by its own planners."""
+    from gear_generator.gears import pair
+    from test_gears_bevel import spec as bevel_spec
+    from test_gears_crossed import gears as crossed_gears
+
+    spur_a, spur_b = GearSpec(module="1.5", teeth="20"), GearSpec(module="1.5", teeth="60")
+    hel_a = GearSpec(kind="helical", module="2", teeth="20", helix_angle="15")
+    hel_b = hel_a.with_values(teeth="40", hand="left")
+    her_a = GearSpec(kind="herringbone", module="2", teeth="20", helix_angle="30", face_width="20")
+    her_b = her_a.with_values(teeth="40", hand="left", face_width="16")
+    pinion, ring = GearSpec(module="2", teeth="20"), GearSpec(module="2", teeth="60", teeth_side="internal")
+    cross_a, cross_b = crossed_gears()
+    out = {}
+    for name, (a, b) in (("spur", (spur_a, spur_b)), ("helical", (hel_a, hel_b)), ("herringbone", (her_a, her_b)),
+                         ("ring", (pinion, ring))):
+        out[f"{name}, fixed"] = pair.assembly_plan(a, b, *PAIR_PATHS)
+        out[f"{name}, gear mate"] = pair.assembly_plan(a, b, *PAIR_PATHS, motion="gear mate")
+    for route in (pair.ROUTE_MATES, pair.ROUTE_FIXED):
+        out[f"crossed, {route}"] = pair.crossed_assembly_plan(cross_a, cross_b, *PAIR_PATHS, 90.0, route)
+    out["bevel"] = pair.assembly_plan(bevel_spec(), bevel_spec("40", "20"), *PAIR_PATHS)
+    return out
+
+
+@pytest.fixture
+def gear_mates_settled(monkeypatch):
+    for name, value in (("GEAR_MATE_ROUTE", "mates"), ("MATE_GEAR", 10), ("GEAR_MATE_NUMERATOR_FIRST", True),
+                        ("GEAR_MATE_EXTERNAL_FLIP", False)):
+        monkeypatch.setattr(findings, name, value)
+
+
+@pytest.mark.parametrize("workbook_finding", ["set", "unset", "unknown"])
+def test_every_pair_kind_rebuilds_and_puts_in_full_whatever_the_workbook_finding(monkeypatch, gear_mates_settled,
+                                                                                 workbook_finding):
+    assert getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None) is None    # set by the W5 probe batch, not yet
+    if workbook_finding != "set":
+        monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None if workbook_finding == "unset" else "guess")
+    kinds = _pair_kinds()
+    assert len(kinds) == 11
+    for name, assembly in kinds.items():
+        assert assembly.check() == [], name
+        fake = FakeSolidWorks()
+        result = swbuild.build_pair(fake, plan(S17, path=PAIR_PATHS[0]), plan(S68, path=PAIR_PATHS[1]), assembly,
+                                    never_exists)
+        assert result.ok and result.assembly.ok, (name, result.log_lines())
+        start = names(fake).index("new_assembly")
+        puts = names(fake)[start:].count("place_component")
+        # The assembly's members: one per put (its own rebuild) and its one rebuild, every one the full rebuild.
+        assert fake.rebuild_members[-(puts + 1):] == [FULL_CALL] * (puts + 1), name
+        assert fake.rebuild_kinds[-1] is True, name
+
+
+def test_a_crossed_pair_placed_fixed_has_no_mate_and_is_still_built_as_mated(gear_mates_settled):
+    from gear_generator.gears import pair
+    fixed = _pair_kinds()["crossed, fixed"]
+    assert not swbuild.is_mated(fixed)                      # the predicate alone would call it static
+    fake = FakeSolidWorks()
+    swbuild.build_pair(fake, plan(S17, path=PAIR_PATHS[0]), plan(S68, path=PAIR_PATHS[1]), fixed, never_exists)
+    assert fake.rebuild_kinds[-1] is True and fake.rebuild_members[-1] == FULL_CALL
+    assert pair.ROUTE_FIXED == "fixed"
+
+
+def test_a_plan_with_mates_built_alone_takes_the_mated_route(gear_mates_settled, monkeypatch):
+    monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)
+    gear_mate = _pair_kinds()["spur, gear mate"]
+    assert swbuild.is_mated(gear_mate)
+    fake = FakeSolidWorks()
+    result = swbuild.build(fake, gear_mate, never_exists)
+    assert result.ok and fake.rebuild_kinds == [True] and set(fake.rebuild_members) == {FULL_CALL}
+
+
+def test_the_static_gearbox_still_rebuilds_and_puts_top_only():
+    fake, result = _build()
+    assert result.ok
+    start = names(fake).index("new_assembly")
+    puts = names(fake)[start:].count("place_component")
+    assert puts == 3 and fake.rebuild_members[-(puts + 1):] == [TOP_CALL] * (puts + 1)
+    assert fake.rebuild_kinds[-1] is False
+
+
+def test_an_unknown_mated_finding_refuses_a_pair_before_anything_is_made(monkeypatch, gear_mates_settled):
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "guess", raising=False)
+    fake = FakeSolidWorks()
+    with pytest.raises(swbuild.BuildError) as raised:
+        swbuild.build(fake, _pair_kinds()["spur, gear mate"], never_exists)
+    assert str(raised.value) == ("findings.MATED_ASSEMBLY_REBUILD_ROUTE is 'guess', which is not a rebuild this code "
+                                 "knows, so no mated assembly is changed; run probe tier 8 again.")
+    assert not any(n in CHANGES for n in names(fake))
+
+
+def test_a_mated_finding_once_set_is_taken(monkeypatch, gear_mates_settled):
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "ForceRebuild3(True)", raising=False)
+    fake = FakeSolidWorks()
+    swbuild.build(fake, _pair_kinds()["spur, gear mate"], never_exists)
+    assert set(fake.rebuild_members) == {TOP_CALL}
+
+
+def test_no_rebuild_member_is_called_but_through_the_one_decision():
+    """The review of 9c39fb8: every ForceRebuild3 / EditRebuild3 the app makes goes through swcom.rebuild_call and
+    its table, so the route is decided in one place (the probes call COM raw on purpose and are left out)."""
+    import ast
+    import pathlib
+
+    import gear_generator
+
+    root = pathlib.Path(gear_generator.__file__).parent
+    members = {"ForceRebuild3", "EditRebuild3"}
+    found = []
+    for path in sorted(root.rglob("*.py")):
+        if "probe" in path.relative_to(root).parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        allowed = set()
+        for node in ast.walk(tree):
+            inside = (isinstance(node, ast.FunctionDef) and node.name == "rebuild_call") or (
+                isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "ASSEMBLY_REBUILD_CALLS"
+                                                     for t in node.targets))
+            if inside:
+                allowed.update(id(n) for n in ast.walk(node))
+        for node in ast.walk(tree):
+            named = (isinstance(node, ast.Constant) and node.value in members) or (
+                isinstance(node, ast.Attribute) and node.attr in members)
+            if named and id(node) not in allowed:
+                found.append(f"{path.relative_to(root)}:{node.lineno}")
+    assert found == []

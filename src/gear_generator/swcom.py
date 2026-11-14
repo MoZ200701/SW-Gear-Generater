@@ -105,23 +105,42 @@ class SolidWorksError(Exception):
     """Something about the SolidWorks connection did not work."""
 
 
-def rebuild_call(doc_type: int) -> Tuple[str, Tuple[Any, ...]]:
+def rebuild_call(doc_type: int, mated: bool = False) -> Tuple[str, Tuple[Any, ...]]:
     """The member, and its arguments, that rebuild a document of this ``GetType``: the one place that decides.
 
-    A part (or anything that is not an assembly) is rebuilt as it always was,
-    ``ForceRebuild3(False)``: a rebuild of a part's own features, and top-only
-    on a part was never probed. An assembly takes ``findings.ASSEMBLY_REBUILD_ROUTE``
-    (probe assembly_rebuild_scope, SolidWorks 2026 34.1.1 and 2024 32.5.0):
-    ``ForceRebuild3(False)`` on an assembly rebuilt every component and marked
-    each one modified, parts nothing had changed among them, while
-    ``ForceRebuild3(True)`` marked the assembly alone, still showed a put, the
-    layout part's moved axes and a part changed in its own document, and still
-    returned False while a component failed to rebuild. A finding that is
-    missing, not one of :data:`ASSEMBLY_REBUILD_CALLS`, or at odds with
-    ``findings.ASSEMBLY_REBUILD_TOP_ONLY`` is refused with a sentence, never guessed.
+    The caller says what kind of assembly it is; nothing here infers it.
+
+    - A part (or anything that is not an assembly) is rebuilt as it always
+      was, ``ForceRebuild3(False)``: a rebuild of a part's own features, and
+      top-only on a part was never probed.
+    - A MATED assembly (``mated``: a pair, crossed or bevel build, anything a
+      ``Mate`` op is in) takes ``findings.MATED_ASSEMBLY_REBUILD_ROUTE``, and
+      while that is None the full ``ForceRebuild3(False)``: the route every
+      mated result on record ran (probe tiers 4, 5 and 8, gear_pairs_check),
+      since probe assembly_rebuild_scope tried fixed components only, with no
+      mate and no assembly equation. A value not in
+      :data:`ASSEMBLY_REBUILD_CALLS` is refused with a sentence.
+    - A STATIC assembly (fixed components, no mates: the workbook gearbox)
+      takes ``findings.ASSEMBLY_REBUILD_ROUTE`` (probe assembly_rebuild_scope,
+      SolidWorks 2026 34.1.1 and 2024 32.5.0): ``ForceRebuild3(False)`` rebuilt
+      every component and marked each one modified, parts nothing had changed
+      among them, while ``ForceRebuild3(True)`` marked the assembly alone,
+      still showed a put, the layout part's moved axes and a part changed in
+      its own document, and still returned False while a component failed to
+      rebuild. A finding that is missing, not one of the table's, or at odds
+      with ``findings.ASSEMBLY_REBUILD_TOP_ONLY`` is refused with a sentence,
+      never guessed.
     """
     if doc_type != DOC_ASSEMBLY:
         return "ForceRebuild3", (False,)
+    if mated:
+        route = getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None)
+        if route is None:
+            return ASSEMBLY_REBUILD_CALLS["ForceRebuild3(False)"]
+        if route not in ASSEMBLY_REBUILD_CALLS:
+            raise SolidWorksError(f"findings.MATED_ASSEMBLY_REBUILD_ROUTE is {route!r}, which is not a rebuild this "
+                                  "code knows, so no mated assembly is changed; run probe tier 8 again.")
+        return ASSEMBLY_REBUILD_CALLS[route]
     route = getattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)
     if route not in ASSEMBLY_REBUILD_CALLS:
         raise SolidWorksError(f"How to rebuild an assembly has not been settled on SolidWorks yet "
@@ -650,16 +669,18 @@ class Session:
         """
         self._app.CommandInProgress = bool(suppressed)
 
-    def rebuild(self) -> bool:
+    def rebuild(self, mated: bool = False) -> bool:
         """Rebuild the build's document (else the active one). Called once, after the last change.
 
         Which rebuild is :func:`rebuild_call`'s to say, by the document's
-        ``GetType``: a part as always, an assembly by ``findings.ASSEMBLY_REBUILD_ROUTE``
-        (top-only), so a rebuild after an Update or a build marks the assembly
+        ``GetType`` and the kind of assembly the caller says it is (``mated``):
+        a part as always, a mated assembly fully until a finding says
+        otherwise, a static one top-only (``findings.ASSEMBLY_REBUILD_ROUTE``),
+        so a rebuild after an Update or a workbook build marks the assembly
         modified and leaves every part it did not change as it was.
         """
         doc = self._doc()
-        member, args = rebuild_call(int(call(doc, "GetType")))
+        member, args = rebuild_call(int(call(doc, "GetType")), mated)
         return bool(call(doc, member, *args))
 
 
@@ -1711,7 +1732,8 @@ class Session:
                                                0.0, append, 1, _null_dispatch(), 0), before):
             raise SolidWorksError(f"{full} could not be selected for a mate.")
 
-    def place_component(self, handle: str, rotation: Sequence[float], at: Tuple[float, float, float]) -> None:
+    def place_component(self, handle: str, rotation: Sequence[float], at: Tuple[float, float, float],
+                        mated: bool = False) -> None:
         """Set a component's frame: a rotation given by rows, and its origin in mm (probe nonparallel_mates).
 
         ``IMathUtility.CreateTransform`` answered "member not found" to late
@@ -1719,7 +1741,9 @@ class Session:
         16 numbers as a double array — the rotation in columns, then the
         translation in metres, the scale and three zeros — and put on
         ``Transform2``. Then the document is rebuilt as :func:`rebuild_call`
-        says, top-only for an assembly: probe assembly_rebuild_scope saw the
+        says for the kind of assembly the caller names (``mated``: fully, as
+        always, until a finding says otherwise), top-only for a static
+        assembly: probe assembly_rebuild_scope saw the
         put show without any rebuild, but a put alone left the assembly
         unmarked (``findings.PUT_MARKS_ASSEMBLY_MODIFIED``), and the full
         rebuild this used to make marked every component modified. The frame
@@ -1728,7 +1752,7 @@ class Session:
         component = self._handles[handle]["component"]
         doc = self._doc()
         # Settled before the put, so a rebuild that cannot be made refuses with nothing moved.
-        member, args = rebuild_call(int(call(doc, "GetType")))
+        member, args = rebuild_call(int(call(doc, "GetType")), mated)
         m = MM_PER_METRE
         columns = [float(rotation[i * 3 + j]) for j in range(3) for i in range(3)]
         data = columns + [at[0] / m, at[1] / m, at[2] / m, 1.0, 0.0, 0.0, 0.0]
