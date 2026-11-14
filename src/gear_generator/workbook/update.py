@@ -79,7 +79,10 @@ class UpdatePlan:
     again). ``missing``: recorded files no longer on disk (likewise).
     ``unsaved``: documents an earlier Update changed and that are not yet
     saved. ``refusal``: ``""``, or why there is nothing Update can act on
-    (no record, a record with no parts).
+    (no record, a record with no parts, a record that is another workbook's).
+    ``foreign_record``: that other workbook, when the record beside this one
+    was written for a workbook still on disk — this one is a copy, and
+    Update leaves that workbook's files alone (review S1).
     """
 
     parts: Tuple[PartUpdate, ...] = ()
@@ -93,6 +96,7 @@ class UpdatePlan:
     unsaved: Tuple[str, ...] = ()
     refusal: str = ""
     shafts: Tuple[ShaftLayout, ...] = ()       # the shafts as now wanted, for the record (Agent B, additive)
+    foreign_record: str = ""
 
     @property
     def changed_parts(self) -> Tuple[PartUpdate, ...]:
@@ -233,6 +237,10 @@ def classify(record: Optional[LinkRecord], a: Assessment, *,
     if record is None:
         return UpdatePlan(refusal="Nothing has been built from this workbook yet, so Update SolidWorks has nothing "
                                   "to change.")
+    here = str(a.read.source_path or a.spec.source_path or "")
+    foreign = store.foreign_workbook(record, here, exists)
+    if foreign:
+        return UpdatePlan(refusal=store.foreign_record_sentence(here, foreign), foreign_record=foreign)
     box = record.gearbox
     if box is not None and not box.assembly:
         return UpdatePlan(refusal=(f"{os.path.basename(box.layout)} was saved but its assembly was not made: Build "
@@ -353,7 +361,7 @@ def classify(record: Optional[LinkRecord], a: Assessment, *,
 def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *, digest: str,
                   read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar,
                   mtime: Callable[[str], float] = os.path.getmtime,
-                  stamp: Optional[str] = None) -> Finished:
+                  stamp: Optional[str] = None, workbook: str = "") -> Finished:
     """The sidecars and record an update leaves (Tk thread, after the worker).
 
     ``record`` is the record as read just before writing
@@ -361,8 +369,16 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     SolidWorks (``result.parts[i].changed``): ``store.updated_sidecar`` and its
     ``PartEntry`` spec and variables. The re-placed gears' component frames.
     ``last_updated`` set when anything changed. Every path in
-    ``result.changed`` goes into ``record.unsaved`` with ``mtime(path)``: Update
-    does not save (decision 3). ``dragged`` lists the gears whose live frame
+    ``result.changed`` goes into ``record.unsaved`` with the file's time as
+    the worker read it before changing anything (``result.mtimes``; else
+    ``mtime(path)`` now), so a save made in SolidWorks while the job was
+    answering still reads as newer: Update does not save (decision 3). The
+    ``.gear.json`` of a part it changed is marked ``unsaved_since`` that same
+    time, so it never claims, to a later plan, values the file may not hold
+    (review B2): reuse by ``.gear.json`` skips a marked one until the file is
+    newer. ``workbook``, when given, is this workbook's path now, and a
+    record that names an older one is adopted (``store.adopt``).
+    ``dragged`` lists the gears whose live frame
     (``result.found``) differed from the recorded one while the recorded one
     was already the wanted one: moved by hand in SolidWorks, and put back.
     Pure but for ``read_sidecar`` and ``mtime``.
@@ -379,8 +395,21 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     """
     stamp = stamp or store.now()
     rec = copy.deepcopy(record)
+    if workbook:
+        store.adopt(rec, workbook)
     out = Finished(record=rec)
     changed = bool(result.changed or result.placed)
+    marks: Dict[str, float] = {}
+    for path in result.changed:
+        then = next((t for p, t in getattr(result, "mtimes", {}).items() if store.same_path(p, path)), None)
+        if then is None:
+            try:
+                then = float(mtime(path))
+            except OSError:
+                out.notes.append(f"{os.path.basename(path)} could not be found on disk to note that it is changed "
+                                 "but not saved.")
+                continue
+        marks[path] = then
 
     for update, done in zip(plan.parts, result.parts):
         if done.failures:
@@ -399,8 +428,9 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
             out.notes.append(f"{os.path.basename(sidecar_path)} could not be read, so it was left as it is; the "
                              "workbook's record says what the part now holds.")
             continue
+        mark = next((t for p, t in marks.items() if store.same_path(p, update.path)), None) if done.changed else None
         out.sidecars.append((sidecar_path, store.updated_sidecar(sidecar, spec, update.derived.to_dict(), variables,
-                                                                 stamp)))
+                                                                 stamp, unsaved_since=mark)))
 
     box = rec.gearbox
     if box is not None:
@@ -423,12 +453,8 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
         if changed:
             box.updated = stamp
 
-    for path in result.changed:
-        try:
-            rec.unsaved[path] = float(mtime(path))
-        except OSError:
-            out.notes.append(f"{os.path.basename(path)} could not be found on disk to note that it is changed but "
-                             "not saved.")
+    for path, then in marks.items():
+        rec.unsaved[path] = then
     if changed:
         rec.last_updated = stamp
     if not (result.failures or result.skipped):

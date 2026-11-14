@@ -466,22 +466,31 @@ class WorkbookWindow(tk.Toplevel):
         if record is not None:
             store.clear_saved(record)
         self.record, self.record_problem = record, problem
+        foreign = store.foreign_workbook(record, self.link.path)
+        if foreign:
+            # W4 fix pass 1 (temporary, pass 2 decides how the window shows it): the record beside this workbook
+            # was written for another that is still there — a copy. It is not this workbook's: nothing is shown as
+            # built, Update is not offered, and Build makes a gearbox of its own (plan_gearbox plans without the
+            # record and says so in plan.foreign_record; finish_build then starts a fresh record).
+            self.record, self.record_problem = None, store.foreign_record_sentence(self.link.path, foreign)
         self.plan = self.update = None
         self.plan_trouble = ""
         a = self.state
         if a is None or newer:
             return                                # a newer record holds both buttons: nothing to plan
-        gearbox = record.gearbox if record is not None else None
+        ours = self.record                        # the record when it is this workbook's (None for a copy's)
+        gearbox = ours.gearbox if ours is not None else None
         has_assembly = gearbox is not None and bool(gearbox.assembly)
         parts_only = not has_assembly and bool(a.parts.refused)      # Build parts: W2's batch, through reuse
         try:
             gate = a.build_refusal() if parts_only else a.lay_out_refusal()
             if not gate:
+                # Given the record as read, a copy's too: plan_gearbox tells a copy's itself (plan.foreign_record).
                 self.plan = wb_gearbox.plan_gearbox(a, record, part_template=self._strip("part_template"),
                                                     assembly_template=self._strip("assembly_template"),
                                                     parts_only=parts_only)
-            if record is not None and (record.parts or gearbox is not None) and not _update_gate(a, record):
-                self.update = wb_update.classify(record, a)
+            if ours is not None and (ours.parts or gearbox is not None) and not _update_gate(a, ours):
+                self.update = wb_update.classify(ours, a)
         except Exception as exc:  # noqa: BLE001 - planning is pure and should never raise; if it does, say so
             self.plan = self.update = None
             self.plan_trouble = ui_text.planning_failed(exc)
@@ -760,10 +769,13 @@ class WorkbookWindow(tk.Toplevel):
             record = None
             if self.note is not None:
                 self.note = (f"{self.note[0]} {exc}", self.note[1])
+        if store.foreign_workbook(record, self.link.path):
+            return          # W4 fix pass 1: a copy's record is the other workbook's, written only once this one builds
         record = record or store.LinkRecord(workbook=self.link.path)
+        store.adopt(record, self.link.path)
         record.own_digest, record.recalc = digest, self.recalc
         try:
-            store.save_link_record(record)
+            store.save_link_record(record, store.link_record_path(self.link.path))
         except (store.StoreError, OSError):
             pass
 
@@ -964,7 +976,7 @@ class WorkbookWindow(tk.Toplevel):
         _log(result.log_lines())
         record, may_write, notes = self._open_record()
         base = record if record is not None else job.record     # gone or set aside since the press: as planned
-        finished = wb_update.finish_update(job.update, result, base, digest=job.digest)
+        finished = wb_update.finish_update(job.update, result, base, digest=job.digest, workbook=self.link.path)
         gearbox = job.record.gearbox if job.record is not None else None
         text, ok = ui_text.gearbox_update_status(job.update, result, finished.dragged,
                                                  meshes=gearbox.meshes if gearbox is not None else None)

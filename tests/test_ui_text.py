@@ -939,23 +939,29 @@ def test_a_clash_is_called_a_mesh_only_when_it_is_one():
         "look at their mesh in Reducer_12to1.SLDASM.")
 
 
-def test_build_again_greyed_always_says_why(ready):
-    """After an Update not yet saved, plan_gearbox will not reuse the changed part, so Build again… is greyed: the
-    footer says it waits for the save, with the note after the update and with the unsaved sentence after it."""
+def test_an_update_left_unsaved_never_holds_build_again(ready):
+    """W4 review B2: a part Update left unsaved is made new by the next build (GearboxPlan.unsaved_made_new), so
+    Build again… is never greyed for a save; the footer still asks for the save, and reads no refusal's words."""
     unsaved = {_path("Gear_m1.5_N68"): 1.0, _path("Reducer_12to1", ".SLDASM"): 1.0}
-    refusal = ("Gear_m1.5_N68.SLDPRT was changed in SolidWorks by Update SolidWorks and has not been saved since, so "
-               "the file is not yet the part this build would use: save it in SolidWorks, then build again.")
-    again = _gearbox(name="Reducer_12to1_r2", revision=2, refusal=refusal)
+    again = _gearbox(name="Reducer_12to1_r2", revision=2)
     matches = _update(parts=(), moved_shafts=(), replaced=(), unsaved=tuple(unsaved))
     f = _footer(ready, record=_record(unsaved=unsaved), plan=again, update=matches)
-    assert not f.build_enabled and f.update_enabled
+    assert f.build_enabled and f.update_enabled
     assert f.text.endswith("Gear_m1.5_N68 and Reducer_12to1 have changes from Update SolidWorks that are not saved: "
-                           "save them in SolidWorks to keep them. Build again… waits for that save.")
+                           "save them in SolidWorks to keep them.")
+    assert "waits" not in f.text
     updated = ("Updated SolidWorks: changed 1 variable in Gear_m1.5_N68; no interference between the gears. Save in "
                "SolidWorks to keep it.", True)
     f = _footer(ready, record=_record(unsaved=unsaved), plan=again, update=matches, note=updated)
-    assert f.text == (updated[0] + " Build again… waits until Gear_m1.5_N68 and Reducer_12to1 are saved in "
-                      "SolidWorks.")
+    assert f.text == updated[0] and f.build_enabled
+    # A refusal that happens to name an unsaved file is said as the refusal it is, not as a wait for a save.
+    taken = _gearbox(name="Reducer_12to1_r2", revision=2,
+                     refusal=r"This build would use both C:\P\Gear_m1.5_N68.SLDPRT and C:\Q\Gear_m1.5_N68.SLDPRT.")
+    f = _footer(ready, record=_record(unsaved=unsaved), plan=taken, update=matches)
+    assert not f.build_enabled and f.text.endswith(taken.refusal)
+
+
+def test_build_again_greyed_always_says_why(ready):
     # Held for anything else, the reason itself follows what Update would do.
     f = _footer(ready, record=_record(), plan=_gearbox(name="Reducer_12to1_r2", revision=2), update=_update(),
                 folder_exists=False)

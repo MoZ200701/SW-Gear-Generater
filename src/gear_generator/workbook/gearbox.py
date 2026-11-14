@@ -32,15 +32,30 @@ chooses the revision itself:
 
 **Parts.** A part already built is reused when the record's current parts
 (``LinkRecord.current_parts()``), or the ``.gear.json`` beside the job's path
-(``workbook`` equal to this workbook), hold the same part: the same plan and
-stem, and the kind's variables' texts equal (fields a kind ignores — a spur
-gear's Hand, a Part name equal to the default stem — are normalised first;
-decision 5). It is then checked live before anything is built (decision 3:
-``swbuild.build_gearbox`` step 1). A part listed in ``record.unsaved`` is not
-reused: Update changed it in SolidWorks and it is not saved, so the file on
-disk is not what the record says; the refusal asks for it to be saved. A job
-whose path is taken by anything else gets ``<stem>_r<n>`` at this revision
-(:func:`replan`); only if that is taken too is it a refusal.
+or one of its ``<stem>_r<k>`` (``workbook`` this workbook, or a path it had
+before it was moved), hold the same part: the same plan and stem, and the
+kind's variables' texts equal (fields a kind ignores — a spur gear's Hand, a
+Part name equal to the default stem — are normalised first; decision 5). It
+is then checked live, its globals and its features, before anything is built
+(decision 3, review S6: ``swbuild.build_gearbox`` step 1).
+
+A part Update SolidWorks changed and that is not saved (in
+``record.unsaved``, or a ``.gear.json`` marked ``unsaved_since`` and not
+newer since) is not reused, since the file on disk is not yet what the
+record says; nor does it hold the build back (review B2, overruling W4
+interface agreement 7): the part is made new at this build, and
+:attr:`GearboxPlan.made_new` says so. A new part whose own file name is
+taken — by anything — gets the smallest free ``<stem>_r<k>`` (k ≥ 2), its
+own suffix, whatever the gearbox's revision (review S5), and ``made_new``
+says what was in the way. Only the layout part and the assembly move the
+gearbox to another revision. A Part name that would be one of the gearbox's
+own file names (``<Name>``, ``<Name>_Layout``, ``<Name>_r<n>`` …) is a
+refusal naming its cell.
+
+**A copied workbook** (review S1): a record written for another workbook
+that is still on disk (``store.foreign_workbook``) is that workbook's, so it
+is planned without — a gearbox of this workbook's own, beside the other's
+files, sharing nothing — and :attr:`GearboxPlan.foreign_record` names it.
 """
 
 from __future__ import annotations
@@ -66,7 +81,9 @@ from .layout import REVISION_SUFFIX, Frame, ShaftLayout
 @dataclass(frozen=True)
 class PartReuse:
     """A part already built and unchanged, inserted again: ``variables`` (``kind.variables(spec, derived)``) are
-    what it must hold exactly, checked live; ``revision`` is the revision that made the file."""
+    what it must hold exactly, and ``features`` every feature it must still have (from its ``.gear.json``; empty
+    when there is none to say), both checked live; ``revision`` is the revision that made the file (this
+    build's, for a part found only by its ``.gear.json``)."""
 
     path: str
     stem: str
@@ -75,6 +92,46 @@ class PartReuse:
     derived: Any
     variables: Tuple[GlobalVariable, ...]
     revision: int
+    features: Tuple[str, ...] = ()
+
+
+# Why a part is made new rather than reused, or under another name than its own (MadeNew.why).
+UNSAVED = "unsaved"            # the matching part was changed by Update SolidWorks and is not saved
+STALE = "stale"                # its file name holds a part built from this workbook for other values
+OTHER_WORKBOOK = "other"       # its file name holds a part another workbook built
+NO_RECORD = "no record"        # its file name holds a file with no record that this workbook built it
+
+
+@dataclass(frozen=True)
+class MadeNew:
+    """A part this build makes new although a file stands in its way: ``old`` is that file — the matching part
+    that is not saved (UNSAVED: it would have been reused), or what holds the part's own file name (STALE,
+    OTHER_WORKBOOK, NO_RECORD) — and ``new`` the path this build makes. ``workbook`` is the workbook the old
+    file's ``.gear.json`` names (OTHER_WORKBOOK). :attr:`sentence` says it, for the footer until it words its
+    own."""
+
+    gear_ids: Tuple[str, ...]
+    old: str
+    new: str
+    why: str
+    workbook: str = ""
+
+    @property
+    def sentence(self) -> str:
+        gears = _names(self.gear_ids)
+        old, new = _file_name(self.old), _stem_of(self.new)
+        where = os.path.dirname(self.old.replace("\\", "/")).replace("/", "\\")
+        if self.why == UNSAVED:
+            return (f"{_stem_of(self.old)} has changes from Update SolidWorks that are not saved, so its file is not "
+                    f"yet the part {gears} needs: this build makes {gears}'s part new, as {new}.")
+        if self.why == STALE:
+            return (f"{old} in {where} was built from this workbook for values {gears} no longer has, so {gears}'s "
+                    f"part is made as {new}; nothing is overwritten.")
+        if self.why == OTHER_WORKBOOK:
+            return (f"{old} in {where} was built from {_file_name(self.workbook)}, so {gears}'s part is made as "
+                    f"{new}; nothing is overwritten.")
+        return (f"{old} is already in {where}, and there is no record that this workbook built it (a build that was "
+                f"interrupted can leave such a file), so {gears}'s part is made as {new}; nothing is overwritten.")
 
 
 @dataclass(frozen=True)
@@ -106,7 +163,13 @@ class GearboxPlan:
     path, two new paths the same, a reused file gone, a reused part unsaved),
     in which case the plans may be partial and must not be run.
     ``revision_reason`` is ``""`` for revision 0 or a continued revision, else
-    why this revision (``Reducer_12to1.SLDASM is already there, …``).
+    why this revision (``Reducer_12to1.SLDASM is already there, …``): only
+    the layout part and the assembly move a build to another revision.
+    ``made_new``: the new parts made although a file stood in the way, and
+    why (:class:`MadeNew`); :attr:`unsaved_made_new` those made new because
+    the matching part is not saved — a build never waits for a save.
+    ``foreign_record``: the other workbook whose record sits beside this one
+    (a copy), which this plan was made without; ``""`` normally.
     """
 
     revision: int
@@ -127,10 +190,17 @@ class GearboxPlan:
     refusal: str = ""
     revision_reason: str = ""
     meshes: Tuple[Tuple[str, str], ...] = ()     # the listed meshes (a, b), for the record (Agent B, additive)
+    made_new: Tuple[MadeNew, ...] = ()
+    foreign_record: str = ""
 
     @property
     def parts_only(self) -> bool:
         return self.layout is None and self.assembly is None
+
+    @property
+    def unsaved_made_new(self) -> Tuple[MadeNew, ...]:
+        """The parts made new because the part that matched was changed by Update SolidWorks and is not saved."""
+        return tuple(m for m in self.made_new if m.why == UNSAVED)
 
     def build_kwargs(self) -> Dict[str, Any]:
         """The arguments of ``swbuild.build_gearbox(session, **plan.build_kwargs())``: plain data the worker can
@@ -144,7 +214,7 @@ class GearboxPlan:
             layout = self.layout
         return {
             "parts": [job.plan for job in self.build],
-            "reuse": [DocumentValues(r.path, tuple(r.variables)) for r in self.reuse],
+            "reuse": [DocumentValues(r.path, tuple(r.variables), tuple(r.features)) for r in self.reuse],
             "layout": layout,
             "assembly": self.assembly,
             "gears": dict(self.handles),
@@ -256,15 +326,19 @@ def _stem_of(path: str) -> str:
     return os.path.splitext(os.path.basename(path.replace("\\", "/")))[0]
 
 
-def _revised(path: str, revision: int) -> str:
-    """``C:\\P\\Gear_m1.5_N68.SLDPRT`` at revision 2 -> ``C:\\P\\Gear_m1.5_N68_r2.SLDPRT``."""
+def _file_name(path: str) -> str:
+    return os.path.basename(str(path).replace("\\", "/"))
+
+
+def _names(items: Sequence[str]) -> str:
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1] if items else ""
+
+
+def _revised(path: str, k: int) -> str:
+    """``C:\\P\\Gear_m1.5_N68.SLDPRT`` with suffix 2 -> ``C:\\P\\Gear_m1.5_N68_r2.SLDPRT``."""
     stem, ext = os.path.splitext(path)
-    return f"{stem}{REVISION_SUFFIX}{revision}{ext}"
-
-
-def _revision_in(path: str, stem: str) -> int:
-    match = re.fullmatch(re.escape(stem) + re.escape(REVISION_SUFFIX) + r"(\d+)", _stem_of(path), re.IGNORECASE)
-    return int(match.group(1)) if match else 0
+    return f"{stem}{REVISION_SUFFIX}{k}{ext}"
 
 
 def _in(path: str, paths) -> bool:
@@ -275,17 +349,27 @@ def _in(path: str, paths) -> bool:
 class _Found:
     path: str
     revision: int
+    features: Tuple[str, ...] = ()
 
 
 class _Parts:
-    """What the record and the sidecars say about one job's part, asked once per revision tried."""
+    """What the record and the sidecars say about the jobs' parts, asked once per revision tried.
+
+    ``workbook`` is this workbook's path and ``former`` the paths it had
+    before it was moved or renamed (``record.moved_from`` and a record's own
+    old ``workbook``), each counted only while no file is there; a sidecar
+    naming any of them is this workbook's (W4 review nit: after Locate…, its
+    parts are still found)."""
 
     def __init__(self, record: Optional[LinkRecord], workbook: str, exists: Callable[[str], bool],
-                 read_sidecar: Callable[[str], Optional[Sidecar]]) -> None:
+                 read_sidecar: Callable[[str], Optional[Sidecar]], mtime: Callable[[str], float],
+                 former: Sequence[str] = ()) -> None:
         self.record = record
         self.workbook = workbook
         self.exists = exists
         self.read_sidecar = read_sidecar
+        self.mtime = mtime
+        self.former = [p for p in former if p and not store.same_path(p, workbook) and not exists(p)]
         self._sidecars: Dict[str, Optional[Sidecar]] = {}
         self.unsaved = list(record.unsaved) if record is not None else []
 
@@ -298,7 +382,24 @@ class _Parts:
     def ours(self, path: str) -> bool:
         """Whether the file's record beside it says this workbook built it."""
         sidecar = self.sidecar(path)
-        return sidecar is not None and bool(self.workbook) and store.same_path(sidecar.record.workbook, self.workbook)
+        if sidecar is None or not self.workbook:
+            return False
+        built_from = sidecar.record.workbook
+        return store.same_path(built_from, self.workbook) or _in(built_from, self.former)
+
+    def not_saved(self, path: str) -> bool:
+        """Whether Update SolidWorks changed the part and the file does not hold it yet: on the record's
+        ``unsaved``, or its ``.gear.json`` marked ``unsaved_since`` and the file no newer than that."""
+        if _in(path, self.unsaved):
+            return True
+        sidecar = self.sidecar(path)
+        mark = sidecar.record.unsaved_since if sidecar is not None else 0.0
+        return bool(mark) and not store.saved_since(path, mark, self.mtime)
+
+    def features(self, path: str) -> Tuple[str, ...]:
+        """The features the part's ``.gear.json`` lists, for the live check (review S6); ``()`` without one."""
+        sidecar = self.sidecar(path)
+        return tuple(sidecar.record.features) if sidecar is not None else ()
 
     def entries(self, revision: int) -> List[PartEntry]:
         """The record's parts reuse may take (decision 2): the current revision's, and any this revision made
@@ -309,36 +410,57 @@ class _Parts:
         out.extend(p for p in self.record.parts if p.revision == revision and p not in out)
         return out
 
+    def names(self, job: PartJob) -> List[str]:
+        """The job's own path, then each ``<stem>_r<k>`` (k = 2, 3, …) on disk, up to the first that is not."""
+        out = [job.path]
+        for k in range(2, MAX_REVISION + 1):
+            path = _revised(job.path, k)
+            if not self.exists(path):
+                break
+            out.append(path)
+        return out
+
     def find(self, job: PartJob, revision: int) -> Tuple[Optional[_Found], str]:
-        """A part this job may reuse, and the path of a match that is unsaved (``""`` if none)."""
+        """A part this job may reuse, and the path of a match that is not saved (``""`` if none)."""
         unsaved = ""
         for entry in self.entries(revision):
             if not _matches(entry.spec, entry.variables, entry.trig, job) or not self.exists(entry.path):
                 continue
-            if _in(entry.path, self.unsaved):
+            if self.not_saved(entry.path):
                 unsaved = unsaved or entry.path
                 continue
-            return _Found(entry.path, entry.revision), ""
-        candidates = [job.path] + ([_revised(job.path, revision)] if revision else [])
-        for path in candidates:
+            return _Found(entry.path, entry.revision, self.features(entry.path)), ""
+        for path in self.names(job):
             if not self.exists(path) or not self.ours(path):
                 continue
             record = self.sidecar(path).record
             if not _matches(record.spec, record.variables, record.trig, job):
                 continue
-            if _in(path, self.unsaved):
+            if self.not_saved(path):
                 unsaved = unsaved or path
                 continue
             on_record = next((p for p in (self.record.parts if self.record else []) if store.same_path(p.path, path)),
                              None)
-            return _Found(path, on_record.revision if on_record else _revision_in(path, job.stem)), ""
+            return _Found(path, on_record.revision if on_record else revision, self.features(path)), ""
         return None, unsaved
 
-    def occupant(self, path: str) -> str:
-        """Why a taken path cannot be this job's, as the end of a sentence."""
-        if self.ours(path):
-            return "was built from this workbook for values its row no longer has"
-        return "was not built from this workbook"
+    def free_name(self, job: PartJob, claimed: Sequence[str]) -> str:
+        """The job's own path if nothing is there and no other file of this build takes it, else the smallest free
+        ``<stem>_r<k>`` (review S5: a part's own suffix, whatever the gearbox's revision); ``""`` if all are
+        taken."""
+        for path in [job.path] + [_revised(job.path, k) for k in range(2, MAX_REVISION + 1)]:
+            if not self.exists(path) and not _in(path, claimed):
+                return path
+        return ""
+
+    def occupant(self, path: str) -> Tuple[str, str]:
+        """Why a file at a job's own path is not that job's part: (MadeNew.why, the workbook its record names)."""
+        sidecar = self.sidecar(path)
+        if sidecar is not None and self.ours(path):
+            return STALE, ""
+        if sidecar is not None and sidecar.record.workbook:
+            return OTHER_WORKBOOK, sidecar.record.workbook
+        return NO_RECORD, ""
 
 
 # -- planning ---------------------------------------------------------------------------------------
@@ -366,6 +488,34 @@ def _recorded_shafts(gearbox: GearboxRecord) -> Tuple[ShaftLayout, ...]:
     return tuple(ShaftLayout(**asdict(entry)) for entry in gearbox.shafts)
 
 
+def _gearbox_named(a: Assessment, jobs: Sequence[PartJob]) -> str:
+    """The refusal for a Part name that would be one of the gearbox's own file names, naming each cell (review
+    S5, S4.9: such a gear was built as ``Reducer_12to1_Layout.SLDPRT`` beside the next revision's layout), or
+    ``""``. Any revision's names count — ``<Name>``, ``<Name>_Layout``, ``<Name>_r<n>``, ``<Name>_r<n>_Layout`` —
+    and the assembly's too: SolidWorks may title a part and an assembly of one stem alike."""
+    spec = a.spec
+    name0, layout0 = layout.stems(spec.box.name, 0)
+    pattern = re.compile(re.escape(name0) + "(" + re.escape(REVISION_SUFFIX) + r"\d+)?("
+                         + re.escape(layout.LAYOUT_SUFFIX) + ")?", re.IGNORECASE)
+    found = []
+    for job in jobs:
+        if not pattern.fullmatch(job.stem):
+            continue
+        for gear_id in job.gear_ids:
+            gear = spec.gear(gear_id)
+            column = "part_name" if "part_name" in spec.columns.get("Gears", {}) else "id"
+            cell = spec.cell("Gears", gear.row, column) if gear is not None else f"Gears {gear_id}"
+            found.append(f"{cell}: {gear_id}'s part would be {job.stem}{layout.PART_EXTENSION}")
+    if not found:
+        return ""
+    what = "the layout part's" if any(f.lower().endswith(layout.LAYOUT_SUFFIX.lower() + layout.PART_EXTENSION.lower())
+                                      for f in found) else "the assembly's"
+    them = "it" if len(found) == 1 else "them"
+    return (f"{'; '.join(found)}, which is a name of the gearbox's own files ({name0}{layout.ASSEMBLY_EXTENSION}, "
+            f"{layout0}{layout.PART_EXTENSION} and their revisions; here {what}), so nothing is built: give {them} "
+            f"another Part name.")
+
+
 @dataclass
 class _Attempt:
     revision: int
@@ -375,6 +525,7 @@ class _Attempt:
     assembly_path: str = ""
     layout_reuse: Optional[LayoutReuse] = None
     parts: List[Tuple[PartJob, Optional[_Found], str]] = field(default_factory=list)   # job, reuse, new path
+    made_new: List[MadeNew] = field(default_factory=list)
 
 
 def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: Sequence[ShaftLayout],
@@ -408,42 +559,42 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
                                 "overwrites a file.")
             return attempt
         new_paths.append(attempt.assembly_path)
+    full = []
     for job in jobs:
         found, unsaved = parts.find(job, n)
-        if unsaved:
-            attempt.refusal = (f"{os.path.basename(unsaved)} was changed in SolidWorks by Update SolidWorks and has "
-                               "not been saved since, so the file is not yet the part this build would use: save it "
-                               "in SolidWorks, then build again.")
-            return attempt
         if found is not None:
             attempt.parts.append((job, found, found.path))
             continue
-        path = job.path
-        if exists(path):
-            revised = _revised(job.path, n) if n else ""
-            if not revised:
-                attempt.obstacle = (f"{os.path.basename(path)} is already in {folder} and {parts.occupant(path)}, "
-                                    "and a build never overwrites a file.")
-                return attempt
-            if exists(revised):
-                attempt.obstacle = (f"{os.path.basename(path)} and {os.path.basename(revised)} are already in "
-                                    f"{folder}, and {os.path.basename(revised)} {parts.occupant(revised)}.")
-                return attempt
-            path = revised
+        path = parts.free_name(job, new_paths + [p for _, f, p in attempt.parts if f is not None])
+        if not path:
+            full.append(job)
+            continue
+        if unsaved:
+            attempt.made_new.append(MadeNew(tuple(job.gear_ids), unsaved, path, UNSAVED))
+        elif not store.same_path(path, job.path):
+            why, workbook = parts.occupant(job.path) if exists(job.path) else (NO_RECORD, "")
+            attempt.made_new.append(MadeNew(tuple(job.gear_ids), job.path, path, why, workbook))
         attempt.parts.append((job, None, path))
         new_paths.append(path)
-    for i, path in enumerate(new_paths):
-        if any(store.same_path(path, other) for other in new_paths[:i]):
-            attempt.obstacle = (f"Two of the files this build would make are both {os.path.basename(path)}; give the "
-                                "gear a Part name that is not the gearbox's.")
-            return attempt
+    if full:
+        last = [_file_name(_revised(j.path, MAX_REVISION)) for j in full]
+        attempt.refusal = (f"{_names([_file_name(j.path) for j in full])} and every name after "
+                           f"{'it' if len(full) == 1 else 'them'} up to {_names(last)} are already in {folder}, so "
+                           "nothing is built: change the output folder.")
+        return attempt
+    clashes = sorted({_file_name(p) for i, p in enumerate(new_paths)
+                      if any(store.same_path(p, other) for other in new_paths[:i])})
+    if clashes:
+        attempt.refusal = (f"Two of the files this build would make would both be {_names(clashes)}, so nothing is "
+                           "built: give the gears Part names that are not the gearbox's.")
     return attempt
 
 
 def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: str = "",
                  assembly_template: str = "", parts_only: bool = False,
                  exists: Callable[[str], bool] = os.path.exists,
-                 read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar) -> GearboxPlan:
+                 read_sidecar: Callable[[str], Optional[Sidecar]] = store.read_sidecar,
+                 mtime: Callable[[str], float] = os.path.getmtime) -> GearboxPlan:
     """Plan the next build from an assessment that passed its gate, at the revision the module docstring picks.
 
     The caller has already checked the window's own state and
@@ -451,27 +602,37 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     this adds only what the file system and the record decide, as
     ``refusal``. Templates: the Box sheet's, else the given (the strip's).
     ``record`` is the planning read (``store.read_link_record``), or None.
-    The worker repeats every existence check against the race.
+    The worker repeats every existence check against the race. ``mtime``
+    reads a part file's time, to tell whether a ``.gear.json`` marked
+    unsaved is saved since.
 
     A revision is tried in turn — the one a failed assembly left to continue,
-    then 0, 2, 3, … less those on record — until every file it would make is
-    free: its layout and assembly, and each new part at its own stem or, if
-    that is taken, ``<stem>_r<n>``. So a file in the way, ours or not, moves
-    the build to the next revision with a sentence saying why
-    (``revision_reason``), never to a dead end (decision 6).
+    then 0, 2, 3, … less those on record — until its layout part and
+    assembly are free, with a sentence saying why (``revision_reason``),
+    never a dead end (decision 6). Each new part takes its own file name or,
+    when that is taken, its own smallest free ``<stem>_r<k>``
+    (``made_new``).
     """
     spec = a.spec
     folder = a.folder
     part_tpl = spec.box.part_template or part_template
     asm_tpl = spec.box.assembly_template or assembly_template
-    workbook = (record.workbook if record is not None and record.workbook else "") or a.read.source_path \
-        or spec.source_path
+    here = str(a.read.source_path or spec.source_path or "")
+    foreign = store.foreign_workbook(record, here, exists)
+    if foreign:
+        record = None                       # a copy: the record and its files are the other workbook's (S1)
+    former = ([record.workbook] + list(record.moved_from)) if record is not None else []
+    workbook = here or (record.workbook if record is not None else "")
     jobs = list(a.parts.jobs)
     meshes = tuple((m.a, m.b) for m in spec.meshes)
     empty = dict(folder=folder, layout_path="", assembly_path="", build=(), reuse=(), shafts=(), frames={},
                  layout=None, assembly=None, handles={}, part_of={}, part_template=part_tpl,
-                 assembly_template=asm_tpl, meshes=meshes)
+                 assembly_template=asm_tpl, meshes=meshes, foreign_record=foreign)
     name0 = layout.stems(spec.box.name, 0)[0]
+
+    named = _gearbox_named(a, jobs)
+    if named:
+        return GearboxPlan(revision=0, name=name0, refusal=named, **empty)
 
     shafts: Tuple[ShaftLayout, ...] = ()
     frames: Dict[str, Frame] = {}
@@ -497,7 +658,7 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     order = [continuing.revision] if continuing is not None else []
     order += [n for n in [0] + list(range(2, MAX_REVISION + 1)) if n not in used and n not in order]
 
-    parts = _Parts(record, workbook, exists, read_sidecar)
+    parts = _Parts(record, workbook, exists, read_sidecar, mtime, former)
     first_obstacle = ""
     chosen: Optional[_Attempt] = None
     for n in order:
@@ -535,7 +696,7 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
             part_of[gear] = path
         if found is not None:
             reuse.append(PartReuse(path, _stem_of(path), tuple(job.gear_ids), job.spec, job.derived,
-                                   _variables_of(job), found.revision))
+                                   _variables_of(job), found.revision, found.features))
         elif store.same_path(path, job.path):
             build_jobs.append(job)
         else:
@@ -546,7 +707,8 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     if clash:
         return GearboxPlan(revision=n, name=name, refusal=clash, **empty)
 
-    fields = dict(empty, build=tuple(build_jobs), reuse=tuple(reuse), part_of=part_of)
+    fields = dict(empty, build=tuple(build_jobs), reuse=tuple(reuse), part_of=part_of,
+                  made_new=tuple(chosen.made_new))
     if parts_only:
         return GearboxPlan(revision=n, name=name, revision_reason=reason, **fields)
 
@@ -569,7 +731,7 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
 
 
 def _same_file_name(paths: Sequence[str]) -> str:
-    """A sentence if two different paths of one build share a file name, else ``""``.
+    """A sentence naming every pair of different paths of one build that share a file name, else ``""``.
 
     SolidWorks keeps one open document per file name: a part of the same name
     from another folder is refused (``findings.SAME_NAME_OPEN_ERROR``, probe
@@ -578,13 +740,15 @@ def _same_file_name(paths: Sequence[str]) -> str:
     folder of an earlier build and a part of the same name is to be made in
     the output folder now.
     """
+    pairs = []
     for i, a in enumerate(paths):
         for b in paths[:i]:
-            if os.path.basename(a.replace("\\", "/")).lower() == os.path.basename(b.replace("\\", "/")).lower() \
-                    and not store.same_path(a, b):
-                return (f"This build would use both {b} and {a}, and SolidWorks cannot have two documents of one "
-                        "file name open at once: give the gear a Part name, or change the output folder.")
-    return ""
+            if _file_name(a).lower() == _file_name(b).lower() and not store.same_path(a, b):
+                pairs.append(f"both {b} and {a}")
+    if not pairs:
+        return ""
+    return (f"This build would use {'; '.join(pairs)}, and SolidWorks cannot have two documents of one file name "
+            "open at once: give the gear a Part name, or change the output folder.")
 
 
 def replan(job: PartJob, path: str, template: str) -> PartJob:
@@ -633,11 +797,20 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     says the workbook changed since it was built rather than "built from this
     version". A clash leaves ``ok`` True: what was built is this read's.
     Pure but for ``read_sidecar``.
+
+    A plan made for a copied workbook (``plan.foreign_record``) finishes into
+    a fresh record, keeping only the copy's own Export state: the record that
+    came with the copy is the other workbook's, and is written over only now,
+    when this workbook has built something of its own (review S1). A record
+    whose ``workbook`` is an older path of this workbook is adopted: the
+    field is set and the old path kept in ``moved_from``.
     """
     stamp = stamp or store.now()
     out = Finished()
+    if record is not None and plan.foreign_record and store.same_path(record.workbook, plan.foreign_record):
+        record = LinkRecord(workbook=workbook, own_digest=record.own_digest, recalc=record.recalc)
     rec = copy.deepcopy(record) if record is not None else LinkRecord(workbook=workbook)
-    rec.workbook = workbook or rec.workbook
+    store.adopt(rec, workbook)
     saved_any = False
 
     for job, built in zip(plan.build, result.parts.built):

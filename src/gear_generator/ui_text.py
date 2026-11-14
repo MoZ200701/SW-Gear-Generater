@@ -1525,7 +1525,15 @@ def _ready_build(assessment, plan, folder: str) -> Tuple[str, bool]:
     text = f"Ready: Build makes {_and(made)} in {where}" + (", reusing " + _and(reused) if reused else "") + "."
     if plan.revision_reason:
         text += " " + _sentence(plan.revision_reason)
+    text += _made_new(plan)
     return text, bool(made)
+
+
+def _made_new(plan) -> str:
+    """W4 fix pass 1 (temporary, pass 2 words it): why a new part takes another name than its own, or is made
+    although a built one matched (``GearboxPlan.made_new``), one sentence each — the plan no longer moves the
+    whole gearbox to another revision for a part's file, so the revision's reason no longer says it."""
+    return "".join(" " + m.sentence for m in getattr(plan, "made_new", ()) or ())
 
 
 def _waiting_rows(parts) -> str:
@@ -1547,7 +1555,7 @@ def _ready_parts(assessment, plan, folder: str) -> Tuple[str, bool]:
     text = f"Ready: Build parts makes {_plural(new, 'part')} in {where}"
     if kept:
         text += f", reusing {_already(kept)}"
-    return text + (f"; {waits}" if waits else "."), True
+    return text + (f"; {waits}" if waits else ".") + (_made_new(plan) if plan is not None else ""), True
 
 
 def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=None, update=None,
@@ -1662,39 +1670,24 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     if record_problem:                            # a broken record: Build goes ahead and sets it aside
         text, ok = f"{text} {record_problem}", False
     unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
-    # A greyed button always has its reason on screen. Build again… held only because Update left documents
-    # unsaved (plan_gearbox will not reuse a part whose file is not what SolidWorks holds) says it waits for that
-    # save, beside the sentence asking for it; held for anything else, the reason itself follows.
-    waits_save = bool(held and unsaved and plan is not None and held == plan.refusal
-                      and any(_file(p) in held for p in unsaved))
+    # A greyed button always has its reason on screen: the reason itself follows. (W4 fix pass 1: Build again… no
+    # longer waits for a save — plan_gearbox makes an unsaved part new, GearboxPlan.unsaved_made_new — so nothing
+    # here reads a refusal's words to learn it; pass 2 words the made-new parts.)
     if note is not None:
         if ok:
             text, ok = note[0] + _left_for_later(a.parts), note[1]
         else:
             text = _after_note(note, text)
-        if waits_save:
-            text += " " + build_again_waits(unsaved)
-        elif held:
+        if held:
             text += " " + held
     else:
         if unsaved:
             one = len(unsaved) == 1
             text += (f" {_and(_stem(p) for p in unsaved)} {'has' if one else 'have'} changes from Update SolidWorks "
                      f"that are not saved: save {'it' if one else 'them'} in SolidWorks to keep them.")
-            if waits_save:
-                text += f" {BUILD_AGAIN_WAITS_SAVE}"
-        if held and not waits_save:
+        if held:
             text += " " + held
     return footer(text + due, ok, build_on, update_on)
-
-
-BUILD_AGAIN_WAITS_SAVE = "Build again… waits for that save."
-
-
-def build_again_waits(unsaved: Sequence[str]) -> str:
-    """After an Update's own sentence (which already asks for the save): why Build again… is greyed."""
-    one = len(unsaved) == 1
-    return f"Build again… waits until {_and(_stem(p) for p in unsaved)} {'is' if one else 'are'} saved in SolidWorks."
 
 
 

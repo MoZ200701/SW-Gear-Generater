@@ -61,6 +61,10 @@ class GearRecord:
     last_updated: str = ""
     workbook: str = ""            # the .xlsx this part was built from, if it came from one
     workbook_gears: List[str] = field(default_factory=list)   # the workbook's gears it serves (identical ones share)
+    # The part file's modification time when Update SolidWorks changed the document without saving it (0: what
+    # this record says is what the file holds). The values above are then what SolidWorks holds, not yet the file:
+    # they are the file's only once it is newer than this (:func:`saved_since`). A workbook's Update writes it.
+    unsaved_since: float = 0.0
 
 
 @dataclass
@@ -301,10 +305,16 @@ def built_sidecar(
 
 
 def updated_sidecar(sidecar: Sidecar, spec: Dict[str, Any], derived: Dict[str, Any],
-                    variables: List[List[str]], stamp: Optional[str] = None) -> Sidecar:
-    """The same record after Update values: new form and values, same everything else."""
-    record = GearRecord(**{**asdict(sidecar.record), "spec": dict(spec), "derived": dict(derived),
-                           "variables": [list(v) for v in variables], "last_updated": stamp or now()})
+                    variables: List[List[str]], stamp: Optional[str] = None,
+                    unsaved_since: Optional[float] = None) -> Sidecar:
+    """The same record after Update values: new form and values, same everything else. ``unsaved_since``, when
+    given, marks the new values as SolidWorks' and not yet the file's (:attr:`GearRecord.unsaved_since`); None
+    keeps the mark the record had."""
+    changes: Dict[str, Any] = {"spec": dict(spec), "derived": dict(derived),
+                               "variables": [list(v) for v in variables], "last_updated": stamp or now()}
+    if unsaved_since is not None:
+        changes["unsaved_since"] = float(unsaved_since)
+    record = GearRecord(**{**asdict(sidecar.record), **changes})
     return Sidecar(part_path=sidecar.part_path, part_title=sidecar.part_title,
                    schema_version=sidecar.schema_version, written_by=sidecar.written_by, record=record)
 
@@ -438,6 +448,11 @@ class LinkRecord:
     - ``unsaved``: path -> the file's modification time (``os.path.getmtime``)
       when Update SolidWorks changed that document without saving it; an
       entry goes once the file on disk is newer (:func:`clear_saved`).
+    - ``moved_from``: the paths this workbook had before it was moved or
+      renamed (Locate…, or a record adopted after a move: :func:`foreign_workbook`),
+      oldest first. Its parts' ``.gear.json`` name the path they were built
+      from, so planning still recognises them as this workbook's — while the
+      file at that path is gone (a workbook there now is another one).
 
     A v1 file (W2) reads as v2 with ``gearbox`` None; a newer one raises
     :class:`UnknownSchema` and is left alone. On disk the schema is
@@ -464,6 +479,7 @@ class LinkRecord:
     gearbox: Optional[GearboxRecord] = None
     earlier: List[EarlierRevision] = field(default_factory=list)
     unsaved: Dict[str, float] = field(default_factory=dict)
+    moved_from: List[str] = field(default_factory=list)   # the workbook's earlier paths, oldest first
 
     def current_parts(self) -> List[PartEntry]:
         """The parts Update and reuse may act on: those the current revision's components name, or every part
@@ -744,6 +760,62 @@ def open_link_record(workbook_path: str) -> Optional[LinkRecord]:
                      f"{os.path.basename(spoiled)} and a new one is started.")
 
 
+def _file_name(path: str) -> str:
+    """A path's file name, Windows or POSIX, wherever this runs."""
+    return os.path.basename(str(path).replace("\\", "/"))
+
+
+def foreign_workbook(record: Optional[LinkRecord], workbook: str,
+                     exists: Callable[[str], bool] = os.path.exists) -> str:
+    """The other workbook a record beside ``workbook`` was written for, when that file is still on disk: ``""``
+    when the record is this workbook's (W4 review S1).
+
+    :func:`read_link_record` finds a record by its file name beside the
+    workbook, so a project folder copied whole (workbook and record) brings
+    the original's record along, and the output folder in it is absolute:
+    the copy would drive the original's SolidWorks files. So a record whose
+    ``workbook`` names another file that still exists is that file's, and
+    the copy is not to use it: Update waits, and Build makes a gearbox of the
+    copy's own beside the original's files. A record whose ``workbook`` is
+    empty, is this path, or names a file that is gone (the workbook was moved
+    or renamed) is this workbook's, and is adopted: the next write sets the
+    field, keeping the old path in ``moved_from``. Pure but for ``exists``.
+    """
+    other = record.workbook if record is not None else ""
+    workbook = str(workbook or "")
+    if not other or not workbook or same_path(other, workbook):
+        return ""
+    return other if exists(other) else ""
+
+
+def foreign_record_sentence(workbook: str, other: str) -> str:
+    """Why a copied workbook's record is not used (:func:`foreign_workbook`), as a sentence naming both files."""
+    return (f"The record of what was built beside this workbook, {_file_name(link_record_path(workbook))}, was "
+            f"written for {other}, which is still there: this workbook is a copy of it, and the SolidWorks files "
+            f"that record lists are {_file_name(other)}'s. Update SolidWorks leaves them alone, and Build makes this "
+            "workbook's own gearbox beside them, sharing and overwriting nothing.")
+
+
+def adopt(record: LinkRecord, workbook: str) -> None:
+    """Point a record at the path its workbook has now (moved or renamed), keeping the old one in ``moved_from``.
+    Changes ``record`` in place; nothing when it already names ``workbook``."""
+    old = record.workbook
+    if not workbook or same_path(old, workbook):
+        return
+    if old and not any(same_path(old, p) for p in record.moved_from):
+        record.moved_from.append(old)
+    record.moved_from = [p for p in record.moved_from if not same_path(p, workbook)]
+    record.workbook = workbook
+
+
+def saved_since(path: str, then: float, mtime: Callable[[str], float] = os.path.getmtime) -> bool:
+    """Whether the file at ``path`` is newer than ``then`` (saved since). A file whose time cannot be read is not."""
+    try:
+        return float(mtime(path)) > then
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def clear_saved(record: LinkRecord, mtime: Callable[[str], float] = os.path.getmtime) -> bool:
     """Drop every ``unsaved`` entry whose file on disk is now newer than when Update changed it (the user saved
     it in SolidWorks), or is gone. Changes ``record`` in place; returns whether anything was dropped. Pure but
@@ -785,12 +857,15 @@ def carry_link_record(old_workbook: str, new_workbook: str) -> Optional[str]:
     beside the new path but one sits beside the old, a copy is written beside the new one with ``workbook`` set to
     the new path, and its path returned; the old record is left alone (the old folder may be someone's backup).
     None when there is nothing to carry: no record beside the old path, one already beside the new, or the same
-    file. Raises what :func:`read_link_record` raises for the old record (a newer one is not carried: copied, it
-    would be written as this schema), and OSError when the copy cannot be written."""
+    file. The old path joins ``moved_from``, so the parts' ``.gear.json``, which name it, are still recognised as
+    this workbook's. Raises what :func:`read_link_record` raises for the old record (a newer one is not carried:
+    copied, it would be written as this schema), and OSError when the copy cannot be written."""
     if same_path(old_workbook, new_workbook) or os.path.exists(link_record_path(new_workbook)):
         return None
     record = read_link_record(old_workbook)
     if record is None:
         return None
-    record.workbook = new_workbook
+    adopt(record, new_workbook)
+    if not any(same_path(old_workbook, p) for p in record.moved_from):
+        record.moved_from.append(old_workbook)     # the window's path, if the record named some other
     return save_link_record(record, link_record_path(new_workbook))

@@ -261,25 +261,31 @@ def test_the_revision_after_0_is_2_or_3_when_the_r2_files_are_there():
 
 
 def test_a_part_file_not_built_from_this_workbook_is_never_reused_or_overwritten():
+    """Review S5 and B1: a file at one part's path gives that part its own suffix, and the first build stays
+    revision 0; the sentence does not claim the file was not built from this workbook, which nothing can know."""
     disk = Disk()
-    disk.add(path("Gear_m1.5_N68.SLDPRT"))                       # someone else's, with no record beside it
+    disk.add(path("Gear_m1.5_N68.SLDPRT"))                       # someone else's, or ours with its record lost
     plan = plan_for(assessed(), None, disk)
-    assert (plan.refusal, plan.revision) == ("", 2)
-    assert plan.revision_reason == (f"Gear_m1.5_N68.SLDPRT is already in {FOLDER} and was not built from this "
-                                    "workbook, and a build never overwrites a file. So this build is "
-                                    "Reducer_12to1_r2, beside it; nothing is overwritten.")
+    assert (plan.refusal, plan.revision, plan.name, plan.revision_reason) == ("", 0, "Reducer_12to1", "")
     assert [j.stem for j in plan.build] == ["Gear_m1.5_N17", "Gear_m1.5_N68_r2", "Gear_m2_N17", "OutputGear"]
     g2 = plan.build[1]
     assert g2.plan.ops[-1] == SaveAs(g2.path) and norm(g2.path) == norm(path("Gear_m1.5_N68_r2.SLDPRT"))
     assert plan.part_of["G2"] == g2.path
+    assert plan.made_new == (gearbox.MadeNew(("G2",), path("Gear_m1.5_N68.SLDPRT"), g2.path, gearbox.NO_RECORD),)
+    assert plan.made_new[0].sentence == (
+        f"Gear_m1.5_N68.SLDPRT is already in {FOLDER}, and there is no record that this workbook built it (a build "
+        "that was interrupted can leave such a file), so G2's part is made as Gear_m1.5_N68_r2; nothing is "
+        "overwritten.")
+    assert "not built from this workbook" not in plan.made_new[0].sentence
+    assert plan.unsaved_made_new == ()
 
 
-def test_when_both_a_part_and_its_r_n_are_taken_the_next_revision_is_tried():
+def test_a_part_whose_own_name_and_r2_are_taken_takes_the_smallest_free_suffix_at_revision_0():
     disk = Disk()
-    disk.add(path("Gear_m1.5_N68.SLDPRT"), path("Gear_m1.5_N68_r2.SLDPRT"))
+    disk.add(path("Gear_m1.5_N68.SLDPRT"), path("Gear_m1.5_N68_r2.SLDPRT"), path("Gear_m1.5_N17_r2.SLDPRT"))
     plan = plan_for(assessed(), None, disk)
-    assert (plan.refusal, plan.revision) == ("", 3)
-    assert [j.stem for j in plan.build][1] == "Gear_m1.5_N68_r3"
+    assert (plan.refusal, plan.revision) == ("", 0)
+    assert [j.stem for j in plan.build] == ["Gear_m1.5_N17", "Gear_m1.5_N68_r3", "Gear_m2_N17", "OutputGear"]
 
 
 # -- reuse ----------------------------------------------------------------------------------------
@@ -320,9 +326,11 @@ def test_a_part_recorded_for_another_workbook_is_not_reused():
         disk.remove(p)
     other = assess.assess(replace(reducer(), source_path=r"C:\Work\Other.xlsx"), [], FOLDER)
     again = plan_for(other, None, disk)
-    assert again.revision == 2 and again.reuse == ()
-    assert "Gear_m1.5_N17.SLDPRT is already in" in again.revision_reason
-    assert "was not built from this workbook" in again.revision_reason
+    assert (again.revision, again.reuse) == (0, ())
+    assert [j.stem for j in again.build] == ["Gear_m1.5_N17_r2", "Gear_m1.5_N68_r2", "Gear_m2_N17_r2", "OutputGear_r2"]
+    assert {m.why for m in again.made_new} == {gearbox.OTHER_WORKBOOK}
+    assert again.made_new[0].sentence == (f"Gear_m1.5_N17.SLDPRT in {FOLDER} was built from Reducer_12to1.xlsx, so "
+                                          "G1's part is made as Gear_m1.5_N17_r2; nothing is overwritten.")
 
 
 def test_our_own_stale_part_says_so_and_gets_its_r_n():
@@ -335,15 +343,16 @@ def test_our_own_stale_part_says_so_and_gets_its_r_n():
     spec = reducer()
     spec = replace(spec, gears=(spec.gears[0], replace(spec.gears[1], bore="14")) + spec.gears[2:])
     again = plan_for(assessed(spec), record, disk)
-    assert (again.refusal, again.revision) == ("", 2)
-    assert again.revision_reason.startswith(
-        f"Gear_m1.5_N68.SLDPRT is already in {FOLDER} and was built from this workbook for values its row no "
-        "longer has")
+    assert (again.refusal, again.revision, again.revision_reason) == ("", 0, "")
+    assert [m.sentence for m in again.made_new] == [
+        f"Gear_m1.5_N68.SLDPRT in {FOLDER} was built from this workbook for values G2 no longer has, so G2's part is "
+        "made as Gear_m1.5_N68_r2; nothing is overwritten."]
     assert [j.stem for j in again.build] == ["Gear_m1.5_N68_r2"]
     assert [r.stem for r in again.reuse] == ["Gear_m1.5_N17", "Gear_m2_N17", "OutputGear"]
 
 
-def test_a_part_update_changed_without_saving_is_not_reused():
+def test_a_part_update_changed_without_saving_is_made_new_and_never_holds_the_build():
+    """Review B2 (overruling interface agreement 7): a part Update left unsaved is simply not reusable."""
     disk = Disk()
     a = assessed()
     plan, result, record = build(a, None, disk)
@@ -352,11 +361,14 @@ def test_a_part_update_changed_without_saving_is_not_reused():
         disk.remove(p)
     record.unsaved = {plan.part_of["G2"]: 1.0}
     again = plan_for(a, record, disk)
-    assert again.refusal == ("Gear_m1.5_N68.SLDPRT was changed in SolidWorks by Update SolidWorks and has not been "
-                             "saved since, so the file is not yet the part this build would use: save it in "
-                             "SolidWorks, then build again.")
-    with pytest.raises(ValueError):
-        again.build_kwargs()
+    assert again.refusal == "" and again.revision == 0
+    assert [j.stem for j in again.build] == ["Gear_m1.5_N68_r2"] and len(again.reuse) == 3
+    assert again.unsaved_made_new == (gearbox.MadeNew(("G2",), plan.part_of["G2"], again.build[0].path,
+                                                      gearbox.UNSAVED),)
+    assert again.made_new[0].sentence == ("Gear_m1.5_N68 has changes from Update SolidWorks that are not saved, so "
+                                          "its file is not yet the part G2 needs: this build makes G2's part new, as "
+                                          "Gear_m1.5_N68_r2.")
+    assert again.build_kwargs()["parts"][0].path == again.build[0].path
 
 
 def test_fields_a_kind_ignores_do_not_stop_a_part_being_reused():
@@ -567,12 +579,21 @@ def test_a_layout_route_other_than_layout_is_refused(monkeypatch):
         "(findings.WORKBOOK_LAYOUT_ROUTE), so only the parts can be built.")
 
 
-def test_a_part_named_like_the_layout_moves_the_build_on():
+@pytest.mark.parametrize("name,whose", [("Reducer_12to1_Layout", "the layout part's"),
+                                        ("reducer_12to1_r3_layout", "the layout part's"),
+                                        ("Reducer_12to1", "the assembly's"), ("Reducer_12to1_r2", "the assembly's")])
+def test_a_part_named_like_the_gearboxs_own_files_is_refused_naming_its_cell(name, whose):
+    """Review S5 / S4.9: it was built anyway, as a gear part literally named Reducer_12to1_Layout.SLDPRT."""
     spec = reducer()
-    spec = replace(spec, gears=spec.gears[:3] + (replace(spec.gears[3], part_name="Reducer_12to1_Layout"),))
+    spec = replace(spec, gears=spec.gears[:3] + (replace(spec.gears[3], part_name=name, row=5),),
+                   columns={"Gears": {"id": 1, "part_name": 18}})
     plan = plan_for(assessed(spec), None, Disk())
-    assert plan.revision == 2 and plan.revision_reason.startswith(
-        "Two of the files this build would make are both Reducer_12to1_Layout.SLDPRT")
+    assert plan.refusal == (f"Gears!R5: G4's part would be {name}.SLDPRT, which is a name of the gearbox's own "
+                            "files (Reducer_12to1.SLDASM, Reducer_12to1_Layout.SLDPRT and their revisions; here "
+                            f"{whose}), so nothing is built: give it another Part name.")
+    assert plan.build == () and plan.revision == 0
+    with pytest.raises(ValueError):
+        plan.build_kwargs()
 
 
 def test_the_frames_in_the_plan_are_the_reports():
@@ -617,3 +638,163 @@ def test_a_plan_builds_through_the_worker_and_its_finish_records_the_names_solid
     assert box.layout_component == result.components["layout"]
     assert [c.name for c in box.components] == [result.components[h] for h in plan.handles]
     assert len(done.sidecars) == 4 and box.assembly == plan.assembly_path
+
+
+# -- the W4 review's findings, as regression tests ------------------------------------------------------------
+
+
+COPY = "C:\\Copy\\Reducer_12to1.xlsx"
+MOVED = "C:\\Moved\\Reducer_12to1.xlsx"
+
+
+def assessed_at(source, spec=None):
+    a = assess.assess(replace(spec or reducer(), source_path=source), [], FOLDER)
+    assert a.lay_out_refusal() == ""
+    return a
+
+
+def _built_on_disk(disk, record=None):
+    plan, result, record = build(assessed(), record, disk)
+    return plan, record
+
+
+def test_a_com_error_part_way_keeps_the_saved_parts_on_record_and_the_retry_reuses_them():
+    """Review B1 (w4r_crash): the third save raised a non-SolidWorksError; the two parts SolidWorks had saved were
+    on no record, and the next plan called them not built from this workbook and went to _r2."""
+    from test_swbuild import FakeSolidWorks
+    disk = Disk()
+    a = assessed()
+    plan = plan_for(a, None, disk)
+
+    class ComErrorLookAlike(Exception):
+        pass
+    sw = FakeSolidWorks(raises={"save_as": (3, ComErrorLookAlike(-2147023170, "The remote procedure call failed.",
+                                                                 None, None))})
+    result = swbuild.build_gearbox(sw, **plan.build_kwargs(), exists=sw.exists)       # returns: nothing escapes
+    assert not result.ok and [stem(r.saved) for r in result.parts.built if r.saved] == ["Gear_m1.5_N17",
+                                                                                         "Gear_m1.5_N68"]
+    disk.add(*sw.saved)
+    done = gearbox.finish_build(plan, result, None, workbook=WORKBOOK, digest="d1", written_by="test",
+                                read_sidecar=disk.read_sidecar)
+    disk.write(done)
+    assert [stem(p.path) for p in done.record.parts] == ["Gear_m1.5_N17", "Gear_m1.5_N68"]
+    again = plan_for(a, done.record, disk)
+    assert (again.refusal, again.revision, again.name, again.made_new) == ("", 0, "Reducer_12to1", ())
+    assert [r.stem for r in again.reuse] == ["Gear_m1.5_N17", "Gear_m1.5_N68"]
+    assert [j.stem for j in again.build] == ["Gear_m2_N17", "OutputGear"]
+
+
+def test_a_reused_part_is_checked_for_its_features_too():
+    """Review S6: build_kwargs passed a reused part's globals only, so a part whose features were deleted or
+    renamed by hand still passed the live check."""
+    from test_swbuild import FakeSolidWorks
+
+    def stopped_at_the_assembly():
+        """The parts and the layout built and saved on a fake SolidWorks, the assembly not made; on record."""
+        disk = Disk()
+        plan = plan_for(assessed(), None, disk)
+        sw = FakeSolidWorks(fail_on={"new_assembly": "There is no assembly template at 'C:\\T\\No.asmdot'."})
+        result = swbuild.build_gearbox(sw, **plan.build_kwargs(), exists=sw.exists)
+        disk.add(*sw.saved)
+        done = gearbox.finish_build(plan, result, None, workbook=WORKBOOK, digest="d1", written_by="test",
+                                    read_sidecar=disk.read_sidecar)
+        disk.write(done)
+        sw.fail_on = {}
+        return sw, plan_for(assessed(), done.record, disk), disk
+
+    sw, again, disk = stopped_at_the_assembly()
+    g2 = next(r for r in again.reuse if r.gear_ids == ("G2",))
+    sidecar = disk.read_sidecar(store.sidecar_path(g2.path))
+    assert g2.features == tuple(sidecar.record.features) and "Teeth" in g2.features
+    assert again.build_kwargs()["reuse"][1].features == g2.features
+    assert swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists).ok      # all there: it goes ahead
+
+    sw, again, disk = stopped_at_the_assembly()
+    equations, made = sw.saved[norm(g2.path)]
+    sw.saved[norm(g2.path)] = (equations, [f for f in made if f != "Teeth"])           # deleted in SolidWorks
+    tried = sw.counts.get("new_assembly", 0)
+    with pytest.raises(swbuild.BuildError) as raised:
+        swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists)
+    assert str(raised.value) == ('Gear_m1.5_N68.SLDPRT cannot be reused: "Teeth" is no longer in it; it was renamed '
+                                 "or deleted in SolidWorks.")
+    assert sw.counts.get("new_assembly", 0) == tried                                   # nothing was made
+
+
+def test_a_sidecar_update_marked_unsaved_is_not_reused_until_the_file_is_newer():
+    """Review B2: the .gear.json beside a part Update changed must not claim values the file may not hold. With the
+    record lost, reuse by .gear.json skips a marked one until the file on disk is newer than the mark."""
+    disk = Disk()
+    plan, record = _built_on_disk(disk)
+    for p in (plan.layout_path, plan.assembly_path):
+        disk.remove(p)
+    n68 = plan.part_of["G2"]
+    key = norm(store.sidecar_path(n68))
+    disk.sidecars[key] = store.updated_sidecar(disk.sidecars[key], disk.sidecars[key].record.spec,
+                                               disk.sidecars[key].record.derived,
+                                               disk.sidecars[key].record.variables, unsaved_since=5.0)
+    times = {norm(n68): 5.0}
+    again = plan_for(assessed(), None, disk, mtime=lambda p: times[norm(p)])
+    assert again.refusal == "" and [m.why for m in again.made_new] == [gearbox.UNSAVED]
+    assert [j.stem for j in again.build] == ["Gear_m1.5_N68_r2"] and len(again.reuse) == 3
+    times[norm(n68)] = 6.0                                             # saved in SolidWorks since
+    again = plan_for(assessed(), None, disk, mtime=lambda p: times[norm(p)])
+    assert again.build == () and len(again.reuse) == 4 and again.made_new == ()
+
+
+def test_a_copied_workbook_does_not_use_the_originals_record_or_files():
+    """Review S1: a project folder copied whole brings the original's record, whose output folder is absolute; the
+    copy's Update would have rewritten the original's parts. While the original is still there, the copy plans a
+    gearbox of its own beside those files, sharing nothing, and its first build starts a record of its own."""
+    disk = Disk()
+    plan0, record = _built_on_disk(disk)
+    disk.add(WORKBOOK)                                                 # the original is still there
+    copied = store.link_record_from_json(store.link_record_to_json(record))
+    a = assessed_at(COPY)
+    plan = plan_for(a, copied, disk)
+    assert plan.foreign_record == WORKBOOK and plan.refusal == ""
+    assert plan.reuse == () and plan.revision == 2                     # its own revision, beside the original's
+    assert [j.stem for j in plan.build] == ["Gear_m1.5_N17_r2", "Gear_m1.5_N68_r2", "Gear_m2_N17_r2", "OutputGear_r2"]
+    assert {m.why for m in plan.made_new} == {gearbox.OTHER_WORKBOOK}
+    result = run(plan, disk)
+    done = gearbox.finish_build(plan, result, copied, workbook=COPY, digest="dc", written_by="test",
+                                read_sidecar=disk.read_sidecar)
+    rec = done.record
+    assert rec.workbook == COPY and rec.earlier == [] and rec.moved_from == []
+    assert sorted(stem(p.path) for p in rec.parts) == ["Gear_m1.5_N17_r2", "Gear_m1.5_N68_r2", "Gear_m2_N17_r2",
+                                                       "OutputGear_r2"]
+    assert rec.gearbox.revision == 2 and stem(rec.gearbox.assembly) == "Reducer_12to1_r2"
+    assert all(s.record.workbook == COPY for _, s in done.sidecars)
+
+
+def test_a_moved_workbook_adopts_its_record_and_still_knows_its_parts():
+    """Review S1 and the Locate nit: the record's workbook is a path with no file now, so the workbook was moved or
+    renamed — the record is adopted, the old path kept, and its parts' .gear.json, which name the old path, are
+    still this workbook's."""
+    disk = Disk()
+    plan0, record = _built_on_disk(disk)                               # WORKBOOK is not on the disk: moved away
+    for p in (plan0.layout_path, plan0.assembly_path):
+        disk.remove(p)
+    record.gearbox, record.assembly = None, ""
+    a = assessed_at(MOVED)
+    plan = plan_for(a, record, disk)
+    assert plan.foreign_record == "" and plan.build == () and len(plan.reuse) == 4
+    done = gearbox.finish_build(plan, run(plan, disk), record, workbook=MOVED, digest="dm", written_by="test",
+                                read_sidecar=disk.read_sidecar)
+    assert done.record.workbook == MOVED and done.record.moved_from == [WORKBOOK]
+    # With the record's parts gone too, the .gear.json beside each part (naming WORKBOOK) still says it is ours.
+    lost = store.LinkRecord(workbook=MOVED, moved_from=[WORKBOOK])
+    for p in (plan.layout_path, plan.assembly_path):
+        disk.remove(p)
+    plan = plan_for(a, lost, disk)
+    assert plan.build == () and len(plan.reuse) == 4
+    # ... but not once a workbook stands at the old path again: that one is another workbook.
+    disk.add(WORKBOOK)
+    plan = plan_for(a, lost, disk)
+    assert plan.reuse == () and {m.why for m in plan.made_new} == {gearbox.OTHER_WORKBOOK}
+
+
+def test_every_pair_of_one_file_name_is_named():
+    sentence = gearbox._same_file_name([r"C:\A\G1.SLDPRT", r"C:\B\G1.SLDPRT", r"C:\A\G2.SLDPRT", r"C:\C\g2.sldprt"])
+    assert sentence == (r"This build would use both C:\A\G1.SLDPRT and C:\B\G1.SLDPRT; both C:\A\G2.SLDPRT and "
+                        r"C:\C\g2.sldprt, and SolidWorks cannot have two documents of one file name open at once: "
+                        "give the gear a Part name, or change the output folder.")

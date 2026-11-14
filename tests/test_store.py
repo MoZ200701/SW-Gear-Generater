@@ -424,3 +424,61 @@ def test_locate_with_nothing_to_carry(tmp_path):
     with pytest.raises(UnknownSchema, match="R.workbook.json"):
         store.carry_link_record(old, new)
     assert not (tmp_path / "S.workbook.json").exists()
+
+
+# -- the W4 review: copies, moves and unsaved marks ------------------------------------------------------------
+
+
+def test_a_record_written_for_another_workbook_still_there_is_that_workbooks():
+    """Review S1: a copy's record names the original; while the original exists the copy is not to use it."""
+    record = store.LinkRecord(workbook=r"C:\Work\R.xlsx")
+    there = {r"C:\Work\R.xlsx"}
+    exists = lambda p: p in there                                     # noqa: E731
+    assert store.foreign_workbook(record, r"C:\Copy\R.xlsx", exists) == r"C:\Work\R.xlsx"
+    assert store.foreign_workbook(record, r"c:\work\r.XLSX", exists) == ""          # the same file to Windows
+    assert store.foreign_workbook(store.LinkRecord(), r"C:\Copy\R.xlsx", exists) == ""
+    assert store.foreign_workbook(None, r"C:\Copy\R.xlsx", exists) == ""
+    there.clear()                                                     # moved or renamed: the record is adopted
+    assert store.foreign_workbook(record, r"C:\Copy\R.xlsx", exists) == ""
+
+
+def test_adopting_a_record_keeps_the_paths_it_had():
+    record = store.LinkRecord(workbook=r"C:\A\R.xlsx")
+    store.adopt(record, r"C:\B\R.xlsx")
+    store.adopt(record, r"C:\C\R.xlsx")
+    store.adopt(record, r"C:\C\R.xlsx")
+    assert record.workbook == r"C:\C\R.xlsx" and record.moved_from == [r"C:\A\R.xlsx", r"C:\B\R.xlsx"]
+    store.adopt(record, r"C:\A\R.xlsx")                               # back where it was: not its own former path
+    assert record.moved_from == [r"C:\B\R.xlsx", r"C:\C\R.xlsx"]
+    assert store.link_record_from_json(store.link_record_to_json(record)) == record
+
+
+def test_locate_carries_the_record_and_remembers_the_old_path(tmp_path):
+    """The Locate nit: the parts' .gear.json name the old path, so the carried record keeps it in moved_from."""
+    old, new = tmp_path / "old" / "R.xlsx", tmp_path / "new" / "R2.xlsx"
+    old.parent.mkdir()
+    new.parent.mkdir()
+    store.save_link_record(store.LinkRecord(workbook=str(old)))
+    carried = store.carry_link_record(str(old), str(new))
+    record = store.read_link_record(str(new))
+    assert carried == store.link_record_path(str(new))
+    assert record.workbook == str(new) and record.moved_from == [str(old)]
+
+
+def test_an_update_marks_a_sidecar_unsaved_and_keeps_the_mark_until_told():
+    sidecar = Sidecar(part_path=r"C:\P\G.SLDPRT", record=GearRecord(spec={"teeth": "68"}, features=["Teeth"]))
+    marked = store.updated_sidecar(sidecar, {"teeth": "69"}, {}, [["No. of Teeth", "69"]], "t1", unsaved_since=7.5)
+    assert marked.record.unsaved_since == 7.5 and marked.record.features == ["Teeth"]
+    kept = store.updated_sidecar(marked, {"teeth": "70"}, {}, [["No. of Teeth", "70"]], "t2")
+    assert kept.record.unsaved_since == 7.5
+    assert store.from_json(store.to_json(kept)).record.unsaved_since == 7.5
+    # a sidecar written before the mark existed reads as saved
+    assert store.from_json(store.to_json(sidecar)).record.unsaved_since == 0.0
+
+
+def test_saved_since_compares_the_files_time():
+    assert store.saved_since("x", 1.0, lambda p: 2.0) and not store.saved_since("x", 2.0, lambda p: 2.0)
+
+    def gone(_path):
+        raise FileNotFoundError("x")
+    assert not store.saved_since("x", 1.0, gone)

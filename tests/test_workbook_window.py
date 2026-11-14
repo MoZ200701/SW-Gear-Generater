@@ -342,11 +342,11 @@ def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk)
     start = len(desk.sw.calls)
     desk.finish(window)
     text = window.status.get()
-    assert text.startswith("Updated SolidWorks: changed ") and f"; no interference between the gears. " \
-        f"{ui_text.SAVE_TO_KEEP} " in text
-    # Build again… is greyed until those are saved, and says so (a part Update changed is not reused unsaved).
-    assert not window.build_button._enabled and text.endswith(
-        f"Build again… waits until Gear_m1.5_N68, {NAME} and {NAME}_Layout are saved in SolidWorks.")
+    assert text.startswith("Updated SolidWorks: changed ") and text.endswith(
+        f"; no interference between the gears. {ui_text.SAVE_TO_KEEP}")
+    # Build again… never waits for a save (W4 review B2): a part Update changed and that is not saved is made new
+    # by the next build instead of reused.
+    assert window.build_button._enabled and text.endswith(ui_text.SAVE_TO_KEEP) and "waits" not in text
     assert "Gear_m1.5_N68 (it now has 69 teeth; its file keeps its name)" in text
     assert f"moved S2 and S3 in {NAME}_Layout" in text and "re-placed G2, G3 and G4" in text
     sets = [args for name, args in desk.sw.calls[start:] if name == "set_global_variable"]
@@ -361,17 +361,20 @@ def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk)
     assert store.read_sidecar(desk.part("Gear_m1.5_N68")).record.spec["teeth"] == "69"
     assert window.read_line.get().endswith(" · built from this version")
 
-    # Until those documents are saved in SolidWorks the footer asks for it, and Build again… waits for it.
+    # Until those documents are saved in SolidWorks the footer asks for it; Build again… would make G2's part new.
     window.note = None
     window._refresh_state()
     assert window.status.get().endswith("have changes from Update SolidWorks that are not saved: save them in "
-                                        "SolidWorks to keep them. Build again… waits for that save.")
-    assert not window.footer().build_enabled and "has not been saved since" in window.plan.refusal
+                                        "SolidWorks to keep them.")
+    assert window.footer().build_enabled and window.plan.refusal == ""
+    assert [(m.gear_ids, os.path.basename(m.old), os.path.basename(m.new)) for m in window.plan.unsaved_made_new] == [
+        (("G2",), "Gear_m1.5_N68.SLDPRT", "Gear_m1.5_N69.SLDPRT")]
     for path in record.unsaved:
         touch_later(path)                                      # saved in SolidWorks
     window._tick()
     assert "not saved" not in window.status.get() and "waits" not in window.status.get()
-    assert window.footer().build_enabled
+    assert window.footer().build_enabled and window.plan.unsaved_made_new == ()
+    assert "Gear_m1.5_N68" in [r.stem for r in window.plan.reuse]
 
 
 def test_an_update_that_stops_part_way_records_what_it_changed_and_the_next_press_finishes(desk):
@@ -685,3 +688,30 @@ def test_a_record_locate_could_not_carry_is_joined_plainly_to_the_state(desk, mo
                            "Generator")
     assert text.endswith("does not exist; make it, or change it on the Box sheet.")
     assert not os.path.exists(store.link_record_path(str(moved)))
+
+
+# -- W4 review S1: a copied workbook (the window's handling is pass 2's; this pins the pass-1 shim) -------------
+
+
+def test_a_copied_workbook_builds_its_own_gearbox_and_leaves_the_originals_record_alone(desk):
+    import shutil
+    window = built(desk)
+    original = window.link.path
+    before = record_bytes(window)
+    folder = desk.tmp / "copy"
+    folder.mkdir()
+    copy_path = folder / f"{NAME}.xlsx"
+    shutil.copy2(original, copy_path)
+    shutil.copy2(store.link_record_path(original), store.link_record_path(str(copy_path)))
+    copy = desk.open(path=copy_path)
+    assert copy.record is None and copy.update is None and copy.plan.foreign_record == original
+    footer = copy.footer()
+    assert footer.build_label == "Build" and footer.build_enabled and not footer.update_shown
+    assert "this workbook is a copy of it" in copy.status.get()
+    assert "built" not in copy.read_line.get()                 # nothing is said to be built from the copy
+    copy.press_build()
+    desk.finish(copy)
+    record = record_of(copy)
+    assert store.same_path(record.workbook, str(copy_path)) and record.gearbox.revision == 2
+    assert record.earlier == [] and all("_r2" in os.path.basename(p.path) for p in record.parts)
+    assert record_bytes(window) == before                     # the original's record, byte for byte

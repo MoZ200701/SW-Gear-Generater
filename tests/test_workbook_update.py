@@ -455,3 +455,87 @@ def test_build_then_update_through_the_worker_and_nothing_is_left():
                                     mtime=lambda p: 5.0)
     assert len(finished.record.unsaved) == 3 and finished.dragged == []
     assert nothing(update.classify(finished.record, assessed(spec), exists=lambda p: True))
+
+
+# -- the W4 review's findings, as regression tests ------------------------------------------------------------
+
+
+def _demonstration_update(disk, record, times):
+    """The demonstration edit carried by Update and finished, the worker having read each file's time before."""
+    spec = gears(shafts(reducer(), S2=dict(x="64.5"), S3=dict(x="132.5")), G2=dict(teeth="69"))
+    plan = update.classify(record, assessed(spec), exists=disk.exists)
+    found = {c.gear: (tuple(c.rotation), tuple(c.at)) for c in record.gearbox.components}
+    result = worker_answer(plan, found=found, placed=("G2", "G3", "G4"))
+    result.mtimes = {p: times[norm(p)] for p in result.changed}
+    done = update.finish_update(plan, result, record, digest="d2", read_sidecar=disk.read_sidecar,
+                                mtime=lambda p: 999.0)
+    disk.write(done)
+    return spec, done.record
+
+
+def test_the_unsaved_mark_is_the_files_time_before_the_job_so_a_quick_save_is_not_missed(built):
+    """Review nit: finish_update read the time at the finish, up to a second after the change; a save in that
+    second was taken as the time of the change, and the document stayed unsaved for ever."""
+    disk, record = built
+    times = {norm(p.path): 100.0 for p in record.parts}
+    times.update({norm(record.gearbox.layout): 101.0, norm(record.gearbox.assembly): 102.0})
+    _, rec = _demonstration_update(disk, record, times)
+    assert {stem(p): t for p, t in rec.unsaved.items()} == {"Gear_m1.5_N68": 100.0, "Reducer_12to1_Layout": 101.0,
+                                                             "Reducer_12to1": 102.0}
+    # the .gear.json of the part it changed says so, at the same time
+    sidecar = disk.read_sidecar(store.sidecar_path(next(p for p in rec.unsaved if stem(p) == "Gear_m1.5_N68")))
+    assert sidecar.record.unsaved_since == 100.0 and sidecar.record.spec["teeth"] == "69"
+    # the save landed while the finish was being written: newer than the mark, so it clears
+    assert store.clear_saved(rec, mtime=lambda p: 102.5) and rec.unsaved == {}
+
+
+def test_an_update_left_unsaved_and_never_saved_holds_neither_button(built):
+    """Review B2 (w4r_unsaved): Update changed N68 to 69 teeth; SolidWorks was closed without saving, so the file's
+    time never moved; then a structural edit. Build again… was refused for ever ("save it in SolidWorks"), with
+    nothing open to save, and Update was held too. Now the unsaved part is made new, and both buttons go."""
+    from gear_generator import ui_text
+    from test_workbook_gearbox import plan_for
+    disk, record = built
+    times = {norm(p.path): 100.0 for p in record.parts}
+    times.update({norm(record.gearbox.layout): 100.0, norm(record.gearbox.assembly): 100.0})
+    spec, rec = _demonstration_update(disk, record, times)
+    store.clear_saved(rec, mtime=lambda p: 100.0)                    # closed without saving: no time moved
+    assert len(rec.unsaved) == 3
+    a = assessed(gears(spec, G1=dict(bore="")))
+    up = update.classify(rec, a, exists=disk.exists)
+    assert up.needs_new_revision
+    again = plan_for(a, rec, disk, mtime=lambda p: 100.0)
+    assert again.refusal == "" and again.revision == 2
+    assert [m.gear_ids for m in again.unsaved_made_new] == [("G2",)]
+    assert sorted(j.stem for j in again.build) == ["Gear_m1.5_N17_r2", "Gear_m1.5_N69"]     # its own name, free
+    assert sorted(r.stem for r in again.reuse) == ["Gear_m2_N17", "OutputGear"]
+    footer = ui_text.workbook_footer(a, record=rec, plan=again, update=up, folder=FOLDER)
+    assert footer.build_enabled and footer.update_enabled, footer.text
+
+
+def test_a_copied_workbooks_record_holds_update_and_says_whose_files_those_are(built):
+    """Review S1: the record beside a copy names the original, which is still there."""
+    disk, record = built
+    disk.add(WORKBOOK)
+    copy = "C:\\Copy\\Reducer_12to1.xlsx"
+    a = assess.assess(replace(reducer(), source_path=copy), [], FOLDER)
+    plan = update.classify(record, a, exists=disk.exists)
+    assert plan.foreign_record == WORKBOOK and plan.parts == () and plan.placements == ()
+    assert plan.refusal == ("The record of what was built beside this workbook, Reducer_12to1.workbook.json, was "
+                            "written for C:\\Work\\Reducer_12to1.xlsx, which is still there: this workbook is a copy "
+                            "of it, and the SolidWorks files that record lists are Reducer_12to1.xlsx's. Update "
+                            "SolidWorks leaves them alone, and Build makes this workbook's own gearbox beside them, "
+                            "sharing and overwriting nothing.")
+    with pytest.raises(ValueError):
+        plan.update_kwargs()
+    # moved, not copied: the original is gone, and the record is this workbook's
+    disk.remove(WORKBOOK)
+    assert update.classify(record, a, exists=disk.exists).refusal == ""
+
+
+def test_an_update_finish_adopts_a_record_of_a_moved_workbook(built):
+    disk, record = built
+    plan = classify(built, gears(reducer(), G2=dict(teeth="69")))
+    done = update.finish_update(plan, worker_answer(plan), record, digest="d2", read_sidecar=disk.read_sidecar,
+                                mtime=lambda p: 1.0, workbook="C:\\Moved\\Reducer_12to1.xlsx")
+    assert done.record.workbook == "C:\\Moved\\Reducer_12to1.xlsx" and done.record.moved_from == [WORKBOOK]
