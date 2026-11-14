@@ -390,6 +390,22 @@ files are already there); a new part whose file name is taken is `<stem>_r<n>`. 
 parts are shared, so a later Update that changes one also changes the earlier revision's assembly. There is one
 build button, Build / Build parts / Build again…, with Update SolidWorks beside it.
 
+*Readings changed by the W4 review (2026-11-13):* **an unsaved part is made new.** A part Update left unsaved
+never holds a build back (overruling W4's agreement 7): it is not reusable, so the build makes that part new at
+this revision, and the window says so and asks for the save once; its `.gear.json` is marked `unsaved_since`, so
+it never claims values the file may not hold. Likewise a part a build's live check found not holding what the
+record says (an update lost when SolidWorks closed unsaved and the unchanged file saved later): the build makes
+nothing, the record notes the part (`mismatched`, with the file's time), and the next press makes it new rather
+than fail the same check. **A part's suffix is its own:** a new part whose file name is taken gets the smallest
+free `<stem>_r<k>` whatever the gearbox's revision, so a file in one part's way no longer moves a first build to
+`_r2`; only the layout part and the assembly move the revision, and a Part name that would be one of the
+gearbox's own file names is refused. **A copied workbook's record is not its own:** the record is found by its
+file name beside the workbook, so a folder copied whole brings the original's; while the workbook it names is
+still on disk, the copy's Update is not offered and its Build makes a gearbox of its own beside the original's
+files, sharing and overwriting nothing; when that workbook is gone, it was moved, and the record is adopted.
+Update touches only a document it changes. These were tested against the fake SolidWorks; they await a rerun of
+the demonstration on SolidWorks.
+
 ## 5. The Workbook window: `workbook_gui.py` (+ `ui_text`)
 
 Opened from **Import workbook…** in the Gear panel header (a file dialog, then the window), or **New workbook…**
@@ -428,7 +444,7 @@ the pattern: `POLL_MS`).
 | **W1 format** | `xlsx.py` (read, `write_new`, `write_cells`), `schema.py`, `model.py` + tests; **ask the user for the Excel-saved fixture first** | The Excel fixture reads into a `GearboxSpec`; `to_book` → `write_new` → `read` round-trips; `write_cells` on the fixture changes only its cells and refuses a formula cell; a bad cell's diagnostic names it. |
 | **W2 batch parts** | The window's artboard and `UI-DESIGN.md` §9 first (drawn in `design/canvas/` by `gen.py`, as the strip was); then `build_many`, the Workbook window (header, gear list, per-gear errors), Import / New workbook…, the live link and change list, `Recent.workbooks` | Mac: each row's plan equals the strip's for the same `GearSpec`; the window updates within two seconds of a scripted save (screenshots). Windows: a workbook of 4 gears builds 4 parts whose `.gear.json` variables match strip-built twins. |
 | **W3 positions and checks** | `geometry.py`, `checks.py`, `kinematics.py` (parallel), `fixes.py`, `pair.shift_for_centre`, Results, Export / Export as…, `preview.layout_gearbox` | Mac: the 12 : 1 workbook checks clean and its speeds match the pinned values; S2 typed at 64.00 shows E2's error and both fixes (shift x = 0.084550 each); Export writes the fix and Results and leaves a formula cell alone; screenshots checked by eye. Windows: the exported file opens in Excel with no repair prompt. |
-| **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. *(2026-11-13: in the 12 : 1 reducer S3 X is a formula on S2 X, so S2 X alone moves S3 with it and leaves G1–G2 0.75 mm off its centres: the gearbox fails its checks and Update waits. The demonstration edit is S2 X 63.75 → 64.5 with G2's teeth 68 → 69, which puts G1–G2 back on centres at 64.5.)* |
+| **W4 layout and static assembly** | Probe tier 7 (§4.2) and its findings; the `Axis`-by-name op; §4.2, §4.3; Update SolidWorks for values and positions; build-again `_r2` | Windows: tier 7 passes; layout part + 4 parts + assembly, gears meshed, no interference; change `S2 X` in Excel → Update SolidWorks moves it. *(2026-11-13: in the 12 : 1 reducer S3 X is a formula on S2 X, so S2 X alone moves S3 with it and leaves G1–G2 0.75 mm off its centres: the gearbox fails its checks and Update waits. The demonstration edit is S2 X 63.75 → 64.5 with G2's teeth 68 → 69, which puts G1–G2 back on centres at 64.5. Shown on SolidWorks 2026 in full, 244 checks, 0 failed; on 2024 tier 7, the build, its measurements and controls, the Excel edit and Update — the structural step and `_r2`, the continued build, the pure-move and risky-placement workbooks and the window run are still to run on 2024, in a fresh session. The W4 review's fixes since are tested on the fake only and await a rerun on SolidWorks.)* |
 | **W5 motion** | §4.4, after `gear_mate` and tier-6 items 3–5 have passed | Drag the input in SolidWorks: the output turns at 1/12 the input's angle, the right way. |
 | **W6 right-angle** | Turned axes, bevel and crossed meshes | A bevel stage feeding a parallel stage builds; sub-plan and questions at the time. |
 | **W7 planetary** | Carriers, copies, loops in kinematics and phases | A 4 : 1 planetary with the ring fixed builds; own sub-plan. |

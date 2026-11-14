@@ -11,11 +11,13 @@ this note only says where things stand within it.
 | W0–W1 xlsx read/write, model, schema | done, reviewed by a Fable subagent, review fixes in |
 | W2 Workbook window, live link, Build parts | done, reviewed, fixes in. The batch build (`swbuild.build_many`) ran on SolidWorks 2024 and 2026 (`208712c`): the 12 : 1 reducer's four parts built, matching strip-built twins; logs `probe/results/w2-build-20261113-164647.log` and `probe/results/sw2024/w2-build-20261113-165706.log`. |
 | W3 geometry, phases, kinematics, checks, fixes, Export, Results sheet, two-column window | done, reviewed twice, every review item fixed. The Excel checks passed on Windows: the Windows-saved fixture (`aa86cc7`) reads, and exported files open in Excel with no repair prompt. |
-| W4 layout part + static assembly, Update SolidWorks, build-again `_r2` | **built and wired; demonstration in progress, review pending.** Probe tier 7 passed on SolidWorks 2026 (a full run of every probe, 69 of 69, `probe/results/latest.json`) and 2024 (32 of 32, `probe/results/sw2024/`), every decision the same; findings set in `bfc9ef5`. Then the interfaces (`a93d6d9`), the record's schema 2 (`1f0548b`), the planning (`cb7e042` layout, `17f4bce` gearbox, `a623610` update), the worker (`afb0c00`, `7ce7a26`, `d0203cd`), the footer and every sentence (`4b128a6`, `8fa0216`), and the window (`ccef692`); the helical phase across Z+/Z− fixed first (`119da25`). A smoke test of the gearbox build, its reuse and Update passed on 2026 (`66fed74`, `probe/results/gearbox-smoke-20261113-191036.log`). The full demonstration (PLAN-WORKBOOK §6's W4 row, on both versions) is running now. Boards and docs brought up to W4: `b215dee`, `649d8db`, `47e4648`. |
+| W4 layout part + static assembly, Update SolidWorks, build-again `_r2` | **built, demonstrated on 2026, reviewed, review fixed (tested on the fake only); the 2024 remainder and a rerun on SolidWorks are open** — see below. Probe tier 7 passed on SolidWorks 2026 (a full run of every probe, 69 of 69, `probe/results/latest.json`) and 2024 (32 of 32, `probe/results/sw2024/`), every decision the same; findings set in `bfc9ef5`. Then the interfaces (`a93d6d9`), the record's schema 2 (`1f0548b`), the planning (`cb7e042` layout, `17f4bce` gearbox, `a623610` update), the worker (`afb0c00`, `7ce7a26`, `d0203cd`), the footer and every sentence (`4b128a6`, `8fa0216`), and the window (`ccef692`); the helical phase across Z+/Z− fixed first (`119da25`). A smoke test of the gearbox build, its reuse and Update passed on 2026 (`66fed74`, `probe/results/gearbox-smoke-20261113-191036.log`). Boards and docs brought up to W4: `b215dee`, `649d8db`, `47e4648`. The demonstration (`5154de1` and before): **SolidWorks 2026 — all of it, 244 checks, 0 failed** (`probe/results/w4-workbook-assembly-20261113-194228.log`, `…-200255-a2.log`, `w4-window-20261113-195843.log`); **SolidWorks 2024 — tier 7, the 12 : 1 build, its measurements and controls, the Excel edit and Update** (`probe/results/sw2024/w4-workbook-assembly-20261113-200555.log`); **not yet on 2024: the structural step and `_r2`, the continued build (a2), the pure-move and risky-placement workbooks (b, c), the window run** — the user's 2024 session ran out of memory; they are to be run in a fresh session. The independent review's fixes followed in two passes: pass 1, worker, planning and record (`042f276`, `9c64960`, `88385f1`, `a6abd5d`, `2b752a1`); pass 2, the window, every sentence and these documents (`a8bb817`, `7dc0d90`, `571cf1a`, `2a4653e`, `94c85d7`, and the docs commit). Those fixes are tested against the fake SolidWorks only and await a rerun of `probe/workbook_assembly_check.py` and `probe/workbook_window_check.py` on SolidWorks. |
 | W5 motion | **next.** Its precondition `gear_mate` has passed on both versions, and pairs built by the app were driven through it (`probe/gear_pairs_check.py`): the ring pair's Flip was measured, found wrong, and corrected in `4c8a73a`. PLAN-WORKBOOK §4.4 also needs PLAN-GEARBOX's probe tier 6 items 3–5 (axis-to-axis mates, five or more components, a lock between free components); no tier 6 is written yet (tier 7 inserted five components, but placed and fixed, not mated). |
 
-Suite, measured on a clean `git archive` of `bdc7647` (WSL, 2026-11-13): `PYTHONPATH=src
-.venv/bin/python -m pytest -q` → 942 passed, 9 skipped. The `PYTHONPATH` matters in a copy: the venv's
+Suite, measured on a clean `git archive` of `94c85d7` (WSL, 2026-11-13): `PYTHONPATH=src
+.venv/bin/python -m pytest -q` → 1494 passed, 10 skipped. The window's Tk tests run under Windows Python:
+`python.exe -m pytest tests/test_workbook_build.py tests/test_workbook_window.py -q` → 92 passed (a "no
+display for Tk" skip is a known flake; rerun). The `PYTHONPATH` matters in a copy: the venv's
 editable install otherwise imports the working tree's `src`, uncommitted edits and all.
 
 ## What the last two commits did
@@ -43,24 +45,18 @@ editable install otherwise imports the working tree's `src`, uncommitted edits a
 
 W1–W3 are closed and reviewed. For W4, in order:
 
-1. **Finish the demonstration** (W4-DECISIONS item 10, PLAN-WORKBOOK §6's W4 row) on SolidWorks 2026 and 2024,
-   logs committed under `probe/results/`: (a) the 12 : 1 fixture built, the Excel edit S2 X 63.75 → 64.5 with
-   G2's teeth 68 → 69 (S3 X following by its formula), Update SolidWorks, measured, then a structural step and
-   `_r2` with every earlier file's sha256 and mtime unchanged, and a control that the assembly shows G2's 69
-   teeth; (b) a pure move, S2 off the X axis so a move alone keeps every mesh; (c) the risky placements —
-   helical across Z+/Z−, herringbones of unequal faces, a ring on a Z− shaft — each mesh with the half-pitch
-   negative control. Then update README's "under way and not yet reported" sentence and its versions line.
-2. **Review W4** (plan and result) by a Fable subagent, as every phase has been, and fix what it finds.
-3. **W5 motion** (PLAN-WORKBOOK §4.4): write and run the tier 6 items it needs first; **if they fail, STOP
-   and ask** — the static assembly stays.
+1. **Rerun the demonstration on SolidWorks** with the review's fixes in: `probe/workbook_assembly_check.py` and
+   `probe/workbook_window_check.py` on 2026, and on 2024 in a fresh session — there, for the first time, the
+   structural step and `_r2`, a2, b, c and the window run. Commit the logs under `probe/results/`.
+2. **W5 motion** (PLAN-WORKBOOK §4.4): probe tier 8 (`p8_motion`, `c53bc2d`) is written; its findings wait for
+   a full run. **If it fails, STOP and ask** — the static assembly stays. The review's notes for W5: the
+   gear-mate Flip was measured only on parallel, same-direction axes (Z+/Z− pairs and rings on Z− need their
+   own probe before relying on `GEAR_MATE_EXTERNAL_FLIP`), and gears on one shaft keep independent turns in the
+   static assembly, so W5's lock between them holds the placed relative angle, not 0.
 
-Known, not yet acted on (from the W4 boards, 2026-11-13):
-
-- With four footer buttons (Export, Export as…, Build again…, Update SolidWorks) and a sentence long enough to
-  wrap, the footer asks Tk for 1095 px, so the window grows to 1119 px instead of 1080: the sentence wraps at a
-  fixed 660 px whatever the buttons take. The boards do not show it (HTML lets the sentence narrow).
-- After Update, while its changes are unsaved, Build again… is greyed with no word why: the plan's refusal (save
-  the part first) is not in the footer when nothing Update cannot carry is pending.
+Both items once listed here as known are fixed: the footer's sentence wraps in the room the buttons leave, so
+the window keeps 1080 px with four buttons (`8453348`), and Build again… is no longer greyed for an unsaved
+part at all — such a part is made new (review B2, `88385f1`), and the footer says so (`7dc0d90`).
 
 ## Rules carried over
 

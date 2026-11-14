@@ -343,7 +343,12 @@ and fixed. It then runs SolidWorks' interference detection: *no interference
 between the gears*, or a check naming the two gears and the volume. The
 assembly is static — the gears are placed meshed, but nothing turns yet. A part
 or layout already built and unchanged is reused, after it is opened and checked
-to hold exactly what the workbook asks; a build never overwrites a file. After
+to hold exactly what the workbook asks — one that does not (an update lost when
+SolidWorks closed unsaved, a feature deleted by hand) is noted, nothing is
+built, and the next press makes that part new; a build never overwrites a file,
+and a part whose file name is taken gets its own `_r2`. A workbook copied with
+its folder builds a gearbox of its own beside the original's files and leaves
+them alone. After
 a build SolidWorks marks the inserted parts and the layout part as modified, so
 it may ask to save them when you close the assembly: saving them is harmless,
 since they hold what they were built with.
@@ -354,22 +359,30 @@ the values of a part whose row changed (it keeps its file name, so
 globals for a shaft that moved, and each gear whose place changed re-placed
 where the workbook now puts it, then interference again. It compares with SolidWorks itself, not
 only with its record, so a gear dragged by hand is put back. **Update does not
-save**, as the form's Update values does not: save in SolidWorks to keep it.
-The window says which documents still hold unsaved changes until you have.
+save**, as the form's Update values does not: the window names the documents
+it changed — save them in SolidWorks to keep them — and says so until you
+have. Nothing waits for that save: a build that would reuse a part Update left
+unsaved makes that part new instead, and says so; saved, the part is reused.
 
 **Build again…** builds the next revision, `Reducer_12to1_r2_Layout.SLDPRT`
 and `Reducer_12to1_r2.SLDASM` (then `_r3`, …), beside the first: new parts for
 the rows that need them, the unchanged parts reused, and nothing overwritten.
 It is what a change Update cannot carry needs — a gear, shaft or mesh added or
 removed, a shaft's X or Y crossing, reaching or leaving 0, another recipe, a
-bore added or removed, a Part name changed, a built file moved away — and Update
-SolidWorks then offers it, asking first. The question says what the new revision makes and
-reuses, and that the reused parts are shared, so a later Update that changes
-one of them changes the earlier assembly too.
+bore added or removed, a Part name changed, a built file moved away, a
+component deleted in SolidWorks — and Update SolidWorks then offers it, asking
+first (Build again… always asks). The question says what the new revision
+makes and reuses, why a part is made new rather than reused (for one Update
+left unsaved: answer No and save it to reuse it), and that the reused parts
+are shared, so a later Update that changes one of them changes the earlier
+assembly too.
 
 `Reducer_12to1.workbook.json` beside the workbook records what was built, from
 which version of the workbook, and what Update changed and has not been saved;
-the header says *built from this version* or *changed since it was built*.
+the header says *built from this version*, *changed since it was built*, or,
+while an update is not saved, *updated from this version, not yet saved*.
+Closing the app while a workbook's build or update runs waits until what it
+saved is on record.
 
 The layout part and assembly were settled on SolidWorks 2026 and 2024 by probe
 tier 7 (`p7_workbook`; `probe/results/latest.json`, `probe/results/sw2024/`), and
@@ -377,9 +390,30 @@ a smoke test of the gearbox build, its reuse and Update passed on 2026
 (`probe/results/gearbox-smoke-20261113-191036.log`): a gearbox built with no
 interference, and interference between the two gears of a mesh when one was
 turned half a pitch; built again, reusing the saved parts and layout after
-checking each; and updated, a dragged gear put back and nothing saved. A full
-demonstration on the 12 : 1 reducer, on both versions, is under way and not yet
-reported.
+checking each; and updated, a dragged gear put back and nothing saved.
+
+The W4 demonstration (`probe/workbook_assembly_check.py`, `probe/workbook_window_check.py`):
+
+- **SolidWorks 2026: all of it, 244 checks, 0 failed**
+  (`probe/results/w4-workbook-assembly-20261113-194228.log`, the stopped-build
+  rerun `…-200255-a2.log`, the window `w4-window-20261113-195843.log`): the
+  12 : 1 reducer built, measured and checked by half-pitch controls; the Excel
+  edit (S2 X 64.5, G2 69 teeth) carried by Update; the structural step built as
+  `_r2` beside the first, every earlier file unchanged; a build whose assembly
+  failed carried on; a pure move (Arc_Move) and helical, herringbone and ring
+  placements across Z+ and Z− (Risky_Placements); and the real window run
+  through Build, Update and Build again.
+- **SolidWorks 2024**: tier 7, the 12 : 1 build, its measurements and controls,
+  the Excel edit and Update (`probe/results/sw2024/w4-workbook-assembly-20261113-200555.log`).
+  **Not yet shown on 2024:** the structural step and `_r2`, the continued
+  build, the pure-move and risky-placement workbooks, and the window run — the
+  2024 session ran out of memory; they are to be run in a fresh session.
+- The W4 review's fixes made after the demonstration (an unsaved part made new
+  rather than waited for, a part's own `_r` suffix, copied workbooks, Update
+  touching only what it changes, a job's saved files kept on record whatever
+  goes wrong, the footer's sentences, the app's close) are tested against the
+  test suite's fake SolidWorks only, and await a rerun of both scripts on
+  SolidWorks.
 
 What is not built yet:
 
