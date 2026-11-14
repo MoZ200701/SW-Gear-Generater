@@ -445,9 +445,11 @@ shows the journal and the marks on SolidWorks once rerun.
 made static in its place: the parts and the layout part the job built are kept and recorded, the assembly is left
 open in SolidWorks, unsaved, and named, and the sentence names the mate. Build stays greyed for that same read of
 the workbook, since the same workbook would make the same mates, and is offered again once the workbook changes.
-**Update returns a turned train to its built position only when it must move a gear** of it; it then puts every
-mated gear of that train, with the train's locks suppressed around the puts, and says so for that train. With
-nothing to put, the train stays where the user turned it, and the footer says so. **No datum plane:** an anchor's
+**Update returns a train the user turned to its built position whenever it has to move any gear** (the user's
+answer 2). Ruled with review M1, that is read train by train: a train Update must put has every mated gear of it
+put, with that train's locks suppressed around the puts, and is said back at its built turn (`restored` is kept per
+train); a train it need not touch stays where it was turned. With nothing to put, the gears stand where the user
+turned them, and the footer says so. **No datum plane:** an anchor's
 place along its shaft is measured from the layout's Front plane, so an edit that takes an anchor's front face onto,
 off or across that plane (a face width or an At on G1 or G2 of the 12 : 1) needs Build again…, and the sentence
 names the edit. **A follower's place along its shaft is an Update** (`LOCK_RETAKES_AN_OFFSET`: a lock re-takes

@@ -1003,14 +1003,14 @@ Update SolidWorks, and every sentence below is `ui_text`'s.
 | ready, a W5 finding missing | the ready sentence, then *Its gears are placed meshed and fixed, not mated to turn.* and the planning's own sentence naming the finding | **Build**, on | as before |
 | built (the job's sentence) | *Built 4 parts, Reducer_12to1_Layout and Reducer_12to1.SLDASM; no interference between the gears where they stand. Its gears are mated to turn together, and SolidWorks reports no mate in error: drag G1 in SolidWorks and the rest of its train follow.* | **Build again…**, on | on, primary |
 | built, nothing on record differs | *SolidWorks already matches the workbook on record; Update SolidWorks checks it live and puts right anything changed there; gears turned in SolidWorks stay where they are unless something must move. It was built with its gears mated to turn: drag G1 in SolidWorks and the rest of its train follow.* (the second sentence follows every Build again… state that is not an error) | **Build again…**, on | on, primary |
-| a mate refused (the job's sentence) | *Built 4 parts and Reducer_12to1_Layout; no assembly was saved, because SolidWorks found a problem with its mates. The mate G3 locked to G2 is in error in SolidWorks. The parts and the layout part are kept. The assembly is left open in SolidWorks as Assem1, not saved; its parts are the saved ones. Build is available again once the workbook changes: the same workbook would make the same mates. Update SolidWorks waits until Build has made the assembly.*, red | **Build**, off for this read | shown, off |
+| a mate refused (the job's sentence) | *Built 4 parts and Reducer_12to1_Layout; no assembly was saved, because SolidWorks found a problem with its mates. The mate G3 locked to G2 is in error in SolidWorks. The parts and the layout part are kept. The assembly is left open in SolidWorks as Assem1, not saved; its parts are the saved ones. Build is available again once the workbook changes: the same workbook would make the same mates. Update SolidWorks waits until Build has made the assembly.*, red; the header *· its assembly was refused for this version* | **Build**, off for this read | shown, off |
 | … the same read, the job's sentence gone | *Reducer_12to1.SLDASM was not saved, because SolidWorks found a problem with its mates. The mate G3 locked to G2 is in error in SolidWorks. Build is available again once the workbook changes: …* (as above), red | off | shown, off |
-| … the workbook saved since | the ready sentence (*reusing Reducer_12to1_Layout and the 4 parts already built*), the line on the gears turning, *Reducer_12to1.SLDASM was not saved, because …* with the problem, *The workbook has changed since, so Build tries the assembly again.*, and Update's reason | **Build**, on | shown, off |
-| a turning edit, before the press | *Update SolidWorks will change the values in Gear_m2_N17 (G3) and OutputGear (G4), move S3 in Reducer_12to1_Layout, move G4 along S3, and re-place G4.* and the line on the gears turning | **Build again…**, on | on, primary |
+| … the workbook saved since | the ready sentence (*reusing Reducer_12to1_Layout and the 4 parts already built*), the line on the gears turning, *Reducer_12to1.SLDASM was not saved, because …* with the problem, *The workbook has changed since, so Build tries the assembly again.*, and Update's reason; the header *· changed since its assembly was refused* | **Build**, on | shown, off |
+| a turning edit, before the press | *Update SolidWorks will change the values in Gear_m2_N17 (G3) and OutputGear (G4), move S3 in Reducer_12to1_Layout, move G4 along S3, and re-place G1, G2, G3 and G4.* (every mated gear of a train Update must put) and the line on the gears turning | **Build again…**, on | on, primary |
 | an anchor's front face onto, off or across the Front plane | *G1's At (7.5 → 10) moves its front face off the Front plane (z 0 → 2.5): the mate G1 along S1 holds it on that plane and cannot take a distance, so the gearbox needs building again. Update SolidWorks offers to build again as Reducer_12to1_r2.* (the same for a face width) | **Build again…**, on | on (asks) |
 | a tooth change, no ratio route | *G2's teeth (68 → 69) change the gear mate G1 meshes G2 from 17 : 68 to 17 : 69, and a gear mate's ratio cannot be changed in a built assembly until the probes settle how (findings.GEAR_MATE_RATIO_ROUTE), so the gearbox needs building again. Update SolidWorks offers to build again as Reducer_12to1_r2.* With `GEAR_MATE_RATIO_ROUTE` `"remake"` the same edit is an Update: *… set the gear mate G1 meshes G2 to 17 : 69, …* | **Build again…**, on | on (asks, or updates) |
-| a recorded mate Update cannot read (a hand-edited record) | *The record of what was built lists a mate with no name, and Update SolidWorks finds each mate by its name, so Update SolidWorks cannot act on the gearbox the record describes: Build again… makes a new revision from the workbook instead.*, red | **Build again…**, on: its press asks, so the sentence's offer is kept | shown, off |
-| a gearbox W4 built (static) | W4's sentence for the state, then *It was built static, before gears could be mated to turn: Build again… makes a new revision whose gears turn.* while Build again… is on and its plan turns | **Build again…**, on | on, primary: W4's static Update |
+| a recorded mate Update cannot read (a hand-edited record) | *The record of what was built lists a mate with no name, and Update SolidWorks finds each mate by its name, so Update SolidWorks cannot act on the gearbox the record describes: Build again… makes a new revision from the workbook instead.*, red | **Build again…**, on: its press asks, the question opening with that same refusal, so the sentence's offer is kept | shown, off |
+| a gearbox W4 built (static) | W4's sentence for the state, then *It was built static, before gears could be mated to turn: Build again… makes a new revision whose gears turn.* while Build again… is on and its plan turns; where Update itself offers the new revision, the offer says it once: *… Update SolidWorks offers to build again as Reducer_12to1_r2; it was built static, before gears could be mated to turn, and the new revision's gears turn.* | **Build again…**, on | on, primary: W4's static Update |
 
 **After Update SolidWorks on a turning gearbox.** The motion path's pieces
 join W4's list — *moved G4 along S3*, *set the gear mate G1 meshes G2 to 17 :
@@ -1029,9 +1029,21 @@ is never a drag.
 **The Build again? question** for a gearbox W4 built opens with
 *Reducer_12to1.SLDASM was built static; the new revision's gears are mated to
 turn.* (the window passes the record). For a record whose mate Update cannot
-read it opens with W4's *Nothing on record needs a new revision.*, which the
-footer's refusal contradicts: `build_again_question` has no sentence for an
-Update refusal yet (open, package C).
+read it opens with Update's own refusal, as the footer says it.
+
+**The assembly a refused mate leaves open** (*Assem1*) stays open and unsaved
+in SolidWorks. The window names it once, in the build's sentence, and does not
+track it: once that sentence has gone, neither the footer nor closing the
+window or the app mentions it.
+
+**A failed or lost Update on a turning gearbox** reads as W4's (*Update
+SolidWorks stopped. …*; the save asked for, and *press Update SolidWorks to
+make them again*), with the locks of a train always turned back on. Two of
+its next sentences are not yet right, and the window's tests hold them as
+expected failures: the press after an Update lost with SolidWorks says a gear
+*had been moved in SolidWorks*, and the press after one that stopped part way
+says so too, and that two gears *had been turned out of step* — what the
+stopped job left, not the user (open, packages B and C).
 
 ### The record, `Reducer_12to1.workbook.json`
 

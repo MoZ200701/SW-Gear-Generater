@@ -4,7 +4,9 @@ Builds parametric spur gears in SolidWorks from a form, and solves gear pairs:
 given a centre distance and a ratio, it finds module and tooth counts that work,
 builds both gears and mates them in an assembly. A whole gearbox written in an
 Excel workbook can be imported, checked and built: its parts, a layout part and
-an assembly whose gears are mated so the train turns when you drag its input.
+an assembly whose gears are mated to their shafts and to each other, each
+turning gear left free to turn. That dragging the input turns the whole train
+in SolidWorks is still to be shown on SolidWorks for the app's own build.
 
 The gear it builds is parametric in SolidWorks itself. Its sizes live in the
 Equation Manager as global variables, starting with the ten a person would type
@@ -339,17 +341,21 @@ with its `.gear.json` (identical gears share one part file); a layout part,
 planes set from the origin by globals such as `"S2 X"`; and an assembly,
 `Reducer_12to1.SLDASM`, with the layout part fixed at the origin and each gear
 placed on its shaft at its At, turned so its teeth sit in its partner's spaces,
-then mated so the train turns: one gear per shaft is mated to its shaft's axis
-and held along it from the layout's Front plane, any other gear on the shaft is
-locked to it, and each mesh is a gear mate at the tooth ratio. Before it saves,
-SolidWorks is asked whether every mate took and every gear is free to turn;
+then mated: one gear per shaft is mated to its shaft's axis and held along it
+from the layout's Front plane, any other gear on the shaft is locked to it, and
+each mesh is a gear mate at the tooth ratio. Before it saves, SolidWorks is
+asked whether every mate took, whether any is in error, and whether every
+turning gear is still free to turn (the app never drives the train itself);
 if SolidWorks refuses or flags a mate, no assembly is saved (the parts and the
 layout part are kept, and the sentence names the mate), and Build waits until
 the workbook changes, since the same workbook would make the same mates. It
 then runs SolidWorks' interference detection: *no interference between the
 gears where they stand*, or a check naming the two gears and the volume, and
 says which gear to drag: *drag G1 in SolidWorks and the rest of its train
-follow*. (When a finding the mates need is missing for the SolidWorks in use,
+follow*. That the train then turns at its ratio was shown by probe tier 8 on a
+train the probe mated the same way; the app's own build has been tested
+against the test suite's fake SolidWorks only, and its demonstration on
+SolidWorks, a person's drag included, is still to run. (When a finding the mates need is missing for the SolidWorks in use,
 the gears are placed meshed and fixed instead, and the window says so before
 Build. A gearbox built before the gears could be mated stays static, and
 Build again… offers a new revision whose gears turn.) A part
@@ -463,9 +469,11 @@ The W4 demonstration (`probe/workbook_assembly_check.py`, `probe/workbook_window
 
 What is not built yet:
 
-- **Motion (phase W5).** The assembly is static: every gear is fixed where it
-  meshes, and dragging one turns nothing. Mating gears to the layout's axes,
-  with gear mates between them, comes next.
+- **Motion (phase W5) on SolidWorks.** Build mates the gears and Update
+  carries edits into a turning gearbox, built and tested against the test
+  suite's fake SolidWorks; the demonstration on SolidWorks 2026 and 2024 (the
+  build, the driven proof, Update on a train turned by hand, and a person
+  dragging the input) is still to run.
 - Rows a later phase builds are read, and refused with the phase that builds
   them: bevel gears and turned axes (any Axis but `Z+` or `Z-`) phase W6,
   shafts mounted on a carrier and their copies phase W7, sleeves, dog rings,

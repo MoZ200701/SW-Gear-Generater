@@ -23,10 +23,11 @@ answers of that day and the rulings that follow from them are in `notes-workbook
 
 Suite, measured on a clean `git archive` of `2250ceb` (WSL, 2026-11-13): `PYTHONPATH=src .venv/bin/python -m
 pytest -q` → **1559 passed, 10 skipped**. On the 2026-11-14 clone (another Python, fewer skips): 1699 passed, 1
-skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`. At `aa9c5f0` (packages A–D in, the window and boards of D): 2079 passed, 1 skipped; the Tk tests
-under Windows Python 109–110 passed of 111, the rest the known display flake, a different test each run. The window's Tk tests run under Windows Python: `python.exe -m
-pytest tests/test_workbook_build.py tests/test_workbook_window.py -q` → 102 passed, 1 skipped (a "no display
-for Tk" skip is a known flake that moves between tests; rerun). The `PYTHONPATH` matters in a copy: the
+skipped at `8504856`, where W4 closed; 1759 passed, 1 skipped at the W5 interface commit `07fd66a`; 2085 passed, 1 skipped, 2 expected failures (held for packages B and C) at `fe62c5f`, after D's review
+(2026-11-14).
+The window's Tk tests run under Windows Python: `python.exe -m pytest tests/test_workbook_build.py
+tests/test_workbook_window.py -q` → 113 passed, 1 skipped, 2 expected failures at `fe62c5f` (a "no display for Tk" skip is a known flake that moves between tests;
+rerun). The `PYTHONPATH` matters in a copy: the
 venv's editable install otherwise imports the working tree's `src`, uncommitted edits and all.
 
 ## W4 in detail
@@ -183,7 +184,8 @@ probe tier 8*), and §6's W5 row says "once probe tier 8 has passed".
 **Plan and decisions.** `notes-workbook/W5-PLAN.md`, reviewed in `W5-PLAN-REVIEW.md` (M1–M13). The user's answers of
 2026-11-14 and the rulings on the review and on P0 are in `W5-DECISIONS.md` and in PLAN-WORKBOOK §4.5 as *Readings
 chosen (W5)*: a refused mate stops the build (no static fallback); Update returns a turned train to its built turn
-only when it must move a gear of it; no datum plane, so an anchor's Front-plane edits need Build again…; a follower's
+whenever it has to move any gear (the user's words; ruled per train with review M1: only a train it must put is
+put back, whole); no datum plane, so an anchor's Front-plane edits need Build again…; a follower's
 place along its shaft is an Update; a tooth change that alters a gear mate's ratio needs Build again… until the ratio
 route is probed; W4 static gearboxes stay static; a recorded mate found suppressed is turned back on.
 
@@ -193,7 +195,8 @@ reviewed. **Round P0b/P0c is running** (`7c48d84`, `4ced012` and the probe agent
 does it. The probe agent is about to commit `GEAR_MATE_RATIO_ROUTE = "remake"`; until it does, a tooth change on a
 turning gearbox is Build again…. Every package's tests pin the findings they depend on, so they pass either way.
 
-**Interface commit** `2f82a0e`, its review's rulings `07fd66a` (`W5-INTERFACES.md` §6). The packages, each reviewed:
+**Interface commit** `2f82a0e`, its review's rulings `07fd66a` (`W5-INTERFACES.md` §6). The packages, each reviewed
+independently (D's review of 2026-11-14 asked for the fixes now in, below):
 
 - **A — SolidWorks** (`swcom.py`, `swbuild.py`, the fake): `e231ae3` (the train's mate members from tier 8),
   `6ffc84a` (the fake learns mates), `171a50b` (the mate check before the save; a refused mate stops the build),
@@ -205,7 +208,9 @@ turning gearbox is Build again…. Every package's tests pin the findings they d
 - **C — record and sentences** (`store.py`, `ui_text.py`): `e224e2e`, `5c25a1b`, `0110c88`, `bf3202e`.
 - **D — window, boards, docs**: `f71c5c4` (the window passes the read's digest to the footer and the record to the
   Build again? question; its tests restored and the W5 states added), `aa9c5f0` (boards), and the docs commit after
-  it. The window needed no new control. Its two hanging tests hung on a Build again? question no test answered; every
+  it; after D's review, `fe62c5f` (C's fixed sentences pinned; W4's failure cases on a turning gearbox: an Update
+  lost with SolidWorks, one that stops part way, the structural step with Update unsaved) and a docs commit. The
+  window needed no new control. Its two hanging tests hung on a Build again? question no test answered; every
   window test now gets a stand-in that fails at once on an unexpected question. The four tests about W4's
   tooth-change Update run on a gearbox built as W4 built it (`built_w4`); the W5 findings are pinned in the test file.
   New boards: `WorkbookRefused`, `WorkbookTurned`, `WorkbookStatic` (no fallback board: there is no fallback); every
@@ -226,16 +231,17 @@ output turn at 1/12, the right way (W5-PLAN §4.4); log every gear's origin and 
 
 **Open:**
 
-- **A record whose mate Update cannot read** (a hand-edited record: a mate with no name, a gear not in the assembly):
-  the footer's refusal names Build again…, and the window keeps that offer (Build again… stays on; its press asks).
-  But `ui_text.build_again_question` has no sentence for an Update refusal, so the question opens with W4's *Nothing
-  on record needs a new revision.*, which the footer contradicts. Package C's to word.
-- **The header after a refused mate** reads *· changed since it was built* on the very read the build was refused
-  from (`workbook_built_tag` sees a gearbox block whose `digest` is `""`). Package C's (or B's, if the record should
-  keep the read).
-- **A W4 gearbox's structural state** says "build again" twice: Update's offer, then *It was built static, before
-  gears could be mated to turn: Build again… makes a new revision whose gears turn.* True, but W4's review S4.1 asked
-  for it once; the window test pins both for now.
+- *Fixed by C in `3b51fa6` and `72ab6ba`, after D's first pass:* the Build again? question for a record whose mate
+  Update cannot read now opens with that refusal; the header after a refused mate reads *· its assembly was refused
+  for this version* (*· changed since its assembly was refused* after a save); a W4 gearbox's offer of a turning
+  revision is said inside Update's one offer; the Update summary names every mated gear of a train it must put.
+- **Two sentences after a failed Update on a turning gearbox blame the user** (packages B and C; held as strict
+  expected failures in `tests/test_workbook_window.py`): after an Update lost when SolidWorks closed unsaved, the next
+  press says a gear *had been moved in SolidWorks* (W4's static path does the same: `finish_update` calls any gear off
+  its recorded frame dragged); after one that stopped part way, the next says so too, and that two gears *had been
+  turned out of step* — what the stopped job left.
+- **The refused `Assem<n>` left open** is named once, in the build's sentence; the window does not track it, so
+  neither the footer afterwards nor a close mentions it (UI-DESIGN §9 says so).
 - Whether a train's Build may keep the top-only rebuild (P0b); D7's Update branch (the ratio remake) until P0b is
   committed; folders in the MateGroup are not mates (A's, done in `3eba2ec`; to be seen on SolidWorks).
 - From W4: whether the assembly still reports needing a rebuild after the top-only route (`PUT_NEEDS_REBUILD` not
