@@ -2502,3 +2502,189 @@ def test_the_fake_finds_suppresses_and_remakes_mates_by_name(monkeypatch):
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
     fake.set_gear_ratio("m", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
     assert fake.mate("G3 meshes G4").ratio == (18.0, 50.0) and fake.mates[-1].name == "G3 meshes G4"
+
+
+# -- a train's build: the mate check before the save; a refused mate stops it (W5-DECISIONS, answer 1)
+
+
+def test_a_turning_build_makes_its_mates_in_order_checks_them_before_the_save_and_saves_once():
+    fake, result = _build_train()
+    assert result.ok, result.log_lines()
+    assert result.kind == swbuild.GEARBOX_MOTION == "motion"
+    called = names(fake)
+    start = called.index("new_assembly")
+    tail = called[start:]
+    made = [a[0] for n, a in fake.calls[start:] if n == "add_mate"]
+    assert made == ["coincident", "point", "coincident", "point", "lock", "coincident", "point distance", "gear", "gear"]
+    assert tail.count("rebuild") == 1 and fake.assembly_kinds[-1] == swcom.ASSEMBLY_TRAIN
+    assert tail.index("rebuild") < tail.index("mate_states") < tail.index("save_as")
+    checked = [a[0] for n, a in fake.calls[start:] if n == "constrained_status"]
+    assert checked == ["gear1", "gear2", "gear3", "gear4"]                  # every turning gear, never the layout
+    assert max(i for i, n in enumerate(tail) if n == "constrained_status") < tail.index("save_as")
+    assert tail.count("save_as") == 1 and tail.index("save_as") < tail.index("interferences")
+    assert result.assembly.mate_problems == [] and [m.name for m in result.assembly.mates] == TRAIN_MATES
+    lines = result.assembly.log_lines()
+    assert "ok      every mate sound, every gear free to turn" in lines
+    assert "mate    G3 locked to G2" in lines and "mate    G4 along S3" in lines
+    assert tail.index("link_dimension") < tail.index("rebuild")
+
+
+def test_a_static_gearbox_is_never_mate_checked_and_says_static():
+    fake, result = _build()
+    assert result.ok and result.kind == swbuild.GEARBOX_STATIC == "static"
+    assert not any(n in ("mate_states", "constrained_status") for n in names(fake))
+    assert result.assembly.mates == [] and result.assembly.mate_problems == []
+
+
+def test_a_pair_is_never_mate_checked(gear_mates_settled):
+    fake = FakeSolidWorks()
+    result = _build_pair(fake, _pair_kinds()["spur, gear mate"])
+    assert result.ok and not any(n in ("mate_states", "constrained_status") for n in names(fake))
+    assert result.assembly.mate_problems == []
+
+
+def _refused(result):
+    """What answer 1 promises for a refused train: the parts and the layout saved, no assembly saved, nothing in its
+    place, the refused document named, and no interference check."""
+    assert not result.ok and result.kind == ""
+    assert [r.saved for r in result.parts.built] == [P17, P68, P51] and result.layout.saved == T_LAYOUT
+    assert result.assembly is not None and not result.assembly.saved and result.assembly.document == "Assem1"
+    assert result.assembly.mate_problems
+    assert all(p[0].isupper() and p.endswith(".") for p in result.assembly.mate_problems)
+    assert all(("the mate check", p) in result.assembly.failures or "would not make" in p
+               for p in result.assembly.mate_problems)
+    assert result.clashes == [] and result.skipped == ""
+    assert any(line.startswith("STOPPED SolidWorks refused or flagged a mate, so Assem1 is left open")
+               for line in result.log_lines())
+
+
+def test_a_follower_also_mated_to_its_axis_stops_the_build_and_nothing_is_built_in_its_place():
+    fake, result = _build_train(assembly=_train_plan(follower_on_axis=True))
+    _refused(result)
+    assert result.assembly.mate_problems == ["The mate G3 on S2 Axis over-defines the assembly.",
+                                             "G2 is over-defined in SolidWorks.", "G3 is over-defined in SolidWorks."]
+    called = names(fake)
+    assert called.count("new_assembly") == 1 and "interferences" not in called
+    assert _key(T_ASM) not in fake.saved and "close_document" not in called
+    assert "mate    G3 locked to G2 · error code 46, a warning" in result.log_lines()
+    assert "mate    G3 on S2 Axis · error code 46, at fault" in result.log_lines()
+
+
+def test_a_mate_in_error_though_made_with_status_one_stops_the_build_naming_the_mate_at_fault():
+    fake = FakeSolidWorks(mate_codes={"G1 meshes G2": (51, True), "G3 meshes G4": (51, False)})
+    _, result = _build_train(fake)
+    _refused(result)
+    assert result.assembly.mate_problems == ["The mate G3 meshes G4 is in error in SolidWorks."]
+
+
+def test_every_flagged_mate_is_named_when_none_is_marked_at_fault():
+    fake = FakeSolidWorks(mate_codes={"G1 meshes G2": (51, True), "G3 meshes G4": (51, True)})
+    _, result = _build_train(fake)
+    assert result.assembly.mate_problems == ["The mate G1 meshes G2 is in error in SolidWorks.",
+                                             "The mate G3 meshes G4 is in error in SolidWorks."]
+
+
+@pytest.mark.parametrize("status, sentence", [(3, "G2 cannot turn: SolidWorks reads it fully defined."),
+                                              (4, "G2 is over-defined in SolidWorks."),
+                                              (0, "G2 reads 0 in SolidWorks, not free to turn.")])
+def test_a_gear_not_free_to_turn_stops_the_build_named_by_its_workbook_id(status, sentence):
+    fake = FakeSolidWorks(constrained={"gear2-1": status})
+    _, result = _build_train(fake)
+    _refused(result)
+    assert result.assembly.mate_problems == [sentence]
+
+
+def test_without_the_gears_map_a_gear_is_named_by_the_name_solidworks_kept():
+    fake = FakeSolidWorks(constrained={"gear2": 3})
+    result = swbuild.build(fake, _train_plan(), never_exists)
+    assert result.mate_problems == ["gear2-1 cannot turn: SolidWorks reads it fully defined."] and not result.saved
+
+
+@pytest.mark.parametrize("status, sentence", [(5, "The mate G1 meshes G2 over-defines the assembly."),
+                                              (3, "SolidWorks answered 3 when making the mate G1 meshes G2."),
+                                              (None, "SolidWorks gave no answer when making the mate G1 meshes G2.")])
+def test_an_add_mate_status_other_than_one_stops_the_build(status, sentence):
+    fake = FakeSolidWorks(mate_statuses={"G1 meshes G2": status})
+    _, result = _build_train(fake)
+    _refused(result)
+    assert result.assembly.mate_problems == [sentence]
+
+
+@pytest.mark.parametrize("doctor, sentence", [
+    (lambda states: [s for s in states if s.name != "G4 along S3"], "The mate G4 along S3 is missing from the assembly."),
+    (lambda states: [swcom.MateState(s.name, suppressed=s.name == "G4 along S3") for s in states],
+     "The mate G4 along S3 is suppressed in SolidWorks."),
+])
+def test_a_planned_mate_missing_or_suppressed_stops_the_build(doctor, sentence):
+    fake = FakeSolidWorks()
+    real = fake.mate_states
+    fake.mate_states = lambda: doctor(real())
+    _, result = _build_train(fake)
+    _refused(result)
+    assert result.assembly.mate_problems == [sentence]
+
+
+def test_a_mate_solidworks_would_not_make_is_a_mate_problem_and_the_build_stops_there():
+    refused = swcom.MateRefused("AddMate5 would not make a lock mate between gear2 and gear3.")
+    fake = FakeSolidWorks(raises={"add_mate": (5, refused)})
+    _, result = _build_train(fake)
+    _refused(result)
+    assert result.assembly.mate_problems == ["SolidWorks would not make the mate G3 locked to G2."]
+    assert result.assembly.failures == [("mate    lock gear2 ~ gear3 as 'G3 locked to G2'",
+                                         "AddMate5 would not make a lock mate between gear2 and gear3.")]
+    assert "mate_states" not in names(fake)                     # a build stopped part-way is not checked
+
+
+@pytest.mark.parametrize("raised", [RPC, SolidWorksError("gear3-1 could not be selected for the lock mate."),
+                                    swcom.ComError("AddMate5", RPC)])
+def test_any_other_raise_during_a_mate_is_an_ordinary_failed_build_with_no_mate_problem(raised):
+    """W5-INTERFACES: only real refusals hold Build back; a COM or RPC failure, or a selection that did not take,
+    fails the build as in W4 and records nothing that would grey Build out."""
+    fake = FakeSolidWorks(raises={"add_mate": (5, raised)})
+    _, result = _build_train(fake)
+    assert not result.ok and result.kind == "" and not result.assembly.saved
+    assert result.assembly.mate_problems == [] and result.assembly.failures
+
+
+def test_a_mate_check_that_cannot_read_solidworks_is_an_ordinary_failure_with_no_mate_problem():
+    fake = FakeSolidWorks(raises={"mate_states": (1, RPC)})
+    _, result = _build_train(fake)
+    assert not result.ok and not result.assembly.saved and result.assembly.mate_problems == []
+    assert result.assembly.failures[0][0] == "the build"
+
+
+def test_a_train_whose_template_is_missing_fails_as_in_w4_with_no_mate_problem():
+    fake = FakeSolidWorks(fail_on={"new_assembly": "There is no assembly template at 'C:\\T\\No.asmdot'."})
+    _, result = _build_train(fake)
+    assert result.assembly.failures == [("new assembly", "There is no assembly template at 'C:\\T\\No.asmdot'.")]
+    assert result.assembly.mate_problems == [] and result.kind == ""
+
+
+@pytest.mark.parametrize("name", ["ADD_MATE_NO_ERROR", "COMPONENT_UNDER_DEFINED", "MATE_FIND_ROUTE"])
+def test_a_train_is_refused_before_anything_is_made_while_its_check_is_not_settled(monkeypatch, name):
+    monkeypatch.setattr(findings, name, None)
+    for make in (lambda fake: _build_train(fake), lambda fake: swbuild.build(fake, _train_plan(), never_exists)):
+        fake = FakeSolidWorks()
+        with pytest.raises(swbuild.BuildError) as raised:
+            make(fake)
+        assert str(raised.value) == (f"How SolidWorks says a mate is sound has not been settled yet (findings.{name} "
+                                     "is None), so no gearbox built to turn is made or changed; run probe tier 8 "
+                                     "first.")
+        assert fake.calls == []
+
+
+def test_the_refused_document_left_open_does_not_trip_the_next_builds_checks():
+    """W5-INTERFACES §7 A: the unsaved Assem1 a refused train leaves open has no path, so the same-name check never
+    compares it, and the next Build (a new revision's paths) goes ahead."""
+    fake, result = _build_train(assembly=_train_plan(follower_on_axis=True))
+    assert not result.ok
+    fake.open_docs.append(DocInfo("Assem1", "", 2))             # as SolidWorks lists it: open, never saved
+    again = W + "T_r1.SLDASM"
+    _, result = _build_train(fake, parts=[], reuse=[swbuild.DocumentValues(P17, _values(S17)),
+                                                    swbuild.DocumentValues(P68, _values(S68)),
+                                                    swbuild.DocumentValues(P51, _values(S51))],
+                             layout=swbuild.DocumentValues(T_LAYOUT, _train_layout_values().variables,
+                                                           T_LAYOUT_FEATURES),
+                             assembly=_train_plan(path=again))
+    assert result.ok, result.log_lines()
+    assert result.assembly.saved == again and result.kind == "motion"

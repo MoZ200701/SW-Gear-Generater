@@ -158,6 +158,7 @@ class BuildResult:
     def log_lines(self) -> List[str]:
         lines = [f"build   {self.document or '(no document)'} · {self.kind} · recipe {self.recipe} · trig {self.trig or '?'}"]
         lines.extend(f"ok      {line}" for line in self.done)
+        lines.extend(_mate_line(mate) for mate in self.mates)
         for what, why in self.failures:
             lines.append(f"FAIL    {what}: {why}")
         if self.stopped_at:
@@ -207,9 +208,36 @@ class UpdateResult:
         return not self.failures
 
 
+def _mate_line(mate: MateState) -> str:
+    """``mate    G3 locked to G2 · error code 46, at fault · suppressed``: one mate as the check read it. The error
+    code's number is logged, never interpreted (2024 and 2026 give different numbers for the same mates)."""
+    line = f"mate    {mate.name}"
+    if mate.code:
+        line += f" · error code {mate.code}, {'a warning' if mate.warning else 'at fault'}"
+    if mate.suppressed:
+        line += " · suppressed"
+    return line
+
+
 def _gate(sw: SolidWorks) -> None:
     if not meets_minimum(sw.revision):
         raise BuildError(f"Building needs SolidWorks {release_year(MINIMUM_MAJOR)} or newer.")
+
+
+# What a train's mate check reads (findings.py, "the workbook gearbox that turns (tier 8)"): AddMate5's status, the
+# mates found by walking the MateGroup, and each gear's constrained status.
+TRAIN_CHECK_FINDINGS = ("ADD_MATE_NO_ERROR", "ADD_MATE_OVER_DEFINED", "COMPONENT_UNDER_DEFINED",
+                        "COMPONENT_FULLY_DEFINED", "COMPONENT_OVER_DEFINED", "MATE_FIND_ROUTE")
+
+
+def _train_gate() -> None:
+    """Refuse, before anything is made or changed, a train whose mates could not be checked: every finding of
+    :data:`TRAIN_CHECK_FINDINGS` must be in findings.py (read with getattr), with the MateGroup walk as the route."""
+    for name in TRAIN_CHECK_FINDINGS:
+        value = getattr(findings, name, None)
+        if value is None or (name == "MATE_FIND_ROUTE" and value != "mate group"):
+            raise BuildError(f"How SolidWorks says a mate is sound has not been settled yet (findings.{name} is "
+                             f"{value!r}), so no gearbox built to turn is made or changed; run probe tier 8 first.")
 
 
 def _assembly_rebuild_gate(kind: str) -> None:
@@ -450,7 +478,7 @@ _RUNNERS: Mapping[type, Callable] = {
 
 
 def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.path.exists,
-          kind: Optional[str] = None) -> BuildResult:
+          kind: Optional[str] = None, *, gears: Optional[Mapping[str, str]] = None) -> BuildResult:
     """Make the plan's document, run every step, rebuild once, check, and save.
 
     Raises :class:`BuildError` only before anything is made. After that every
@@ -479,6 +507,12 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
     that repeats on every press. There is no ``mates=`` keyword: the
     kind decides, so a pair (``ASSEMBLY_PAIR``) and a static assembly are
     never mate-checked.
+
+    ``gears`` (keyword, :func:`build_gearbox`'s map of assembly handle to
+    workbook gear id) names a gear in a mate problem by its id; without it,
+    by the Name2 it kept. The check runs only when every op ran (a build
+    stopped part-way has its failure already), and is refused before
+    anything is made while a finding it reads is missing (:func:`_train_gate`).
     """
     _gate(sw)
     problems = plan.check()
@@ -489,6 +523,8 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
         kind = workbook_assembly_kind(plan)
     if isinstance(first, base.NewAssembly):
         _assembly_rebuild_gate(kind)
+        if kind == ASSEMBLY_TRAIN:
+            _train_gate()
     save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
     if save is not None and save.path and exists(save.path):
         raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
@@ -503,9 +539,12 @@ def build(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool] = os.pa
         try:
             result.trig = sw.detect_trig_units()
             result.done.append(f"trig units measured: {result.trig}")
-            _run(sw, plan, result, kind)
+            made: Dict[str, str] = {}
+            _run(sw, plan, result, kind, made)
             result.rebuilt = bool(sw.rebuild(kind=kind))
             _verify(sw, plan, result)
+            if kind == ASSEMBLY_TRAIN and not result.stopped_at:
+                _check_mates(sw, plan, result, made, gears or {})
         except Exception as exc:  # noqa: BLE001 - the document is made: every problem is now a failure (B1)
             result.failures.append(("the build", _said(exc)))
             result.stopped_at = result.stopped_at or "the build"
@@ -530,7 +569,7 @@ def _said(exc: BaseException) -> str:
 
 
 def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool],
-                  kind: Optional[str] = None) -> BuildResult:
+                  kind: Optional[str] = None, gears: Optional[Mapping[str, str]] = None) -> BuildResult:
     """:func:`build`, for one document of a job that has already saved others: what :func:`build` raises (its
     template is not there, SolidWorks would not make the document, the path was taken since the job's own check)
     comes back as a failed :class:`BuildResult` instead, so the job still reports, and the record still keeps,
@@ -543,7 +582,7 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
     already saved), with its type named.
     """
     try:
-        return build(sw, plan, exists, kind=kind)
+        return build(sw, plan, exists, kind=kind, gears=gears)
     except Exception as exc:  # noqa: BLE001 - see the docstring
         first = plan.ops[0] if plan.ops else None
         what = ("new part" if isinstance(first, base.NewPart) else "new assembly"
@@ -554,7 +593,11 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
                            manual=[op.text for op in plan.manual_steps()])
 
 
-def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, kind: str) -> None:
+def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, kind: str,
+         made: Optional[Dict[str, str]] = None) -> None:
+    """Every op in order, stopping at the first failure. ``made`` collects each ``Mate`` op's id and the name its
+    mate kept (for the train's mate check). In a train, a mate SolidWorks would not make (``swcom.MateRefused``)
+    is a mate problem as well as the failure; any other raise is the failure alone (W5-INTERFACES)."""
     sw.set_rebuild_suppressed(True)
     try:
         for op in plan.ops[1:]:
@@ -566,13 +609,106 @@ def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, kind: str) -> Non
                     result.done.append(_place(sw, op, result, result.trig, kind))
                 else:
                     result.done.append(runner(sw, op, result, result.trig))
+                    if made is not None and isinstance(op, base.Mate):
+                        made[op.id] = result.features[-1]
             except SolidWorksError as exc:
                 label = base.describe(op, result.trig)
                 result.failures.append((label, str(exc)))
                 result.stopped_at = label
+                if kind == ASSEMBLY_TRAIN and isinstance(op, base.Mate) and isinstance(exc, MateRefused):
+                    result.mate_problems.append(f"SolidWorks would not make the mate {op.name or op.id}.")
                 return
     finally:
         sw.set_rebuild_suppressed(False)
+
+
+def _mated_handles(plan: BuildPlan) -> List[str]:
+    """Each handle a ``Mate`` op names (a lock's bare handles, else the part before ``:``; never the assembly's own
+    ``asm``) whose last ``Fix``/``Unfix`` op is ``Unfix``: the gears meant to turn, in the order first mated."""
+    last: Dict[str, str] = {}
+    for op in plan.ops:
+        if isinstance(op, (base.Fix, base.Unfix)):
+            last[op.component] = "unfix" if isinstance(op, base.Unfix) else "fix"
+    out: List[str] = []
+    for op in plan.ops:
+        if not isinstance(op, base.Mate):
+            continue
+        refs = (op.a, op.b) if op.kind == "lock" else (op.a.partition(":")[0], op.b.partition(":")[0])
+        for handle in refs:
+            if handle != "asm" and last.get(handle) == "unfix" and handle not in out:
+                out.append(handle)
+    return out
+
+
+def _mate_problems(sw: SolidWorks, names: Sequence[str], statuses: bool) -> Tuple[List[str], List[MateState]]:
+    """The mate check's findings for the mates ``names`` (W5-PLAN §1.4, W5-INTERFACES): with ``statuses``, each
+    one's AddMate5 status (``findings.ADD_MATE_NO_ERROR`` or a sentence: 5 over-defines, anything else its number);
+    then ``mate_states()`` — each present and not suppressed, and every mate with a non-zero error code, naming
+    those whose ``warning`` is False as at fault (all of them when none is), its number never read into. Returns
+    the sentences and the states read. Raises what SolidWorks raises (an ordinary failure, never a problem)."""
+    problems: List[str] = []
+    told = set()
+    if statuses:
+        for name in names:
+            status = sw.mate_status(name)
+            if status == findings.ADD_MATE_NO_ERROR:
+                continue
+            told.add(name)
+            if status == findings.ADD_MATE_OVER_DEFINED:
+                problems.append(f"The mate {name} over-defines the assembly.")
+            elif status is None:
+                problems.append(f"SolidWorks gave no answer when making the mate {name}.")
+            else:
+                problems.append(f"SolidWorks answered {status} when making the mate {name}.")
+    states = list(sw.mate_states())
+    by_name = {state.name: state for state in states}
+    for name in names:
+        state = by_name.get(name)
+        if state is None:
+            problems.append(f"The mate {name} is missing from the assembly.")
+            told.add(name)
+        elif state.suppressed:
+            problems.append(f"The mate {name} is suppressed in SolidWorks.")
+            told.add(name)
+    flagged = [state for state in states if state.code]
+    for state in [s for s in flagged if not s.warning] or flagged:
+        if state.name not in told:
+            problems.append(f"The mate {state.name} is in error in SolidWorks.")
+    return problems, states
+
+
+def _free_to_turn(sw: SolidWorks, handles: Sequence[str], gear_of: Callable[[str], str]) -> List[str]:
+    """Each handle's constrained status must be ``findings.COMPONENT_UNDER_DEFINED``: a sentence per gear that is
+    not, naming it by ``gear_of``."""
+    problems: List[str] = []
+    for handle in handles:
+        status = sw.constrained_status(handle)
+        if status == findings.COMPONENT_UNDER_DEFINED:
+            continue
+        gear = gear_of(handle)
+        if status == findings.COMPONENT_OVER_DEFINED:
+            problems.append(f"{gear} is over-defined in SolidWorks.")
+        elif status == findings.COMPONENT_FULLY_DEFINED:
+            problems.append(f"{gear} cannot turn: SolidWorks reads it fully defined.")
+        else:
+            problems.append(f"{gear} reads {status} in SolidWorks, not free to turn.")
+    return problems
+
+
+def _check_mates(sw: SolidWorks, plan: BuildPlan, result: BuildResult, made: Mapping[str, str],
+                 gears: Mapping[str, str]) -> None:
+    """A train's mate check, after the rebuild and before the save (:func:`build`): every mate's status and state,
+    every mated gear free to turn. Each problem is a sentence in ``mate_problems`` and a failure; ``mates`` keeps
+    what was read, for the log."""
+    names = [made.get(op.id, op.name or op.id) for op in plan.ops if isinstance(op, base.Mate)]
+    problems, result.mates = _mate_problems(sw, names, statuses=True)
+    problems += _free_to_turn(sw, _mated_handles(plan),
+                              lambda handle: gears.get(handle) or result.components.get(handle) or handle)
+    for problem in problems:
+        result.mate_problems.append(problem)
+        result.failures.append(("the mate check", problem))
+    if not problems:
+        result.done.append("every mate sound, every gear free to turn")
 
 
 def _verify(sw: SolidWorks, plan: BuildPlan, result: BuildResult) -> None:
@@ -1538,6 +1674,10 @@ class GearboxResult:
             lines.append(f"ok      layout {_file(self.layout_reused)} reused")
         if self.assembly is not None:
             lines.extend(self.assembly.log_lines())
+            if self.assembly.mate_problems and not self.assembly.saved and self.assembly.document:
+                lines.append(f"STOPPED SolidWorks refused or flagged a mate, so {self.assembly.document} is left open "
+                             "in SolidWorks, unsaved, and no assembly is built in its place; the parts and the "
+                             "layout part it holds are saved")
         lines.extend(_interference_lines(self.clashes, self.interference_error, self._interference_ran()))
         lines.extend(f"FAIL    {what}: {why}" for what, why in self.failures)
         if self.skipped:
@@ -1624,6 +1764,8 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
                          "to make nor one to reuse.")
     if assembly is not None:
         _assembly_rebuild_gate(workbook_assembly_kind(assembly))
+        if workbook_assembly_kind(assembly) == ASSEMBLY_TRAIN:
+            _train_gate()
     plans = list(parts) + [p for p in (layout_plan, assembly) if p is not None]
     for plan in plans:
         problems = plan.check()
@@ -1726,8 +1868,11 @@ def _build_gearbox_body(sw: SolidWorks, result: GearboxResult, parts: Sequence[B
     say(Step(STAGE_ASSEMBLY, stem))
     # Its kind said explicitly: today's workbook gearbox is fixed (static, top-only); W5's mated one is a train, by
     # the same predicate the gate above used.
-    result.assembly = _build_in_job(sw, assembly, exists, kind=workbook_assembly_kind(assembly))
+    kind = workbook_assembly_kind(assembly)
+    result.assembly = _build_in_job(sw, assembly, exists, kind=kind, gears=gear_of_handle)
     result.components = dict(result.assembly.components)
+    if result.assembly.ok and result.assembly.saved:
+        result.kind = GEARBOX_MOTION if kind == ASSEMBLY_TRAIN else GEARBOX_STATIC
     if result.assembly.ok and result.assembly.saved and getattr(findings, "INTERFERENCE_CHECKED", False):
         stage[0] = "the interference check"
         say(Step(STAGE_INTERFERENCE, stem))
