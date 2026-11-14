@@ -586,21 +586,31 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
             return attempt
         new_paths.append(attempt.assembly_path)
     full = []
+    # Every part to reuse, then every new part's own file name, is claimed before any suffix is handed out (W4
+    # review N3): a suffix never takes the name another row's Part name asks for, and which part gets which name
+    # does not depend on the order of the rows. Own names are distinct (plan_parts refuses two gears of one file
+    # name, naming the cell), and a name of the gearbox's own was refused above.
+    found_of = {id(job): parts.find(job, n) for job in jobs}
+    claimed = list(new_paths) + [f.path for f, _ in found_of.values() if f is not None]
+    claimed += [job.path for job in jobs if found_of[id(job)][0] is None and not exists(job.path)
+                and not _in(job.path, claimed)]
     for job in jobs:
-        found, (held, why) = parts.find(job, n)
+        found, (held, why) = found_of[id(job)]
         if found is not None:
             attempt.parts.append((job, found, found.path))
             continue
-        path = parts.free_name(job, new_paths + [p for _, f, p in attempt.parts if f is not None])
+        path = job.path if not exists(job.path) else parts.free_name(job, claimed)
         if not path:
             full.append(job)
             continue
         if held:
             attempt.made_new.append(MadeNew(tuple(job.gear_ids), held, path, why))
         elif not store.same_path(path, job.path):
-            why, workbook = parts.occupant(job.path) if exists(job.path) else (NO_RECORD, "")
+            why, workbook = parts.occupant(job.path)
             attempt.made_new.append(MadeNew(tuple(job.gear_ids), job.path, path, why, workbook))
         attempt.parts.append((job, None, path))
+        if not _in(path, claimed):
+            claimed.append(path)
         new_paths.append(path)
     if full:
         last = [_file_name(_revised(j.path, MAX_REVISION)) for j in full]

@@ -288,6 +288,28 @@ def test_a_part_whose_own_name_and_r2_are_taken_takes_the_smallest_free_suffix_a
     assert [j.stem for j in plan.build] == ["Gear_m1.5_N17", "Gear_m1.5_N68_r3", "Gear_m2_N17", "OutputGear"]
 
 
+@pytest.mark.parametrize("typed", ["Gear_m1.5_N17_r2", "gear_m1.5_n17_R2"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_suffix_never_takes_another_rows_typed_part_name_whatever_the_row_order(typed, reverse):
+    """W4 review N3: G1's own name is taken by a file with no record, and G4's Part name is what G1's first suffix
+    would be. G4 keeps the name typed, G1 takes the next suffix, the result does not depend on the order of the
+    rows, and no sentence says a file is on disk when it is not."""
+    disk = Disk()
+    disk.add(path("Gear_m1.5_N17.SLDPRT"))
+    spec = reducer()
+    gears = tuple(replace(g, part_name=typed) if g.id == "G4" else g for g in spec.gears)
+    spec = replace(spec, gears=tuple(reversed(gears)) if reverse else gears)
+    plan = plan_for(assessed(spec), None, disk)
+    assert plan.refusal == ""
+    assert {g: stem(p) for g, p in plan.part_of.items() if g in ("G1", "G4")} == {"G1": "Gear_m1.5_N17_r3",
+                                                                                   "G4": typed}
+    assert plan.made_new == (gearbox.MadeNew(("G1",), path("Gear_m1.5_N17.SLDPRT"), plan.part_of["G1"],
+                                             gearbox.NO_RECORD),)
+    from gear_generator import ui_text
+    said = ui_text.workbook_footer(assessed(spec), plan=plan, folder=FOLDER).text
+    assert "Gear_m1.5_N17.SLDPRT is already there" in said and f"{typed}.SLDPRT" not in said
+
+
 # -- reuse ----------------------------------------------------------------------------------------
 
 
