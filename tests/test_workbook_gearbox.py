@@ -732,8 +732,8 @@ def test_a_reused_part_is_checked_for_its_features_too():
     assert swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists).ok      # all there: it goes ahead
 
     sw, again, disk = stopped_at_the_assembly()
-    equations, made = sw.saved[norm(g2.path)]
-    sw.saved[norm(g2.path)] = (equations, [f for f in made if f != "Teeth"])           # deleted in SolidWorks
+    equations, made = sw.memory[norm(g2.path)]
+    sw.memory[norm(g2.path)] = (equations, [f for f in made if f != "Teeth"])          # deleted in SolidWorks
     tried = sw.counts.get("new_assembly", 0)
     result = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists)
     assert result.mismatched == [(g2.path, 'Gear_m1.5_N68.SLDPRT cannot be reused: "Teeth" is no longer in it; it '
@@ -788,15 +788,19 @@ def test_a_copied_workbook_does_not_use_the_originals_record_or_files():
 
 
 def test_a_moved_workbook_adopts_its_record_and_still_knows_its_parts():
-    """Review S1 and the Locate nit: the record's workbook is a path with no file now, so the workbook was moved or
-    renamed — the record is adopted, the old path kept, and its parts' .gear.json, which name the old path, are
-    still this workbook's."""
+    """Review S1 and the Locate nit: the record's workbook is a path with no file now. Second review N1c: that is
+    never adopted silently — it may be one of two copies of an original since deleted — so until the person says
+    it was moved it is planned as a copy (``foreign_gone``). Once they say so, the record is adopted, the old path
+    kept, and its parts' .gear.json, which name the old path, are still this workbook's."""
     disk = Disk()
     plan0, record = _built_on_disk(disk)                               # WORKBOOK is not on the disk: moved away
     for p in (plan0.layout_path, plan0.assembly_path):
         disk.remove(p)
     record.gearbox, record.assembly = None, ""
     a = assessed_at(MOVED)
+    unanswered = plan_for(a, record, disk)
+    assert unanswered.foreign_record == WORKBOOK and unanswered.foreign_gone and unanswered.reuse == ()
+    store.settle_owner(record, MOVED, moved=True)                      # "Yes: it was moved or renamed"
     plan = plan_for(a, record, disk)
     assert plan.foreign_record == "" and plan.build == () and len(plan.reuse) == 4
     done = gearbox.finish_build(plan, run(plan, disk), record, workbook=MOVED, digest="dm", written_by="test",
@@ -839,7 +843,7 @@ def test_a_part_that_fails_the_live_check_is_recorded_and_made_new_by_the_next_p
                                 read_sidecar=disk.read_sidecar)
     disk.write(done)
     n68 = plan.part_of["G2"]
-    as_built = tuple(list(held) for held in sw.saved[norm(n68)])     # the fake changes its saved lists in place
+    as_built = tuple(list(held) for held in sw.saved[norm(n68)])     # the file, as the build saved it
 
     demo = replace(reducer(), shafts=(reducer().shafts[0], replace(reducer().shafts[1], x="64.5"),
                                       replace(reducer().shafts[2], x="132.5")),
@@ -852,7 +856,8 @@ def test_a_part_that_fails_the_live_check_is_recorded_and_made_new_by_the_next_p
     record = fin.record
     assert norm(n68) in {norm(p) for p in record.unsaved}
 
-    sw.saved[norm(n68)] = as_built          # closed without saving: the file still holds 68 teeth ...
+    sw.close_all()                          # closed without saving: the file still holds 68 teeth ...
+    assert sw.saved[norm(n68)] == as_built
     store.clear_saved(record, mtime=lambda p: 200.0)                   # ... and was saved later, unchanged
     assert record.unsaved == {}
     structural = replace(demo, gears=(replace(demo.gears[0], bore=""),) + demo.gears[1:])
@@ -866,7 +871,11 @@ def test_a_part_that_fails_the_live_check_is_recorded_and_made_new_by_the_next_p
     marked = gearbox.finish_build(again, stopped, record, workbook=WORKBOOK, digest="d3", written_by="test",
                                   read_sidecar=disk.read_sidecar)
     assert marked.record is not None and marked.record.mismatched == {n68: 200.0}
-    assert marked.record.digest == record.digest and marked.sidecars == []
+    assert marked.record.digest == record.digest
+    # N68 was loaded from its file by the check (SolidWorks had been closed): Update's changes are gone from it, so
+    # its .gear.json is no longer marked unsaved (second review N2); the mismatched mark is what holds it back now.
+    assert [(norm(path), s.record.unsaved_since) for path, s in marked.sidecars] == [
+        (norm(store.sidecar_path(n68)), 0.0)]
     round_trip = store.link_record_from_json(store.link_record_to_json(marked.record))
     assert round_trip.mismatched == {n68: 200.0}
 
@@ -898,3 +907,230 @@ def test_a_continued_layout_that_failed_the_live_check_is_left_and_the_next_revi
                                             "made, but the last build found it no longer holds what was recorded")
     saved_since = plan_for(a, record, disk, mtime=lambda p: 6.0)
     assert saved_since.revision == 0 and isinstance(saved_since.layout, LayoutReuse)
+
+
+# -- the second W4 review: marks that clear (N2), the journal (N4) -------------------------------------------------
+
+
+DEMO = replace(reducer(), shafts=(reducer().shafts[0], replace(reducer().shafts[1], x="64.5"),
+                                  replace(reducer().shafts[2], x="132.5")),
+               gears=(reducer().gears[0], replace(reducer().gears[1], teeth="69")) + reducer().gears[2:])
+
+
+def _live(times=None):
+    """A first build on the fake SolidWorks, its finish written: (sw, disk, record, plan, mtime)."""
+    from test_swbuild import FakeSolidWorks
+    times = times if times is not None else {}
+    mtime = lambda p: times.get(norm(p), 100.0)                         # noqa: E731
+    disk, sw = Disk(), FakeSolidWorks()
+    plan = plan_for(assessed(), None, disk)
+    first = swbuild.build_gearbox(sw, **plan.build_kwargs(), exists=sw.exists, mtime=mtime)
+    for handle, gear in plan.handles.items():          # each component where the build put it, by its Name2
+        sw.frames[first.components[handle]] = (tuple(plan.frames[gear].rotation), tuple(plan.frames[gear].at))
+    sw.saved_frames = dict(sw.frames)
+    disk.add(*sw.saved)
+    done = gearbox.finish_build(plan, first, None, workbook=WORKBOOK, digest="d1", written_by="test",
+                                read_sidecar=disk.read_sidecar, mtime=mtime)
+    disk.write(done)
+    return sw, disk, done.record, plan, mtime
+
+
+def _update_live(sw, disk, record, spec, mtime, digest="d2"):
+    from gear_generator.workbook import update
+    up = update.classify(record, assessed(spec), exists=disk.exists)
+    result = swbuild.update_gearbox(sw, **up.update_kwargs(), exists=sw.exists, mtime=mtime)
+    fin = update.finish_update(up, result, record, digest=digest, read_sidecar=disk.read_sidecar, mtime=mtime)
+    disk.write(fin)
+    return result, fin.record
+
+
+def test_an_update_lost_when_solidworks_closed_is_cleared_by_the_next_update_that_reads_the_files():
+    """Second W4 review N2 (w4v_unsaved_never_clears): Update set N68 to 69 teeth and was never saved; SolidWorks
+    was closed without saving; the person typed 68 back, which is what the file holds. Update read N68 holding 68
+    and left it alone — and the unsaved marks stayed for ever, so every Build again… made G2's part new. The job now
+    says which documents it loaded from their files: those hold in memory what their files hold, so marks go."""
+    sw, disk, record, plan, mtime = _live()
+    n68 = plan.part_of["G2"]
+    result, record = _update_live(sw, disk, record, DEMO, mtime)
+    assert {norm(p) for p in record.unsaved} == {norm(n68), norm(plan.layout_path), norm(plan.assembly_path)}
+    assert result.opened == []                                         # all open since the build: nothing from disk
+    assert disk.read_sidecar(store.sidecar_path(n68)).record.unsaved_since == 100.0
+    sw.close_all()                                                     # SolidWorks closed without saving
+    store.clear_saved(record, mtime=mtime)                             # no file is newer: still marked
+    assert len(record.unsaved) == 3
+    result, record = _update_live(sw, disk, record, reducer(), mtime, digest="d3")
+    assert result.changed == [] and {norm(p) for p in result.opened} == {
+        norm(p) for p in list(plan.part_of.values()) + [plan.layout_path, plan.assembly_path]}
+    assert record.unsaved == {} and record.mismatched == {}
+    sidecar = disk.read_sidecar(store.sidecar_path(n68)).record
+    assert sidecar.unsaved_since == 0.0 and sidecar.spec["teeth"] == "68"
+    from gear_generator import ui_text
+    assert ui_text.workbook_built_tag(record, "d3") == " · built from this version"
+    again = plan_for(assessed(replace(reducer(), gears=(replace(reducer().gears[0], bore=""),)
+                                      + reducer().gears[1:])), record, disk, mtime=mtime)
+    assert n68 in [r.path for r in again.reuse] and not [m for m in again.made_new if m.old == n68]
+
+
+def test_an_update_put_back_after_solidworks_closed_marks_it_unsaved_again_and_clears_mismatched():
+    sw, disk, record, plan, mtime = _live()
+    n68 = plan.part_of["G2"]
+    _, record = _update_live(sw, disk, record, DEMO, mtime)
+    sw.close_all()
+    record.mismatched = {n68: 100.0}                                   # whatever a check found before
+    result, record = _update_live(sw, disk, record, DEMO, mtime, digest="d3")
+    assert {norm(p) for p in result.changed} == {norm(n68), norm(plan.layout_path), norm(plan.assembly_path)}
+    assert {norm(p) for p in record.unsaved} == {norm(n68), norm(plan.layout_path), norm(plan.assembly_path)}
+    assert record.mismatched == {}                                     # in memory now; the save clears the rest
+
+
+def test_a_part_proved_to_match_by_a_later_update_loses_its_mismatched_mark():
+    sw, disk, record, plan, mtime = _live()
+    n68 = plan.part_of["G2"]
+    record.mismatched = {n68: 100.0}
+    sw.close_all()
+    _, record = _update_live(sw, disk, record, reducer(), mtime)
+    assert record.mismatched == {}
+
+
+def test_a_build_that_finds_an_unsaved_document_closed_marks_it_mismatched_not_unsaved():
+    """A document marked unsaved that is not open when a job begins lost Update's changes when it was closed:
+    the footer must never ask for a save that can no longer happen. Its file does not hold what the record says,
+    which is what mismatched means, and planning makes the part new for that reason."""
+    sw, disk, record, plan, mtime = _live()
+    n68 = plan.part_of["G2"]
+    _, record = _update_live(sw, disk, record, DEMO, mtime)
+    sw.close_all()
+    structural = replace(DEMO, gears=(replace(DEMO.gears[0], bore=""),) + DEMO.gears[1:])
+    again = plan_for(assessed(structural), record, disk, mtime=mtime)
+    assert [m.why for m in again.made_new if m.old == n68] == [gearbox.UNSAVED]
+    result = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists, mtime=mtime)
+    assert result.ok and result.open_before == []
+    done = gearbox.finish_build(again, result, record, workbook=WORKBOOK, digest="d3", written_by="test",
+                                read_sidecar=disk.read_sidecar, mtime=mtime)
+    assert done.record.unsaved == {}
+    assert norm(n68) in {norm(p) for p in done.record.mismatched}
+    assert disk.read_sidecar(store.sidecar_path(n68)).record.unsaved_since == 100.0
+    disk.write(done)
+    assert disk.read_sidecar(store.sidecar_path(n68)).record.unsaved_since == 0.0
+
+
+def test_the_journal_makes_an_interrupted_builds_parts_reusable_once_checked_live():
+    """Second W4 review N4.3: a build interrupted after SolidWorks saved some parts and before the finish (a crash,
+    a kill, a power cut, quitting while SolidWorks did not answer) left files with no .gear.json and no record:
+    the next build called them files with no record and went beside them. The journal written before the worker
+    starts says they are this workbook's, so they are planned for reuse and checked live like any reused part."""
+    from test_swbuild import FakeSolidWorks
+    disk, sw = Disk(), FakeSolidWorks()
+    a = assessed()
+    plan = plan_for(a, None, disk)
+    record = store.LinkRecord(workbook=WORKBOOK, pending=gearbox.journal(plan), pending_for=WORKBOOK)
+    assert [e.kind for e in record.pending] == ["spur"] * 4 + ["layout", "assembly"]
+    # The job saved two parts, then the app was gone: nothing collected, nothing written but the journal.
+    swbuild.build_many(sw, [j.plan for j in plan.build[:2]], sw.exists)
+    disk.add(*sw.saved)
+    assert disk.read_sidecar(store.sidecar_path(plan.build[0].path)) is None
+    again = plan_for(a, store.link_record_from_json(store.link_record_to_json(record)), disk)
+    assert again.revision == 0 and again.made_new == ()
+    assert [r.stem for r in again.reuse] == ["Gear_m1.5_N17", "Gear_m1.5_N68"] and all(r.journaled
+                                                                                       for r in again.reuse)
+    assert [j.stem for j in again.build] == ["Gear_m2_N17", "OutputGear"]
+    # The new journal keeps the two (they still have no .gear.json) beside what this build makes.
+    assert [stem(e.path) for e in gearbox.journal(again)][:4] == ["Gear_m2_N17", "OutputGear", "Gear_m1.5_N17",
+                                                                   "Gear_m1.5_N68"]
+    result = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists)
+    assert result.ok and result.checked[:2] == [r.path for r in again.reuse]
+    assert set(result.held.values()) == {"degrees"}
+    record.pending = gearbox.journal(again)
+    done = gearbox.finish_build(again, result, record, workbook=WORKBOOK, digest="d1", written_by="test",
+                                read_sidecar=disk.read_sidecar)
+    assert done.record.pending == [] and done.record.pending_for == ""
+    written = {stem(p)[:-len(".gear")]: s for p, s in done.sidecars}
+    assert set(written) == {"Gear_m1.5_N17", "Gear_m1.5_N68", "Gear_m2_N17", "OutputGear"}
+    assert written["Gear_m1.5_N17"].record.workbook == WORKBOOK and written["Gear_m1.5_N17"].record.trig == "degrees"
+    assert written["Gear_m1.5_N17"].record.variables
+    assert {stem(p.path) for p in done.record.parts} == set(written)
+
+
+def test_a_journaled_part_for_other_values_is_ours_and_stale_and_one_not_on_disk_is_dropped():
+    from test_swbuild import FakeSolidWorks
+    disk, sw = Disk(), FakeSolidWorks()
+    plan = plan_for(assessed(), None, disk)
+    record = store.LinkRecord(workbook=WORKBOOK, pending=gearbox.journal(plan), pending_for=WORKBOOK)
+    swbuild.build_many(sw, [plan.build[1].plan], sw.exists)            # only N68 saved
+    disk.add(*sw.saved)
+    changed = replace(reducer(), gears=(reducer().gears[0], replace(reducer().gears[1], part_name="Big",
+                                                                    teeth="68", face_width="16"))
+                      + reducer().gears[2:])
+    again = plan_for(assessed(changed), record, disk)
+    assert again.reuse == () and again.made_new == ()                  # "Big" is free; N68 is not in its way
+    record.pending[1] = replace(record.pending[1], path=path("Big.SLDPRT"))   # as if Big had been planned then
+    disk.add(path("Big.SLDPRT"))
+    again = plan_for(assessed(changed), record, disk)
+    assert [(m.why, stem(m.new)) for m in again.made_new] == [(gearbox.STALE, "Big_r2")]
+    # Another workbook's journal (a copy's, say) is not this one's.
+    record.pending_for = r"C:\Elsewhere\Other.xlsx"
+    again = plan_for(assessed(changed), record, disk)
+    assert [m.why for m in again.made_new] == [gearbox.NO_RECORD]
+
+
+def test_a_journaled_layout_is_reused_once_checked_and_a_journaled_assembly_is_gone_beside():
+    from test_swbuild import FakeSolidWorks
+    disk, sw = Disk(), FakeSolidWorks()
+    a = assessed()
+    plan = plan_for(a, None, disk)
+    record = store.LinkRecord(workbook=WORKBOOK, pending=gearbox.journal(plan), pending_for=WORKBOOK)
+    swbuild.build_many(sw, [j.plan for j in plan.build] + [plan.layout], sw.exists)
+    disk.add(*sw.saved)
+    again = plan_for(a, record, disk)
+    assert again.revision == 0 and isinstance(again.layout, LayoutReuse) and again.layout.journaled
+    assert len(again.reuse) == 4 and again.build == ()
+    result = swbuild.build_gearbox(sw, **again.build_kwargs(), exists=sw.exists)
+    assert result.ok and result.layout_reused == plan.layout_path
+    # Had the assembly been saved too, the build goes beside it, saying why.
+    disk.add(plan.assembly_path)
+    beside = plan_for(a, record, disk)
+    assert beside.revision == 2 and beside.revision_reason == (
+        "Reducer_12to1.SLDASM was saved by a build that was interrupted before it was put on record, and a build "
+        "never overwrites a file. So this build is Reducer_12to1_r2, beside it; nothing is overwritten.")
+
+
+def test_a_finish_that_made_nothing_still_takes_the_journal_out():
+    disk = Disk()
+    plan = plan_for(assessed(), None, disk)
+    record = store.LinkRecord(workbook=WORKBOOK, pending=gearbox.journal(plan), pending_for=WORKBOOK)
+    done = gearbox.finish_build(plan, swbuild.GearboxResult(), record, workbook=WORKBOOK, digest="d",
+                                written_by="t", read_sidecar=disk.read_sidecar)
+    assert done.record is not None and done.record.pending == [] and done.record.parts == []
+    # A copy's journal sits in the record that came with it: taken out of that record, which stays the other's.
+    disk.add(WORKBOOK)
+    other = store.LinkRecord(workbook=WORKBOOK, digest="theirs", parts=[store.PartEntry(path=path("X.SLDPRT"))])
+    copy_plan = plan_for(assessed_at(COPY), other, disk)
+    other.pending, other.pending_for = gearbox.journal(copy_plan), COPY
+    done = gearbox.finish_build(copy_plan, swbuild.GearboxResult(), other, workbook=COPY, digest="d",
+                                written_by="t", read_sidecar=disk.read_sidecar)
+    assert done.record.workbook == WORKBOOK and done.record.digest == "theirs" and done.record.pending == []
+
+
+def test_one_workbook_reached_by_another_path_keeps_its_record_through_a_build(tmp_path):
+    """Second W4 review N1a (w4v_same_file_two_paths): the record named the workbook by one path (a mapped drive,
+    say) and the window opened it by another (its UNC path): compared as text it was a copy of itself, and the next
+    build's finish wrote a fresh record over its own — the same file — losing the gearbox and ``earlier``."""
+    real = tmp_path / "share"
+    real.mkdir()
+    (tmp_path / "Z").symlink_to(real, target_is_directory=True)
+    workbook, alias = real / "Reducer_12to1.xlsx", tmp_path / "Z" / "Reducer_12to1.xlsx"
+    workbook.write_bytes(b"x")
+    disk = Disk()
+    a = assessed_at(str(workbook))
+    plan, result, record = build(a, None, disk)
+    record.workbook = str(workbook)
+    record.earlier = [store.EarlierRevision(revision=0, name="Old")]
+    through = assessed_at(str(alias), replace(reducer(), gears=(replace(reducer().gears[0], bore=""),)
+                                               + reducer().gears[1:]))
+    again = plan_for(through, record, disk)
+    assert again.foreign_record == "" and again.revision == 2 and len(again.reuse) == 3
+    done = gearbox.finish_build(again, run(again, disk), record, workbook=str(alias), digest="d2",
+                                written_by="test", read_sidecar=disk.read_sidecar)
+    assert done.record.workbook == str(workbook) and done.record.moved_from == []
+    assert [e.name for e in done.record.earlier] == ["Old", "Reducer_12to1"]      # kept, and the first build added
+    assert done.record.gearbox.revision == 2

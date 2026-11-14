@@ -1063,15 +1063,16 @@ def _held_unit(by_unit: Mapping[str, Sequence[Tuple[str, str]]], values: Optiona
     return ""
 
 
-def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
+def _check_live(sw: SolidWorks, doc: DocumentValues, verb: str) -> str:
     """A document to be reused, opened and checked, writing nothing (:func:`_read_live`): it must hold every
     global exactly, in either trig unit, SolidWorks must evaluate them as that unit would (:func:`_held_unit`),
-    and every feature named must be there; otherwise a :class:`NotAsBuilt` saying what differs — the texts in
-    the unit that differs less, or the first value when only the angle unit is wrong — (a :class:`BuildError`
-    when it cannot be opened or read at all)."""
+    and every feature named must be there; returns that unit. Otherwise a :class:`NotAsBuilt` saying what
+    differs — the texts in the unit that differs less, or the first value when only the angle unit is wrong —
+    (a :class:`BuildError` when it cannot be opened or read at all)."""
     current, by_unit, values = _read_live(sw, doc, verb)
-    if _held_unit(by_unit, values, doc.variables):
-        return
+    unit = _held_unit(by_unit, values, doc.variables)
+    if unit:
+        return unit
     written = next((t for t in (DEGREES, RADIANS) if not by_unit[t]), "")
     off = _values_off(values, doc.variables, written) if written else None
     if off is not None:
@@ -1117,11 +1118,12 @@ def _evaluates(sw: SolidWorks, doc: DocumentValues, verb: str) -> None:
 
 
 def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], verb_made: str,
-                  verb_opened: str) -> None:
+                  verb_opened: str) -> List[str]:
     """The path checks of a job, each a :class:`BuildError` sentence naming the file: one path twice, two files
     of one name from two folders (SolidWorks keeps one document per file name: probe
     add_component_same_name_elsewhere), and a document of the same name already open from another folder
-    (decision 7, :func:`same_named_elsewhere`)."""
+    (decision 7, :func:`same_named_elsewhere`). Returns the saved documents open in SolidWorks as the job
+    begins (their paths), read once here for both."""
     everything = list(made) + list(opened)
     for index, path in enumerate(everything):
         for earlier in everything[:index]:
@@ -1131,7 +1133,8 @@ def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], ve
             if _file(path).lower() == _file(earlier).lower():
                 raise BuildError(f"{earlier} and {path} have the same file name, and SolidWorks keeps one document "
                                  "per file name, so they cannot both be in one job.")
-    clashes = same_named_elsewhere(sw.documents(), everything)
+    documents = sw.documents()
+    clashes = same_named_elsewhere(documents, everything)
     if clashes:
         said = []
         for open_path, wanted in clashes:
@@ -1142,6 +1145,13 @@ def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], ve
         listed = files[0] if len(files) == 1 else ", ".join(files[:-1]) + f" and {files[-1]}"
         raise BuildError(f"{'; '.join(said)}; SolidWorks keeps one document per file name, so close {listed} in "
                          "SolidWorks and try again.")
+    return [d.path for d in documents if d.path]
+
+
+def _from_disk(path: str, open_before: Sequence[str]) -> bool:
+    """Whether a document the job opens was not open in SolidWorks before it (``documents()`` at the pre-flight),
+    so ``open_document`` loaded it from its file: what it holds in memory is then what the file holds."""
+    return not any(same_path(path, p) for p in open_before)
 
 
 @dataclass
@@ -1172,6 +1182,19 @@ class GearboxResult:
     review B2's last corner: an Update left unsaved, SolidWorks closed
     without saving, and the unchanged file saved later, so its time moved on
     while it still held the old values).
+
+    ``held``: each document in ``checked`` and the trig unit the check found
+    it holding its globals in, for the ``.gear.json`` the finish writes beside
+    a part only the journal knew. ``open_before``: the saved documents open
+    in SolidWorks when the job began (None when not read, as in a test's
+    hand-made result), and ``opened`` the documents the job opened from disk
+    — not open before it — whose state in memory is therefore their file's
+    (second W4 review N2: the finish clears or re-decides their marks, and a
+    document marked unsaved that was not open when the job began has lost
+    its unsaved changes). That a document in memory is listed by
+    ``documents()`` (``GetFirstDocument``/``GetNext``) whether or not its
+    window is open is what decision 7's same-name check already relies on;
+    it has not yet been exercised for this on real SolidWorks.
     """
 
     parts: ManyResult = field(default_factory=ManyResult)
@@ -1186,6 +1209,9 @@ class GearboxResult:
     failures: List[Tuple[str, str]] = field(default_factory=list)
     mismatched: List[Tuple[str, str]] = field(default_factory=list)
     mtimes: Dict[str, float] = field(default_factory=dict)
+    held: Dict[str, str] = field(default_factory=dict)
+    open_before: Optional[List[str]] = None
+    opened: List[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -1298,7 +1324,7 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
         if not exists(path):
             raise BuildError(f"{path} is no longer there, so it cannot be reused: it was moved, renamed or deleted "
                              "since it was built.")
-    _refuse_paths(sw, made, reused, "make", "reuse")
+    open_before = _refuse_paths(sw, made, reused, "make", "reuse")
     inserted = [op.path for op in assembly.ops if isinstance(op, base.AddComponent)] if assembly is not None else []
     for path in inserted:
         if not any(same_path(path, p) for p in made + reused):
@@ -1310,11 +1336,13 @@ def build_gearbox(sw: SolidWorks, parts: Sequence[BuildPlan], reuse: Sequence[Do
                          f"yet (findings.REUSE_ADD_ROUTE is {route!r}), so this build, which reuses "
                          f"{_file(reused_in_assembly[0])}, cannot start; run probe tier 7 first.")
 
-    result = GearboxResult()
+    result = GearboxResult(open_before=list(open_before))
     for index, doc in enumerate(reused_docs, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, len(reused_docs)))
+        if _from_disk(doc.path, open_before):
+            result.opened.append(doc.path)      # _check_live opens it, or raises out of the job before anything
         try:
-            _check_live(sw, doc, "reused")
+            result.held[doc.path] = _check_live(sw, doc, "reused")
         except NotAsBuilt as exc:
             # Not a refusal: the finish records it, and the next plan makes that part new (review B2's last
             # corner). Every document is still checked, so one press finds them all.
@@ -1414,7 +1442,10 @@ class GearboxUpdate:
     anything (path -> ``os.path.getmtime``; a file whose time could not be
     read is left out): the finish marks a changed document unsaved at that
     time, so a save made in SolidWorks while the job was answering still
-    reads as newer (W4 review nit).
+    reads as newer (W4 review nit). ``open_before`` and ``opened`` are as on
+    :class:`GearboxResult`: the documents open when the job began, and those
+    it opened from disk (every part and the layout in the check phase, and
+    the assembly when it was reached).
     """
 
     parts: List[UpdateResult] = field(default_factory=list)
@@ -1428,6 +1459,8 @@ class GearboxUpdate:
     changed: List[str] = field(default_factory=list)
     skipped: str = ""
     mtimes: Dict[str, float] = field(default_factory=dict)
+    open_before: Optional[List[str]] = None
+    opened: List[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -1474,7 +1507,8 @@ def _update_document(sw: SolidWorks, doc: DocumentValues) -> Tuple[UpdateResult,
         sw.open_document(doc.path)
         result = update_variables(sw, doc.variables, doc.path)
     except Exception as exc:  # noqa: BLE001 - a raise is this document's failure, never the job's (B1)
-        return UpdateResult(document=name), [(name, _said(exc))]
+        # Marked on the document's own result too, so the finish never takes it for one found holding its values.
+        return UpdateResult(document=name, failures=[("", _said(exc))]), [(name, _said(exc))]
     failures = [(f"{name} {what}", why) for what, why in result.failures]
     if result.changed and not result.rebuilt:
         failures.append((name, f"SolidWorks reported an error rebuilding {_stem(doc.path)}."))
@@ -1549,7 +1583,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
         if not exists(path):
             raise BuildError(f"{path} is no longer there, so Update SolidWorks cannot change it: it was moved, "
                              "renamed or deleted since it was built.")
-    _refuse_paths(sw, [], paths, "make", "change")
+    open_before = _refuse_paths(sw, [], paths, "make", "change")
+    result.open_before = list(open_before)
     for index, placement in enumerate(placements):
         for earlier in placements[:index]:
             if placement.component == earlier.component:
@@ -1576,6 +1611,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     holds: List[str] = []           # per document: the trig unit it already holds every global in, or ""
     for index, doc in enumerate(documents, 1):
         say(Step(STAGE_CHECK, _stem(doc.path), index, total))
+        if _from_disk(doc.path, open_before):
+            result.opened.append(doc.path)
         _, by_unit, values = _read_live(sw, doc, "updated")
         holds.append(_held_unit(by_unit, values, doc.variables))
     if assembly and (beside or not documents):
@@ -1583,6 +1620,8 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
         sw.begin_build()
         try:
             sw.open_document(assembly)
+            if _from_disk(assembly, open_before):
+                result.opened.append(assembly)
             for index, placement in enumerate(placements, 1):
                 sw.find_component(f"placed{index}", placement.component)
         except ComponentGone as exc:      # renamed or deleted in SolidWorks: only a new revision puts it back
@@ -1656,6 +1695,9 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
         try:
             sw.open_document(assembly)
             opened = True
+            if _from_disk(assembly, result.open_before or ()) and not any(same_path(assembly, p)
+                                                                          for p in result.opened):
+                result.opened.append(assembly)
             handles = [f"placed{index}" for index in range(1, len(placements) + 1)]
             for handle, placement in zip(handles, placements):
                 sw.find_component(handle, placement.component)

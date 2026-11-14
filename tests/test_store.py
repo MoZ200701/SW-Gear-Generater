@@ -1,6 +1,7 @@
 """The gear record beside each part, and the app's own memory."""
 
 import json
+import pathlib
 
 import pytest
 
@@ -438,8 +439,45 @@ def test_a_record_written_for_another_workbook_still_there_is_that_workbooks():
     assert store.foreign_workbook(record, r"c:\work\r.XLSX", exists) == ""          # the same file to Windows
     assert store.foreign_workbook(store.LinkRecord(), r"C:\Copy\R.xlsx", exists) == ""
     assert store.foreign_workbook(None, r"C:\Copy\R.xlsx", exists) == ""
-    there.clear()                                                     # moved or renamed: the record is adopted
-    assert store.foreign_workbook(record, r"C:\Copy\R.xlsx", exists) == ""
+    # Gone: moved or renamed, or a copy of an original since deleted. Not adopted until the person says (N1c).
+    there.clear()
+    assert store.record_owner(record, r"C:\Copy\R.xlsx", exists) == (store.UNSURE, r"C:\Work\R.xlsx")
+    assert store.foreign_workbook(record, r"C:\Copy\R.xlsx", exists) == r"C:\Work\R.xlsx"
+    said_no = store.LinkRecord(workbook=r"C:\Work\R.xlsx")
+    store.settle_owner(said_no, r"C:\Copy\R.xlsx", moved=False)       # "No: a copy", kept in the record
+    assert said_no.workbook == r"C:\Work\R.xlsx" and said_no.copy_of == r"C:\Work\R.xlsx"
+    assert store.record_owner(said_no, r"C:\Copy\R.xlsx", exists) == (store.COPY, r"C:\Work\R.xlsx")
+    said_yes = store.LinkRecord(workbook=r"C:\Work\R.xlsx")
+    store.settle_owner(said_yes, r"C:\Copy\R.xlsx", moved=True)       # "Yes: moved", the record adopted
+    assert said_yes.workbook == r"C:\Copy\R.xlsx" and said_yes.moved_from == [r"C:\Work\R.xlsx"]
+    assert store.record_owner(said_yes, r"C:\Copy\R.xlsx", exists) == (store.OURS, "")
+    # The answer is the record's own: a later absence or return of the original never flips it.
+    there.add(r"C:\Work\R.xlsx")
+    assert store.record_owner(said_no, r"C:\Copy\R.xlsx", exists)[0] == store.COPY
+    round_trip = store.link_record_from_json(store.link_record_to_json(said_no))
+    assert round_trip.copy_of == r"C:\Work\R.xlsx"
+
+
+def test_one_workbook_reached_by_two_paths_is_its_own_record_not_a_copy(tmp_path):
+    """W4 review N1a: a mapped drive and its UNC path, a subst drive, a junction, a symlink, an 8.3 name — one
+    file. Compared as text they looked like a copy of itself, and the next build's finish wrote a fresh record
+    over the workbook's own (the same file), losing its gearbox."""
+    real = tmp_path / "share"
+    real.mkdir()
+    alias = tmp_path / "Z_drive"
+    alias.symlink_to(real, target_is_directory=True)
+    workbook, through = real / "Reducer.xlsx", alias / "Reducer.xlsx"
+    workbook.write_bytes(b"x")
+    record = store.LinkRecord(workbook=str(workbook), parts=[store.PartEntry(path="C:\\P\\Gear.SLDPRT")])
+    store.save_link_record(record)
+    read = store.read_link_record(str(through))
+    assert store.same_file(str(workbook), str(through)) and not store.same_path(str(workbook), str(through))
+    assert store.record_owner(read, str(through)) == (store.OURS, "")
+    assert store.foreign_workbook(read, str(through)) == ""
+    store.adopt(read, str(through))                                   # not a move: the record keeps its path
+    assert read.workbook == str(workbook) and read.moved_from == []
+    # One of them gone, they are compared as text: another path to a file that is not there is not the same file.
+    assert not store.same_file(str(workbook), str(tmp_path / "gone" / "Reducer.xlsx"))
 
 
 def test_adopting_a_record_keeps_the_paths_it_had():
@@ -451,6 +489,65 @@ def test_adopting_a_record_keeps_the_paths_it_had():
     store.adopt(record, r"C:\A\R.xlsx")                               # back where it was: not its own former path
     assert record.moved_from == [r"C:\B\R.xlsx", r"C:\C\R.xlsx"]
     assert store.link_record_from_json(store.link_record_to_json(record)) == record
+
+
+def test_locate_never_carries_a_copys_record_into_its_own(tmp_path):
+    """W4 review N1b: a copy (its record still the original's) renamed while open, then Locate…: the record was
+    adopted without a look, and the copy's Update then drove the original's files."""
+    orig, copy = tmp_path / "orig" / "Reducer.xlsx", tmp_path / "copy" / "Reducer.xlsx"
+    for path in (orig, copy):
+        path.parent.mkdir()
+        path.write_bytes(b"x")
+    record = store.LinkRecord(workbook=str(orig), parts=[store.PartEntry(path="C:\\Parts\\Gear_m1.5_N68.SLDPRT")])
+    store.save_link_record(record, store.link_record_path(str(orig)))
+    store.save_link_record(record, store.link_record_path(str(copy)))           # the folder copied whole
+    renamed = tmp_path / "copy" / "Reducer v2.xlsx"
+    copy.rename(renamed)
+    with pytest.raises(store.NotCarried) as raised:
+        store.carry_link_record(str(copy), str(renamed))
+    assert str(raised.value) == (f"it was written for {orig}, so it is that workbook's record and lists that "
+                                 "workbook's files, not this one's.")
+    assert not pathlib.Path(store.link_record_path(str(renamed))).exists()
+    # The same for a copy the person said was a copy, once the original has gone too.
+    said = store.LinkRecord(workbook=str(tmp_path / "gone.xlsx"), copy_of=str(tmp_path / "gone.xlsx"))
+    store.save_link_record(said, store.link_record_path(str(renamed)))
+    renamed.rename(tmp_path / "copy" / "Reducer v3.xlsx")
+    with pytest.raises(store.NotCarried):
+        store.carry_link_record(str(renamed), str(tmp_path / "copy" / "Reducer v3.xlsx"))
+
+
+def test_locate_carries_an_unanswered_record_as_it_is_so_the_question_is_asked_again(tmp_path):
+    old, new = tmp_path / "a" / "R.xlsx", tmp_path / "b" / "R.xlsx"
+    old.parent.mkdir()
+    new.parent.mkdir()
+    gone = str(tmp_path / "gone" / "R.xlsx")
+    store.save_link_record(store.LinkRecord(workbook=gone), store.link_record_path(str(old)))
+    assert store.carry_link_record(str(old), str(new)) == store.link_record_path(str(new))
+    carried = store.read_link_record(str(new))
+    assert carried.workbook == gone and carried.moved_from == []
+    assert store.record_owner(carried, str(new)) == (store.UNSURE, gone)
+
+
+def test_the_journal_round_trips_and_an_old_build_ignores_it():
+    """W4 review N4: ``pending`` (and ``copy_of``) are new keys. A build from before schema 2 reads the record with
+    LinkRecord(**_known(...)), dropping what it does not know, and shown schema 1 it keeps the parts."""
+    record = store.LinkRecord(workbook=r"C:\W\R.xlsx", parts=[store.PartEntry(path=r"C:\P\G.SLDPRT", gears=["G1"])],
+                              pending=[store.PartEntry(path=r"C:\P\H.SLDPRT", gears=["G2"], revision=2, kind="spur",
+                                                       spec={"teeth": "68"}),
+                                       store.PartEntry(path=r"C:\P\R_r2.SLDASM", revision=2, kind="assembly")],
+                              pending_for=r"C:\W\R.xlsx", copy_of="")
+    text = store.link_record_to_json(record)
+    assert store.link_record_from_json(text) == record
+    raw = json.loads(text)
+    assert raw["schema_version"] == 1 and "pending" in raw
+    # what the pre-schema-2 reader did (store.load_link_record before a93d6d9): keep only the fields it knows
+    old_fields = {"workbook", "digest", "parts", "assembly", "last_built", "schema_version", "written_by",
+                  "own_digest", "recalc"}
+    kept = {k: v for k, v in raw.items() if k in old_fields}
+    assert int(kept["schema_version"]) <= 1 and isinstance(kept["parts"], list)
+    assert all(isinstance(p, dict) for p in kept["parts"])
+    with pytest.raises(StoreError, match="not a link record"):
+        store.link_record_from_json(json.dumps(dict(raw, pending=[1])))
 
 
 def test_locate_carries_the_record_and_remembers_the_old_path(tmp_path):

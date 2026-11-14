@@ -56,9 +56,20 @@ own file names (``<Name>``, ``<Name>_Layout``, ``<Name>_r<n>`` …) is a
 refusal naming its cell.
 
 **A copied workbook** (review S1): a record written for another workbook
-that is still on disk (``store.foreign_workbook``) is that workbook's, so it
-is planned without — a gearbox of this workbook's own, beside the other's
-files, sharing nothing — and :attr:`GearboxPlan.foreign_record` names it.
+that is still on disk, or that the person said this one is a copy of, is
+that workbook's (``store.record_owner``), so it is planned without — a
+gearbox of this workbook's own, beside the other's files, sharing nothing —
+and :attr:`GearboxPlan.foreign_record` names it. A record whose workbook is
+gone is planned the same way until the person says this workbook was moved
+or renamed from it (second review N1c; :attr:`GearboxPlan.foreign_gone`).
+
+**The journal** (second review N4): a build's record gains, before the
+worker starts, what it is about to make (``LinkRecord.pending``). A pending
+part on disk with no ``.gear.json`` is that build's interrupted work, and
+is planned for reuse like a part on record — the same plan, then checked
+live — rather than called a file with no record; a pending layout part
+likewise (checked live against the shafts now); a pending assembly is a
+file this workbook made and never recorded, which the build goes beside.
 """
 
 from __future__ import annotations
@@ -96,6 +107,10 @@ class PartReuse:
     variables: Tuple[GlobalVariable, ...]
     revision: int
     features: Tuple[str, ...] = ()
+    journaled: bool = False        # found by the journal: no .gear.json beside it (one is written at the finish)
+    recipe: str = ""               # the plan's recipe, template and manual steps, for that .gear.json
+    template: str = ""
+    manual: Tuple[str, ...] = ()
 
 
 # Why a part is made new rather than reused, or under another name than its own (MadeNew.why).
@@ -103,7 +118,8 @@ UNSAVED = "unsaved"            # the matching part was changed by Update SolidWo
 STALE = "stale"                # its file name holds a part built from this workbook for other values
 OTHER_WORKBOOK = "other"       # its file name holds a part another workbook built
 NO_RECORD = "no record"        # its file name holds a file with no record that this workbook built it
-MISMATCHED = "mismatched"      # the matching part failed a build's live check, and its file is no newer since
+MISMATCHED = "mismatched"      # the matching part failed a live check, or lost Update's unsaved changes, and its
+                               # file is no newer since
 
 
 @dataclass(frozen=True)
@@ -130,8 +146,8 @@ class MadeNew:
             return (f"{_stem_of(self.old)} has changes from Update SolidWorks that are not saved, so its file is not "
                     f"yet the part {gears} needs: this build makes {gears}'s part new, as {new}.")
         if self.why == MISMATCHED:
-            return (f"{_stem_of(self.old)} did not hold what the record says when the last build checked it, so this "
-                    f"build makes {gears}'s part new, as {new}.")
+            return (f"{_stem_of(self.old)} does not hold what the record says, as the last job in SolidWorks found, so "
+                    f"this build makes {gears}'s part new, as {new}.")
         if self.why == STALE:
             return (f"{old} in {where} was built from this workbook for values {gears} no longer has, so {gears}'s "
                     f"part is made as {new}; nothing is overwritten.")
@@ -151,6 +167,7 @@ class LayoutReuse:
     path: str
     variables: Tuple[GlobalVariable, ...]
     features: Tuple[str, ...]
+    journaled: bool = False        # an interrupted build's, found by the journal rather than continued on record
 
 
 @dataclass(frozen=True)
@@ -178,6 +195,9 @@ class GearboxPlan:
     the matching part is not saved — a build never waits for a save.
     ``foreign_record``: the other workbook whose record sits beside this one
     (a copy), which this plan was made without; ``""`` normally.
+    ``foreign_gone``: that workbook is not there any more and nobody has said
+    whether this one was moved from it (``store.UNSURE``): planned as a copy
+    until the person answers.
     """
 
     revision: int
@@ -200,6 +220,7 @@ class GearboxPlan:
     meshes: Tuple[Tuple[str, str], ...] = ()     # the listed meshes (a, b), for the record (Agent B, additive)
     made_new: Tuple[MadeNew, ...] = ()
     foreign_record: str = ""
+    foreign_gone: bool = False
 
     @property
     def parts_only(self) -> bool:
@@ -358,6 +379,7 @@ class _Found:
     path: str
     revision: int
     features: Tuple[str, ...] = ()
+    journaled: bool = False
 
 
 class _Parts:
@@ -371,13 +393,14 @@ class _Parts:
 
     def __init__(self, record: Optional[LinkRecord], workbook: str, exists: Callable[[str], bool],
                  read_sidecar: Callable[[str], Optional[Sidecar]], mtime: Callable[[str], float],
-                 former: Sequence[str] = ()) -> None:
+                 former: Sequence[str] = (), journal: Sequence[PartEntry] = ()) -> None:
         self.record = record
         self.workbook = workbook
         self.exists = exists
         self.read_sidecar = read_sidecar
         self.mtime = mtime
         self.former = [p for p in former if p and not store.same_path(p, workbook) and not exists(p)]
+        self.journal = list(journal)
         self._sidecars: Dict[str, Optional[Sidecar]] = {}
         self.unsaved = list(record.unsaved) if record is not None else []
 
@@ -388,12 +411,21 @@ class _Parts:
         return self._sidecars[key]
 
     def ours(self, path: str) -> bool:
-        """Whether the file's record beside it says this workbook built it."""
+        """Whether the file's record beside it says this workbook built it (by its path now — or another path to
+        the same file, second review N1a — or one it had before it was moved)."""
         sidecar = self.sidecar(path)
         if sidecar is None or not self.workbook:
             return False
         built_from = sidecar.record.workbook
-        return store.same_path(built_from, self.workbook) or _in(built_from, self.former)
+        return store.same_file(built_from, self.workbook) or _in(built_from, self.former)
+
+    def journaled(self, path: str) -> Optional[PartEntry]:
+        """The journal's entry for a file on disk with no ``.gear.json`` beside it: an interrupted build of this
+        workbook's saved it and never put it on record (``LinkRecord.pending``). None otherwise — a pending path
+        not on disk is dropped, and one with a ``.gear.json`` is judged by it."""
+        if not self.journal or not self.exists(path) or self.sidecar(path) is not None:
+            return None
+        return next((e for e in self.journal if store.same_path(e.path, path)), None)
 
     def not_saved(self, path: str) -> bool:
         """Whether Update SolidWorks changed the part and the file does not hold it yet: on the record's
@@ -452,7 +484,18 @@ class _Parts:
                 continue
             return _Found(entry.path, entry.revision, self.features(entry.path)), ("", "")
         for path in self.names(job):
-            if not self.exists(path) or not self.ours(path):
+            if not self.exists(path):
+                continue
+            entry = self.journaled(path)
+            if entry is not None:
+                if entry.kind in (layout.LAYOUT_KIND, layout.ASSEMBLY_KIND) or not _matches(entry.spec, (), "", job):
+                    continue
+                why = self.blocked(path)
+                if why:
+                    held = held if held[0] else (path, why)
+                    continue
+                return _Found(path, entry.revision, (), journaled=True), ("", "")
+            if not self.ours(path):
                 continue
             record = self.sidecar(path).record
             if not _matches(record.spec, record.variables, record.trig, job):
@@ -476,9 +519,10 @@ class _Parts:
         return ""
 
     def occupant(self, path: str) -> Tuple[str, str]:
-        """Why a file at a job's own path is not that job's part: (MadeNew.why, the workbook its record names)."""
+        """Why a file at a job's own path is not that job's part: (MadeNew.why, the workbook its record names). A
+        file the journal names is this workbook's, made for other values (STALE)."""
         sidecar = self.sidecar(path)
-        if sidecar is not None and self.ours(path):
+        if (sidecar is not None and self.ours(path)) or self.journaled(path) is not None:
             return STALE, ""
         if sidecar is not None and sidecar.record.workbook:
             return OTHER_WORKBOOK, sidecar.record.workbook
@@ -564,13 +608,24 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
         if exists(attempt.layout_path):
             continued = continuing is not None and continuing.revision == n and store.same_path(
                 continuing.layout, attempt.layout_path)
+            journaled = not continued and parts.journaled(attempt.layout_path) is not None
             if continued and parts.mismatched(attempt.layout_path):
                 attempt.obstacle = (f"{layout_name} was saved by a build whose assembly was not made, but the last "
                                     "build found it no longer holds what was recorded, so it is not reused.")
                 return attempt
+            if journaled and parts.mismatched(attempt.layout_path):
+                attempt.obstacle = (f"{layout_name} was saved by a build that was interrupted before it was put on "
+                                    "record, but the last build found it does not hold this workbook's layout, so it is "
+                                    "not reused.")
+                return attempt
             if continued and _same_layout(_recorded_shafts(continuing), shafts):
                 attempt.layout_reuse = LayoutReuse(attempt.layout_path, layout.layout_globals(shafts),
                                                    layout.layout_features(shafts))
+            elif journaled:
+                # An interrupted build's own layout part: what it holds is not on record, so the live check decides
+                # whether it is the layout the shafts now want (every global and every plane and axis).
+                attempt.layout_reuse = LayoutReuse(attempt.layout_path, layout.layout_globals(shafts),
+                                                   layout.layout_features(shafts), journaled=True)
             elif continued:
                 attempt.obstacle = (f"{layout_name} was saved by a build whose assembly was not made, but the shafts "
                                     "have moved since, so it is not the layout part this workbook needs.")
@@ -581,8 +636,12 @@ def _try(n: int, a: Assessment, jobs: Sequence[PartJob], parts: _Parts, shafts: 
         else:
             new_paths.append(attempt.layout_path)
         if exists(attempt.assembly_path):
-            attempt.obstacle = (f"{os.path.basename(attempt.assembly_path)} is already in {folder}, and a build never "
-                                "overwrites a file.")
+            if parts.journaled(attempt.assembly_path) is not None:
+                attempt.obstacle = (f"{os.path.basename(attempt.assembly_path)} was saved by a build that was "
+                                    "interrupted before it was put on record, and a build never overwrites a file.")
+            else:
+                attempt.obstacle = (f"{os.path.basename(attempt.assembly_path)} is already in {folder}, and a build "
+                                    "never overwrites a file.")
             return attempt
         new_paths.append(attempt.assembly_path)
     full = []
@@ -654,16 +713,19 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     part_tpl = spec.box.part_template or part_template
     asm_tpl = spec.box.assembly_template or assembly_template
     here = str(a.read.source_path or spec.source_path or "")
-    foreign = store.foreign_workbook(record, here, exists)
+    owner, other = store.record_owner(record, here, exists)
+    foreign = other if owner != store.OURS else ""
+    journal = _journal_of(record, here, ours=not foreign)
     if foreign:
-        record = None                       # a copy: the record and its files are the other workbook's (S1)
+        record = None                       # a copy: the record and its files are the other workbook's (S1, N1)
     former = ([record.workbook] + list(record.moved_from)) if record is not None else []
     workbook = here or (record.workbook if record is not None else "")
     jobs = list(a.parts.jobs)
     meshes = tuple((m.a, m.b) for m in spec.meshes)
     empty = dict(folder=folder, layout_path="", assembly_path="", build=(), reuse=(), shafts=(), frames={},
                  layout=None, assembly=None, handles={}, part_of={}, part_template=part_tpl,
-                 assembly_template=asm_tpl, meshes=meshes, foreign_record=foreign)
+                 assembly_template=asm_tpl, meshes=meshes, foreign_record=foreign,
+                 foreign_gone=owner == store.UNSURE)
     name0 = layout.stems(spec.box.name, 0)[0]
 
     named = _gearbox_named(a, jobs)
@@ -694,7 +756,7 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     order = [continuing.revision] if continuing is not None else []
     order += [n for n in [0] + list(range(2, MAX_REVISION + 1)) if n not in used and n not in order]
 
-    parts = _Parts(record, workbook, exists, read_sidecar, mtime, former)
+    parts = _Parts(record, workbook, exists, read_sidecar, mtime, former, journal)
     first_obstacle = ""
     chosen: Optional[_Attempt] = None
     for n in order:
@@ -732,7 +794,9 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
             part_of[gear] = path
         if found is not None:
             reuse.append(PartReuse(path, _stem_of(path), tuple(job.gear_ids), job.spec, job.derived,
-                                   _variables_of(job), found.revision, found.features))
+                                   _variables_of(job), found.revision, found.features, found.journaled,
+                                   job.plan.recipe, _template_of(job.plan),
+                                   tuple(op.text for op in job.plan.manual_steps())))
         elif store.same_path(path, job.path):
             build_jobs.append(job)
         else:
@@ -764,6 +828,31 @@ def plan_gearbox(a: Assessment, record: Optional[LinkRecord], *, part_template: 
     fields.update(layout_path=chosen.layout_path, assembly_path=chosen.assembly_path, shafts=shafts,
                   frames=frames, layout=layout_item, assembly=assembly, handles=handles)
     return GearboxPlan(revision=n, name=name, revision_reason=reason, **fields)
+
+
+def _journal_of(record: Optional[LinkRecord], here: str, ours: bool) -> List[PartEntry]:
+    """The journal a plan may use: ``record.pending`` when this workbook's build wrote it (``pending_for`` this
+    workbook, or — the record being this workbook's — a path it had before it was moved)."""
+    if record is None or not record.pending:
+        return []
+    names = [here] + (list(record.moved_from) + [record.workbook] if ours else [])
+    return list(record.pending) if any(store.same_file(record.pending_for, n) for n in names if n) else []
+
+
+def journal(plan: GearboxPlan) -> List[PartEntry]:
+    """What a build is about to make, for ``LinkRecord.pending`` (written before the worker starts): each new
+    part (path, gears, revision, kind, spec), the new layout part and the assembly (``kind`` ``layout`` and
+    ``assembly``), and what it reuses that only the journal knows (no ``.gear.json`` yet), so a build interrupted
+    again keeps them."""
+    out = [PartEntry(path=j.path, gears=list(j.gear_ids), revision=plan.revision, kind=j.spec.kind,
+                     spec=j.spec.to_dict()) for j in plan.build]
+    out += [PartEntry(path=r.path, gears=list(r.gear_ids), revision=r.revision, kind=r.spec.kind,
+                      spec=r.spec.to_dict()) for r in plan.reuse if r.journaled]
+    if plan.layout is not None and (not isinstance(plan.layout, LayoutReuse) or plan.layout.journaled):
+        out.append(PartEntry(path=plan.layout_path, revision=plan.revision, kind=layout.LAYOUT_KIND))
+    if plan.assembly is not None and plan.assembly_path:
+        out.append(PartEntry(path=plan.assembly_path, revision=plan.revision, kind=layout.ASSEMBLY_KIND))
+    return out
 
 
 def _same_file_name(paths: Sequence[str]) -> str:
@@ -799,6 +888,14 @@ def replan(job: PartJob, path: str, template: str) -> PartJob:
 
 def _saved(result: Optional[BuildResult]) -> str:
     return result.saved if result is not None and result.ok and result.saved else ""
+
+
+def _drop(marks: Dict[str, float], path: str) -> bool:
+    """Take every entry for ``path`` out of a path -> time mark; whether there was one."""
+    keys = [k for k in marks if store.same_path(k, path)]
+    for key in keys:
+        del marks[key]
+    return bool(keys)
 
 
 def _merge(record: LinkRecord, entry: PartEntry) -> None:
@@ -848,20 +945,58 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     that part new rather than fail the same check on every press (review
     B2's last corner). A document a build checked and reused drops out of it.
     Pure but for ``read_sidecar`` and ``mtime``.
+
+    Second review: a document the job loaded from its file
+    (``result.opened``) loses its unsaved marks, record and ``.gear.json``
+    (N2); one marked unsaved that was not open when the job began
+    (``result.open_before``) lost Update's changes and becomes mismatched.
+    The journal (``record.pending``, N4) is taken out — written back even
+    when nothing was made — and a reused part only the journal knew gets
+    its ``.gear.json`` now, in the unit the live check found
+    (``result.held``). The record of a copy is told by ``store.same_file``,
+    so another path to this workbook is never taken for a copy (N1a). The
+    window writes ``finished.record`` beside this workbook — even when it is
+    the other workbook's record with the journal taken out.
     """
     stamp = stamp or store.now()
     out = Finished()
-    if record is not None and plan.foreign_record and store.same_path(record.workbook, plan.foreign_record):
+    other = None                           # the other workbook's record a copy's build was planned without
+    if record is not None and plan.foreign_record and store.same_file(record.workbook, plan.foreign_record):
+        other = record
         record = LinkRecord(workbook=workbook, own_digest=record.own_digest, recalc=record.recalc)
     rec = copy.deepcopy(record) if record is not None else LinkRecord(workbook=workbook)
     store.adopt(rec, workbook)
     saved_any = False
+    journaled = bool(rec.pending) or bool(other is not None and other.pending)
+    rec.pending, rec.pending_for = [], ""  # collected: the journal has done its work (N4)
 
     marked_any = False
     for path in result.checked:            # found, live, to hold what it should: reusable again
         for marked in [p for p in rec.mismatched if store.same_path(p, path)]:
             del rec.mismatched[marked]
             marked_any = True
+    # A document loaded from its file holds in memory what the file holds: changes Update left unsaved in it are
+    # gone, so its unsaved marks go, and what the check found decides (N2). A document marked unsaved that was not
+    # open when the job began lost those changes when it was closed; this build did not open it, so its file still
+    # holds what it held before Update, not what the record says: the mark becomes a mismatched one.
+    unmark = list(result.opened)
+    for path in result.opened:
+        marked_any = _drop(rec.unsaved, path) or marked_any
+    if result.open_before is not None:
+        for path, then in list(rec.unsaved.items()):
+            if _in(path, result.open_before):
+                continue
+            del rec.unsaved[path]
+            marked_any = True
+            if store.saved_since(path, then, mtime):
+                continue                   # saved since: the mark goes, as store.clear_saved would take it
+            _drop(rec.mismatched, path)
+            rec.mismatched[path] = then
+            unmark.append(path)
+    for path in unmark:
+        sidecar = read_sidecar(store.sidecar_path(path))
+        if sidecar is not None and sidecar.record.unsaved_since:
+            out.sidecars.append((store.sidecar_path(path), store.unmarked(sidecar)))
     for path, _why in result.mismatched:
         then = next((t for p, t in result.mtimes.items() if store.same_path(p, path)), None)
         if then is None:
@@ -896,11 +1031,21 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     # Reused parts were checked live before anything was built (decision 3): they are this revision's too.
     for reused in plan.reuse:
         old = next((p for p in rec.parts if store.same_path(p.path, reused.path)), None)
+        sidecar = None if old is not None else read_sidecar(store.sidecar_path(reused.path))
+        held = next((t for p, t in result.held.items() if store.same_path(p, reused.path)), "")
         if old is not None:
-            trig = old.trig
+            trig = old.trig or held
         else:
-            sidecar = read_sidecar(store.sidecar_path(reused.path))
-            trig = sidecar.record.trig if sidecar is not None else ""
+            trig = (sidecar.record.trig if sidecar is not None else "") or held
+        if old is None and sidecar is None and _in(reused.path, result.checked):
+            # Known only to the journal (an interrupted build saved it, its .gear.json never written): checked live
+            # now, so it gets one, as a part this build made would (N4).
+            out.sidecars.append((store.sidecar_path(reused.path), store.built_sidecar(
+                reused.path, os.path.basename(reused.path), kind=reused.spec.kind, recipe=reused.recipe,
+                spec=reused.spec.to_dict(), derived=reused.derived.to_dict(),
+                variables=[[v.name, v.expression_for(trig)] for v in reused.variables], features=[], dimensions=[],
+                manual_steps=list(reused.manual), template=reused.template, trig=trig, written_by=written_by,
+                stamp=stamp, workbook=workbook, workbook_gears=list(reused.gear_ids))))
         _merge(rec, PartEntry(path=old.path if old is not None else reused.path, gears=list(reused.gear_ids),
                               revision=old.revision if old is not None else reused.revision, kind=reused.spec.kind,
                               spec=reused.spec.to_dict(),
@@ -944,6 +1089,12 @@ def finish_build(plan: GearboxPlan, result: GearboxResult, record: Optional[Link
     if not saved_any:
         if marked_any:
             out.record = rec               # nothing made, but what the checks found is on record for the next plan
+        elif journaled and other is not None:
+            kept = copy.deepcopy(other)    # a copy's journal, written into the record that came with it: taken out
+            kept.pending, kept.pending_for = [], ""
+            out.record = kept
+        elif journaled:
+            out.record = rec               # nothing made: the journal is taken out
         return out
     if result.ok:
         rec.digest = digest

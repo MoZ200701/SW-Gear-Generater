@@ -64,6 +64,8 @@ LAYOUT_SUFFIX = "_Layout"
 REVISION_SUFFIX = "_r"          # <Name>_r2, <Name>_r2_Layout, <part stem>_r2
 ASSEMBLY_EXTENSION = ".SLDASM"
 PART_EXTENSION = ".SLDPRT"
+LAYOUT_KIND = "layout"          # BuildPlan.kind of the layout part, and of its entry in a build's journal
+ASSEMBLY_KIND = "assembly"      # likewise the assembly
 
 # A coordinate's side of its base plane.
 PLUS = "plus"
@@ -268,7 +270,7 @@ def layout_plan(shafts: Sequence[ShaftLayout], template: str, path: str) -> Buil
         ops.append(Axis(f"axis{i}", s.axis_name, planes))
     ops.append(Rebuild())
     ops.append(SaveAs(path))
-    return BuildPlan("layout", "", tuple(ops), path=path)
+    return BuildPlan(LAYOUT_KIND, "", tuple(ops), path=path)
 
 
 def _rotation(sigma: int, theta: float) -> Tuple[float, ...]:
@@ -339,7 +341,7 @@ def assembly_plan(layout_path: str, components: Sequence[Tuple[str, str, Frame]]
         put(handle, part, where.rotation, where.at)
     ops.append(Rebuild())
     ops.append(SaveAs(path))
-    return BuildPlan("assembly", "", tuple(ops), path=path)
+    return BuildPlan(ASSEMBLY_KIND, "", tuple(ops), path=path)
 
 
 def stems(box_name: str, revision: int) -> Tuple[str, str]:

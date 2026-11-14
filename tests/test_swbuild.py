@@ -22,7 +22,11 @@ class FakeSolidWorks:
     raise only when that argument is passed).
 
     W4's members are configurable from the start: ``open_docs`` are the
-    documents open before the job (``documents()``); a saved document keeps
+    documents open before the job (``documents()``), and a document saved or
+    opened joins them (``close_all`` empties them, as closing SolidWorks
+    without saving would); ``saved`` is each file as saved and ``memory``
+    each open document as it is now, so a change not saved is lost when it
+    is closed; a saved document keeps
     its globals and the planes and axes it made, and ``open_document`` brings
     them back, so ``planned_changes`` and ``feature_names`` see what a build
     left; ``missing_components`` are Name2s ``find_component`` will not find;
@@ -66,7 +70,8 @@ class FakeSolidWorks:
         self.frames = dict(frames or {})
         self.clashes = list(clashes)
         self.made = []                 # planes and axes made in the current document, by kept name
-        self.saved = {}                # lower-cased path -> (equations_text, made) as saved
+        self.saved = {}                # lower-cased path -> (equations_text, made) as saved: the file
+        self.memory = {}               # lower-cased path -> (equations_text, made) as open in SolidWorks now
         self.found = {}                # handle -> the Name2 find_component found it by
         self.raises = dict(raises or {})
         self.counts = {}
@@ -120,10 +125,25 @@ class FakeSolidWorks:
 
     def save_as(self, path):
         self._log("save_as", path)
-        self.saved[_key(path)] = (self.equations_text, self.made)
+        self.saved[_key(path)] = (list(self.equations_text), list(self.made))
+        self.memory[_key(path)] = (self.equations_text, self.made)
+        if path.lower().endswith(".sldasm"):
+            self.saved_frames = dict(self.frames)        # where the components are in the file
         self.current = path
         self.touched.discard(_key(path))
+        if not any(_key(d.path) == _key(path) for d in self.open_docs):
+            # A document a build saves stays open in SolidWorks (nothing is closed), as on 2026 and 2024.
+            self.open_docs.append(DocInfo(title=path.replace("/", "\\").rsplit("\\", 1)[-1], path=path,
+                                          doc_type=2 if path.lower().endswith(".sldasm") else 1))
         return path
+
+    def close_all(self):
+        """SolidWorks closed without saving (or every document closed): nothing is open, and what a document held
+        in memory since its last save is gone — reopened, it holds its file again."""
+        self.open_docs = []
+        self.memory = {}
+        self.touched.clear()
+        self.frames = dict(getattr(self, "saved_frames", self.frames))
 
     def detect_trig_units(self):
         self._log("detect_trig_units")
@@ -278,9 +298,14 @@ class FakeSolidWorks:
         self._log("open_document", path)
         doc_type = 2 if path.lower().endswith(".sldasm") else 1
         info = DocInfo(title=path.replace("/", "\\").rsplit("\\", 1)[-1], path=path, doc_type=doc_type)
-        self.equations_text, self.made = self.saved.get(_key(path), ([], []))
+        is_open = any(_key(d.path) == _key(path) for d in self.open_docs)
+        if not (is_open and _key(path) in self.memory):
+            # Loaded from its file: what it holds in memory is what was saved.
+            eq, made = self.saved.get(_key(path), ([], []))
+            self.memory[_key(path)] = (list(eq), list(made))
+        self.equations_text, self.made = self.memory[_key(path)]
         self.current = path
-        if not any(_key(d.path) == _key(path) for d in self.open_docs):
+        if not is_open:
             self.open_docs.append(info)
         self.active = info
         return info
@@ -694,7 +719,7 @@ def test_the_fake_reopens_a_saved_document_holding_what_it_was_saved_with():
     fake.open_document(PATH)
     assert swbuild.planned_changes(fake.equations(), SPUR.variables(GearSpec(), SPUR.derive(GearSpec())),
                                    DEGREES) == []
-    assert fake.active.path == PATH and fake.documents()[-1].title == "Gear_m1.5_N25.SLDPRT"
+    assert fake.active.path == PATH and "Gear_m1.5_N25.SLDPRT" in [d.title for d in fake.documents()]
     fake.open_document(r"C:\g\R_Layout.SLDPRT")
     assert fake.feature_names() == ["S2 X Plane", "S2 Axis"]
 
@@ -1162,7 +1187,7 @@ def test_every_check_refusal_changes_nothing(case, sentence):
         kwargs["layout"] = swbuild.DocumentValues(LAYOUT, (GlobalVariable("S2 X", "64.5"),
                                                            GlobalVariable("S3 X", "132.5")), LAYOUT_FEATURES)
     elif case == "lost plane":
-        fake.saved[_key(LAYOUT)][1].remove("S2 X Plane")
+        fake.memory[_key(LAYOUT)][1].remove("S2 X Plane")            # deleted in SolidWorks, the layout still open
     elif case == "missing component":
         fake.missing_components = {"gear2-1"}
     elif case == "does not evaluate":
@@ -1283,6 +1308,7 @@ def test_with_parts_not_settled_beside_their_assembly_an_open_assembly_must_be_c
 def test_with_parts_not_settled_beside_their_assembly_the_assembly_opens_after_the_values(monkeypatch, beside):
     monkeypatch.setattr(findings, "OPEN_PART_BESIDE_ASSEMBLY", beside, raising=False)
     fake = _built_gearbox()
+    fake.close_all()                       # the assembly is not open: Update may go ahead, values first
     fake.missing_components = {"gear2-1"}
     result = _update(fake)
     called = names(fake)
@@ -1475,7 +1501,7 @@ def test_a_part_whose_text_is_the_degree_form_but_whose_unit_is_radians_does_not
                      placements=[])
     assert result.ok and result.changed == [P17] and result.parts[0].trig == RADIANS
     assert "detect_trig_units" in names(fake)
-    held = dict(split_equation(t) for t in fake.saved[_key(P17)][0])
+    held = dict(split_equation(t) for t in fake.memory[_key(P17)][0])
     assert all(held[v.name].replace(" ", "") == v.expression_for(RADIANS).replace(" ", "") for v in _values(S17))
 
 

@@ -135,7 +135,14 @@ def test_a_teeth_change_alone_re_places_the_gear_by_its_new_parity(built):
      "OutputGear (G4): its Part name now makes Gear_m2_N51.SLDPRT, and a built part's file is never renamed, so it "
      "needs a new part."),
     (lambda s: gears(s, G2=dict(flank="arcs")),
-     "Gear_m1.5_N68 (G2): The recipe changed from 'A' to 'B'; build it again as a new part."),
+     "Gear_m1.5_N68 (G2): Flank changed from involute to arcs, which its values cannot carry; build it again as a "
+     "new part."),
+    (lambda s: gears(s, G2=dict(side="internal")),
+     "Gear_m1.5_N68 (G2): Side changed from external to internal, which its values cannot carry; build it again as "
+     "a new part."),
+    (lambda s: gears(s, G2=dict(kind="helical", helix_angle="15")),
+     "Gear_m1.5_N68 (G2): Kind changed from spur to helical, which its values cannot carry; build it again as a new "
+     "part."),
     (lambda s: replace(s, gears=s.gears[:3]),
      "G4 is no longer in the workbook, and Update SolidWorks cannot take a part out of what was built."),
     (lambda s: replace(s, meshes=s.meshes[:1]),
@@ -214,6 +221,7 @@ def test_an_edit_the_reader_normalises_away_changes_nothing(tmp_path):
     spec, _ = read(path)
     disk = Disk()
     _, _, record = build(assess.assess(spec, [], FOLDER), None, disk)
+    store.adopt(record, str(path))                     # the record is this workbook's (built() names WORKBOOK)
     edit(path, "Gears", {"M2": "R", "F2": "17.0", "E3": "ext"})
     spec2, diagnostics = read(path)
     assert [d.message for d in diagnostics if d.is_error] == []
@@ -528,8 +536,16 @@ def test_a_copied_workbooks_record_holds_update_and_says_whose_files_those_are(b
                             "sharing and overwriting nothing.")
     with pytest.raises(ValueError):
         plan.update_kwargs()
-    # moved, not copied: the original is gone, and the record is this workbook's
+    # The original gone: moved or renamed, or a copy of an original since deleted. Held until the person says
+    # (second review N1c), then the record is this workbook's.
     disk.remove(WORKBOOK)
+    unanswered = update.classify(record, a, exists=disk.exists)
+    assert unanswered.foreign_record == WORKBOOK and unanswered.parts == ()
+    assert unanswered.refusal == ("The record of what was built beside this workbook, Reducer_12to1.workbook.json, "
+                                  "was written for C:\\Work\\Reducer_12to1.xlsx, which is not there any more, and "
+                                  "whether this workbook was moved or renamed from it has not been answered: until it "
+                                  "is, Update SolidWorks leaves the files that record lists alone.")
+    store.settle_owner(record, copy, moved=True)
     assert update.classify(record, a, exists=disk.exists).refusal == ""
 
 
@@ -539,3 +555,24 @@ def test_an_update_finish_adopts_a_record_of_a_moved_workbook(built):
     done = update.finish_update(plan, worker_answer(plan), record, digest="d2", read_sidecar=disk.read_sidecar,
                                 mtime=lambda p: 1.0, workbook="C:\\Moved\\Reducer_12to1.xlsx")
     assert done.record.workbook == "C:\\Moved\\Reducer_12to1.xlsx" and done.record.moved_from == [WORKBOOK]
+
+
+def test_every_field_a_structural_change_names_is_said_in_the_workbooks_words():
+    """Second W4 review N6: the footer said "The recipe changed from 'A' to 'B'" for Flank = arcs, and "The
+    teeth_side changed" for Side. Every field swbuild.structural_change names by its field name is said as its
+    Gears column; bore, profile shift and groove were words already. The strip keeps its own sentence."""
+    base = {"kind": "helical", "recipe": "A", "hand": "right", "teeth_side": "external"}
+    said = {key: update._structural(base, dict(base, **{key: value}))
+            for key, value in (("kind", "herringbone"), ("recipe", "B"), ("hand", "left"), ("teeth_side", "internal"))}
+    assert said == {
+        "kind": "Kind changed from helical to herringbone, which its values cannot carry; build it again as a new part.",
+        "recipe": "Flank changed from involute to arcs, which its values cannot carry; build it again as a new part.",
+        "hand": "Hand changed from right to left, which its values cannot carry; build it again as a new part.",
+        "teeth_side": "Side changed from external to internal, which its values cannot carry; build it again as a "
+                      "new part."}
+    assert all(field not in text for text in said.values() for field in ("recipe", "teeth_side", "'"))
+    assert update._structural({"bore": "12"}, {"bore": ""}).startswith("A bore cannot be added to or removed")
+    assert update._structural({"profile_shift": "0.1"}, {}).startswith("Profile shift cannot be added")
+    assert update._structural({"groove": "2"}, {}).startswith("A centre groove cannot be added")
+    assert swbuild.structural_change(base, dict(base, recipe="B")) == (
+        "The recipe changed from 'A' to 'B'; build it again as a new part.")         # the strip's, unchanged

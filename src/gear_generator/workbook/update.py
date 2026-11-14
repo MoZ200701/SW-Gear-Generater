@@ -42,7 +42,7 @@ from ..gears.base import GlobalVariable
 from ..spec import GearSpec, InputError
 from ..store import LinkRecord, PartEntry, ShaftEntry, Sidecar
 from ..swbuild import POSE_TOLERANCE, DocumentValues, GearboxUpdate, Placement, same_frame, structural_change
-from . import gearbox, layout
+from . import gearbox, layout, schema
 from .assess import Assessment
 from .build import PartJob
 from .gearbox import Finished
@@ -77,12 +77,15 @@ class UpdatePlan:
     differs, modulo pitch). ``structural``: sentences, each a reason a new
     revision is needed (Update is then not run; the window offers to build
     again). ``missing``: recorded files no longer on disk (likewise).
-    ``unsaved``: documents an earlier Update changed and that are not yet
-    saved. ``refusal``: ``""``, or why there is nothing Update can act on
+    ``unsaved``: documents of the current revision an earlier Update changed
+    and that are not yet saved (an earlier revision's are left out: second
+    review N2). ``refusal``: ``""``, or why there is nothing Update can act on
     (no record, a record with no parts, a record that is another workbook's).
     ``foreign_record``: that other workbook, when the record beside this one
-    was written for a workbook still on disk — this one is a copy, and
-    Update leaves that workbook's files alone (review S1).
+    was written for a workbook still on disk, or one the person said this is
+    a copy of — and Update leaves that workbook's files alone (review S1) —
+    or for a workbook that is gone, until the person says this one was moved
+    or renamed from it (second review N1c, ``store.record_owner``).
     """
 
     parts: Tuple[PartUpdate, ...] = ()
@@ -187,6 +190,27 @@ def _ignored_fields_as_built(built: GearSpec, wanted: GearSpec, template: str) -
     return b, w
 
 
+# The fields swbuild.structural_change names by their field name, as the Gears sheet calls them (second W4 review
+# N6: the footer said "The recipe changed from 'A' to 'B'" where the person had typed Flank = arcs, and "The
+# teeth_side changed" for Side). Bore, profile shift and groove it already says in words.
+_COLUMNS = (("kind", "Kind"), ("recipe", "Flank"), ("hand", "Hand"), ("teeth_side", "Side"))
+_FLANK_OF_RECIPE = {recipe: flank for flank, recipe in schema.FLANK_RECIPE.items()}
+
+
+def _structural(built: Dict[str, Any], wanted: Dict[str, Any]) -> str:
+    """``swbuild.structural_change`` in the workbook's words: *Flank changed from involute to arcs, which its values
+    cannot carry; build it again as a new part.* (``ui_text`` turns the tail into the footer's). The strip keeps
+    ``structural_change``'s own sentence, in its own words."""
+    for key, column in _COLUMNS:
+        default = "external" if key == "teeth_side" else ""
+        was, now = (str(values.get(key, default) or default) for values in (built, wanted))
+        if was != now:
+            word = (lambda v: _FLANK_OF_RECIPE.get(v, v)) if key == "recipe" else (lambda v: v)
+            return (f"{column} changed from {word(was) or 'blank'} to {word(now) or 'blank'}, which its values cannot "
+                    "carry; build it again as a new part.")
+    return structural_change(built, wanted)
+
+
 def _part(entry: PartEntry, job: PartJob, exists: Callable[[str], bool]) -> Tuple[PartUpdate, str]:
     """What Update does to one built part, and the sentence if it cannot (``""``)."""
     variables = gearbox._variables_of(job)
@@ -206,7 +230,7 @@ def _part(entry: PartEntry, job: PartJob, exists: Callable[[str], bool]) -> Tupl
     if gearbox.same_part(built, job.spec, template):
         return replace(update, changed=not unchanged or not entry.variables), ""
     b, w = _ignored_fields_as_built(built, job.spec, template)
-    why = structural_change(b, w)
+    why = _structural(b, w)
     if why:
         return update, f"{label}: {why}"
     held = {str(pair[0]) for pair in entry.variables if pair}
@@ -238,9 +262,10 @@ def classify(record: Optional[LinkRecord], a: Assessment, *,
         return UpdatePlan(refusal="Nothing has been built from this workbook yet, so Update SolidWorks has nothing "
                                   "to change.")
     here = str(a.read.source_path or a.spec.source_path or "")
-    foreign = store.foreign_workbook(record, here, exists)
-    if foreign:
-        return UpdatePlan(refusal=store.foreign_record_sentence(here, foreign), foreign_record=foreign)
+    owner, foreign = store.record_owner(record, here, exists)
+    if owner != store.OURS:
+        return UpdatePlan(refusal=store.foreign_record_sentence(here, foreign, gone=owner == store.UNSURE),
+                          foreign_record=foreign)
     box = record.gearbox
     if box is not None and not box.assembly:
         return UpdatePlan(refusal=(f"{os.path.basename(box.layout)} was saved but its assembly was not made: Build "
@@ -355,7 +380,8 @@ def classify(record: Optional[LinkRecord], a: Assessment, *,
 
     return UpdatePlan(parts=tuple(parts), layout=layout_values, assembly=assembly, placements=tuple(placements),
                       moved_shafts=tuple(moved), replaced=tuple(replaced), structural=tuple(structural),
-                      missing=tuple(dict.fromkeys(missing)), unsaved=tuple(record.unsaved), shafts=shafts)
+                      missing=tuple(dict.fromkeys(missing)), unsaved=tuple(record.current_marks(record.unsaved)),
+                      shafts=shafts)
 
 
 def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *, digest: str,
@@ -383,6 +409,18 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
     was already the wanted one: moved by hand in SolidWorks, and put back.
     Pure but for ``read_sidecar`` and ``mtime``.
 
+    Marks (second W4 review N2): a document the job loaded from its file
+    (``result.opened``) and found holding what the workbook asks is neither
+    unsaved nor mismatched any more — both its entries and its
+    ``.gear.json``'s mark go; before, an Update left unsaved and lost when
+    SolidWorks closed was marked for ever, and every later build made that
+    part new. A document Update changes now loses any mismatched mark (it
+    holds the values in memory; the save its unsaved mark asks for clears
+    both). A document marked unsaved that was not open when the job began
+    (``result.open_before``) and that the job did not change lost Update's
+    changes when it was closed: its mark becomes a ``mismatched`` one at
+    the same time, since its file does not hold what the record says.
+
     A part reached without a failure is recorded as holding the wanted values
     even when nothing in it changed: SolidWorks was found to hold them already
     (an earlier update, or values set by hand), and the record follows
@@ -399,6 +437,7 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
         store.adopt(rec, workbook)
     out = Finished(record=rec)
     changed = bool(result.changed or result.placed)
+    settled = _settled(plan, result)
     marks: Dict[str, float] = {}
     for path in result.changed:
         then = next((t for p, t in getattr(result, "mtimes", {}).items() if store.same_path(p, path)), None)
@@ -411,9 +450,10 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
                 continue
         marks[path] = then
 
+    written = []
     for update, done in zip(plan.parts, result.parts):
-        if done.failures:
-            continue
+        if done.failures or not (done.changed or done.unchanged):
+            continue                        # not reached, or it failed: what it holds is not known
         entry = next((p for p in rec.parts if store.same_path(p.path, update.path)), None)
         trig = done.trig or (entry.trig if entry is not None else "")
         variables = [[v.name, v.expression_for(trig)] for v in update.variables]
@@ -428,9 +468,13 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
             out.notes.append(f"{os.path.basename(sidecar_path)} could not be read, so it was left as it is; the "
                              "workbook's record says what the part now holds.")
             continue
-        mark = next((t for p, t in marks.items() if store.same_path(p, update.path)), None) if done.changed else None
+        if done.changed:
+            mark = next((t for p, t in marks.items() if store.same_path(p, update.path)), None)
+        else:
+            mark = 0.0 if _in(update.path, settled) else None
         out.sidecars.append((sidecar_path, store.updated_sidecar(sidecar, spec, update.derived.to_dict(), variables,
                                                                  stamp, unsaved_since=mark)))
+        written.append(update.path)
 
     box = rec.gearbox
     if box is not None:
@@ -453,10 +497,65 @@ def finish_update(plan: UpdatePlan, result: GearboxUpdate, record: LinkRecord, *
         if changed:
             box.updated = stamp
 
+    # The marks (second W4 review N2). A document the job loaded from its file and found holding what the workbook
+    # asks holds it in memory and on disk alike: neither unsaved nor mismatched any more. A document marked unsaved
+    # that was not open when the job began lost what Update had changed in it when it was closed unsaved, and the
+    # job did not put it back: its file does not hold what the record says, which is what ``mismatched`` means.
+    for path in settled:
+        _drop(rec.unsaved, path)
+        _drop(rec.mismatched, path)
+    unmark = [p for p in settled if not _in(p, written)]
+    open_before = getattr(result, "open_before", None)
+    if open_before is not None:
+        for path, then in list(rec.unsaved.items()):
+            if _in(path, open_before) or _in(path, result.changed):
+                continue
+            del rec.unsaved[path]
+            if store.saved_since(path, then, mtime):
+                continue                    # saved since: the mark goes, as store.clear_saved would take it
+            _drop(rec.mismatched, path)
+            rec.mismatched[path] = then
+            unmark.append(path)
+    for path in unmark:
+        sidecar = read_sidecar(store.sidecar_path(path))
+        if sidecar is not None and sidecar.record.unsaved_since:
+            out.sidecars.append((store.sidecar_path(path), store.unmarked(sidecar)))
     for path, then in marks.items():
+        _drop(rec.unsaved, path)
+        _drop(rec.mismatched, path)          # held in memory now: the save the unsaved mark asks for clears both
         rec.unsaved[path] = then
     if changed:
         rec.last_updated = stamp
     if not (result.failures or result.skipped):
         rec.digest = digest
+    return out
+
+
+def _in(path: str, paths) -> bool:
+    return any(store.same_path(path, p) for p in paths)
+
+
+def _drop(marks: Dict[str, float], path: str) -> None:
+    for key in [k for k in marks if store.same_path(k, path)]:
+        del marks[key]
+
+
+def _settled(plan: UpdatePlan, result: GearboxUpdate) -> List[str]:
+    """The documents this update loaded from their files (``result.opened``) and found holding what the workbook
+    asks, changing nothing in them: each part and the layout reached without a failure and left as it was, and
+    the assembly reached, unchanged, with no failure of its own."""
+    opened = list(getattr(result, "opened", []) or [])
+    out: List[str] = []
+    for update, done in zip(plan.parts, result.parts):
+        if _in(update.path, opened) and done.unchanged and not done.changed and not done.failures:
+            out.append(update.path)
+    done = result.layout
+    if (plan.layout is not None and done is not None and _in(plan.layout.path, opened) and done.unchanged
+            and not done.changed and not done.failures):
+        out.append(plan.layout.path)
+    asm = plan.assembly
+    if (asm and _in(asm, opened) and not _in(asm, result.changed) and not result.placed
+            and not any(what == os.path.basename(asm.replace("\\", "/")) for what, _ in result.failures)
+            and not result.skipped):
+        out.append(asm)
     return out
