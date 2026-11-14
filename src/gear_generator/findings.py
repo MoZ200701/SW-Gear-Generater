@@ -557,7 +557,9 @@ COMPOUND_LOCK_ROUTE = "lock alone"
 # fights read 46 (overdefined, warning); the over-defined component's
 # GetConstrainedStatus is 4; IModelDocExtension.GetWhatsWrongCount rose (6 to 8, and
 # GetWhatsWrong, given three by-reference variants, named them); and ForceRebuild3
-# still returns True. Deleted (Select2, then DeleteSelection2(0)), its errors went and
+# still returns True. Deleted (Select2, then EditDelete(), as compound_lock's
+# over_defined.deleted_by records; W5-PROBE-REPORT's "DeleteSelection2(0)" was a
+# misstatement, and DeleteSelection2 was never reached), its errors went and
 # the status was 3 again. SolidWorks 2024 flagged exactly the same mates, the same
 # warnings and the same status, but GetErrorCode2 gave 51 for every one of them (the
 # number swconst calls swSketchErrorExtRefFail) where 2026 gave 46, 47 and 1. So a
@@ -608,3 +610,148 @@ LAYOUT_MOVE_CARRIES_MATES = True
 MESH_PHASE_ROUTE = "Transform2 put with the gear mate on"
 LOCK_UNSUPPRESS_KEEPS_THE_NEW_ANGLE = True
 AXIAL_GLOBAL_MOVES_GEAR = True
+
+# -- what W5 takes from tier 8, and tier 8 items 7-13 (W5-PLAN §0.3, package P0) --
+#
+# Six values read off tier 8's records as they stand (no new probe): motion_enums'
+# motion_enum_values from swconst.tlb, the route motion_update suppressed and
+# unsuppressed both its gear mate and its compound lock by (judged by IsSuppressed2),
+# how compound_lock selected both components of every lock it made, and how it deleted
+# the mate it over-defined the assembly with. Each matches W5-PLAN §0.3's text, in
+# 2026's full runs and every 2024 file alike.
+FEATURE_SUPPRESS = 0        # swFeatureSuppressionAction_e.swSuppressFeature
+FEATURE_UNSUPPRESS = 1      # swFeatureSuppressionAction_e.swUnSuppressFeature
+THIS_CONFIGURATION = 1      # swInConfigurationOpts_e.swThisConfiguration
+SUPPRESSION_ROUTE = "SetSuppression2 this configuration, None"
+LOCK_SELECT_ROUTE = "Select4 with a mark-1 select data"
+MATE_DELETE_ROUTE = "Select2 then EditDelete()"
+
+# Items 7-13, observed on SolidWorks 2026 (34.1.1: latest.json, a full run of 388c8d3, 83 of
+# 83) and 2024 (32.5.0: sw2024/probe-results-20261114-040636, these items and what they need,
+# of the same code) on 2026-11-14, and gear_mate_ratio again as it now runs (7e2952e) on both
+# (probe-results-20261114-052417, sw2024/probe-results-20261114-051023). Every decision is the
+# same on both versions except gear_mate_ratio's (a STOP, below). Items 7-11 and 13 each work
+# on their own on-disk copy of the 12 : 1 train mated_train saved (all Z+, and with a Z-
+# middle shaft), and rebuild with ForceRebuild3(True) as Update will.
+#
+# gear_mate_ratio (P1): the output's gear mate (17 : 51, made by AddMate5 with the first
+# selection's count first) taken to 17 : 60 in the reopened train. STOP: the two versions
+# decide differently, so no route is chosen here; the user or the coordinator chooses.
+# - Through its definition (IFeature.GetDefinition, the IGearMateFeatureData ratio fields
+#   put, IFeature.ModifyDefinition(data, doc, None)), on both versions: GetDefinition reads
+#   the counts the other way round from AddMate5 (GearRatioNumerator 51, the SECOND
+#   selection's), but the fields take them in AddMate5's order. 2026's full run (recipes in
+#   their first order) put 60 in the field that read 51, alone or with 17 in the other:
+#   ModifyDefinition answered True and the output turned 60/17 of its partner. 17 in
+#   GearRatioNumerator and 60 in GearRatioDenominator turned it 17/60 (input 30°, output
+#   2.125°, the other train still 2.5°) and read back 60 : 17, on both versions.
+#   AccessSelections does not exist on this definition (AttributeError) and is not needed.
+# - On 2026 that copy saved, closed, reopened, drove 17/60 again, was set back to 17 : 51 by
+#   the same recipe and closed unsaved. On 2024 it could NOT be closed: CloseDoc raised
+#   0x80010105 ("the server threw an exception") and from then on CloseDoc and QuitDoc both
+#   left it open without a word, whether it had been saved or not, until that SolidWorks was
+#   killed: in every 2024 session it was tried, six, each started fresh (three with the new
+#   count alone, unsaved; three with the right recipe, saved first; QuitDoc tried once).
+# - Deleted (MATE_DELETE_ROUTE) and made again by AddMate5 between the two components found
+#   by GetComponentByName, at (17, 60), Flip False, renamed: right, saved, closed, reopened,
+#   right again and closed, on both versions.
+# So 2026 decides "modify definition" (tried first) and 2024 "remake"; the remake works on
+# both. Until one is chosen the route is None, and a tooth change the part's globals carry
+# stays structural (W5-PLAN D7's safe branch). Whoever chooses "modify definition" accepts an
+# assembly 2024 cannot close; "remake" is the one both versions carried end to end.
+GEAR_MATE_RATIO_ROUTE = None                        # STOP: 2026 "modify definition", 2024 "remake"
+GEAR_MATE_RATIO_REMAKE_WORKS = True                 # on both versions, closing included
+MODIFIED_GEAR_MATE_CLOSES_ON_2024 = False           # after ModifyDefinition on a gear mate
+GEAR_MATE_RATIO_PUT_NUMERATOR_FIRST = True          # put: numerator = the first selection's teeth
+GEAR_MATE_DEFINITION_READS_NUMERATOR_SECOND = True  # read: numerator = the second selection's teeth
+
+# lock_retake_offset (P2): each compound lock suppressed (SUPPRESSION_ROUTE), its second
+# gear put 3 mm along its own axis and 11° round, the lock unsuppressed and rebuilt: the
+# second gear kept 11° and 3 mm against the first, on its axis, after the lock came back
+# and after the anchor turned -7.5° under a drive, on the Z+ and the Z- compound shaft,
+# no mate error. So a follower's At or face-width change is an Update (D8): the lock
+# re-takes whatever relative frame it finds, along the shaft as well as round it.
+LOCK_RETAKES_AN_OFFSET = True
+
+# lock_mate_rename (M4a): a lock, a gear mate, an axis (coincident) mate, an axial
+# distance mate, and the other train's lock suppressed first, renamed by an IFeature.Name
+# put to "TG3 locked to TG2", "TG3 meshes TG4", "TG4 on T3 Axis", "TG4 along T3" and
+# "UG3 locked to UG2": each read its new name back; nothing moved, and no mate's type,
+# suppression or error code changed. Saved, closed, reopened: each was found by its new
+# name through the MateGroup's sub-features and by IModelDoc2.FeatureByName, no old name
+# was left, each was still its kind (IMate2.Type 16, 10, 0, 5, 16), the suppressed lock
+# still suppressed and the others not; driven, the renamed lock held, the renamed gear
+# mate turned the output 1/12, the renamed axis and axial mates held it; the suppressed
+# lock, turned back on by its new name, held. So Update finds mates by W5's names.
+MATE_RENAME_ROUTE = "IFeature.Name put"
+MATE_FIND_ROUTE = "mate group"
+
+# demonstration_drive (M4b): with tier 8's drives suppressed and each input put at its
+# built phase (θ = 0), an angle mate from the input's Top plane to the layout's Right
+# plane at 90°, its dimension linked to an assembly global, moved no gear and made every
+# gear fully defined; the global 90 -> 120 turned each input +30° about +Z and each output
+# +2.5°, on both trains; back to 90 every frame was where it was built (to 1e-13), and with
+# the link equation and global deleted (IEquationMgr.Delete) and the angle mates deleted
+# (MATE_DELETE_ROUTE) every frame still was, no mate error, every gear under-defined again.
+# The 90° geometry behaves as tier 8's 10° -> 40° drive between Top planes did.
+DEMONSTRATION_DRIVE_HOLDS = True
+DEMONSTRATION_DRIVE_SENSE = 1    # the input (on Z+) turns +θ about +Z as the angle grows
+
+# put_on_twice_meshed_gear (M4c): tier 8's records covered a put on the driven output
+# (motion_update put_with_gear_mate_on), on the undriven input (mated_train dragged
+# "Transform2 put") and on a follower under a suppressed lock in a driven train
+# (lock_moved), not this. In the undriven train, every lock suppressed, rebuilt, the put,
+# every lock unsuppressed and rebuilt (W5-PLAN §1.6 step 6): the compound anchor TG2
+# (meshing TG1, locked to TG3 which meshes TG4) put 7° round held to 1e-6, nothing else
+# turned and its lock took the new angle; every gear put back to where it started was
+# there after the locks came back; TG4 joined to the other train's input by one more gear
+# mate, so it carries two, put 9° round held and nothing else turned; no mate error, every
+# gear under-defined, and one drive then made all eight fully defined and turned them as
+# one train. Recorded beside it (lock_on_put_turns): a put on TG2 with its lock ON held too,
+# TG3 did not follow and no mate reported an error, so a lock does not hold against a
+# Transform2 put: it silently re-takes the new relative angle, and a put on one gear of a
+# compound pair changes the pair's relation whether or not the lock is suppressed.
+PUT_ON_TWICE_MESHED_GEAR_HOLDS = True
+
+# axial_datum_plane (M5): a plane in the layout part offset 1000 mm from Front with the
+# flip bit (REF_PLANE_UNFLIPPED_IS_PLUS_Z: it landed at z = -1000, facing +Z), and an
+# anchor on Z+ and one on Z-, each held by AXIS_MATE_ROUTE and by a distance from its
+# origin (Point1@Origin) to that plane, Flip False (no anchor moved when mated), the
+# distance linked to an assembly global. The global at 1000, 995 and back to 1017 put both
+# origins at z = 0, -5 and 17 (through where the Front plane is, with no flip change),
+# on their axes; both read under-defined, no mate error, and their 20 : 40 gear mate drove
+# GB -15° for GA's 30°. Saved, reopened: where they were, moved to z = 8 by the global,
+# and turning. So a datum plane far behind Front would remove D8's Front-plane cases (an
+# anchor's front face reaching, leaving or crossing Front would be a global's new value).
+# The user declined that route on 2026-11-14: W5 keeps the Front plane as the axial
+# reference (W5-PLAN D8), and nothing is built on these two values; they stay as a record.
+AXIAL_DATUM_ROUTE = "origin distance from a datum plane"
+AXIAL_DATUM_FLIP = False
+
+# mated_rebuild_scope: per route, its own copy of the train (settled, its output's axial
+# distance put on a global, saved, closed, reopened: every document read GetSaveFlag
+# False), through the axial global +4 mm, the drive +30°, the compound anchor put 7° under
+# its suppressed lock, the output shaft moved 5 mm in the layout part's own document, the
+# gears' part's OD +4 mm in its own document, and an angle mate fighting the compound lock
+# then deleted. ForceRebuild3(True) and EditRebuild3 re-solved every one (the axial move
+# and the drive read nothing before the route and the whole change after it; the moved
+# shaft showed once ActivateDoc3 brought the assembly back, before the route) and marked
+# exactly the documents changed on purpose; ForceRebuild3(False) re-solved every one too
+# but marked the layout and the part at the first step, as assembly_rebuild_scope found
+# on a static assembly. With the conflicting mate no route returned False: AddMate5's
+# status was 5 and the mate errors (2026: 47 for it, 46 for the lock and an axis mate)
+# showed before and after the route; deleted, they cleared. IModelDocExtension.NeedsRebuild
+# and NeedsRebuild2 (the members sldworks.tlb lists for it) read True and 1 after an
+# assembly global changed (the axial global, the drive) and False and 0 after every route,
+# the top-only one included; after a change made in the layout's or the part's own
+# document they read False and 0 already before the route (ActivateDoc3 had brought the
+# assembly back), so they do not show a component changed elsewhere.
+# What it was measured on, and so what it covers: the workbook TRAIN as W5 builds it, nine
+# components, every gear's Gear Axis coincident with its layout "<Shaft> Axis", each anchor's
+# origin a distance from the layout's Front plane (the output's linked to an assembly global),
+# compound gears held by a lock mate alone, external gear mates (Flip False), and an angle mate
+# between Top planes driven by an assembly global. It does NOT cover a gear-PAIR assembly
+# (swbuild.build_pair, the p5 half-pitch controls): their centre-distance equation, mesh or
+# shaft-angle mates and point mates were not measured here, and pairs keep the full rebuild.
+MATED_ASSEMBLY_REBUILD_ROUTE = "ForceRebuild3(True)"
+MATED_REBUILD_KEEPS_COMPONENTS_UNMODIFIED = True
