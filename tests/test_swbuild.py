@@ -1,5 +1,9 @@
 """The build's order, against a fake SolidWorks that records every call."""
 
+import copy
+import math
+from dataclasses import dataclass
+
 import pytest
 
 from gear_generator import findings, swbuild, swcom
@@ -15,6 +19,72 @@ PATH = r"C:\Gears\Gear_m1.5_N25.SLDPRT"
 
 def _key(path):
     return path.replace("/", "\\").lower()
+
+
+@dataclass
+class FakeMate:
+    """One mate the fake holds (W5-PLAN §3.1): ``a`` and ``b`` are ``(component Name2, target)`` — ``("asm",
+    "plane2")`` for the assembly's own plane, target ``""`` for a lock's bare component — ``link`` the global its
+    D1 is linked to, ``status`` what AddMate5 answered, ``code``/``warning`` what GetErrorCode2 reads."""
+
+    name: str
+    kind: str
+    a: tuple
+    b: tuple
+    value: float = 0.0
+    ratio: tuple = (1.0, 1.0)
+    flip: bool = False
+    link: str = ""
+    suppressed: bool = False
+    status: int = 1
+    code: int = 0
+    warning: bool = True
+
+    @property
+    def axis(self):
+        """An anchor's axis mate: a coincident between two axes of two components (the gear's, the layout's)."""
+        return (self.kind == "coincident" and "asm" not in (self.a[0], self.b[0])
+                and self.a[1].endswith("Axis") and self.b[1].endswith("Axis"))
+
+    @property
+    def along(self):
+        """An anchor's place along its shaft: its origin on, or at a distance from, a component's plane."""
+        return self.kind in ("point", "point distance") and self.a[1] == "origin" and self.b[0] != "asm"
+
+
+IDENTITY9 = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def _rot_z(degrees):
+    c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+    return (c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0)
+
+
+def _mul(r1, r2):
+    return tuple(sum(r1[i * 3 + k] * r2[k * 3 + j] for k in range(3)) for i in range(3) for j in range(3))
+
+
+def _apply(r, v):
+    return tuple(sum(r[i * 3 + k] * v[k] for k in range(3)) for i in range(3))
+
+
+def _compose(f1, f2):
+    """``f1 ∘ f2`` for frames (rotation by rows, origin): ``v ↦ R1 (R2 v + t2) + t1``."""
+    (r1, t1), (r2, t2) = f1, f2
+    moved = _apply(r1, t2)
+    return _mul(r1, r2), tuple(moved[i] + t1[i] for i in range(3))
+
+
+def _inverse(f):
+    r, t = f
+    rt = tuple(r[j * 3 + i] for i in range(3) for j in range(3))
+    back = _apply(rt, t)
+    return rt, tuple(-x for x in back)
+
+
+def _frame_off(f1, f2):
+    """(largest rotation-entry difference, largest origin difference in mm) between two frames."""
+    return (max(abs(a - b) for a, b in zip(f1[0], f2[0])), max(abs(a - b) for a, b in zip(f1[1], f2[1])))
 
 
 class FakeSolidWorks:
@@ -66,11 +136,37 @@ class FakeSolidWorks:
     ``rebuild_kinds`` and ``rebuild_members``. Nothing unprobed is modelled:
     not a rebuild under ``CommandInProgress``, not what a top-only rebuild
     does to mates.
+
+    W5, the train's mates (W5-PLAN §3.1 as W5-DECISIONS rules it). ``add_mate`` keeps a :class:`FakeMate` per
+    mate in the document it is made in — saved with it, back on ``open_document``, lost by ``close_all`` unless
+    saved — keyed by the components' Name2s. Its AddMate5 status is 1, or 5 with code 46 (``warning`` False on the
+    new mate, True on those it fights) when: a lock's follower already has an axis or along mate; an axis or
+    along mate is added to a lock follower; a second axis mate goes on one component; or a gear mate joins two
+    bodies (components locked together are one) already joined through gear mates. ``mate_status``,
+    ``mate_states``, ``constrained_status`` (4 for a component in a flagged mate, 3 if fixed, else 2),
+    ``find_mate`` (``MateGone`` when the mate is not there), ``set_mate_suppressed`` and ``set_gear_ratio`` (the
+    remake: the mate goes to the end of the tree under its old name; any other route refused as swcom refuses
+    it) answer from those. Overrides doctor them per test: ``mate_statuses={name: n}``, ``mate_codes={name:
+    (code, warning)}``, ``constrained={Name2 or handle: n}``. So a default ``FakeSolidWorks()`` answers clean
+    mate states for an undoctored plan. ``link_dimension`` remembers which global a mate's D1 is linked to.
+
+    A rebuild of an assembly holding mates (``rebuild`` and every put's own) solves them as far as the fake can:
+    each anchor with an unsuppressed axis mate goes to its shaft's axis as the layout document's ``"<Shaft> X"``
+    / ``"<Shaft> Y"`` globals now say (0 where there is none: a base-side shaft), and along it to its Face Z
+    global (or the mate's value) — signed as the mate was made — turned 13° the wrong way about its own axis if
+    its X/Y moved (standing in for SolidWorks' swing); a follower under an unsuppressed lock keeps its frame
+    relative to its anchor through that. ``place_component`` reads the frame back after its rebuild and raises
+    as ``swcom.place_component`` would when a mate pulled the gear off it. A put on a gear held by an
+    unsuppressed lock moves that gear alone, leaves its partner where it was and reports nothing, as SolidWorks
+    did (W5-DECISIONS, "a lock does not hold against a put"); ``locked_puts`` lists each such put, so a test
+    catches app code that puts with a lock on. ``slips`` (Name2s) turns those gears 5° on every later
+    ``rebuild()`` of the assembly: a put that does not hold. Nothing else is solved: a gear mate turns nothing
+    (no solver, no drive, no drag).
     """
 
     def __init__(self, trig=DEGREES, fail_on=None, rename=None, rebuild_ok=True, statuses=None, values=None,
                  interference=(0, 0.0), open_docs=(), missing_components=(), frames=None, clashes=(), raises=None,
-                 failed_documents=()):
+                 failed_documents=(), mate_statuses=None, mate_codes=None, constrained=None):
         self.interference = interference
         self.revision = (34, 0, 0)
         self.calls = []
@@ -103,6 +199,19 @@ class FakeSolidWorks:
         self.rebuild_kinds = []        # the ``kind`` each rebuild was asked with
         self.rebuild_members = []      # what rebuild_call gave each rebuild, a put's own included
         self.assembly_kinds = []       # the ``kind`` each assembly rebuild (a put's own included) was asked with
+        # W5
+        self.mates = []                # the current document's FakeMates, in tree order
+        self.saved_mates = {}          # lower-cased path -> its mates as saved
+        self.memory_mates = {}         # lower-cased path -> its mates as open in SolidWorks now
+        self.component_names = {}      # handle -> the Name2 add_component gave or find_component found
+        self.component_paths = {}      # Name2 -> the file it was inserted from
+        self.fixed = set()             # Name2s fixed in place
+        self.mate_handles = {}         # handle -> the mate name add_mate made or find_mate found under it
+        self.mate_statuses = dict(mate_statuses or {})
+        self.mate_codes = dict(mate_codes or {})
+        self.constrained = dict(constrained or {})
+        self.locked_puts = []          # Name2s put while an unsuppressed lock held them
+        self.slips = set()
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -130,13 +239,13 @@ class FakeSolidWorks:
     def new_part(self, template=""):
         self._log("new_part", template)
         self.equations_text, self.made, self.current = [], [], ""
-        self.kind = 1
+        self.kind, self.mates = 1, []
         return DocInfo(title="Part1", path="", doc_type=1)
 
     def new_assembly(self, template=""):
         self._log("new_assembly", template)
         self.equations_text, self.made, self.current = [], [], ""
-        self.kind, self.adding = 2, []
+        self.kind, self.adding, self.mates = 2, [], []
         return DocInfo(title="Assem1", path="", doc_type=2)
 
     def document_path(self):
@@ -149,7 +258,11 @@ class FakeSolidWorks:
     def rebuild(self, kind=None):
         self._log("rebuild", self.suppressed)
         self.rebuild_kinds.append(kind)
-        return self._rebuilt(kind)
+        rebuilt = self._rebuilt(kind)
+        if self.slips and self._is_assembly() and self.mates:
+            for name in sorted(self.slips):
+                self.turn(name, 5.0)
+        return rebuilt
 
     def _is_assembly(self):
         return self.current.lower().endswith(".sldasm") if self.current else self.kind == 2
@@ -167,6 +280,8 @@ class FakeSolidWorks:
         components = self.assembly_components.get(_key(self.current), []) if self.current else self.adding
         if (member, args) == ("ForceRebuild3", (False,)):
             self.touched.update(_key(p) for p in components)
+        if self.mates:
+            self._solve()
         if any(_key(p) in self.failed_documents for p in components):
             return False
         return self.rebuild_ok
@@ -175,6 +290,8 @@ class FakeSolidWorks:
         self._log("save_as", path)
         self.saved[_key(path)] = (list(self.equations_text), list(self.made))
         self.memory[_key(path)] = (self.equations_text, self.made)
+        self.saved_mates[_key(path)] = copy.deepcopy(self.mates)
+        self.memory_mates[_key(path)] = self.mates
         if path.lower().endswith(".sldasm"):
             self.saved_frames = dict(self.frames)        # where the components are in the file
             if not self.current:
@@ -192,6 +309,7 @@ class FakeSolidWorks:
         in memory since its last save is gone — reopened, it holds its file again."""
         self.open_docs = []
         self.memory = {}
+        self.memory_mates = {}
         self.touched.clear()
         self.frames = dict(getattr(self, "saved_frames", self.frames))
 
@@ -214,6 +332,10 @@ class FakeSolidWorks:
 
     def link_dimension(self, dimension, expression):
         self._log("link_dimension", dimension, expression)
+        owner = dimension.partition("@")[2]
+        for mate in self.mates:
+            if mate.name == owner:
+                mate.link = expression.replace('"', "").strip()
         return 0
 
     def equations(self):
@@ -310,27 +432,43 @@ class FakeSolidWorks:
     def add_component(self, handle, path, at):
         self._log("add_component", handle, path)
         self.adding.append(path)
+        self.component_names[handle] = f"{handle}-1"
+        self.component_paths[f"{handle}-1"] = path
         return f"{handle}-1"
 
     def fix_component(self, handle):
         self._log("fix_component", handle)
+        self.fixed.add(self._name2(handle))
 
     def unfix_component(self, handle):
         self._log("unfix_component", handle)
+        self.fixed.discard(self._name2(handle))
 
     def add_mate(self, handle, kind, a, b, value=0.0, name="", ratio=(1.0, 1.0), flip=False):
         self._log("add_mate", kind, a, b, *((ratio, flip) if kind == "gear" else ()))
-        return (name or f"Mate{len(self.calls)}"), ("D7" if kind in ("distance", "angle", "axis angle",
-                                                                    "point distance") else "")
+        kept = name or f"Mate{len(self.calls)}"
+        self._keep_mate(handle, kept, kind, a, b, value, ratio, flip)
+        return kept, ("D7" if kind in ("distance", "angle", "axis angle", "point distance") else "")
 
     def place_component(self, handle, rotation, at, kind=None):
         self._log("place_component", handle)
         if getattr(findings, "PUT_MARKS_ASSEMBLY_MODIFIED", False):
             self._touch()
-        self.frames[handle] = (tuple(rotation), tuple(at))
+        put = (tuple(rotation), tuple(at))
+        name = self._name2(handle)
+        if any(m.kind == "lock" and not m.suppressed and name in (m.a[0], m.b[0]) for m in self.mates):
+            self.locked_puts.append(name)          # held, its partner left where it was, nothing reported
+        self.frames[handle] = put
+        self.frames[name] = put
         if handle in self.found:
-            self.frames[self.found[handle]] = (tuple(rotation), tuple(at))
+            self.frames[self.found[handle]] = put
         self._rebuilt(kind)            # Session.place_component's rebuild of its own, after the put
+        if self.mates:
+            # Session.place_component reads the frame back after that rebuild.
+            rotation_off, origin_off = _frame_off(self.frames[name], put)
+            if rotation_off > 1e-6 or origin_off > 1e-6:
+                raise SolidWorksError(f"{name} did not take its frame (rotation off {rotation_off:.1e}, origin "
+                                      f"{origin_off:.1e} mm).")
 
     def interference_count(self):
         self._log("interference_count")
@@ -358,6 +496,9 @@ class FakeSolidWorks:
             eq, made = self.saved.get(_key(path), ([], []))
             self.memory[_key(path)] = (list(eq), list(made))
         self.equations_text, self.made = self.memory[_key(path)]
+        if not (is_open and _key(path) in self.memory_mates):
+            self.memory_mates[_key(path)] = copy.deepcopy(self.saved_mates.get(_key(path), []))
+        self.mates = self.memory_mates[_key(path)]
         self.current = path
         if not is_open:
             self.open_docs.append(info)
@@ -377,12 +518,16 @@ class FakeSolidWorks:
             title = self.active.title if self.active else "the assembly"
             raise ComponentGone(f"{name} is not in {title} any more: it was renamed or deleted in SolidWorks.")
         self.found[handle] = name
+        self.component_names[handle] = name
         return name
 
     def component_frame(self, handle):
         self._log("component_frame", handle)
         identity = ((1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0))
-        return self.frames.get(handle, self.frames.get(self.found.get(handle), identity))
+        name = self.found.get(handle) or self.component_names.get(handle)
+        if name in self.frames:                    # a component's frame by its Name2 first: the solve moves those
+            return self.frames[name]
+        return self.frames.get(handle, identity)
 
     def interferences(self):
         """Marks the assembly modified. Probe assembly_rebuild_scope saw the assembly marked after a put by the reads
@@ -394,6 +539,151 @@ class FakeSolidWorks:
 
     def exists(self, path):
         return _key(path) in self.saved
+
+    # -- W5: the train's mates (see the class)
+
+    def _name2(self, handle):
+        if handle in self.component_paths:         # already a Name2
+            return handle
+        return self.found.get(handle) or self.component_names.get(handle) or f"{handle}-1"
+
+    def _ref(self, ref, bare):
+        if bare:
+            return self._name2(ref), ""
+        handle, _, target = ref.partition(":")
+        return ("asm" if handle == "asm" else self._name2(handle)), target
+
+    def _bodies(self):
+        """Components joined by unsuppressed locks are one body; bodies joined by gear mates, one train."""
+        parent = {}
+
+        def find(x):
+            parent.setdefault(x, x)
+            while parent[x] != x:
+                x = parent[x]
+            return x
+        return parent, find
+
+    def _keep_mate(self, handle, kept, kind, a, b, value, ratio, flip):
+        mate = FakeMate(kept, kind, self._ref(a, kind == "lock"), self._ref(b, kind == "lock"), value,
+                        tuple(ratio), flip)
+        live = [m for m in self.mates if not m.suppressed]
+        fights = []
+        if kind == "lock":
+            fights = [m for m in live if (m.axis or m.along) and m.a[0] == mate.b[0]]
+        elif mate.axis or mate.along:
+            gear = mate.a[0]
+            fights = [m for m in live if m.kind == "lock" and m.b[0] == gear]
+            if mate.axis:
+                fights += [m for m in live if m.axis and m.a[0] == gear]
+        elif kind == "gear":
+            parent, find = self._bodies()
+            for m in live:
+                if m.kind in ("lock", "gear"):
+                    parent[find(m.a[0])] = find(m.b[0])
+            if find(mate.a[0]) == find(mate.b[0]):
+                fights = [m for m in live if m.kind == "gear" and find(m.a[0]) == find(mate.a[0])]
+        if fights:
+            mate.status, mate.code, mate.warning = findings.ADD_MATE_OVER_DEFINED, 46, False
+            for fought in fights:
+                fought.code, fought.warning = 46, True
+        self.mates.append(mate)
+        self.mate_handles[handle] = kept
+
+    def mate(self, name, path=None):
+        """A test's look at one mate: in the document at ``path`` (as open now), else in the current one."""
+        mates = self.memory_mates.get(_key(path), []) if path else self.mates
+        return next((m for m in mates if m.name == name), None)
+
+    def user_mate(self, path, name, suppressed=False):
+        """A mate the user added by hand in SolidWorks (an angle mate driving a gear, say), in the open document."""
+        self.memory_mates[_key(path)].append(FakeMate(name, "angle", ("gear1-1", "plane2"), ("layout-1", "plane3"),
+                                                      suppressed=suppressed))
+
+    def drop_mate(self, path, name):
+        """A mate deleted (or renamed) by the user in SolidWorks, in the open document."""
+        mates = self.memory_mates[_key(path)]
+        mates.remove(next(m for m in mates if m.name == name))
+
+    def turn(self, name, degrees):
+        """A component turned about its own axis (``R · rot_z``), as a drag in SolidWorks would leave it."""
+        rotation, at = self.frames[name]
+        self.frames[name] = (_mul(rotation, _rot_z(degrees)), at)
+
+    def _values_of(self, path):
+        from gear_generator.gears.equations import evaluate_all
+        if not path:
+            return {}
+        texts = self.memory[_key(path)][0] if _key(path) in self.memory else self.saved.get(_key(path), ([], []))[0]
+        return evaluate_all([split_equation(t) for t in texts], self.trig)
+
+    def _solve(self):
+        live = [m for m in self.mates if not m.suppressed]
+        own = self.equation_values() if self.equations_text else {}
+        for axis in (m for m in live if m.axis):
+            gear, (layout, target) = axis.a[0], axis.b
+            shaft = target[:-len("Axis")].strip()
+            values = self._values_of(self.component_paths.get(layout))
+            old = self.frames.get(gear, (IDENTITY9, (0.0, 0.0, 0.0)))
+            x, y = values.get(f"{shaft} X", 0.0), values.get(f"{shaft} Y", 0.0)
+            z = old[1][2]
+            for along in (m for m in live if m.along and m.a[0] == gear):
+                sign = -1.0 if along.value < 0 else 1.0
+                z = sign * own[along.link] if along.link in own else along.value
+            moved = math.hypot(x - old[1][0], y - old[1][1]) > 1e-9
+            new = (_mul(old[0], _rot_z(-13.0)) if moved else old[0], (x, y, z))
+            if _frame_off(new, old) == (0.0, 0.0):
+                continue
+            for lock in (m for m in live if m.kind == "lock" and m.a[0] == gear):
+                follower = self.frames.get(lock.b[0], (IDENTITY9, (0.0, 0.0, 0.0)))
+                self.frames[lock.b[0]] = _compose(new, _compose(_inverse(old), follower))
+            self.frames[gear] = new
+
+    def mate_status(self, name):
+        if name in self.mate_statuses:
+            return self.mate_statuses[name]
+        mate = self.mate(name)
+        return None if mate is None else mate.status
+
+    def mate_states(self):
+        self._log("mate_states")
+        out = []
+        for m in self.mates:
+            code, warning = self.mate_codes.get(m.name, (m.code, m.warning))
+            out.append(swcom.MateState(m.name, code, warning if code else True, m.suppressed))
+        return out
+
+    def constrained_status(self, handle):
+        self._log("constrained_status", handle)
+        name = self._name2(handle)
+        for key in (name, handle):
+            if key in self.constrained:
+                return self.constrained[key]
+        if any(m.code and not m.suppressed and name in (m.a[0], m.b[0]) for m in self.mates):
+            return findings.COMPONENT_OVER_DEFINED
+        return findings.COMPONENT_FULLY_DEFINED if name in self.fixed else findings.COMPONENT_UNDER_DEFINED
+
+    def find_mate(self, handle, name):
+        self._log("find_mate", handle, name)
+        if self.mate(name) is None:
+            title = self.active.title if self.active else "the assembly"
+            raise swcom.MateGone(f'The mate "{name}" is not in {title} any more: it was renamed or deleted in '
+                                 "SolidWorks.")
+        self.mate_handles[handle] = name
+        return name
+
+    def set_mate_suppressed(self, handle, suppressed):
+        self._log("set_mate_suppressed", handle, suppressed)
+        self.mate(self.mate_handles[handle]).suppressed = bool(suppressed)
+
+    def set_gear_ratio(self, handle, a, b, ratio):
+        self._log("set_gear_ratio", handle, a, b, tuple(ratio))
+        route = getattr(findings, "GEAR_MATE_RATIO_ROUTE", None)
+        if route != "remake":
+            raise SolidWorksError(f"findings.GEAR_MATE_RATIO_ROUTE is {route!r}, so the gear mate keeps its ratio.")
+        old = self.mate(self.mate_handles[handle])
+        self.mates.remove(old)                     # deleted, and made again at the end of the tree, its name kept
+        self._keep_mate(handle, old.name, "gear", a, b, 0.0, tuple(float(n) for n in ratio), old.flip)
 
 
 def plan(spec=None, recipe="A", path=PATH):
@@ -2010,3 +2300,205 @@ def test_every_put_in_the_app_and_its_scripts_names_its_kind():
                     not any(k.arg == "kind" for k in node.keywords):
                 missing.append(f"{path.name}:{node.lineno}")
     assert missing == []
+
+
+# -- W5: the train (W5-PLAN §1.4, §3.1; W5-INTERFACES.md; W5-DECISIONS.md) --------------------------------------------
+#
+# A 12 : 1 reducer as workbook.motion.motion_assembly_plan's docstring orders it, written by hand here (package B
+# writes the planner): G1 (17) on S1 at the origin, G2 (68) and G3 (17) on S2 — G3 locked to G2 — and G4 (51) on S3,
+# every shaft Z+; G1 and G2 coincident with the Front plane, G4 20 mm along S3 on the global "G4 Face Z".
+
+P51 = W + "Gear_m1.5_N51.SLDPRT"
+S51 = GearSpec().with_values(teeth="51")
+T_LAYOUT, T_ASM = W + "T_Layout.SLDPRT", W + "T.SLDASM"
+TEETH = {"G1": 17, "G2": 68, "G3": 17, "G4": 51}
+TRAIN_GEARS = {"gear1": "G1", "gear2": "G2", "gear3": "G3", "gear4": "G4"}
+TRAIN_PARTS = {"gear1": P17, "gear2": P68, "gear3": P17, "gear4": P51}
+
+
+def _train_frames(s3=(63.75, 51.0), z4=20.0):
+    return {"G1": (_rot_z(0.0), (0.0, 0.0, 0.0)), "G2": (_rot_z(180.0 / 68), (63.75, 0.0, 0.0)),
+            "G3": (_rot_z(0.0), (63.75, 0.0, 20.0)), "G4": (_rot_z(180.0 / 51), (s3[0], s3[1], z4))}
+
+
+def _train_layout_plan(path=T_LAYOUT):
+    return BuildPlan("layout", "", (
+        ops.NewPart(""),
+        ops.AddGlobal("S2 X", "63.75"), ops.AddGlobal("S3 X", "63.75"), ops.AddGlobal("S3 Y", "51"),
+        ops.RefPlane("x2", "S2 X Plane", 3, 63.75), ops.RefPlane("x3", "S3 X Plane", 3, 63.75),
+        ops.RefPlane("y3", "S3 Y Plane", 2, 51.0),
+        ops.Axis("axis1", "S1 Axis", (2, 3)), ops.Axis("axis2", "S2 Axis", (2, "x2")),
+        ops.Axis("axis3", "S3 Axis", ("x3", "y3")),
+        ops.Rebuild(), ops.SaveAs(path),
+    ), path)
+
+
+T_LAYOUT_FEATURES = ("S2 X Plane", "S3 X Plane", "S3 Y Plane", "S1 Axis", "S2 Axis", "S3 Axis")
+
+
+def _train_layout_values(s3x="63.75"):
+    return swbuild.DocumentValues(T_LAYOUT, (GlobalVariable("S2 X", "63.75"), GlobalVariable("S3 X", s3x),
+                                             GlobalVariable("S3 Y", "51")), T_LAYOUT_FEATURES)
+
+
+def _train_plan(path=T_ASM, follower_on_axis=False, loop=False, second_axis=False):
+    frames = _train_frames()
+    steps = [ops.NewAssembly(""), ops.AddGlobal("G4 Face Z", "20"),
+             ops.AddComponent("layout", T_LAYOUT), ops.Place("layout", IDENTITY, (0.0, 0.0, 0.0)), ops.Fix("layout")]
+    for handle, gear in TRAIN_GEARS.items():
+        rotation, at = frames[gear]
+        steps += [ops.AddComponent(handle, TRAIN_PARTS[handle], at), ops.Place(handle, rotation, at), ops.Fix(handle)]
+    steps += [ops.Unfix("gear1"),
+              ops.Mate("axis1", "coincident", "gear1:Gear Axis", "layout:S1 Axis", name="G1 on S1 Axis"),
+              ops.Mate("along1", "point", "gear1:origin", "layout:plane1", name="G1 along S1"),
+              ops.Unfix("gear2"),
+              ops.Mate("axis2", "coincident", "gear2:Gear Axis", "layout:S2 Axis", name="G2 on S2 Axis"),
+              ops.Mate("along2", "point", "gear2:origin", "layout:plane1", name="G2 along S2"),
+              ops.Unfix("gear3"),
+              ops.Mate("lock1", "lock", "gear2", "gear3", name="G3 locked to G2")]
+    if follower_on_axis:
+        steps.append(ops.Mate("axis9", "coincident", "gear3:Gear Axis", "layout:S2 Axis", name="G3 on S2 Axis"))
+    if second_axis:
+        steps.append(ops.Mate("axis8", "coincident", "gear1:Gear Axis", "layout:S2 Axis", name="G1 on S2 Axis"))
+    steps += [ops.Unfix("gear4"),
+              ops.Mate("axis3", "coincident", "gear4:Gear Axis", "layout:S3 Axis", name="G4 on S3 Axis"),
+              ops.Mate("along3", "point distance", "gear4:origin", "layout:plane1", 20.0, name="G4 along S3"),
+              ops.LinkDimension("D1@G4 along S3", '"G4 Face Z"'),
+              ops.Mate("mesh1", "gear", "gear1:Gear Axis", "gear2:Gear Axis", name="G1 meshes G2", ratio=(17.0, 68.0)),
+              ops.Mate("mesh2", "gear", "gear3:Gear Axis", "gear4:Gear Axis", name="G3 meshes G4", ratio=(17.0, 51.0))]
+    if loop:
+        steps.append(ops.Mate("mesh3", "gear", "gear4:Gear Axis", "gear1:Gear Axis", name="G4 meshes G1",
+                              ratio=(51.0, 17.0)))
+    return BuildPlan("gearbox", "", tuple(steps) + (ops.Rebuild(), ops.SaveAs(path)), path)
+
+
+TRAIN_MATES = ["G1 on S1 Axis", "G1 along S1", "G2 on S2 Axis", "G2 along S2", "G3 locked to G2", "G4 on S3 Axis",
+               "G4 along S3", "G1 meshes G2", "G3 meshes G4"]
+
+
+def _build_train(fake=None, **kwargs):
+    fake = fake or FakeSolidWorks()
+    kwargs.setdefault("parts", [plan(S17, path=P17), plan(S68, path=P68), plan(S51, path=P51)])
+    kwargs.setdefault("layout", _train_layout_plan())
+    kwargs.setdefault("assembly", _train_plan())
+    kwargs.setdefault("gears", TRAIN_GEARS)
+    kwargs.setdefault("exists", fake.exists)
+    return fake, swbuild.build_gearbox(fake, **kwargs)
+
+
+def _close(f1, f2, tolerance=1e-9):
+    rotation_off, origin_off = _frame_off(f1, f2)
+    return rotation_off <= tolerance and origin_off <= tolerance
+
+
+def test_the_train_plans_here_are_sound():
+    for doctored in ({}, {"follower_on_axis": True}, {"loop": True}, {"second_axis": True}):
+        assert _train_plan(**doctored).check() == [], doctored
+    assert _train_layout_plan().check() == []
+
+
+# -- the fake's own model of mates
+
+
+def test_the_fake_keeps_a_trains_mates_with_its_document_and_reopens_them():
+    fake, result = _build_train()
+    assert result.ok, result.log_lines()
+    assert [m.name for m in fake.saved_mates[_key(T_ASM)]] == TRAIN_MATES
+    assert fake.mate("G4 along S3").link == "G4 Face Z"
+    assert fake.mate("G3 locked to G2").a == ("gear2-1", "") and fake.mate("G3 locked to G2").b == ("gear3-1", "")
+    fake.close_all()
+    fake.open_document(T_ASM)
+    assert [m.name for m in fake.mates] == TRAIN_MATES and fake.mate("G4 along S3").link == "G4 Face Z"
+
+
+def test_an_undoctored_train_reads_clean_in_the_fake():
+    fake, result = _build_train()
+    assert all(fake.mate_status(name) == findings.ADD_MATE_NO_ERROR for name in TRAIN_MATES)
+    assert fake.mate_states() == [swcom.MateState(name) for name in TRAIN_MATES]
+    assert [fake.constrained_status(n) for n in ("gear1-1", "gear2-1", "gear3-1", "gear4-1")] == [2, 2, 2, 2]
+    assert fake.constrained_status("layout-1") == findings.COMPONENT_FULLY_DEFINED      # the layout stays fixed
+    for gear, frame in _train_frames().items():                          # mated where W4 placed them: nothing moved
+        assert _close(fake.frames[f"gear{gear[1]}-1"], frame)
+
+
+@pytest.mark.parametrize("doctored, flagged, fought", [
+    ({"follower_on_axis": True}, "G3 on S2 Axis", ["G3 locked to G2"]),
+    ({"second_axis": True}, "G1 on S2 Axis", ["G1 on S1 Axis"]),
+    ({"loop": True}, "G4 meshes G1", ["G1 meshes G2", "G3 meshes G4"]),
+])
+def test_the_fake_flags_what_tier_eight_saw_over_define_a_train(doctored, flagged, fought):
+    fake = FakeSolidWorks()
+    swbuild.build(fake, _train_plan(**doctored), never_exists)
+    assert fake.mate_status(flagged) == findings.ADD_MATE_OVER_DEFINED
+    states = {s.name: s for s in fake.mate_states()}
+    assert (states[flagged].code, states[flagged].warning) == (46, False)
+    assert [n for n, s in states.items() if s.code and s.warning] == fought
+    assert fake.constrained_status(fake.mate(flagged).a[0]) == findings.COMPONENT_OVER_DEFINED
+
+
+def _reopened_train(fake):
+    fake.open_document(T_LAYOUT)
+    fake.open_document(T_ASM)
+    for index in range(1, 5):
+        fake.find_component(f"placed{index}", f"gear{index}-1")
+
+
+def test_a_layout_move_carries_the_anchor_to_its_new_axis_swung_the_wrong_way_and_its_follower_with_it():
+    fake, _ = _build_train()
+    fake.open_document(T_LAYOUT)
+    fake.set_global_variable("S2 X", "64.5")
+    _reopened_train(fake)
+    g3_before = fake.frames["gear3-1"]
+    fake.rebuild(kind=swcom.ASSEMBLY_TRAIN)
+    rotation, at = fake.frames["gear2-1"]
+    assert at == (64.5, 0.0, 0.0)
+    assert swbuild.turn_between(_train_frames()["G2"][0], rotation) == pytest.approx(math.radians(-13.0))
+    relative = _compose(_inverse(fake.frames["gear2-1"]), fake.frames["gear3-1"])
+    assert _close(relative, _compose(_inverse(_train_frames()["G2"]), g3_before))     # the lock held it
+    assert _close(fake.frames["gear4-1"], _train_frames()["G4"])                      # S3 did not move
+
+
+def test_a_face_z_global_moves_its_anchor_along_its_shaft_and_nothing_else():
+    fake, _ = _build_train()
+    _reopened_train(fake)
+    fake.set_global_variable("G4 Face Z", "25")
+    fake.rebuild(kind=swcom.ASSEMBLY_TRAIN)
+    assert fake.frames["gear4-1"] == (_train_frames()["G4"][0], (63.75, 51.0, 25.0))
+    assert _close(fake.frames["gear3-1"], _train_frames()["G3"])
+
+
+def test_a_put_on_a_gear_held_by_a_lock_moves_it_alone_and_says_nothing_as_solidworks_did():
+    """W5-DECISIONS, on P0's lock_on_put_turns: with the lock on, a Transform2 put moved one gear, its locked partner
+    did not follow, and SolidWorks reported nothing."""
+    fake, _ = _build_train()
+    _reopened_train(fake)
+    turned = (_mul(_train_frames()["G2"][0], _rot_z(7.0)), _train_frames()["G2"][1])
+    fake.place_component("placed2", *turned, kind=swcom.ASSEMBLY_TRAIN)          # no raise
+    assert _close(fake.frames["gear2-1"], turned) and _close(fake.frames["gear3-1"], _train_frames()["G3"])
+    assert fake.locked_puts == ["gear2-1"]
+    fake.find_mate("lock", "G3 locked to G2")
+    fake.set_mate_suppressed("lock", True)
+    fake.place_component("placed3", *_train_frames()["G3"], kind=swcom.ASSEMBLY_TRAIN)
+    assert fake.locked_puts == ["gear2-1"]                                         # suppressed: an honest put
+
+
+def test_a_put_an_anchors_mates_pull_back_raises_as_place_component_would():
+    fake, _ = _build_train()
+    _reopened_train(fake)
+    with pytest.raises(SolidWorksError, match=r"^gear4-1 did not take its frame \(rotation off .*, origin .* mm\)\.$"):
+        fake.place_component("placed4", _train_frames()["G4"][0], (70.0, 51.0, 20.0), kind=swcom.ASSEMBLY_TRAIN)
+    with pytest.raises(SolidWorksError, match="did not take its frame"):
+        fake.place_component("placed4", _train_frames()["G4"][0], (63.75, 51.0, 30.0), kind=swcom.ASSEMBLY_TRAIN)
+
+
+def test_the_fake_finds_suppresses_and_remakes_mates_by_name(monkeypatch):
+    fake, _ = _build_train()
+    _reopened_train(fake)
+    with pytest.raises(swcom.MateGone, match='^The mate "Angle1" is not in T.SLDASM any more'):
+        fake.find_mate("m", "Angle1")
+    fake.find_mate("m", "G3 meshes G4")
+    with pytest.raises(SolidWorksError):
+        fake.set_gear_ratio("m", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))       # the route is None
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+    fake.set_gear_ratio("m", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert fake.mate("G3 meshes G4").ratio == (18.0, 50.0) and fake.mates[-1].name == "G3 meshes G4"
