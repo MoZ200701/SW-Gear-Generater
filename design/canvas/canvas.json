@@ -90,6 +90,34 @@
       "x": 8556,
       "y": 0,
       "w": 1080
+    },
+    {
+      "file": "WorkbookBuilt.dc.html",
+      "title": "Workbook · built: the parts, the layout part and the assembly",
+      "x": 9716,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookUpdate.dc.html",
+      "title": "Workbook · an edit Update SolidWorks carries",
+      "x": 10876,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookUpdated.dc.html",
+      "title": "Workbook · after Update SolidWorks, not yet saved",
+      "x": 12036,
+      "y": 0,
+      "w": 1080
+    },
+    {
+      "file": "WorkbookAgain.dc.html",
+      "title": "Workbook · a change that needs a new part, and Build again?",
+      "x": 13196,
+      "y": 0,
+      "w": 1080
     }
   ],
   "annotations": [

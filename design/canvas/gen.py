@@ -564,34 +564,158 @@ def chosen_row(pair, test):
     return row_, PairSpec(**values)
 
 
-# -------------------------------------------------------------------- the Workbook window (W3)
+# -------------------------------------------------------------------- the Workbook window (W2–W4)
 #
-# Drawn from a real workbook: written by the app's writer, read by its reader,
-# planned by workbook.build, checked by workbook.checks with any chosen fixes
-# made, the end view laid out by preview.layout_gearbox, and every line of text
-# from ui_text — so the board says what the window would for the same file.
-# The sizes are the window's own (workbook_gui), so the two cannot drift.
+# Drawn from a real workbook: written by the app's writer, read by its link,
+# worked through by workbook.assess with any chosen fixes made, and — for the
+# boards after a build — planned by workbook.gearbox, built and updated by
+# swbuild's own worker functions against the fake SolidWorks the test suite
+# runs them on, and finished into a real link record by gearbox.finish_build
+# and update.finish_update. The footer is ui_text.workbook_footer whole, the
+# Gears table workbook_gear_rows, the header's tag workbook_built_tag, every
+# other line ui_text's, the end view preview.layout_gearbox's; the sizes,
+# colours and flows are workbook_gui's own, so the boards say what the window
+# would for the same file. Nothing is saved anywhere real: the board's "disk"
+# is a set of paths, as the gearbox tests' is.
 
-import tempfile
-from gear_generator import workbook_gui as wb_gui
-from gear_generator.workbook import assess as wb_assess, link as wb_link, model as wb_model, xlsx as wb_xlsx
+import hashlib, tempfile
+from gear_generator import __version__, swbuild, workbook_gui as wb_gui
+from gear_generator.workbook import assess as wb_assess, gearbox as wb_gearbox, link as wb_link, \
+    model as wb_model, update as wb_update, xlsx as wb_xlsx
+sys.path.insert(0, os.path.join(HERE, "..", "..", "tests"))
+from test_swbuild import FakeSolidWorks          # the fake SolidWorks swbuild's own tests run against
 
 WINDOW_WIDTH = wb_gui.WINDOW_WIDTH
-STATE_COLOURS = {ui_text.GEAR_STATE_BUILDS: OK, ui_text.GEAR_STATE_SHARES: OK,
-                 ui_text.GEAR_STATE_LATER: READOUT, ui_text.GEAR_STATE_ERROR: ERR}
 MONO_TINY = f"font-family: {MONO}; font-size: 11.5px; color: {INK}; line-height: 20px; white-space: nowrap;"
+STAMP = "2026-11-13T14:02:31Z"
+_reads = {}
 
 
 def read_workbook(spec):
-    """``spec`` through a real file: written, then read back, so cells and diagnostics are the app's own."""
-    folder = tempfile.mkdtemp(prefix="gen-workbook-")
-    path = os.path.join(folder, f"{spec.box.name}.xlsx")
-    wb_xlsx.write_new(path, wb_model.to_sheets(spec))
-    return path, wb_model.from_book(wb_xlsx.read(path))
+    """``spec`` through a real file, written once and read by the window's own link: (path, spec, diagnostics,
+    digest). The same spec is the same file, so a record's digest matches a later board's read of it."""
+    key = repr(spec)
+    if key not in _reads:
+        folder = tempfile.mkdtemp(prefix="gen-workbook-")
+        path = os.path.join(folder, f"{spec.box.name}.xlsx")
+        wb_xlsx.write_new(path, wb_model.to_sheets(spec))
+        reading = wb_link.Link(path).read()
+        _reads[key] = (path, reading.spec, reading.diagnostics, reading.digest)
+    return _reads[key]
+
+
+def _key(path):
+    return path.replace("/", "\\").lower()
+
+
+class Disk:
+    """What SolidWorks saved and the finishes wrote, by path as Windows compares them: the window's existence
+    checks and .gear.json reads, answered without a real folder."""
+
+    def __init__(self):
+        self.files, self.sidecars = set(), {}
+
+    def add(self, path):
+        self.files.add(_key(path))
+
+    def exists(self, path):
+        return _key(path) in self.files
+
+    def read_sidecar(self, path):
+        return self.sidecars.get(_key(path)) if self.exists(path) else None
+
+    def write(self, finished):                                          # WorkbookWindow._write
+        for path, sidecar in finished.sidecars:
+            self.add(path)
+            self.sidecars[_key(path)] = sidecar
+
+
+class BoardSolidWorks(FakeSolidWorks):
+    """The fake SolidWorks, putting what it saves on the board's disk and keeping each component's frame under
+    the Name2 it was inserted as, so Update finds the assembly where the build left it."""
+
+    def __init__(self, disk):
+        super().__init__()
+        self.disk, self.names = disk, {}
+
+    def save_as(self, path):
+        kept = super().save_as(path)
+        self.disk.add(path)
+        return kept
+
+    def add_component(self, handle, path, at):
+        name = super().add_component(handle, path, at)
+        self.names[handle] = name
+        return name
+
+    def place_component(self, handle, rotation, at):
+        super().place_component(handle, rotation, at)
+        if handle in self.names:
+            self.frames[self.names[handle]] = (tuple(rotation), tuple(at))
+
+
+class Desk:
+    """One session of the window on one folder: the fake SolidWorks, its disk, and the record beside the
+    workbook as the last finish left it."""
+
+    def __init__(self):
+        self.disk = Disk()
+        self.sw = BoardSolidWorks(self.disk)
+        self.record = None
+
+
+def assessed(spec, diagnostics, chosen=()):                            # WorkbookWindow._assess
+    return wb_assess.assess(spec, diagnostics, spec.box.output_folder, "", chosen)
+
+
+def planned(a, record, disk):                                           # WorkbookWindow._plan_solidworks
+    """(what the build button would run, what Update SolidWorks would do), as the window plans them. The record
+    is not passed through store.clear_saved: on the board's disk nothing is saved after Update, as in the window
+    until the user saves in SolidWorks."""
+    gearbox = record.gearbox if record is not None else None
+    has_assembly = gearbox is not None and bool(gearbox.assembly)
+    parts_only = not has_assembly and bool(a.parts.refused)
+    gate = a.build_refusal() if parts_only else a.lay_out_refusal()
+    plan = None if gate else wb_gearbox.plan_gearbox(a, record, parts_only=parts_only, exists=disk.exists,
+                                                     read_sidecar=disk.read_sidecar)
+    update = None
+    if record is not None and (record.parts or gearbox is not None) and not wb_gui._update_gate(a, record):
+        update = wb_update.classify(record, a, exists=disk.exists)
+    return plan, update
+
+
+def press_build(desk, spec):
+    """Build pressed on ``spec``: the plan run by swbuild.build_gearbox, finished into the record; the note."""
+    path, read_spec, diagnostics, digest = read_workbook(spec)
+    plan, _ = planned(assessed(read_spec, diagnostics), desk.record, desk.disk)
+    result = swbuild.build_gearbox(desk.sw, **plan.build_kwargs(), exists=desk.disk.exists)
+    text, ok = ui_text.gearbox_status(plan, result)
+    finished = wb_gearbox.finish_build(plan, result, desk.record, workbook=path, digest=digest,
+                                       written_by=f"gear-generator {__version__}", read_sidecar=desk.disk.read_sidecar,
+                                       stamp=STAMP)
+    desk.disk.write(finished)
+    desk.record = finished.record or desk.record
+    return " ".join([text] + finished.notes), ok
+
+
+def press_update(desk, spec):
+    """Update SolidWorks pressed on ``spec``: swbuild.update_gearbox, finished into the record; the note."""
+    path, read_spec, diagnostics, digest = read_workbook(spec)
+    _, update = planned(assessed(read_spec, diagnostics), desk.record, desk.disk)
+    result = swbuild.update_gearbox(desk.sw, **update.update_kwargs(), exists=desk.disk.exists)
+    meshes = desk.record.gearbox.meshes
+    finished = wb_update.finish_update(update, result, desk.record, digest=digest,
+                                       read_sidecar=desk.disk.read_sidecar, mtime=lambda _path: 0.0, stamp=STAMP)
+    desk.disk.write(finished)
+    desk.record = finished.record or desk.record
+    text, ok = ui_text.gearbox_update_status(update, result, finished.dragged, meshes=meshes)
+    return " ".join([text] + finished.notes), ok
 
 
 def gears_table(rows):
-    widths = " ".join("minmax(0, 1fr)" if w == 0 else f"{w}px" for w in wb_gui.TABLE_WIDTHS)
+    # Tk's minsize is a floor, not a width: a column grows to what it holds (built · changes on Update), and the
+    # one with no minsize takes what is left.
+    widths = " ".join("minmax(0, 1fr)" if w == 0 else f"minmax({w}px, max-content)" for w in wb_gui.TABLE_WIDTHS)
     cells = [f'<span style="font-size: 11px; color: {READOUT}; line-height: 18px;">{h}</span>' for h in wb_gui.TABLE_HEAD]
     for gear, shaft, kind, teeth, module, face, part, state, what in rows:
         cells += [f'<span style="{MONO_TINY}">{v}</span>' for v in (gear, shaft)]
@@ -599,8 +723,8 @@ def gears_table(rows):
         cells += [f'<span style="{MONO_TINY}">{v}</span>' for v in (teeth, module, face)]
         cells.append(f'<span style="{MONO_TINY} overflow: hidden; text-overflow: ellipsis;">{part or "—"}</span>')
         cells.append(f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; '
-                     f'color: {ERR if state == ui_text.GEAR_STATE_ERROR else MUTED}; line-height: 20px; white-space: nowrap;">'
-                     f'{dot(STATE_COLOURS[state])}{what}</span>')
+                     f'color: {ERR if state in wb_gui.RED_STATES else MUTED}; line-height: 20px; white-space: nowrap;">'
+                     f'{dot(wb_gui.STATE_COLOURS[state])}{what}</span>')
     return (f'<div style="display: grid; grid-template-columns: {widths}; column-gap: 10px; align-items: center;">'
             + "".join(cells) + '</div>')
 
@@ -653,35 +777,80 @@ def end_view_svg(report):
     return svg, ui_text.end_view_readout(view)
 
 
-def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, choose=None, note=None):
+def foot_button(text, primary=False, enabled=True):
+    """A 32 px footer button as widgets.Button paints it: a primary one bold with 18 px either side, greyed
+    (#b5b5b5, white text) when disabled; a secondary one #f8f8f8, or #f4f4f4 with faint text when disabled."""
+    if primary:
+        fill = ACCENT if enabled else "#b5b5b5"
+        style = f"background: {fill}; color: #ffffff; border: 1px solid {fill}; font-weight: 600; padding: 0 18px;"
+    elif enabled:
+        style = f"background: #f8f8f8; color: {INK}; border: 1px solid {BORDER}; font-weight: 500; padding: 0 10px;"
+    else:
+        style = f"background: {DISABLED_BG}; color: {FAINT}; border: 1px solid #e3e3e3; font-weight: 500; padding: 0 10px;"
+    return (f'<div style="height: 32px; flex-shrink: 0; box-sizing: border-box; border-radius: 2px; display: flex; '
+            f'align-items: center; font-size: 12.5px; {style}">{text}</div>')
+
+
+def question_dialog(title, text):
+    """messagebox.askyesno as Windows draws it over the window: the title bar, the question mark, the question,
+    and Yes and No with No the default (workbook_gui.ask_yes_no)."""
+    mark = ('<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#2f6db5"></circle>'
+            '<text x="16" y="22.5" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="19" '
+            'font-weight="600" fill="#ffffff">?</text></svg>')
+    yes = ('<div style="width: 76px; height: 24px; box-sizing: border-box; border: 1px solid #adadad; background: '
+           '#e1e1e1; display: flex; align-items: center; justify-content: center; font-size: 12px;">Yes</div>')
+    no = ('<div style="width: 76px; height: 24px; box-sizing: border-box; border: 2px solid #0078d7; background: '
+          '#e5f1fb; display: flex; align-items: center; justify-content: center; font-size: 12px;">No</div>')
+    return (f'<div style="position: absolute; inset: 0; background: rgba(0, 0, 0, 0.12); display: flex; '
+            f'align-items: flex-start; justify-content: center; padding-top: 220px;">'
+            f'<div style="width: 520px; background: #ffffff; border: 1px solid #8a8a8a; box-shadow: 0 8px 28px '
+            f'rgba(0,0,0,0.28); font-family: Segoe UI, {SANS}; color: #000000;">'
+            f'<div style="height: 30px; display: flex; align-items: center; justify-content: space-between; '
+            f'padding: 0 0 0 10px; font-size: 12px;"><span>{title}</span><span style="width: 44px; text-align: center; '
+            f'font-size: 14px; color: #333;">✕</span></div>'
+            f'<div style="display: flex; gap: 14px; padding: 18px 22px 24px 22px; font-size: 12px; line-height: 1.45;">'
+            f'<div style="flex-shrink: 0;">{mark}</div><div>{text}</div></div>'
+            f'<div style="background: #f0f0f0; padding: 11px 12px; display: flex; justify-content: flex-end; gap: 10px;">'
+            f'{yes}{no}</div></div></div>')
+
+
+def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, choose=None, desk=None, note=None,
+                   ask=False):
     """The window after reading ``spec`` (changes listed against ``before``); ``choose`` picks offered fixes
-    (``(field, index)``) as if their buttons were pressed."""
-    path, (read_spec, read_diagnostics) = read_workbook(spec)
+    (``(field, index)``) as if their buttons were pressed; ``desk`` is what has been built before (its record and
+    disk), and ``note`` the last job's sentence; ``ask`` draws the Build again? question the build button asks."""
+    path, read_spec, read_diagnostics, digest = read_workbook(spec)
     folder = read_spec.box.output_folder
+    desk = desk or Desk()
+    record = desk.record
 
     def plan(chosen, read=(read_spec, read_diagnostics)):              # WorkbookWindow._plan and _assess
-        state = wb_assess.assess(read[0], read[1], folder, chosen=chosen)
+        state = assessed(read[0], read[1], chosen)
         return state, state.spec, state.parts, state.report, state.diagnostics
 
     chosen = []
     raw, effective, parts, report, diagnostics = plan(chosen)
     changes, did = [], None
     if before is not None:                                              # WorkbookWindow._show
-        earlier = read_workbook(before)[1]
-        changes = wb_link.describe_changes(earlier[0], read_spec)
-        did = wb_link.consequence(plan([], earlier)[0], raw)
+        _, earlier_spec, earlier_diagnostics, _ = read_workbook(before)
+        changes = wb_link.describe_changes(earlier_spec, read_spec)
+        did = wb_link.consequence(plan([], (earlier_spec, earlier_diagnostics))[0], raw)
+    state = raw
     for field_, index in choose or ():
         chosen.append(report.fixes[field_][index])
-        _, effective, parts, report, diagnostics = plan(chosen)
+        state, effective, parts, report, diagnostics = plan(chosen)
     covered = wb_link.covered_by_fix(did, report) if chosen else []
+    build_plan, update = planned(state, record, desk.disk)
+    footer = ui_text.workbook_footer(state, record=record, plan=build_plan, update=update, folder=folder,
+                                     folder_exists=True, note=note)
     name = os.path.basename(path)
-    status, ok, enabled = ui_text.workbook_state(parts, diagnostics, folder=folder, chosen=len(chosen), note=note)
 
     header = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
               f'<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">'
               f'<span style="font-size: 15px; font-weight: 600; color: {INK};">{name}</span>'
               f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: {READOUT};">'
-              f'{dot(OK)}linked · {ui_text.workbook_read_line(clock, open_in_excel)}</span></div>'
+              f'{dot(OK)}linked · {ui_text.workbook_read_line(clock, open_in_excel)}'
+              f'{ui_text.workbook_built_tag(record, digest)}</span></div>'
               f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Open in Excel")}{button("Re-read")}</div></div>')
     mono = f'font-family: {MONO}; font-size: 11.5px; color: {INK};'
     file_text = ui_text.short_path(f"C:\\Parts\\{name}", wb_gui.PATH_CHARS)
@@ -692,8 +861,8 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
             hint("from the Box sheet")),
         row(label("Worked out as"), f'<span style="font-size: 12.5px; color: {INK};">{report.worked_out_as or "—"}</span>'),
     ], gap=2)
-    gears = panel("Gears", ui_text.workbook_parts_readout(parts),
-                  [gears_table(ui_text.workbook_gear_rows(effective, parts, diagnostics))])
+    gears = panel("Gears", ui_text.workbook_parts_readout(parts, record=record),
+                  [gears_table(ui_text.workbook_gear_rows(effective, parts, diagnostics, record=record, update=update))])
     checks = panel("Checks", ui_text.workbook_checks_readout(diagnostics),
                    check_lines(diagnostics, report.fixes, chosen), gap=4)
     since = panel("Since the last read", ui_text.workbook_changes_readout(changes, clock),
@@ -706,18 +875,26 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
     speeds = panel("Speeds", speeds_readout,
                    [f'<div style="{mono} white-space: pre; line-height: 1.5;">{line}</div>' for line in lines], gap=0)
 
-    colour = OK if ok else ERR
+    colour = OK if footer.ok else ERR
+    buttons = [foot_button("Export"), foot_button("Export as…"),
+               foot_button(footer.build_label, footer.build_primary, footer.build_enabled)]
+    if footer.update_shown:
+        buttons.append(foot_button("Update SolidWorks", footer.update_primary, footer.update_enabled))
     foot = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
             f'<div style="display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: {colour}; '
             f'min-width: 0; max-width: {WINDOW_WIDTH - 420}px;">'
-            f'<span style="padding-top: 5px; display: flex;">{dot(colour, 8)}</span><span style="line-height: 1.35;">{status}</span></div>'
-            f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{button("Export", h=32)}{button("Export as…", h=32)}'
-            f'{button("Build parts", primary=enabled, disabled=not enabled, h=32)}</div></div>')
+            f'<span style="padding-top: 5px; display: flex;">{dot(colour, 8)}</span><span style="line-height: 1.35;">{footer.text}</span></div>'
+            f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{"".join(buttons)}</div></div>')
     left = (f'<div style="width: {wb_gui.LEFT_WIDTH}px; flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;">'
             + "".join([box, gears, checks, since]) + '</div>')
     right = (f'<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;">' + view + speeds + '</div>')
     body = (header + f'<div style="display: flex; gap: 8px; align-items: flex-start;">{left}{right}</div>' + foot)
-    return HEAD + column(body, width=WINDOW_WIDTH) + "\n" + TAIL
+    window = column(body, width=WINDOW_WIDTH)
+    if ask:
+        window = (f'<div style="position: relative; width: {WINDOW_WIDTH}px;">{window}'
+                  + question_dialog(ui_text.BUILD_AGAIN_TITLE, ui_text.build_again_question(update, build_plan))
+                  + '</div>')
+    return HEAD + window + "\n" + TAIL
 
 
 # -------------------------------------------------------------------- the boards
@@ -799,9 +976,10 @@ cards.append(caption("Each card is worked out for a gear that has the field: the
 boards["FieldGuide"] = ("Field explainers · every card", page("\n".join(cards)))
 
 # The Workbook window: the 12 : 1 reducer after a save that made G4 wider, after one that broke a cell, and
-# after one that moved S2 off its centres, with the two fixes offered and then the move chosen.
+# after one that moved S2 off its centres, with the two fixes offered and then the move chosen. Then W4: built;
+# PLAN-WORKBOOK §6's demonstration edit, before and after Update SolidWorks; and a change Update cannot carry.
 reducer = wb_model.GearboxSpec(
-    box=wb_model.Box(name="Reducer_12to1", output_folder="C:\\Parts\\Reducer_12to1\\", efficiency="98"),
+    box=wb_model.Box(name="Reducer_12to1", output_folder="C:\\Parts\\Reducer_12to1", efficiency="98"),
     shafts=(wb_model.Shaft("S1", "frame", "0", "0", "0", "Z+", "input", "", "1500", "10"),
             wb_model.Shaft("S2", "frame", "63.75", "0", "0", "Z+"),
             wb_model.Shaft("S3", "frame", "131.75", "0", "0", "Z+", "output")),
@@ -823,6 +1001,27 @@ boards["WorkbookFix"] = ("Workbook · a mesh off its centres, two fixes offered"
                          WINDOW_WIDTH)
 boards["WorkbookChosen"] = ("Workbook · the move chosen, waiting for Export",
                             workbook_board(off, before=reducer, choose=[("Meshes!A2", 0)]), WINDOW_WIDTH)
+
+# W4. Build pressed on the reducer; then PLAN-WORKBOOK §6's demonstration edit — S2 X 63.75 → 64.5 and G2's teeth
+# 68 → 69, S3 X following to 132.5 as its formula does in the fixture — before and after Update SolidWorks; then,
+# on the reducer as built, G1's flank changed to arcs, which needs a new part, and the build button's question.
+built_desk = Desk()
+built_note = press_build(built_desk, reducer)
+boards["WorkbookBuilt"] = ("Workbook · built: the parts, the layout part and the assembly",
+                           workbook_board(reducer, desk=built_desk, note=built_note), WINDOW_WIDTH)
+edited = wb_model.replace(reducer, shafts=(reducer.shafts[0], wb_model.replace(reducer.shafts[1], x="64.5"),
+                                           wb_model.replace(reducer.shafts[2], x="132.5")),
+                          gears=(reducer.gears[0], wb_model.replace(reducer.gears[1], teeth="69")) + reducer.gears[2:])
+boards["WorkbookUpdate"] = ("Workbook · an edit Update SolidWorks carries",
+                            workbook_board(edited, before=reducer, desk=built_desk), WINDOW_WIDTH)
+updated_desk = Desk()
+press_build(updated_desk, reducer)
+updated_note = press_update(updated_desk, edited)
+boards["WorkbookUpdated"] = ("Workbook · after Update SolidWorks, not yet saved",
+                             workbook_board(edited, before=reducer, desk=updated_desk, note=updated_note), WINDOW_WIDTH)
+arcs = wb_model.replace(reducer, gears=(wb_model.replace(reducer.gears[0], flank="arcs"),) + reducer.gears[1:])
+boards["WorkbookAgain"] = ("Workbook · a change that needs a new part, and Build again?",
+                           workbook_board(arcs, before=reducer, desk=built_desk, ask=True), WINDOW_WIDTH)
 
 layout = []
 x = 0
