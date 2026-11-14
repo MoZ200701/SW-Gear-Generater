@@ -18,7 +18,8 @@ from gear_generator.probe import p8_motion as p8
 
 TIER_8 = ["motion_enums", "shaft_axis_mates", "gear_mate_sense", "compound_lock", "mated_train", "motion_update",
           "gear_mate_ratio", "gear_mate_update", "lock_retake_offset", "lock_mate_rename", "demonstration_drive",
-          "put_on_twice_meshed_gear", "axial_datum_plane", "mated_rebuild_scope", "gear_mate_definition"]
+          "put_on_twice_meshed_gear", "axial_datum_plane", "mated_rebuild_scope", "mates_under_command_in_progress",
+          "mate_folders", "lightweight_remake", "second_assembly_beside_unsaved", "gear_mate_definition"]
 
 
 @pytest.fixture(scope="module")
@@ -595,3 +596,32 @@ def test_no_probe_shadows_a_helper_of_the_same_name():
     names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
     assert len(names) == len(set(names)), sorted({n for n in names if names.count(n) > 1})
     assert p8.gear_mate_definition.__code__.co_argcount == 3      # the reader: (px, asm, name)
+
+
+def test_the_command_in_progress_train_takes_w5s_names():
+    trains = {name: p8.train_geometry(prefix, sigmas, origin) for name, prefix, sigmas, origin in p8.TRAINS}
+    names = p8.cip_names(trains)
+    assert names["TG1"] == ("TG1 on T1 Axis", "TG1 along T1") and names["UG4"] == ("UG4 on U3 Axis", "UG4 along U3")
+    assert names["TG3-TG4"] == "TG3 meshes TG4" and names["all Z+ lock"] == "TG3 locked to TG2"
+    assert "TG3" not in names                                        # a follower is held by its lock alone
+    flat = [n for v in names.values() for n in (v if isinstance(v, tuple) else (v,))]
+    assert len(flat) == len(set(flat)) == 2 * (3 * 2 + 2 + 1)
+
+
+def test_package_p0c_decisions_come_off_a_pass_only():
+    facts = {"mates_under_command_in_progress": {"mates_under_command_in_progress_hold": True,
+                                                 "mate_rename_at_once_holds": True},
+             "mate_folders": {"mate_group_walk_sees_mates_in_a_folder": False},
+             "lightweight_remake": {"lightweight_remake_holds": None},
+             "second_assembly_beside_unsaved": {"second_assembly_beside_unsaved_holds": True}}
+    passed = decide.decide(records(facts=facts))
+    assert passed["mates_under_command_in_progress"] is True and passed["mate_rename_at_once"] is True
+    assert passed["mate_group_walk_sees_mates_in_a_folder"] is False and passed["lightweight_remake"] is None
+    assert passed["second_assembly_beside_unsaved"] is True
+    failed = records(failing=tuple(facts))
+    for name, values in facts.items():
+        failed[name]["facts"].update(values)
+    decided = decide.decide(failed)
+    for key in ("mates_under_command_in_progress", "mate_rename_at_once", "mate_group_walk_sees_mates_in_a_folder",
+                "second_assembly_beside_unsaved"):
+        assert decided[key] is None, key

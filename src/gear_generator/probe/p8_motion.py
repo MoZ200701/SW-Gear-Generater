@@ -1174,12 +1174,30 @@ def shaft_axis_mates(px: Px) -> None:
 # -- mounting a gear on its shaft by what shaft_axis_mates decided ---------------
 
 
+def rename_at_once(px: Px, doc: Any, made: Dict[str, Any], new: str) -> Dict[str, Any]:
+    """Give a mate its name straight after its AddMate5 (an ``IFeature.Name`` put), as W5's build does: what reads
+    back at once and whether the mate-group walk finds it by the new name at once. ``made`` takes the new name."""
+    out: Dict[str, Any] = {"made_as": made.get("name"), "to": new}
+    if not made.get("name"):
+        return out
+    feature = mate_feature(doc, made["name"])
+    out["put"] = px.attempt(f"IFeature.Name = {new!r} on {made['name']} straight after AddMate5",
+                            lambda: setattr(feature, "Name", new))[0]
+    out["reads"] = str(call(feature, "Name"))
+    out["walk_finds"] = new in mate_names(doc)
+    if out["reads"] == new:
+        made["name"] = new
+    return out
+
+
 def mount(px: Px, asm: Assembly, key: str, shaft: str, sigma: int, z_front: float, at: Sequence[float],
-          record: Optional[List[Dict[str, Any]]] = None) -> List[str]:
+          record: Optional[List[Dict[str, Any]]] = None, rename: Optional[Sequence[str]] = None,
+          renamed: Optional[List[Dict[str, Any]]] = None) -> List[str]:
     """Unfix gear ``key`` and mate it to ``"<shaft> Axis"`` and along it, the way shaft_axis_mates decided.
 
     Returns the mates' names (and adds what each AddMate5 answered to ``record``); a mate that was not made ends
-    the probe.
+    the probe. With ``rename`` (the axis mate's name, the axial one's), each is renamed straight after its own
+    AddMate5 and what that read back is added to ``renamed``.
     """
     enums = _enums(px)
     kind, axial = px.shared.get("axis_mate_route"), px.shared.get("axial_mate_route")
@@ -1196,6 +1214,8 @@ def mount(px: Px, asm: Assembly, key: str, shaft: str, sigma: int, z_front: floa
         raise Require(f"{key}'s axis and {shaft} Axis could not be selected.")
     mate_type = enums["coincident"] if kind == "axis coincident" else enums["concentric"]
     made = [add_mate(px, doc, f"{key} on {shaft} Axis", mate_type, enums["closest"])]
+    if rename:
+        (renamed if renamed is not None else []).append(rename_at_once(px, doc, made[0], rename[0]))
     if axial.startswith("origin"):
         picked = bool(_select_origin(px, doc, gear, append=False))
     else:
@@ -1207,6 +1227,8 @@ def mount(px: Px, asm: Assembly, key: str, shaft: str, sigma: int, z_front: floa
     else:
         made.append(add_mate(px, doc, f"{key} at {z_front:g} along {shaft}", enums["distance"], enums["closest"],
                              flip=axial.startswith("origin") and z_front < 0, distance=abs(z_front)))
+    if rename:
+        (renamed if renamed is not None else []).append(rename_at_once(px, doc, made[1], rename[1]))
     if record is not None:
         record.extend(made)
     names = [m["name"] for m in made]
@@ -4276,6 +4298,444 @@ def mated_rebuild_scope(px: Px) -> None:
     route = first_mated_route(verdicts)
     px.fact("mated_assembly_rebuild_route", route)
     px.fact("mated_rebuild_keeps_components_unmodified", None if route is None else verdicts[route]["only_changed_marked"])
+
+
+# -- 14: what W5's build code does that no probe had done (probe round P0c) ------------------------------------
+#
+# From the review of the W5 SolidWorks code: its build makes every Unfix and AddMate5 with
+# ISldWorks.CommandInProgress on, renames each mate straight after its AddMate5, then makes one top-only rebuild and
+# turns it off; it reads every mate's error code, its warning flag and whether it is suppressed, and treats a
+# sub-feature of the MateGroup as a mate when its type name starts with "Mate"; it turns recorded mates back on with
+# SetSuppression2 whether or not they are off; it may remake a gear mate on lightweight components; and after a
+# refused build it leaves the new assembly open, unsaved, while the next build makes another from the same parts.
+
+CIP_STEM = "Probe W8 CIP"
+CIP_CONFLICT = 10.0      # degrees: an angle mate fighting the compound lock
+
+
+def cip_names(trains: Mapping[str, Any]) -> Dict[str, Any]:
+    """W5's names (D12) for the probe trains' mates: per anchor its axis and axial mates, per mesh, per lock."""
+    out: Dict[str, Any] = {}
+    for name, t in trains.items():
+        g1, g2, g3, g4 = t["gears"]
+        for g in (g1, g2, g4):
+            out[g["key"]] = (f"{g['key']} on {g['shaft']} Axis", f"{g['key']} along {g['shaft']}")
+        out[f"{g1['key']}-{g2['key']}"] = f"{g1['key']} meshes {g2['key']}"
+        out[f"{g3['key']}-{g4['key']}"] = f"{g3['key']} meshes {g4['key']}"
+        out[f"{name} lock"] = f"{g3['key']} locked to {g2['key']}"
+    return out
+
+
+def _command_in_progress(px: Px, on: bool) -> Dict[str, Any]:
+    """ISldWorks.CommandInProgress put (the property scaffold.scratch already sets back), and what reads back."""
+    application = sc.app(px)
+    got, _ = px.attempt(f"CommandInProgress = {on}", lambda: setattr(application, "CommandInProgress", on))
+    ok, value = px.attempt("CommandInProgress read back", lambda: call(application, "CommandInProgress"))
+    return {"put": got, "reads": plain(value) if ok else "raised"}
+
+
+def suppression_of(px: Px, doc: Any) -> Dict[str, Optional[bool]]:
+    return {n: is_suppressed(px, mate_feature(doc, n)) for n in mate_names(doc)}
+
+
+@probe("mates_under_command_in_progress", needs=("mated_train",), tier=8,
+       members=("ISldWorks.CommandInProgress", "IAssemblyDoc.AddMate5", "IFeature.Name", "IFeature.GetErrorCode2",
+                "IFeature.IsSuppressed2", "IFeature.SetSuppression2", "IModelDoc2.GetSaveFlag"))
+def mates_under_command_in_progress(px: Px) -> None:
+    """The train built as W5's build makes it: every Unfix and AddMate5 with CommandInProgress on, each mate renamed
+    straight after its AddMate5 in the new, unsaved assembly, one top-only rebuild, CommandInProgress off; checked
+    and driven; a conflicting mate under CommandInProgress; error codes of suppressed mates; saved, reopened, found by
+    name; and SetSuppression2(unsuppress) on a lock already on."""
+    from .p7_workbook import _save_flags  # noqa: PLC0415
+
+    enums = _enums(px)
+    rule, lock_route = px.shared.get("gear_mate_flip_rule"), px.shared.get("compound_lock_route")
+    px.require(bool(rule) and lock_route == "lock alone", f"the flip rule ({rule}) and the lock route ({lock_route}) "
+                                                         "are decided")
+    folder = _folder(px)
+    asm_path = os.path.join(folder, f"{CIP_STEM} Train.SLDASM")
+    _fresh(px, asm_path)
+    trains = {name: train_geometry(prefix, sigmas, origin) for name, prefix, sigmas, origin in TRAINS}
+    wanted = cip_names(trains)
+    layout_path = layout_part(px, folder, f"{CIP_STEM} Layout", [s for t in trains.values() for s in t["shafts"]],
+                              link=True)
+    _part, part_path = _part_with_axis(px, folder, f"{CIP_STEM} Gear")
+    paths = {"assembly": asm_path, "layout": layout_path, "part": part_path}
+    asm = Assembly(px, layout_path, {"cyl": part_path})
+    facts: Dict[str, Any] = {}
+    made: List[Dict[str, Any]] = []
+    renamed: List[Dict[str, Any]] = []
+    names: Dict[str, str] = {}
+    try:
+        asm.open()
+        doc = asm.doc
+        for t in trains.values():
+            for g in t["gears"]:
+                asm.add(g["key"], "cyl", g["sigma"], g["theta"], g["at"])
+        call(doc, "ForceRebuild3", True)
+        placed = _frames(asm.gears)
+        facts["cip_on"] = _command_in_progress(px, True)
+        try:
+            for name, t in trains.items():
+                g1, g2, g3, g4 = t["gears"]
+                for g in t["gears"]:
+                    if g is g3:
+                        px.require(unfix(px, doc, asm.gears[g["key"]]), f"{g['key']} floats")
+                        continue
+                    mount(px, asm, g["key"], g["shaft"], g["sigma"], g["at"][2], g["at"], record=made,
+                          rename=wanted[g["key"]], renamed=renamed)
+                for a, b in ((g1, g2), (g3, g4)):
+                    picked = select_in(px, doc, asm.gears[a["key"]], "Gear Axis", "AXIS", False) and \
+                        select_in(px, doc, asm.gears[b["key"]], "Gear Axis", "AXIS", True)
+                    px.require(bool(picked), f"{a['key']} and {b['key']}'s axes select")
+                    result = add_mate(px, doc, f"{a['key']}-{b['key']} gear", enums["gear"], enums["closest"],
+                                      flip=needed_flip(rule, a["sigma"], b["sigma"], False, a["teeth"] > b["teeth"]),
+                                      ratio=(float(a["teeth"]), float(b["teeth"])))
+                    made.append(result)
+                    renamed.append(rename_at_once(px, doc, result, wanted[f"{a['key']}-{b['key']}"]))
+                px.require(bool(select_components(px, doc, (asm.gears[g2["key"]], asm.gears[g3["key"]]))),
+                           f"{name}: G2 and G3 select")
+                result = add_mate(px, doc, f"{name}: lock", enums["lock"], enums["closest"])
+                made.append(result)
+                renamed.append(rename_at_once(px, doc, result, wanted[f"{name} lock"]))
+            facts["rebuild"] = rebuild(px, doc, "the one top-only rebuild, CommandInProgress on", top_only=True)
+        finally:
+            facts["cip_off"] = _command_in_progress(px, False)
+        facts["renamed_at_once"] = renamed
+        facts["statuses"] = {m.get("name"): m.get("status") for m in made}
+        facts["mate_states"] = mate_states(px, doc)
+        facts["constrained"] = {k: constrained(px, c) for k, c in asm.gears.items()}
+        facts["off_placed"] = worst(_off(asm.gears, placed))
+        # Driven, as the probes drive (the angle mate on the global "Drive"), CommandInProgress off.
+        add = adder(px, call(doc, "GetEquationMgr"))
+        px.require(add(f'"{DRIVE}"= {DRIVE_FROM:g}') >= 0, "the drive global is added")
+        for name, t in trains.items():
+            g1 = asm.gears[t["gears"][0]["key"]]
+            px.require(drive_mate(px, doc, g1, _plane_names(g1)[1], asm.layout, _plane_names(asm.layout)[1], name,
+                                  add, enums["closest"]) is not None, f"{name}: the input is driven")
+        rebuild(px, doc, "drive added", top_only=True)
+        facts["constrained_driven"] = {k: constrained(px, c) for k, c in asm.gears.items()}
+        facts["turns"] = _drive_by(px, doc, asm.gears, DRIVE_TO - DRIVE_FROM, "driven 30°")
+
+        # A conflicting mate under CommandInProgress: an angle between TG3's and TG2's Top planes fighting the lock.
+        t = trains["all Z+"]
+        p2, p3 = asm.gears[t["gears"][1]["key"]], asm.gears[t["gears"][2]["key"]]
+        rel = abs(unwrap(relative_angle(p2, p3)))
+        conflict_angle = min(rel + CIP_CONFLICT, 179.0) if rel < 170.0 else rel - CIP_CONFLICT
+        c: Dict[str, Any] = {"cip_on": _command_in_progress(px, True)}
+        try:
+            picked = select_in(px, doc, p3, _plane_names(p3)[1], "PLANE", False) and \
+                select_in(px, doc, p2, _plane_names(p2)[1], "PLANE", True)
+            c["selected"] = bool(picked)
+            c["mate"] = add_mate(px, doc, f"an angle {conflict_angle:g}° fighting the lock, CommandInProgress on",
+                                 enums["angle"], enums["closest"], angle=conflict_angle)
+            c["rebuild"] = rebuild(px, doc, "over-defined, CommandInProgress on", top_only=True)
+        finally:
+            c["cip_off"] = _command_in_progress(px, False)
+        conflict = c["mate"]["name"] or (c["mate"]["made"] or [None])[0]
+        c["states"] = mate_states(px, doc)
+        # A suppressed mate's error code and warning flag: the conflicting one, then a sound one (the lock).
+        lock = wanted["all Z+ lock"]
+        if conflict:
+            c["conflict_suppressed_by"] = suppress(px, doc, conflict, True)
+            rebuild(px, doc, "the conflicting mate suppressed", top_only=True)
+            c["conflict_suppressed"] = mate_states(px, doc).get(conflict)
+        c["lock_suppressed_by"] = suppress(px, doc, lock, True)
+        rebuild(px, doc, "the lock suppressed", top_only=True)
+        c["lock_suppressed"] = mate_states(px, doc).get(lock)
+        c["lock_unsuppressed_by"] = suppress(px, doc, lock, False)
+        if conflict:
+            c["deleted_by"] = delete_mate(px, doc, conflict)
+        rebuild(px, doc, "the conflict deleted, the lock back on", top_only=True)
+        c["states_after"] = errors_only(mate_errors(px, doc))
+        facts["conflict"] = c
+        facts["mates_before_save"] = mate_names(doc)
+        px.require(_save_in_place(px, doc, asm_path, "the CommandInProgress train") and os.path.isfile(asm_path),
+                   "the train saves")
+        px.shared.setdefault("created", []).append(str(call(doc, "GetTitle")))
+        names = asm.names()
+    finally:
+        if asm.doc is not None and not str(call(asm.doc, "GetPathName") or ""):
+            sc.close(px, asm.doc)
+        _close_quietly(px, list(paths.values()))
+
+    reopened: Dict[str, Any] = {}
+    try:
+        doc, components = _open_train(px, asm_path, names)
+        reopened["flags_on_open"] = _save_flags(px, paths)
+        reopened["mates"] = mate_names(doc)
+        reopened["found"] = {r["to"]: find_mate_by(px, doc, r["to"]) for r in renamed}
+        reopened["errors"] = errors_only(mate_errors(px, doc))
+        # SetSuppression2(unsuppress) on a lock that is already on: what it answers, and what it marks.
+        lock = wanted["all Z+ lock"]
+        feature = mate_feature(doc, lock)
+        u: Dict[str, Any] = {"suppressed_before": is_suppressed(px, feature)}
+        got, value = px.attempt(f"SetSuppression2(unsuppress) on {lock}, already on",
+                                lambda: call(feature, "SetSuppression2", enums["unsuppress"],
+                                             enums["this_configuration"], None))
+        u["returned"] = plain(value) if got else "raised"
+        u["suppressed_after"] = is_suppressed(px, feature)
+        u["errors_after"] = errors_only(mate_errors(px, doc))
+        u["flags_after"] = _save_flags(px, paths)
+        rebuild(px, doc, "after unsuppressing a lock already on", top_only=True)
+        u["errors_after_rebuild"] = errors_only(mate_errors(px, doc))
+        u["flags_after_rebuild"] = _save_flags(px, paths)
+        reopened["unsuppress_on"] = u
+    finally:
+        _close_quietly(px, list(paths.values()))
+    facts["reopened"] = reopened
+    px.fact("mates_under_command_in_progress", facts)
+    px.shared["w8_cip_train"] = {"path": asm_path, "layout": layout_path, "part": part_path, "names": names,
+                                 "trains": trains, "mates": wanted}
+
+    # -- what it says
+    expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
+    states = facts["mate_states"]
+    clean = all(v == findings.ADD_MATE_NO_ERROR for v in facts["statuses"].values()) and \
+        all(st.get("code") == 0 and st.get("suppressed") is False for st in states.values()) and \
+        all(v == findings.COMPONENT_UNDER_DEFINED for v in facts["constrained"].values()) and \
+        facts["off_placed"] < TOLERANCE_MM
+    px.check(clean, f"under CommandInProgress every AddMate5 answered {set(facts['statuses'].values())}, every mate "
+                    f"code 0 and on, every gear under-defined, none moved ({facts['off_placed']:.1e})")
+    turned = all(v == findings.COMPONENT_FULLY_DEFINED for v in facts["constrained_driven"].values()) and all(
+        _train_ok(facts["turns"], [g["key"] for g in t["gears"]], expected, DRIVE_TO - DRIVE_FROM)
+        for t in trains.values())
+    px.check(turned, f"one drive fully defines it and it turns 1/12 the same way: {facts['turns']}")
+    c = facts["conflict"]
+    shows = c["mate"].get("status") == findings.ADD_MATE_OVER_DEFINED and bool(errors_only(c["states"]))
+    px.check(shows, f"a conflicting mate under CommandInProgress: AddMate5 {c['mate'].get('status')}, errors "
+                    f"{errors_only(c['states'])}")
+    px.fact("suppressed_mate_error_codes", {"conflicting": c.get("conflict_suppressed"), "sound": c["lock_suppressed"]},
+            "GetErrorCode2, its warning flag and IsSuppressed2 on a suppressed mate")
+    at_once = all(r.get("reads") == r["to"] and r.get("walk_finds") for r in renamed) and len(renamed) == len(made)
+    after = all(all(v.values()) for v in reopened["found"].values()) and \
+        not any(r["made_as"] in reopened["mates"] for r in renamed if r["made_as"] != r["to"])
+    px.check(at_once, f"each mate renamed straight after its AddMate5 read its new name back at once and the walk "
+                      f"found it: {[(r['made_as'], r.get('reads')) for r in renamed]}")
+    px.check(after, f"saved and reopened, each is found by its new name and no first name is left: {reopened['found']}")
+    px.fact("mate_rename_at_once_holds", bool(at_once and after))
+    u = reopened["unsuppress_on"]
+    px.fact("unsuppress_on_a_lock_already_on", {"returned": u["returned"], "suppressed_after": u["suppressed_after"],
+                                                "errors": u["errors_after"], "marks_assembly": u["flags_after"]["assembly"]})
+    px.fact("mates_under_command_in_progress_hold", bool(clean and turned and shows and not c["states_after"]))
+
+
+MATE_FOLDER = "Probe W8 Mate Folder"
+
+
+@probe("mate_folders", needs=("mates_under_command_in_progress",), tier=8,
+       members=("IFeatureManager.InsertFeatureTreeFolder2", "IFeature.GetFirstSubFeature", "IModelDoc2.FeatureByName",
+                "IFeature.GetTypeName2"))
+def mate_folders(px: Px) -> None:
+    """One of the train's own mates and an extra, sound angle mate put in a folder of the MateGroup, if the type
+    library lists a call that makes one: what the mate-group walk, FeatureByName and GetTypeName2 then see."""
+    enums = _enums(px)
+    info = px.shared.get("w8_cip_train")
+    px.require(bool(info), "mates_under_command_in_progress left a train")
+    members = typelib_members(px, "IFeatureManager")
+    listed = sorted(n for n in members if "Folder" in n)
+    px.fact("feature_manager_folder_members", listed)
+    paths = [info["path"], info["layout"], info["part"]]
+    facts: Dict[str, Any] = {"listed": listed}
+    try:
+        doc, components = _open_train(px, info["path"], info["names"])
+        facts["types_before"] = sorted({t for _n, t in _mate_features(doc)})
+        t = info["trains"]["all Z+"]
+        g1, g2 = components[t["gears"][0]["key"]], components[t["gears"][1]["key"]]
+        # The drive suppressed, so an angle mate between G1's and G2's Top planes at their angle now is sound.
+        facts["drive_suppressed_by"] = suppress(px, doc, f"{DRIVE} all Z+", True)
+        angle = abs(unwrap(relative_angle(g1, g2))) % 180.0
+        px.require(1.0 < angle < 179.0, f"G1's and G2's Top planes are {angle:g}° apart, an angle a mate can hold")
+        picked = select_in(px, doc, g2, _plane_names(g2)[1], "PLANE", False) and \
+            select_in(px, doc, g1, _plane_names(g1)[1], "PLANE", True)
+        extra = add_mate(px, doc, f"an extra angle {angle:g}° between G1 and G2", enums["angle"], enums["closest"],
+                         angle=angle) if picked else {"name": None}
+        facts["extra"] = extra
+        rebuild(px, doc, "the extra angle mate", top_only=True)
+        facts["extra_errors"] = errors_only(mate_errors(px, doc))
+        own = info["mates"]["all Z+ lock"]
+        if "InsertFeatureTreeFolder2" not in members or not extra.get("name"):
+            facts["folder"] = "not tried: " + ("no InsertFeatureTreeFolder2 in sldworks.tlb" if
+                                              "InsertFeatureTreeFolder2" not in members else "the extra mate failed")
+        elif "swFeatureTreeFolder_Containing" not in (types := sc.swconst(px, "swFeatureTreeFolderType_e")):
+            facts["folder_types"] = types
+            facts["folder"] = "not tried: swconst.tlb's swFeatureTreeFolderType_e has no swFeatureTreeFolder_Containing"
+        else:
+            facts["folder_types"] = types
+            call(doc, "ClearSelection2", True)
+            selected = [bool(call(mate_feature(doc, n), "Select2", i > 0, 0)) for i, n in enumerate((own, extra["name"]))]
+            facts["selected"] = selected
+            before = mate_names(doc)
+            got, folder = px.attempt("IFeatureManager.InsertFeatureTreeFolder2(swFeatureTreeFolder_Containing)",
+                                     lambda: call(sc.feature_manager(doc), "InsertFeatureTreeFolder2",
+                                                  types["swFeatureTreeFolder_Containing"]))
+            call(doc, "ClearSelection2", True)
+            facts["folder_made"] = got and folder is not None
+            if facts["folder_made"]:
+                facts["folder_type"] = sc.type_name(folder)
+                facts["folder_name"] = px.attempt("rename the folder", lambda: setattr(folder, "Name", MATE_FOLDER))[0] \
+                    and str(call(folder, "Name"))
+            rebuild(px, doc, "the folder made", top_only=True)
+            walk = []
+            for feature in sc.top_features(doc):
+                if sc.type_name(feature) == "MateGroup":
+                    child = call(feature, "GetFirstSubFeature")
+                    while child is not None:
+                        entry = {"name": str(call(child, "Name")), "type": sc.type_name(child)}
+                        inner = call(child, "GetFirstSubFeature")
+                        kids = []
+                        while inner is not None:
+                            kids.append({"name": str(call(inner, "Name")), "type": sc.type_name(inner)})
+                            inner = call(inner, "GetNextSubFeature")
+                        if kids:
+                            entry["sub_features"] = kids
+                        walk.append(entry)
+                        child = call(child, "GetNextSubFeature")
+            facts["walk"] = walk
+            facts["walk_before"] = before
+            for n in (own, extra["name"]):
+                got, found = px.attempt(f"FeatureByName({n!r}) inside the folder", lambda n=n: call(doc, "FeatureByName", n))
+                facts.setdefault("feature_by_name", {})[n] = {"found": bool(got and found is not None),
+                                                              "type": sc.type_name(found) if got and found else None}
+            facts["mate_group_walk_finds"] = {n: n in [w["name"] for w in walk] for n in (own, extra["name"])}
+            facts["errors_after"] = errors_only(mate_errors(px, doc))
+    finally:
+        _close_quietly(px, paths)
+    px.fact("mate_folders", facts)
+    seen = sorted({w["type"] for w in facts.get("walk", [])} | {k["type"] for w in facts.get("walk", [])
+                                                                 for k in w.get("sub_features", [])}
+                  | set(facts.get("types_before", [])))
+    px.fact("mate_group_sub_feature_types", seen, "every GetTypeName2 met walking the MateGroup")
+    if facts.get("folder_made"):
+        px.fact("mate_group_walk_sees_mates_in_a_folder", all(facts["mate_group_walk_finds"].values()))
+        px.fact("feature_by_name_finds_mates_in_a_folder", all(v["found"] for v in facts["feature_by_name"].values()))
+    else:
+        px.fact("mate_group_walk_sees_mates_in_a_folder", None, f"not probed: {facts.get('folder')}")
+
+
+@probe("lightweight_remake", needs=("motion_update",), tier=8,
+       members=("ISldWorks.OpenDoc6 lightweight", "IComponent2.GetSuppression2", "IComponent2.FeatureByName",
+                "IAssemblyDoc.AddMate5 gear"))
+def lightweight_remake(px: Px) -> None:
+    """The saved train opened with its components lightweight, if OpenDoc6 can make them so: does a component's
+    "Gear Axis" select, and does the remake (delete the gear mate, AddMate5 again) make the mate and turn right?"""
+    info = px.shared.get("w8_train")
+    px.require(bool(info), "mated_train left a train")
+    options = sc.swconst(px, "swOpenDocOptions_e")
+    states = sc.swconst(px, "swComponentSuppressionState_e")
+    px.fact("lightweight_enums", {"open": options.get("swOpenDocOptions_LoadLightweight"),
+                                  "states": {k: v for k, v in states.items() if "ight" in k or "esolved" in k}})
+    _i, path = _train_copy(px, f"{RATIO_ASSEMBLY} Lightweight")
+    paths = [path, info["layout"], info["part"]]
+    t = info["trains"]["all Z+"]
+    g1, g2, g3, g4 = t["gears"]
+    keys = [g["key"] for g in t["gears"]]
+    others = [g["key"] for g in info["trains"]["middle Z-"]["gears"]]
+    name = info["mates"][f"{g3['key']}-{g4['key']}"]["name"]
+    facts: Dict[str, Any] = {}
+    try:
+        errors, warnings = sc.out_long(), sc.out_long()
+        flags = int(findings.OPEN_DOC_SILENT or 1) | int(options.get("swOpenDocOptions_LoadLightweight") or 0)
+        got, result = px.attempt(f"OpenDoc6({os.path.basename(path)}, options {flags}: silent and lightweight)",
+                                 lambda: call(sc.app(px), "OpenDoc6", path, sc.SW_DOC_ASSEMBLY, flags, "", errors,
+                                              warnings))
+        doc = result[0] if got and isinstance(result, tuple) else result
+        px.require(got and doc is not None, "the train opens")
+        title = str(call(doc, "GetTitle"))
+        if title not in px.shared.setdefault("created", []):
+            px.shared["created"].append(title)
+        components = {k: call(doc, "GetComponentByName", n) for k, n in info["names"].items()}
+        names_of = {v: k for k, v in states.items()}
+        facts["suppression"] = {k: names_of.get(int(call(c, "GetSuppression2")), int(call(c, "GetSuppression2")))
+                                for k, c in components.items()}
+        lightweight = {k: "ightweight" in str(v) for k, v in facts["suppression"].items()}
+        facts["lightweight"] = lightweight
+        if any(lightweight.values()):
+            for k in (g3["key"], g4["key"]):
+                got, feature = px.attempt(f"FeatureByName('Gear Axis') on {k}, lightweight",
+                                          lambda k=k: call(components[k], "FeatureByName", "Gear Axis"))
+                facts.setdefault("gear_axis", {})[k] = {"found": bool(got and feature is not None)}
+            facts["turns_before"] = _drive_by(px, doc, components, RATIO_STEP, "driven, lightweight")
+            facts["remake"] = remake_gear_mate(px, doc, info["names"], name, g3["key"], g4["key"],
+                                               (float(g3["teeth"]), float(RATIO_NEW)), name)
+            rebuild(px, doc, "remade, lightweight", top_only=TOP_ONLY)
+            facts["errors"] = errors_only(mate_errors(px, doc))
+            facts["turns"] = _drive_by(px, doc, components, RATIO_STEP, "driven after the remake, lightweight")
+            facts["suppression_after"] = {k: names_of.get(int(call(c, "GetSuppression2")), int(call(c, "GetSuppression2")))
+                                          for k, c in components.items()}
+    finally:
+        _close_quietly(px, paths)
+    px.fact("lightweight_remake", facts)
+    if not any(facts.get("lightweight", {}).values()):
+        px.fact("lightweight_remake_holds", None, f"not probed: OpenDoc6 with LoadLightweight left every component "
+                                                 f"{set(facts.get('suppression', {}).values())}")
+        return
+    new_expected = train_turns((g1["teeth"], g2["teeth"], g3["teeth"], RATIO_NEW), (1, 1, 1, 1))
+    holds = bool((facts.get("remake") or {}).get("name")) and not facts.get("errors") and \
+        _ratio_turns_right(facts.get("turns") or {}, keys, others, new_expected)
+    px.check(True, f"lightweight: Gear Axis {facts.get('gear_axis')}, remade by "
+                   f"{(facts.get('remake') or {}).get('selected')}, turns {facts.get('turns')}")
+    px.fact("lightweight_remake_holds", holds)
+
+
+SECOND_ASSEMBLY = "Probe W8 Second"
+
+
+@probe("second_assembly_beside_unsaved", needs=("motion_update",), tier=8,
+       members=("IModelDoc2.NewDocument assembly", "IAssemblyDoc.AddComponent5", "IModelDocExtension.SaveAs3",
+                "ISldWorks.CloseDoc"))
+def second_assembly_beside_unsaved(px: Px) -> None:
+    """A refused build's assembly left open and unsaved, holding components from saved parts; then a second new
+    assembly from the same parts, mated and saved to a path: any refusal or name clash, and whether both close."""
+    enums = _enums(px)
+    info = px.shared.get("w8_train")
+    px.require(bool(info), "mated_train left a train")
+    folder = os.path.dirname(info["path"])
+    path = os.path.join(folder, f"{SECOND_ASSEMBLY}.SLDASM")
+    _fresh(px, path)
+    t = info["trains"]["all Z+"]
+    g1 = t["gears"][0]
+    facts: Dict[str, Any] = {"open_before": sc.open_titles(px)}
+    docs: Dict[str, Any] = {}
+    try:
+        open_by_path(px, info["part"])           # a closed part does not go in (REUSE_ADD_ROUTE "opened")
+        for label in ("unsaved", "second"):
+            asm = Assembly(px, info["layout"], {"cyl": info["part"]})
+            asm.open()
+            docs[label] = asm
+            asm.add(g1["key"], "cyl", g1["sigma"], g1["theta"], g1["at"])
+            px.require(unfix(px, asm.doc, asm.gears[g1["key"]]), f"{label}: {g1['key']} floats")
+            picked = select_in(px, asm.doc, asm.gears[g1["key"]], "Gear Axis", "AXIS", False) and \
+                select_in(px, asm.doc, asm.layout, f"{g1['shaft']} Axis", "AXIS", True)
+            made = add_mate(px, asm.doc, f"{label}: {g1['key']} on its axis", enums["coincident"], enums["closest"]) \
+                if picked else {"name": None}
+            px.shared.setdefault("created", []).append(str(call(asm.doc, "GetTitle")))
+            facts[label] = {"title": str(call(asm.doc, "GetTitle")), "mate": made,
+                            "components": [str(call(c, "Name2")) for c in asm.gears.values()]}
+        facts["second"]["saved"] = _save_in_place(px, docs["second"].doc, path, "the second assembly")
+        facts["second"]["path"] = str(call(docs["second"].doc, "GetPathName") or "")
+        facts["second"]["title_after_save"] = str(call(docs["second"].doc, "GetTitle"))
+        facts["open_with_both"] = sc.open_titles(px)
+    finally:
+        facts["close_second"] = _close_quietly(px, [path])
+        unsaved = docs.get("unsaved")
+        if unsaved is not None and unsaved.doc is not None:
+            try:
+                sc.close(px, unsaved.doc)
+                facts["close_unsaved"] = "closed"
+            except Exception as exc:  # noqa: BLE001 - the evidence
+                facts["close_unsaved"] = f"raised {exc}"
+        facts["close_parts"] = _close_quietly(px, [info["layout"], info["part"]])
+        facts["open_after"] = sc.open_titles(px)
+    px.fact("second_assembly_beside_unsaved", facts)
+    saved = bool(facts["second"].get("saved")) and os.path.isfile(path) and \
+        os.path.normcase(facts["second"].get("path", "")) == os.path.normcase(path)
+    both_mated = all((facts[k]["mate"] or {}).get("name") for k in ("unsaved", "second"))
+    closed = not [x for x in facts["open_after"] if x not in facts["open_before"]]
+    px.check(saved and both_mated, f"beside the unsaved {facts['unsaved']['title']}, a second new assembly took the same "
+                                   f"parts, its mate, and saved to its path: {facts['second']}")
+    px.check(closed, f"both closed afterwards: left {facts['open_after']}")
+    px.fact("second_assembly_beside_unsaved_holds", bool(saved and both_mated and closed))
 
 
 # -- 15 (last): a gear mate's ratio changed through its definition, recorded and never chosen ------------------
