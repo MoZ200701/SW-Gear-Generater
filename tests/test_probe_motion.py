@@ -422,7 +422,8 @@ def test_package_p0_decisions_come_off_a_pass_only():
 
 def test_each_ratio_recipe_puts_what_it_says():
     read = {"GearRatioNumerator": 51.0, "GearRatioDenominator": 17.0, "Reverse": False}
-    one, both, crossed_over = p8.RATIO_RECIPES
+    one, both, crossed_over = p8.RATIO_ALONE, p8.RATIO_AS_READ, p8.RATIO_CROSSED
+    assert p8.RATIO_RECIPES[0] == crossed_over and set(p8.RATIO_RECIPES) == {one, both, crossed_over}
     assert p8.ratio_fields(one, read, 51, 60) == {"GearRatioNumerator": 60.0}
     assert p8.ratio_fields(both, read, 51, 60) == {"GearRatioNumerator": 60.0, "GearRatioDenominator": 17.0}
     assert p8.ratio_fields(crossed_over, read, 51, 60) == {"GearRatioNumerator": 17.0, "GearRatioDenominator": 60.0}

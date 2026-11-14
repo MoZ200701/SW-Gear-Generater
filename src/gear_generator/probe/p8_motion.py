@@ -69,9 +69,10 @@ is the one Update gives an assembly (ForceRebuild3(True)), except where item 13
 compares the routes.
 
 7. ``gear_mate_ratio`` (P1) — a saved gear mate's ratio changed in the
-   reopened train: through its definition (GetDefinition, the ratio fields,
-   ModifyDefinition), or, only if that fails, deleted and made again; driven,
-   saved, reopened, driven again.
+   reopened train, by both routes, each on its own copy: through its
+   definition (GetDefinition, the ratio fields, ModifyDefinition), and
+   deleted and made again; driven, saved, closed (whether it could be),
+   reopened, driven again.
 8. ``lock_retake_offset`` (P2) — each compound lock suppressed, its second
    gear put 3 mm along its axis and 11° round, the lock back on: is the axial
    offset kept as well as the angle, through a drive?
@@ -2316,11 +2317,19 @@ RATIO_ASSEMBLY = "Probe W8 Ratio"
 RATIO_NEW = 60          # the output gear's teeth after the change (made 51): a ratio no other state gives
 RATIO_STEP = 30.0       # degrees each drive turns the input
 RATIO_FIELDS = ("GearRatioNumerator", "GearRatioDenominator")
+RATIO_ALONE = "the field holding the old count"
+RATIO_AS_READ = "both fields, as GetDefinition read them"
+RATIO_CROSSED = "both fields, the other way round"
 # What is put in the definition, each tried on a fresh copy of the train until one turns the train at the new ratio.
-# The first run (2026, 34.1.1) put the new count in the field holding the old one: ModifyDefinition answered True,
-# and the mate then read the two counts the other way round and turned the output 60/17 of its partner, not 17/60.
-RATIO_RECIPES = ("the field holding the old count", "both fields, as GetDefinition read them",
-                 "both fields, the other way round")
+# The first run (2026, 34.1.1) tried RATIO_ALONE first: ModifyDefinition answered True, and the mate then read the two
+# counts the other way round and turned the output 60/17 of its partner, not 17/60; RATIO_AS_READ did the same, and
+# RATIO_CROSSED (the counts in AddMate5's order, though GetDefinition reads them reversed) gave 17/60. On 2024
+# (32.5.0) no assembly whose gear mate ModifyDefinition had changed could be closed: CloseDoc raised 0x80010105 ("the
+# server threw an exception") and after that, like QuitDoc, left it open without a word (RATIO_ALONE twice and
+# RATIO_CROSSED, saved first, once, each in a fresh session), while a remade gear mate closed. So RATIO_CROSSED is
+# tried first and the other two only if it fails, the remake is always tried as well, each on its own copy, and
+# whether each copy closed is recorded and decides.
+RATIO_RECIPES = (RATIO_CROSSED, RATIO_ALONE, RATIO_AS_READ)
 
 
 def ratio_fields(recipe: str, before: Mapping[str, Any], old: float, new: float) -> Dict[str, float]:
@@ -2331,11 +2340,11 @@ def ratio_fields(recipe: str, before: Mapping[str, Any], old: float, new: float)
     if len(holding) != 1:
         return {}
     other = next(k for k in RATIO_FIELDS if k != holding[0])
-    if recipe == RATIO_RECIPES[0]:
+    if recipe == RATIO_ALONE:
         return {holding[0]: float(new)}
-    if recipe == RATIO_RECIPES[1]:
+    if recipe == RATIO_AS_READ:
         return {holding[0]: float(new), other: float(before[other])}
-    if recipe == RATIO_RECIPES[2]:
+    if recipe == RATIO_CROSSED:
         return {holding[0]: float(before[other]), other: float(new)}
     raise ValueError(f"No ratio recipe {recipe!r}.")
 
@@ -2393,13 +2402,28 @@ def remake_gear_mate(px: Px, doc: Any, names: Mapping[str, str], name: str, firs
     return out
 
 
+def _close_checked(px: Px, path: str, paths: Sequence[str]) -> Dict[str, Any]:
+    """Close a copy and what it opened (``close_paths``), recording whether the copy itself closed: on SolidWorks 2024
+    an assembly whose gear mate ModifyDefinition had changed could not be closed (CloseDoc raised 0x80010105, then
+    left it open without a word), and the layout and part it uses then stay open with it."""
+    try:
+        left = close_paths(px, paths)
+    except Exception as exc:  # noqa: BLE001 - the failure to close is the evidence
+        from .comerr import one_line  # noqa: PLC0415
+        px.note(f"CLEANUP closing {os.path.basename(path)} raised {one_line(exc)}")
+        left = [t for t in sc.open_titles(px) if t == os.path.basename(path)]
+        return {"closed": False, "raised": one_line(exc), "left": left}
+    return {"closed": os.path.basename(path) not in left, "left": left}
+
+
 @probe("gear_mate_ratio", needs=("motion_update",), tier=8,
        members=("IFeature.GetDefinition", "IGearMateFeatureData.GearRatioNumerator",
                 "IGearMateFeatureData.GearRatioDenominator", "IMateFeatureData.AccessSelections",
-                "IFeature.ModifyDefinition", "IAssemblyDoc.AddMate5 gear in a reopened assembly"))
+                "IFeature.ModifyDefinition", "IAssemblyDoc.AddMate5 gear in a reopened assembly", "ISldWorks.CloseDoc"))
 def gear_mate_ratio(px: Px) -> None:
-    """A saved gear mate's ratio changed in the reopened train: by its definition (each recipe on a fresh copy),
-    else deleted and made again; driven, saved, reopened, driven again."""
+    """A saved gear mate's ratio changed in the reopened train, by both routes, each on its own copy: through its
+    definition (recipes in turn until one is right) and deleted and made again; each driven, saved, closed (and
+    whether it could be), reopened, driven again; the definition's change also set back and closed unsaved."""
     info = px.shared.get("w8_train")
     px.require(bool(info), "mated_train left a train")
     t = info["trains"]["all Z+"]
@@ -2407,93 +2431,105 @@ def gear_mate_ratio(px: Px) -> None:
     keys = [g["key"] for g in t["gears"]]
     others = [g["key"] for g in info["trains"]["middle Z-"]["gears"]]
     name = info["mates"][f"{g3['key']}-{g4['key']}"]["name"]
+    new_name = f"{g3['key']} meshes {g4['key']}"
     old_expected = train_turns(TRAIN_TEETH, (1, 1, 1, 1))
     new_teeth = (g1["teeth"], g2["teeth"], g3["teeth"], RATIO_NEW)
     new_expected = train_turns(new_teeth, (1, 1, 1, 1))
     facts: Dict[str, Any] = {"mate": name, "teeth_before": list(TRAIN_TEETH), "teeth_after": list(new_teeth),
                              "expected_before": old_expected, "expected_after": new_expected}
 
-    def right(turns: Mapping[str, float]) -> bool:
-        return _train_ok(turns, keys, new_expected, RATIO_STEP) and _train_ok(turns, others, old_expected, RATIO_STEP)
+    def right(turns: Mapping[str, float], expected: Sequence[float] = new_expected) -> bool:
+        return _train_ok(turns, keys, expected, RATIO_STEP) and _train_ok(turns, others, old_expected, RATIO_STEP)
 
-    route, recipe, kept_path, current = None, None, "", name
     tries: List[Dict[str, Any]] = []
+    recipe = None
     for index, how in enumerate(RATIO_RECIPES + ("remake",)):
+        if how != "remake" and recipe:
+            continue                  # one recipe was right: the others are not tried
         _info, path = _train_copy(px, f"{RATIO_ASSEMBLY} {index + 1}")
         paths = [path, info["layout"], info["part"]]
         attempt: Dict[str, Any] = {"how": how, "copy": os.path.basename(path)}
+        current = name
         try:
             doc, components = _open_train(px, path, info["names"])
             attempt["rebuild_on_open"] = rebuild(px, doc, "opened", top_only=TOP_ONLY)
             attempt["turns_before"] = _drive_by(px, doc, components, RATIO_STEP, "driven before the change")
             frames = _frames(components)
             if how == "remake":
-                # (b) only because no recipe of (a) did: the gear mate deleted and made again in the reopened assembly.
                 attempt["remake"] = remake_gear_mate(px, doc, info["names"], name, g3["key"], g4["key"],
-                                                     (float(g3["teeth"]), float(RATIO_NEW)),
-                                                     f"{g3['key']} meshes {g4['key']}")
+                                                     (float(g3["teeth"]), float(RATIO_NEW)), new_name)
                 made = attempt["remake"].get("name")
             else:
                 attempt["definition"] = set_gear_ratio_by_definition(px, doc, name, how, g4["teeth"], RATIO_NEW,
                                                                      access=index == 0)
                 made = name if attempt["definition"].get("modified") is True else None
+            current = made or name
             attempt["moved_before_the_rebuild"] = worst(_off(components, frames))
             attempt["rebuild"] = rebuild(px, doc, f"ratio changed: {how}", top_only=TOP_ONLY)
             attempt["moved_by_the_rebuild"] = worst(_off(components, frames))
             attempt["errors"] = errors_only(mate_errors(px, doc))
             attempt["turns"] = _drive_by(px, doc, components, RATIO_STEP, f"driven after: {how}")
             attempt["right"] = bool(made) and right(attempt["turns"]) and not attempt["errors"] and \
-                right(attempt["turns"]) != right(attempt["turns_before"])
+                not right(attempt["turns_before"])
             if attempt["right"]:
-                route = "remake" if how == "remake" else "modify definition"
-                recipe, kept_path, current = how, path, made
-                px.require(_save_in_place(px, doc, path, "the train with its new ratio") and os.path.isfile(path),
-                           "the train with its new ratio saves")
+                if how != "remake":
+                    recipe = how
+                attempt["saved"] = _save_in_place(px, doc, path, f"the train with its new ratio ({how})")
         finally:
-            left = close_paths(px, paths)
-            if left:
-                px.note(f"CLEANUP still open after closing: {left}")
+            attempt["close"] = _close_checked(px, path, paths)
+        if attempt["right"] and attempt.get("saved") and attempt["close"]["closed"]:
+            reopened: Dict[str, Any] = {}
+            try:
+                doc, components = _open_train(px, path, info["names"])
+                reopened["rebuild"] = rebuild(px, doc, "reopened", top_only=TOP_ONLY)
+                reopened["definition"] = gear_mate_definition(px, doc, current)
+                reopened["errors"] = errors_only(mate_errors(px, doc))
+                reopened["turns"] = _drive_by(px, doc, components, RATIO_STEP, "driven after the reopen")
+                if how != "remake":
+                    # Set back by the same recipe and closed WITHOUT saving, as an Update leaves an assembly.
+                    reopened["back"] = set_gear_ratio_by_definition(px, doc, current, how, RATIO_NEW, g4["teeth"],
+                                                                    access=False)
+                    reopened["rebuild_back"] = rebuild(px, doc, "ratio set back", top_only=TOP_ONLY)
+                    reopened["errors_back"] = errors_only(mate_errors(px, doc))
+                    reopened["turns_back"] = _drive_by(px, doc, components, RATIO_STEP, "driven after setting it back")
+            finally:
+                reopened["close"] = _close_checked(px, path, paths)
+            attempt["reopened"] = reopened
         tries.append(attempt)
-        if route:
-            break
     facts["tries"] = tries
-    facts["mate_after"] = current
-
-    reopened: Dict[str, Any] = {}
-    if kept_path:
-        paths = [kept_path, info["layout"], info["part"]]
-        try:
-            doc, components = _open_train(px, kept_path, info["names"])
-            reopened["rebuild"] = rebuild(px, doc, "reopened", top_only=TOP_ONLY)
-            reopened["definition"] = gear_mate_definition(px, doc, current)
-            reopened["errors"] = errors_only(mate_errors(px, doc))
-            reopened["turns"] = _drive_by(px, doc, components, RATIO_STEP, "driven after the reopen")
-        finally:
-            left = close_paths(px, paths)
-            if left:
-                px.note(f"CLEANUP still open after closing: {left}")
-    facts["reopened"] = reopened
     px.fact("gear_mate_ratio", facts)
 
     # -- what it says
+    working: Dict[str, bool] = {}
     for attempt in tries:
+        how = attempt["how"]
         before = attempt.get("turns_before") or {}
         px.check(bool(before) and _train_ok(before, keys, old_expected, RATIO_STEP),
-                 f"{attempt['how']}: before the change the train turns 1/12: {[before.get(k) for k in keys]}")
+                 f"{how}: before the change the train turns 1/12: {[before.get(k) for k in keys]}")
         turns = attempt.get("turns") or {}
-        px.check(True, f"{attempt['how']}: then the output turned {turns.get(keys[3])} for the input's "
-                       f"{turns.get(keys[0])} ({RATIO_STEP * new_expected[3]:.6f} wanted); "
-                       f"definition after {(attempt.get('definition') or {}).get('after')}")
+        px.check(True, f"{how}: then the output turned {turns.get(keys[3])} for the input's {turns.get(keys[0])} "
+                       f"({RATIO_STEP * new_expected[3]:.6f} wanted); definition after "
+                       f"{(attempt.get('definition') or {}).get('after')}; closed afterwards: {attempt['close']}")
+        r = attempt.get("reopened") or {}
+        kept = bool(r) and right(r["turns"]) and not r["errors"] and r["close"]["closed"]
+        if "turns_back" in r:
+            kept = kept and right(r["turns_back"], old_expected) and not r["errors_back"]
+        if attempt["right"]:
+            px.check(True, f"{how}: reopened {r.get('turns')}; set back unsaved {r.get('turns_back')}; "
+                           f"closed: {(r.get('close') or {})}")
+        route = "remake" if how == "remake" else "modify definition"
+        working[route] = working.get(route, False) or bool(attempt["right"] and kept)
+    px.fact("gear_mate_ratio_routes", working)
+    px.fact("gear_mate_ratio_closes", {a["how"]: a["close"]["closed"] for a in tries})
     definition = (tries[0].get("definition") or {}).get("before") or {}
     # Which field holds which gear's teeth, as GetDefinition reads them (AddMate5 took the first selection's first).
     px.fact("definition_numerator_is_second_teeth",
             definition.get("GearRatioNumerator") == g4["teeth"] and definition.get("GearRatioDenominator") == g3["teeth"]
             if definition else None)
-    kept = bool(reopened) and right(reopened["turns"]) and not reopened["errors"]
-    px.check(route is None or kept, f"reopened, the new ratio holds: {reopened}")
-    px.fact("gear_mate_ratio_recipe", recipe if kept and route == "modify definition" else None)
-    px.fact("gear_mate_ratio_route", route if kept else None)
-    px.check(True, f"a saved gear mate's ratio is changed by: {route if kept else 'neither route'} ({recipe})")
+    route = next((r for r in ("modify definition", "remake") if working.get(r)), None)
+    px.fact("gear_mate_ratio_recipe", recipe if working.get("modify definition") else None)
+    px.fact("gear_mate_ratio_route", route)
+    px.check(True, f"a saved gear mate's ratio is changed by: {route or 'neither route'} (working: {working})")
 
 
 # -- 8: a lock re-taken after its gear moves along the shaft as well as round it ---
