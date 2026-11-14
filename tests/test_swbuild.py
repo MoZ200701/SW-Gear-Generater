@@ -1464,3 +1464,17 @@ def test_an_update_notes_each_files_time_before_it_changes_anything():
         return times[_key(path)]
     result = _update(fake, mtime=mtime)
     assert result.mtimes == {P17: 1.0, P68: 2.0, LAYOUT: 3.0}         # the assembly's time could not be read
+
+
+def test_every_same_named_document_open_elsewhere_is_named_in_one_refusal():
+    """Review S3: a refusal that concerns several files names all of them."""
+    fake = FakeSolidWorks(open_docs=[DocInfo("Gear_m1.5_N17.SLDPRT", r"C:\Other\Gear_m1.5_N17.SLDPRT", 1),
+                                     DocInfo("R.SLDASM", r"C:\Other\R.SLDASM", 2)])
+    with pytest.raises(swbuild.BuildError) as raised:
+        _build(fake)
+    assert str(raised.value) == (r"C:\Other\Gear_m1.5_N17.SLDPRT is open in SolidWorks, and it has the same file name "
+                                 r"as C:\W\Gear_m1.5_N17.SLDPRT, which this job would make; C:\Other\R.SLDASM is open "
+                                 r"in SolidWorks, and it has the same file name as C:\W\R.SLDASM, which this job would "
+                                 "make; SolidWorks keeps one document per file name, so close Gear_m1.5_N17.SLDPRT and "
+                                 "R.SLDASM in SolidWorks and try again.")
+    assert fake.calls == []

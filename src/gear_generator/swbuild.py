@@ -1058,11 +1058,17 @@ def _refuse_paths(sw: SolidWorks, made: Sequence[str], opened: Sequence[str], ve
             if _file(path).lower() == _file(earlier).lower():
                 raise BuildError(f"{earlier} and {path} have the same file name, and SolidWorks keeps one document "
                                  "per file name, so they cannot both be in one job.")
-    for open_path, wanted in same_named_elsewhere(sw.documents(), everything):
-        verb = verb_made if any(same_path(wanted, p) for p in made) else verb_opened
-        raise BuildError(f"{open_path} is open in SolidWorks, and it has the same file name as {wanted}, which this "
-                         f"job would {verb}; SolidWorks keeps one document per file name, so close "
-                         f"{_file(open_path)} in SolidWorks and try again.")
+    clashes = same_named_elsewhere(sw.documents(), everything)
+    if clashes:
+        said = []
+        for open_path, wanted in clashes:
+            verb = verb_made if any(same_path(wanted, p) for p in made) else verb_opened
+            said.append(f"{open_path} is open in SolidWorks, and it has the same file name as {wanted}, which this "
+                        f"job would {verb}")
+        files = [_file(p) for p, _ in clashes]
+        listed = files[0] if len(files) == 1 else ", ".join(files[:-1]) + f" and {files[-1]}"
+        raise BuildError(f"{'; '.join(said)}; SolidWorks keeps one document per file name, so close {listed} in "
+                         "SolidWorks and try again.")
 
 
 @dataclass
