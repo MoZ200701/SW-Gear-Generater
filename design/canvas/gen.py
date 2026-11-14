@@ -468,10 +468,10 @@ TAIL = '''</x-dc>
 '''
 
 
-def column(body, gap=8, width=484):
-    """The strip as the app draws it: 460 px of content inside 12 px of window ground."""
+def column(body, gap=8, width=484, pad=12):
+    """The strip as the app draws it: 460 px of content inside 12 px of window ground (a window's own ``pad``)."""
     return (f'<div style="width: {width}px; flex-shrink: 0; box-sizing: border-box; background: #f0f0f0; color: {INK}; '
-            f'font-family: {SANS}; font-size: 13px; line-height: 1.3; display: flex; flex-direction: column; gap: {gap}px; padding: 12px;">\n' + body + '\n</div>')
+            f'font-family: {SANS}; font-size: 13px; line-height: 1.3; display: flex; flex-direction: column; gap: {gap}px; padding: {pad}px;">\n' + body + '\n</div>')
 
 
 def page(body, gap=8):
@@ -880,16 +880,20 @@ def workbook_board(spec, *, clock="14:02:31", open_in_excel=True, before=None, c
                foot_button(footer.build_label, footer.build_primary, footer.build_enabled)]
     if footer.update_shown:
         buttons.append(foot_button("Update SolidWorks", footer.update_primary, footer.update_enabled))
-    foot = (f'<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">'
-            f'<div style="display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: {colour}; '
-            f'min-width: 0; max-width: {WINDOW_WIDTH - 420}px;">'
+    # The sentence wraps as WorkbookWindow._wrap_status wraps it: in the room the dot (8 px and 8 px after it) and
+    # the buttons (12 px before Export, 8 px before each of the others) leave in the window's width less its body
+    # padding, 2 px short of that, and never narrower than STATUS_MIN_WRAP. So the window keeps its width with all
+    # four buttons, and a board whose buttons leave too little room is pushed wider, as the window would be.
+    foot = (f'<div style="display: flex; align-items: center; gap: 12px;">'
+            f'<div style="flex: 1 1 0; display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: {colour}; '
+            f'min-width: {8 + 8 + wb_gui.STATUS_MIN_WRAP + 2}px; box-sizing: border-box; padding-right: 2px;">'
             f'<span style="padding-top: 5px; display: flex;">{dot(colour, 8)}</span><span style="line-height: 1.35;">{footer.text}</span></div>'
             f'<div style="display: flex; gap: 8px; flex-shrink: 0;">{"".join(buttons)}</div></div>')
     left = (f'<div style="width: {wb_gui.LEFT_WIDTH}px; flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;">'
             + "".join([box, gears, checks, since]) + '</div>')
     right = (f'<div style="flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;">' + view + speeds + '</div>')
     body = (header + f'<div style="display: flex; gap: 8px; align-items: flex-start;">{left}{right}</div>' + foot)
-    window = column(body, width=WINDOW_WIDTH)
+    window = column(body, width=WINDOW_WIDTH, pad=wb_gui.BODY_PAD)
     if ask:
         window = (f'<div style="position: relative; width: {WINDOW_WIDTH}px;">{window}'
                   + question_dialog(ui_text.BUILD_AGAIN_TITLE, ui_text.build_again_question(update, build_plan))

@@ -476,8 +476,10 @@ left or up rather than off the screen.
   turning as seen from +Z, torque where the power path gives one; *not driven*
   for a shaft nothing reaches. A gearbox a later phase drives gets one grey
   sentence instead.
-- **Footer.** A dot and one sentence (wrapped at 660 px), green when all is
-  well, then **Export**, **Export as…**, the build button and, once anything is
+- **Footer.** A dot and one sentence, green when all is well, wrapped in the
+  room the dot and the buttons showing leave (never narrower than 400 px), so
+  the window keeps its 1080 px with all four buttons and grows taller instead;
+  then **Export**, **Export as…**, the build button and, once anything is
   on record, **Update SolidWorks**. The build button is one button whose label
   follows the record and the read: **Build** (primary), **Build parts**
   (primary) while rows a later phase builds hold the layout back, or **Build
