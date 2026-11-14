@@ -43,6 +43,27 @@ sentence says what could not be written.
 
 ``update_plan`` holds what Update SolidWorks would do (it was ``update``,
 which hid Tk's own ``update()``).
+
+**Whose record** (second W4 review N1): a record beside the workbook written
+for another that is not there any more is not adopted silently — it may be
+one of two copies of an original since deleted. The window asks once, after
+the plan that found it (never from inside planning, never again on a
+re-plan), whether this workbook was moved or renamed from it; until the
+answer it is planned as a copy. The answer holds for the session
+(``_VERDICTS``) and is kept in the record: Yes adopts it, No sets
+``copy_of``.
+
+**The journal** (N4): before a build's job is submitted the record gains
+what it is about to make (``pending``), through the same guarded write as
+a finish; the finish takes it out. A build interrupted after SolidWorks
+saved some of it — the app killed, a crash, a power cut, or a close
+answered "Close anyway?" while SolidWorks did not answer — leaves those
+files for the next plan to reuse once checked live.
+
+**Closing while a job runs** a second time asks (default No) whether to
+close anyway; so does closing the strip's window a second time
+(``gui.CloseGuard``). A window with a question open (Build again?, or
+moved or a copy?) is not destroyed under it (``_asking``).
 """
 
 from __future__ import annotations
@@ -113,6 +134,17 @@ def _update_gate(a: wb_assess.Assessment, record: store.LinkRecord) -> str:
 
 JOB_BUILD, JOB_UPDATE = "build", "update"
 
+# The person's answers to "was this workbook moved or renamed from …?", for this session: (this workbook, the
+# workbook the record names), normalised -> True (moved: the record is this workbook's) or False (a copy). Kept in
+# the record too; this holds when that write fails. ``_ASKED``: the pairs already asked this session.
+_VERDICTS: Dict[Tuple[str, str], bool] = {}
+_ASKED: set = set()
+
+
+def _pair(workbook: str, other: str) -> Tuple[str, str]:
+    norm = lambda path: os.path.normcase(str(path).replace("/", "\\")).lower()       # noqa: E731
+    return norm(workbook), norm(other)
+
 
 def _had_assembly(record: Optional[store.LinkRecord]) -> bool:
     """Whether the record a build was planned from had an assembly: the press was Build again…, and the button
@@ -137,7 +169,8 @@ class Job:
 
     ``plan`` (a build) or ``update`` (an update) is what was run; ``record``
     the planning read it was planned from; ``digest`` the read it was planned
-    from; ``progress`` the worker's last step."""
+    from; ``progress`` the worker's last step; ``journaled`` whether the build's
+    journal reached the record before it began."""
 
     kind: str
     digest: str
@@ -145,6 +178,7 @@ class Job:
     update: Optional[wb_update.UpdatePlan] = None
     record: Optional[store.LinkRecord] = None
     progress: swbuild.Progress = dataclasses.field(default_factory=swbuild.Progress)
+    journaled: bool = False        # a build whose journal was written before it began (LinkRecord.pending)
 
     @property
     def updating(self) -> bool:
@@ -187,6 +221,7 @@ class WorkbookWindow(tk.Toplevel):
         self._pending: Optional[Any] = None    # the worker's answer to come (gui.GearApp looks at this too)
         self._job: Optional[Job] = None
         self._close_when_done = False
+        self._asking = False           # a question is open (Build again?, or moved or a copy?): not destroyed under it
         self._after: Optional[str] = None
 
         self.title(f"Workbook — {os.path.basename(path)}")
@@ -399,9 +434,10 @@ class WorkbookWindow(tk.Toplevel):
     def _saved_since(self) -> bool:
         """Whether a document the record says Update left unsaved is newer on disk now (saved in SolidWorks):
         a cheap look at those files' times only, so the footer stops asking for the save without a re-read."""
-        if self.record is None or not self.record.unsaved or self._pending is not None:
+        if self.record is None or not (self.record.unsaved or self.record.mismatched) or self._pending is not None:
             return False
-        return store.clear_saved(store.LinkRecord(unsaved=dict(self.record.unsaved)))
+        return store.clear_saved(store.LinkRecord(unsaved=dict(self.record.unsaved),
+                                                  mismatched=dict(self.record.mismatched)))
 
     def _refresh_read_line(self) -> None:
         if not self.read_at:
@@ -489,12 +525,21 @@ class WorkbookWindow(tk.Toplevel):
             record, problem = None, str(exc)      # broken: Build goes ahead, and its finish sets the file aside
         if record is not None:
             store.clear_saved(record)
+            record = self._settled(record)
         self.record, self.record_problem = record, problem
-        if store.foreign_workbook(record, self.link.path):
-            # The record beside this workbook was written for another that is still there: a copy (W4 review S1).
-            # It is not this workbook's, so nothing is shown as built and Update SolidWorks is not offered; Build
-            # makes a gearbox of this workbook's own beside the other's files, and the footer says so from
-            # plan.foreign_record (plan_gearbox plans without that record; finish_build then starts a fresh one).
+        owner, other = store.record_owner(record, self.link.path)
+        if owner == store.UNSURE and _pair(self.link.path, other) not in _ASKED:
+            # Its workbook is gone: moved or renamed, or this is one of the copies of an original since deleted.
+            # Asked once, after this plan — never from inside planning — and planned as a copy until answered.
+            _ASKED.add(_pair(self.link.path, other))
+            # A timer, not after_idle: _fit's update_idletasks runs idle callbacks, which would open the question in
+            # the middle of painting.
+            self.after(0, self._ask_moved, other)
+        if owner != store.OURS:
+            # The record beside this workbook is another's (W4 review S1, second review N1): a copy, or not yet
+            # said. Nothing is shown as built and Update SolidWorks is not offered; Build makes a gearbox of this
+            # workbook's own beside the other's files, and the footer says so from plan.foreign_record
+            # (plan_gearbox plans without that record; finish_build then starts a fresh one).
             self.record = None
         self.plan = self.update_plan = None
         self.plan_trouble = ""
@@ -517,6 +562,55 @@ class WorkbookWindow(tk.Toplevel):
         except Exception as exc:  # noqa: BLE001 - planning is pure and should never raise; if it does, say so
             self.plan = self.update_plan = None
             self.plan_trouble = ui_text.planning_failed(exc)
+
+    def _settled(self, record: Optional[store.LinkRecord]) -> Optional[store.LinkRecord]:
+        """``record`` with this session's answer to "moved, or a copy?" made in memory (``store.settle_owner``),
+        when its workbook is gone and the record does not hold an answer yet (it does once the answer is written)."""
+        if record is None:
+            return None
+        owner, other = store.record_owner(record, self.link.path)
+        answer = _VERDICTS.get(_pair(self.link.path, other)) if owner == store.UNSURE else None
+        if answer is not None:
+            store.settle_owner(record, self.link.path, moved=answer)
+        return record
+
+    def _ask_moved(self, other: str) -> None:
+        """Ask (default No) whether this workbook was moved or renamed from ``other``, the workbook its record was
+        written for, which is gone (second W4 review N1c); keep the answer for the session and in the record, then
+        plan again. Never from inside planning: the plan that found it scheduled this."""
+        if self._closed():
+            _ASKED.discard(_pair(self.link.path, other))    # never asked: the next window on it asks
+            return
+        if _pair(self.link.path, other) in _VERDICTS:
+            return
+        self._asking = True
+        try:
+            moved = ask_yes_no(self, ui_text.MOVED_TITLE, ui_text.moved_question(self.link.path, other))
+        finally:
+            self._asking = False
+        _VERDICTS[_pair(self.link.path, other)] = moved
+        try:
+            record = store.open_link_record(self.link.path)
+            if record is not None and store.record_owner(record, self.link.path) == (store.UNSURE, other):
+                store.settle_owner(record, self.link.path, moved)
+                store.save_link_record(record, store.link_record_path(self.link.path))
+        except Exception as exc:  # noqa: BLE001 - this session keeps the answer, and says it could not be written
+            self.note = ui_text.Note(ui_text.answer_not_kept(exc), False, ui_text.NOTE_STANDING)
+        if self._after_question():
+            return
+        if self.reading is not None and self.reading.ok:
+            self._plan()
+            self._refresh_read_line()
+            self._paint()
+
+    def _after_question(self) -> bool:
+        """A close asked for while a question was open, honoured once it is answered — unless the answer started a
+        job, which the window then waits for as any close does. Whether the window closed."""
+        if self._close_when_done and self._pending is None:
+            self._close_when_done = False
+            self.close()
+            return self._closed()
+        return False
 
     def _strip(self, name: str) -> str:
         """One of the strip's own settings (its Output panel's templates), as it is now."""
@@ -574,6 +668,8 @@ class WorkbookWindow(tk.Toplevel):
         carried = ""
         try:
             store.carry_link_record(old, new)
+        except store.NotCarried as exc:          # a copy's record: never laundered into this workbook's (N1b)
+            carried = ui_text.record_not_carried(str(exc))
         except store.StoreError as exc:
             carried = ui_text.record_not_carried(str(exc))
         except OSError as exc:
@@ -612,7 +708,7 @@ class WorkbookWindow(tk.Toplevel):
             tk.Label(self.table, text=text, bg=theme.WHITE, fg=theme.READOUT, font=f.tiny, anchor="w").grid(
                 row=0, column=col, sticky="w", padx=(0, px(10)))
         rows = ui_text.workbook_gear_rows(spec, self.parts, self.diagnostics, record=self.record,
-                                          update=self.update_plan)
+                                          update=self.update_plan, plan=self.plan)
         for r, (gear, shaft, kind, teeth, module, face, part, state, what) in enumerate(rows, start=1):
             for col, text in enumerate((gear, shaft, kind, teeth, module, face, part or "—")):
                 font = f.label if col == 2 else f.mono_tiny
@@ -793,7 +889,7 @@ class WorkbookWindow(tk.Toplevel):
             record = None
             if self.note is not None:
                 self.note = dataclasses.replace(self.note, text=f"{self.note.text} {exc}")
-        if store.foreign_workbook(record, self.link.path):
+        if store.foreign_workbook(self._settled(record), self.link.path):
             return          # a copy's record is the other workbook's, written only once this one builds (review S1)
         record = record or store.LinkRecord(workbook=self.link.path)
         store.adopt(record, self.link.path)
@@ -871,7 +967,21 @@ class WorkbookWindow(tk.Toplevel):
             return
         again, digest = self.plan, self.reading.digest
         question = ui_text.build_again_question(self.update_plan, again)
-        if not ask_yes_no(self, ui_text.BUILD_AGAIN_TITLE, question):
+        self._asking = True
+        try:
+            yes = ask_yes_no(self, ui_text.BUILD_AGAIN_TITLE, question)
+        finally:
+            self._asking = False
+        try:
+            self._answered_build_again(yes, again, digest)
+        finally:
+            self._after_question()
+
+    def _answered_build_again(self, yes: bool, again: Optional[wb_gearbox.GearboxPlan], digest: str) -> None:
+        """The Build again? answer: No keeps the reason with the state's lines; Yes builds what was asked about."""
+        if self._closed():
+            return
+        if not yes:
             self.note = ui_text.Note(ui_text.NOTHING_CHANGED, True, ui_text.NOTE_ANSWER)
             self._refresh_state()
             return
@@ -900,7 +1010,37 @@ class WorkbookWindow(tk.Toplevel):
             return
         job = Job(JOB_BUILD, self.reading.digest, plan=plan, record=self.record)
         kwargs = plan.build_kwargs()
+        job.journaled = self._write_journal(plan)
         self._submit(job, lambda session: swbuild.build_gearbox(session, **kwargs, progress=job.progress.say))
+
+    def _write_journal(self, plan: wb_gearbox.GearboxPlan) -> bool:
+        """Before the worker starts: what this build is about to make, in the record beside the workbook
+        (``LinkRecord.pending``, through the same guarded write as a finish), so a build interrupted before its
+        finish leaves those files to be reused, not called files with no record (second W4 review N4). A record
+        that cannot be written is left as it is: the build still goes, as it did before there was a journal.
+        Whether the journal was written."""
+        try:
+            record = store.read_link_record(self.link.path)   # moves nothing: a broken one is the finish's to set aside
+        except Exception:  # noqa: BLE001 - newer than this app, or broken: left as it is for the finish
+            return False
+        if record is None:
+            record = store.LinkRecord(workbook=self.link.path, own_digest=self.link.own_digest, recalc=self.recalc)
+        record.pending, record.pending_for = wb_gearbox.journal(plan), self.link.path
+        try:
+            store.save_link_record(record, store.link_record_path(self.link.path))
+        except Exception:  # noqa: BLE001 - a button never raises; the finish says what cannot be written
+            return False
+        return True
+
+    def _clear_journal(self) -> None:
+        """A build the worker answered with a raise made nothing: its journal is taken out."""
+        try:
+            record = store.open_link_record(self.link.path)
+            if record is not None and record.pending:
+                record.pending, record.pending_for = [], ""
+                store.save_link_record(record, store.link_record_path(self.link.path))
+        except Exception:  # noqa: BLE001 - only the journal: the next plan drops what is not on disk
+            pass
 
     def _worker_free(self, updating: bool = False) -> bool:
         """The strip's one SolidWorks thread is there and not building for the strip; else say why."""
@@ -934,6 +1074,8 @@ class WorkbookWindow(tk.Toplevel):
                 self.note = ui_text.Note(ui_text.job_failed(error, job.updating), False)
                 if job.updating and isinstance(error, swbuild.NotAsBuilt):
                     self._mark_not_as_built(error)
+                elif not job.updating:
+                    self._clear_journal()
             elif job.updating:
                 self.note = self._finish_update(job, value)
             else:
@@ -981,7 +1123,9 @@ class WorkbookWindow(tk.Toplevel):
                 pass
         if finished.record is not None and may_write:
             try:
-                store.save_link_record(finished.record)
+                # Beside this workbook, whatever the record's own ``workbook`` says: a copy's journal is taken out
+                # of the record that came with it, which names the other workbook (and whose record that is).
+                store.save_link_record(finished.record, store.link_record_path(self.link.path))
             except store.StoreError as exc:
                 faults.append(str(exc))
             except Exception as exc:  # noqa: BLE001 - the disk refused, or anything else: said
@@ -1012,7 +1156,7 @@ class WorkbookWindow(tk.Toplevel):
             if not may_write:
                 faults, notes = notes + faults, []
         except Exception as exc:  # noqa: BLE001 - see the docstring
-            notes, faults = [], [ui_text.finish_failed(exc)]
+            notes, faults = [], [ui_text.finish_failed(exc, journaled=job.journaled)]
         return ui_text.Note(" ".join([text] + notes + faults), ok and not faults)
 
     def _finish_update(self, job: Job, result: swbuild.GearboxUpdate) -> ui_text.Note:
@@ -1051,7 +1195,7 @@ class WorkbookWindow(tk.Toplevel):
             record = store.open_link_record(self.link.path)
         except (store.StoreError, OSError):
             return
-        if (not path or record is None or store.foreign_workbook(record, self.link.path)
+        if (not path or record is None or store.foreign_workbook(self._settled(record), self.link.path)
                 or not any(store.same_path(p.path, path) for p in record.parts)):
             return
         try:
@@ -1075,18 +1219,44 @@ class WorkbookWindow(tk.Toplevel):
             self._set_status(f"The workbook could not be opened: {exc}", ok=False)
 
     def close(self) -> None:
+        if self._asking:
+            # A question is open over this window: it closes once that is answered (_after_question).
+            self._close_when_done = True
+            return
         if self._pending is not None:
             # SolidWorks is saving files: closing now would leave them off the record. The window stays, says it
-            # will close, and closes once the job's finish has written the sidecars and the record.
+            # will close, and closes once the job's finish has written the sidecars and the record. Asked again
+            # while SolidWorks has not answered — held by a dialog, say — it offers to close anyway (N4.3).
+            if self._close_when_done and self._job is not None:
+                updating = self._job.updating
+                self._asking = True
+                try:
+                    anyway = ask_yes_no(self, ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question(updating))
+                finally:
+                    self._asking = False
+                if anyway and self._pending is not None:
+                    self._pending = self._job = None      # its answer goes nowhere; the journal stays for the next plan
+                    self._close_when_done = False
+                    self._destroy()
+                    return
+                if self._pending is None:                 # it answered while the question was open
+                    self._close_when_done = False
+                    if self.note is None or self.note.ok:
+                        self._destroy()
+                    return
             self._close_when_done = True
             self._refresh_state()
             return
+        self._destroy()
+
+    def _destroy(self) -> None:
         if self._after is not None:
             try:
                 self.after_cancel(self._after)
             except tk.TclError:
                 pass
-        self.destroy()
+        if not self._closed():
+            self.destroy()
 
 
 # -------------------------------------------------------------------- opening one

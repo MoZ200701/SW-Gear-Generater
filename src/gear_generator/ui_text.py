@@ -767,7 +767,7 @@ GEAR_STATE_BUILT, GEAR_STATE_CHANGES, GEAR_STATE_NEW_PART = "built", "changes", 
 
 
 def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record=None,
-                       update=None) -> List[Tuple[str, ...]]:
+                       update=None, plan=None) -> List[Tuple[str, ...]]:
     """One row per gear for the window's table: gear, shaft, kind, teeth, module, face, part, state, what.
 
     ``part`` is the part file's name without ``.SLDPRT`` (every part is one), so the column stays narrow.
@@ -780,7 +780,10 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record
     *built*, its part the recorded file's; with ``update`` too (a
     ``workbook.update.UpdatePlan``) it is *built · changes on Update* when its
     part's values change, and *needs a new part* (red) when a reason Update
-    cannot carry names it, or its part's file is missing.
+    cannot carry names it, or its part's file is missing. A gear still to
+    build shows the part the build would make — ``plan.part_of`` (a
+    ``workbook.gearbox.GearboxPlan``), which is ``<stem>_r2`` when its own
+    file name is taken — rather than its own stem (second review N6).
     """
     by_gear = {}
     for job in parts.jobs:
@@ -808,7 +811,8 @@ def workbook_gear_rows(spec, parts, diagnostics: Sequence[Diagnostic], *, record
             state, what = _built_state(gear.id, entry, update)
         elif gear.id in by_gear:
             job, index = by_gear[gear.id]
-            part = job.stem
+            planned = (getattr(plan, "part_of", None) or {}).get(gear.id, "") if plan is not None else ""
+            part = _stem(planned) if planned else job.stem
             if index:
                 state, what = GEAR_STATE_SHARES, f"the same part as {job.gear_ids[0]}"
             else:
@@ -1416,10 +1420,10 @@ def _missing_sentence(missing: Sequence[str]) -> str:
     if len(files) == 1:
         folder = _folder_of(missing[0])
         where = f"in {short_path(folder, 48)}" if folder else "where it was built"
-        return (f"{files[0]} is no longer {where}: it was moved or renamed since it was built, so Update "
+        return (f"{files[0]} is no longer {where}: it was moved, renamed or deleted since it was built, so Update "
                 "SolidWorks cannot change it.")
-    return (f"{_and(files)} are no longer where they were built: they were moved or renamed since, so Update "
-            "SolidWorks cannot change them.")
+    return (f"{_and(files)} are no longer where they were built: they were moved, renamed or deleted since, so "
+            "Update SolidWorks cannot change them.")
 
 
 _STRIP_AGAIN = "; build it again as a new part."
@@ -1456,8 +1460,10 @@ def _again_sentence(update, name: str = "") -> str:
         if len(files) == 1:
             folder = _folder_of(update.missing[0])
             where = f"in {short_path(folder, 48)}" if folder else "where it was built"
-            return f"{files[0]} is no longer {where}: it was moved or renamed since it was built{also}, so {offer}"
-        return f"{_and(files)} are no longer where they were built: they were moved or renamed since{also}, so {offer}"
+            return (f"{files[0]} is no longer {where}: it was moved, renamed or deleted since it was built{also}, so "
+                    f"{offer}")
+        return (f"{_and(files)} are no longer where they were built: they were moved, renamed or deleted since{also}, "
+                f"so {offer}")
     return f"{_cannot_carry(update)} {offer}"
 
 
@@ -1643,9 +1649,12 @@ def _occupied(plan, overwritten: bool = True, superseded: Sequence[str] = ()) ->
 
 def _held_back(plan, subject: str, after_unsaved_line: bool) -> str:
     """The parts made new although a built one matched (``GearboxPlan.made_new``, UNSAVED and MISMATCHED), as what
-    ``subject`` (*Build*, *the new revision*) does: *Until Gear_m1.5_N68 is saved, the new revision makes G2's part
-    new, as Gear_m1.5_N69, rather than reuse it.* — after the sentence asking for the save, which is not asked
-    again (W4 review S3, S4.1) — else with its own reason."""
+    ``subject`` (*Build*, *the new revision*) does: *While Gear_m1.5_N68's changes are not saved, the new revision
+    makes G2's part new, as Gear_m1.5_N69, rather than reuse it.* — after the sentence asking for the save, which is
+    not asked again (W4 review S3, S4.1); true too if SolidWorks closed it unsaved, which nothing here can know
+    (second review N2) — else with its own reason. A part marked mismatched — a check found it not holding what
+    the record says, or a job found it closed with Update's changes unsaved — *does not hold what the record
+    says, as the last job in SolidWorks found*."""
     from .workbook.gearbox import MISMATCHED, UNSAVED
     out = []
     for why in (UNSAVED, MISMATCHED):
@@ -1658,20 +1667,27 @@ def _held_back(plan, subject: str, after_unsaved_line: bool) -> str:
         does = (f"{subject} makes {who} new, as {_and(_stem(m.new) for m in items)}, rather than reuse "
                 f"{_them(len(items))}.")
         if why == UNSAVED and after_unsaved_line:
-            out.append(f"Until {olds} {'is' if one else 'are'} saved, {does}")
+            whose = f"{olds}'s changes are" if one else f"the changes in {olds} are"
+            out.append(f"While {whose} not saved, {does}")
         elif why == UNSAVED:
             out.append(f"{olds} {'has' if one else 'have'} changes from Update SolidWorks that are not saved, so "
                        f"{does}")
         else:
-            out.append(f"{olds} did not hold what the record says when the last build checked "
-                       f"{_them(len(items))}, so {does}")
+            out.append(f"{olds} {'does' if one else 'do'} not hold what the record says, as the last job in "
+                       f"SolidWorks found, so {does}")
     return " ".join(out)
 
 
 def _copy_sentence(plan) -> str:
     """A copied workbook (``GearboxPlan.foreign_record``, review S1): the record that came with it, and the files it
-    lists, are the other workbook's; Build makes this one's own beside them."""
+    lists, are the other workbook's; Build makes this one's own beside them. A record whose workbook is gone, and
+    nobody has said whether this one was moved from it (``plan.foreign_gone``, second review N1c), is said as
+    such: the window is asking."""
     other = plan.foreign_record
+    if getattr(plan, "foreign_gone", False):
+        return (f"The record that came with this workbook was written for {short_path(other, 48)}, which is not there "
+                "any more: until you say whether this workbook was moved or renamed from it, Build makes this "
+                "workbook's own gearbox beside the files it lists, sharing and overwriting nothing.")
     return (f"This workbook is a copy of {short_path(other, 48)}, which is still there, so the record that came with "
             "it is that workbook's, and so are the SolidWorks files it lists: Build makes this workbook's own gearbox "
             "beside them, sharing and overwriting nothing.")
@@ -1710,18 +1726,21 @@ def build_again_question(update, again) -> str:
     if does:
         text += " That " + _and(does) + "."
     for why, because, after in ((UNSAVED, "has changes from Update SolidWorks that are not saved", True),
-                                (MISMATCHED, "did not hold what the record says when the last build checked it",
-                                 False)):
+                                (MISMATCHED, "does not hold what the record says, as the last job in SolidWorks "
+                                             "found", False)):
         items = _made_new_by(again, why)
         if not items:
             continue
         one = len(items) == 1
         who, be = _gears_part([g for m in items for g in m.gear_ids], len(items))
         olds = _and(_stem(m.old) for m in items)
-        said = because if one else because.replace("has", "have", 1).replace("checked it", "checked them")
+        said = because if one else because.replace("has", "have", 1).replace("does", "do", 1)
         text += f" {who[:1].upper()}{who[1:]} {be} new because {olds} {said}"
-        text += (f"; to reuse {_them(len(items))} instead, answer No and save {_them(len(items))} in SolidWorks "
-                 "first." if after else ".")
+        # The save it asks for may no longer be possible (SolidWorks closed since): said so, true either way (N2).
+        them = _them(len(items))
+        text += (f"; to reuse {them} instead, answer No and save {them} in SolidWorks first (if SolidWorks has "
+                 f"closed {them} since without saving, those changes are gone, and {them} cannot be reused)."
+                 if after else ".")
     occupied = _occupied(again, overwritten=False,
                          superseded=[p.path for p in update.parts] if update is not None else ())
     if occupied:
@@ -1807,13 +1826,18 @@ def _ready_parts(assessment, plan, folder: str, superseded: Sequence[str] = ()) 
     return text, True
 
 
-def _unsaved_line(paths: Sequence[str]) -> str:
-    """The save asked for once, naming every document Update changed and that is not saved: parts first, the
-    assembly last, as Update changed them."""
+def _unsaved_line(paths: Sequence[str], update_puts_back: bool = False) -> str:
+    """The save asked for once, naming every document of the current revision Update changed and that is not
+    saved: parts first, the assembly last, as Update changed them. Nothing here can know whether SolidWorks has
+    them open still, so the sentence is true either way (second review N2): if SolidWorks closed them without
+    saving, the changes are gone — and, where Update SolidWorks would carry the workbook again
+    (``update_puts_back``), pressing it makes them again. A job that finds them closed takes the mark off."""
     paths = sorted(paths, key=lambda p: str(p).lower().endswith(".sldasm"))
     one = len(paths) == 1
+    them = _them(len(paths))
+    then = (" press Update SolidWorks to make them again." if update_puts_back else " those changes are gone.")
     return (f"{_and(_stem(p) for p in paths)} {'has' if one else 'have'} changes from Update SolidWorks that are not "
-            f"saved: save {_them(len(paths))} in SolidWorks to keep {_them(len(paths))}.")
+            f"saved: save {them} in SolidWorks to keep {them}. If SolidWorks closed {them} without saving,{then}")
 
 
 def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=None, update=None,
@@ -1900,7 +1924,12 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
     loose = _without_folder(a)
     update_gate = loose.lay_out_refusal() if gearbox is not None else loose.build_refusal()
     update_on = on_record and not update_gate and update is not None and not update.refusal
-    unsaved = list(update.unsaved) if update is not None else list(getattr(record, "unsaved", {}) or {})
+    if update is not None:
+        unsaved = list(update.unsaved)
+    elif record is not None:
+        unsaved = list(record.current_marks(record.unsaved))
+    else:
+        unsaved = []
     superseded = [p.path for p in record.parts] if record is not None else []
 
     held = ""              # why Build again… or Update SolidWorks is greyed, when the sentence does not say it
@@ -1947,6 +1976,16 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
 
     if record_problem:                            # a broken record: Build goes ahead and sets it aside
         text, ok = f"{text} {record_problem}", False
+    puts_back = bool(update_on and update is not None and not update.needs_new_revision)
+    if note is None or note.kind == NOTE_ANSWER:
+        # The state's own lines — the save asked for, the parts made new — follow an answer too (after "No" to
+        # Build again? the reason it answered is kept, and these with it).
+        if unsaved:
+            text += " " + _unsaved_line(unsaved, puts_back)
+        if subject and plan is not None and not plan.refusal:
+            back = _held_back(plan, subject, after_unsaved_line=bool(unsaved))
+            if back:
+                text += " " + back
     if note is not None:
         if note.kind == NOTE_ANSWER:
             text, ok = f"{note.text} {text}", ok and note.ok
@@ -1954,13 +1993,6 @@ def workbook_footer(assessment, *, record=None, record_problem: str = "", plan=N
             text, ok = note.text + _left_for_later(a.parts), note.ok
         else:
             text = _after_note(note, text)
-    else:
-        if unsaved:
-            text += " " + _unsaved_line(unsaved)
-        if subject and plan is not None and not plan.refusal:
-            back = _held_back(plan, subject, after_unsaved_line=bool(unsaved))
-            if back:
-                text += " " + back
     if held:
         text += " " + held
     return footer(text + due, ok, build_on, update_on)
@@ -1992,13 +2024,17 @@ def workbook_built_tag(record, digest: str) -> str:
     """The header's word on the record beside the workbook: `` · built from this version`` or `` · changed since
     it was built`` once a layout part or assembly is on record (``record.digest`` is the read SolidWorks was last
     built or updated from), `` · parts built from this version`` / `` · changed since its parts were built`` for
-    W2's parts alone, and ``""`` with nothing on record. While documents Update changed are not saved
-    (``record.unsaved``) this version is in SolidWorks only: `` · updated from this version, not yet saved``
-    (W4 review S4.7)."""
+    W2's parts alone, and ``""`` with nothing on record. While documents of the current revision Update changed
+    are not saved (``record.unsaved``) this version is in SolidWorks only: `` · updated from this version, not
+    yet saved`` (W4 review S4.7); an earlier revision's are not counted (second review N2). While a document of
+    the current revision is marked mismatched (a check found it not holding what the record says, or a job found
+    Update's changes in it lost) it is `` · SolidWorks no longer holds all of this version``."""
     if record is None or not (record.parts or record.gearbox is not None):
         return ""
     same = bool(digest) and record.digest == digest
-    unsaved = bool(getattr(record, "unsaved", None))
+    unsaved = bool(record.current_marks(record.unsaved))
+    if same and record.current_marks(record.mismatched):
+        return " · SolidWorks no longer holds all of this version"
     if record.gearbox is None:
         if same:
             return (" · parts updated from this version, not yet saved" if unsaved
@@ -2101,20 +2137,82 @@ def collect_failed(error: BaseException, updating: bool = False) -> str:
     return f"The {what} could not be collected — {type(error).__name__}: {error}"
 
 
-def finish_failed(error: BaseException, updating: bool = False) -> str:
-    """Putting a finished job on record raised (W4 review B1, the window's half): what could be written was."""
-    what = "update changed" if updating else "build saved"
-    return (f"What the {what} could not all be put on record — {type(error).__name__}: {error}. What SolidWorks "
-            "saved stays on disk, and the next Build goes beside it rather than over it.")
+def finish_failed(error: BaseException, updating: bool = False, journaled: bool = False) -> str:
+    """Working out what a finished job leaves on record raised (W4 review B1, the window's half), so nothing of the
+    record was written. A build whose journal was written before it began (``journaled``, second review N4) still
+    has it on record: the next Build reuses what SolidWorks saved, once checked. Update saves nothing: what it
+    changed is in SolidWorks only, and not marked unsaved."""
+    lead = f"What the {'update changed' if updating else 'build saved'} could not all be put on record — " \
+           f"{type(error).__name__}: {error}."
+    if updating:
+        return f"{lead} Its changes are in SolidWorks, not saved: save them there to keep them."
+    if journaled:
+        return (f"{lead} What SolidWorks saved stays on disk, and the next Build finds it from the journal written "
+                "before the build, checks it in SolidWorks and reuses what it can.")
+    return f"{lead} What SolidWorks saved stays on disk, and the next Build goes beside it rather than over it."
 
 
-def app_closes_when_done(count: int = 1) -> str:
-    """The strip's window was closed while Workbook windows have jobs in SolidWorks: the app stays until what
-    they saved is on record (the worker thread would die with it, and nothing would reach the record)."""
-    jobs = "a workbook's job" if count == 1 else f"{count} workbooks' jobs"
-    one = count == 1
-    return (f"Gear Generator closes once {jobs} in SolidWorks {'has' if one else 'have'} finished and what "
+def app_closes_when_done(count: int = 1, strip: bool = False) -> str:
+    """The strip's window was closed while Workbook windows (``count``) or the strip itself (``strip``) have jobs in
+    SolidWorks: the app stays until what they saved is on record (the worker thread would die with it, and
+    nothing would reach the record). Closing it again offers to quit anyway (:func:`quit_anyway_question`)."""
+    jobs = (["a workbook's job" if count == 1 else f"{count} workbooks' jobs"] if count else []) + (
+        ["the strip's build"] if strip else [])
+    one = len(jobs) == 1 and count <= 1
+    return (f"Gear Generator closes once {_and(jobs)} in SolidWorks {'has' if one else 'have'} finished and what "
             f"{'it' if one else 'they'} saved is on record; it stays open if something needs saying.")
+
+
+APP_CLOSES_AFTER_QUESTION = "Gear Generator closes once the question open in a Workbook window is answered."
+
+QUIT_ANYWAY_TITLE = "Quit anyway?"
+CLOSE_ANYWAY_TITLE = "Close anyway?"
+
+
+def quit_anyway_question(workbook_build: bool = False) -> str:
+    """Asked (default No) when the strip's window is closed a second time while a job in SolidWorks has not
+    answered — SolidWorks may be held by a dialog, and nothing can stop a call it does not answer (second W4
+    review N4.3). What it says is what holds: this session puts nothing more on record, and no file is
+    overwritten (a build never overwrites one). ``workbook_build``: a workbook's build is among the jobs, whose
+    journal lets its next Build reuse what it saved."""
+    text = ("SolidWorks has not answered yet: a job is still running there, perhaps held up by a dialog open in "
+            "SolidWorks. Quit anyway? Files SolidWorks saves from now, and documents it changes, are not put on record "
+            "by this session, and nothing will be overwritten.")
+    if workbook_build:
+        text += (" The workbook's next Build finds the files its build saved, checks them in SolidWorks and reuses "
+                 "what it can.")
+    return text
+
+
+def close_anyway_question(updating: bool = False) -> str:
+    """The Workbook window's own close, a second time while its job has not answered (second W4 review N4.3)."""
+    if updating:
+        return ("SolidWorks has not answered yet: Update SolidWorks is still running there, perhaps held up by a "
+                "dialog open in SolidWorks. Close this window anyway? What it changes from now is not put on record, "
+                "so this window will not ask for those documents to be saved, and nothing will be overwritten.")
+    return ("SolidWorks has not answered yet: the build is still running there, perhaps held up by a dialog open in "
+            "SolidWorks. Close this window anyway? Files SolidWorks saves from now are not put on record by this "
+            "window, and nothing will be overwritten: the next Build finds them, checks them in SolidWorks and "
+            "reuses what it can.")
+
+
+MOVED_TITLE = "Moved, or a copy?"
+
+
+def moved_question(workbook: str, other: str) -> str:
+    """Asked once (default No) when the record beside a workbook was written for another that is not there any more
+    (``store.UNSURE``, second W4 review N1c): moved or renamed — the record is this workbook's — or a copy of an
+    original since deleted, renamed or gone offline, whose files are not this workbook's."""
+    return (f"The record of what was built beside this workbook was written for {short_path(other, 60)}, which is not "
+            "there any more. Was this workbook moved or renamed from it? Yes: the record is this workbook's, and "
+            "Update SolidWorks and Build carry on from what it lists. No: this workbook is a copy, so Build makes "
+            "its own gearbox beside those files, sharing and overwriting nothing. The answer is kept in the record.")
+
+
+def answer_not_kept(error: BaseException) -> str:
+    """The move-or-copy answer could not be written into the record: this session keeps it."""
+    return (f"Your answer holds until Gear Generator closes, but it could not be kept in the record of what was "
+            f"built: {error}.")
 
 
 APP_STAYED_OPEN = ("Gear Generator stayed open: a workbook's job has something to say in its window. Close this window "

@@ -249,9 +249,9 @@ class GearApp(ttk.Frame):
         self._refresh_link_labels()
         self._derive_now()
         self._start_link()
-        # Closing this window while a Workbook window has a job in SolidWorks waits for what it saved to be on
-        # record (the worker thread dies with the app): see CloseGuard.
-        self._close_guard = CloseGuard(self.winfo_toplevel(), self._set_status)
+        # Closing this window while a Workbook window, or the strip itself, has a job in SolidWorks waits for what
+        # it saved to be on record (the worker thread dies with the app): see CloseGuard.
+        self._close_guard = CloseGuard(self.winfo_toplevel(), self._set_status, strip=self)
         self.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._close_guard.request)
 
     # ---------------------------------------------------------------- layout
@@ -1887,46 +1887,89 @@ class CloseGuard:
     pending the root is destroyed at once, as before. ``say`` is the strip's
     status (``GearApp._set_status``) and ``quit`` destroys the root (tests
     replace both); ``poll_ms`` how often it looks again.
+
+    Second W4 review N4: the strip's own build (``strip._pending_build``,
+    the strip passed as ``strip``) is waited for the same way — its poll
+    collects it and writes its ``.gear.json``, then the app closes; nothing
+    else of the strip changes. A Workbook window with a question open (Build
+    again?, moved or a copy?) is not destroyed under it: the app closes once
+    it is answered (:data:`ui_text.APP_CLOSES_AFTER_QUESTION`), and the window
+    once the answer is acted on. And SolidWorks held by a modal dialog never
+    answers a call, which nothing can cancel, so a second close while a job
+    is waited for asks (default No, ``ask``) whether to quit anyway
+    (:func:`ui_text.quit_anyway_question`): Yes quits, leaving what SolidWorks
+    saves from then off the record — a workbook's journal lets its next
+    Build reuse it, and no file is ever overwritten.
     """
 
     def __init__(self, root: tk.Misc, say: Callable[..., None], poll_ms: int = 1000,
-                 quit: Optional[Callable[[], None]] = None) -> None:
+                 quit: Optional[Callable[[], None]] = None, strip: Optional[Any] = None,
+                 ask: Optional[Callable[[str, str], bool]] = None) -> None:
         self.root = root
         self.say = say
         self.poll_ms = poll_ms
         self.quit = quit or root.destroy
+        self.strip = strip
+        self.ask = ask or self._ask
         self.waiting: List[Any] = []          # Workbook windows asked to close once their job is on record
+        self.asked = False                    # a close is being waited for: the next one offers to quit anyway
         self._after: Optional[str] = None
+
+    def _ask(self, title: str, question: str) -> bool:
+        from .workbook_gui import ask_yes_no
+        return ask_yes_no(self.root, title, question)
+
+    def _windows(self) -> List[Any]:
+        from .workbook_gui import WorkbookWindow
+        return [w for w in self.root.winfo_children() if isinstance(w, WorkbookWindow) and not w._closed()]  # noqa: SLF001
 
     def pending(self) -> List[Any]:
         """The Workbook windows with a job in SolidWorks now."""
-        from .workbook_gui import WorkbookWindow
-        return [w for w in self.root.winfo_children()
-                if isinstance(w, WorkbookWindow) and w._pending is not None]  # noqa: SLF001
+        return [w for w in self._windows() if w._pending is not None]  # noqa: SLF001
+
+    def asking(self) -> List[Any]:
+        """The Workbook windows with a question open now, and no job."""
+        return [w for w in self._windows() if w._asking and w._pending is None]  # noqa: SLF001
+
+    def strip_building(self) -> bool:
+        """Whether the strip has a build of its own in SolidWorks now."""
+        return self.strip is not None and getattr(self.strip, "_pending_build", None) is not None
 
     def request(self) -> None:
-        """The window's close button (``WM_DELETE_WINDOW``): close now, or once every job's finish is written."""
-        pending = self.pending()
-        if not pending:
-            self.waiting = []
+        """The window's close button (``WM_DELETE_WINDOW``): close now, or once every job's finish is written and
+        every question answered; a second time while a job has not answered, offer to quit anyway."""
+        pending, asking, strip = self.pending(), self.asking(), self.strip_building()
+        if not (pending or asking or strip):
+            self.waiting, self.asked = [], False
             self.quit()
             return
-        for window in pending:
+        if self.asked and (pending or strip):
+            building = any(w._job is not None and not w._job.updating for w in pending)  # noqa: SLF001
+            if self.ask(ui_text.QUIT_ANYWAY_TITLE, ui_text.quit_anyway_question(building)):
+                self.waiting, self.asked = [], False
+                self.quit()
+                return
+        self.asked = True
+        for window in pending + asking:
             if window not in self.waiting:
                 self.waiting.append(window)
-                window.close()                # it stays, and closes once what its job saved is on record
-        self.say(ui_text.app_closes_when_done(len(pending)), True)
+                window.close()                # it stays, and closes once its job is on record or its question answered
+        if pending or strip:
+            self.say(ui_text.app_closes_when_done(len(pending), strip=strip), True)
+        else:
+            self.say(ui_text.APP_CLOSES_AFTER_QUESTION, True)
         if self._after is None:
             self._after = self.root.after(self.poll_ms, self.check)
 
     def check(self) -> None:
         """Look again: still waiting, closing, or staying open because a window had something to say."""
         self._after = None
-        if self.pending():
-            self.request()
+        if self.pending() or self.asking() or self.strip_building():
+            if self._after is None:
+                self._after = self.root.after(self.poll_ms, self.check)
             return
         stayed = [w for w in self.waiting if not w._closed()]  # noqa: SLF001
-        self.waiting = []
+        self.waiting, self.asked = [], False
         if stayed:
             self.say(ui_text.APP_STAYED_OPEN, False)
             return

@@ -141,6 +141,9 @@ def desk(tmp_path, monkeypatch):
     from gear_generator import theme
     theme.setup(root)
     monkeypatch.setattr(store, "save_recent", lambda recent, path=None: True)    # never the user's own list
+    from gear_generator import workbook_gui
+    monkeypatch.setattr(workbook_gui, "_VERDICTS", {})          # this session's move-or-copy answers: none yet
+    monkeypatch.setattr(workbook_gui, "_ASKED", set())
     d = Desk(root, tmp_path)
     try:
         yield d
@@ -257,7 +260,10 @@ def test_a_build_the_worker_refuses_says_so_and_records_nothing(desk):
     desk.finish(window)
     assert window.status.get().startswith(f"{elsewhere} is open in SolidWorks, and it has the same file name as ")
     assert window.status_label.cget("fg") == __import__("gear_generator.theme", fromlist=["x"]).ERROR
-    assert desk.sw.saved_in(0) == [] and not os.path.exists(store.link_record_path(window.link.path))
+    assert desk.sw.saved_in(0) == []
+    # The journal written before the job is taken out again: nothing is on record (second review N4).
+    record = record_of(window)
+    assert record.parts == [] and record.gearbox is None and record.pending == []
     assert window.footer().build_enabled                      # close the other document and press again
 
 
@@ -368,7 +374,8 @@ def test_the_demonstration_edit_is_summed_up_and_update_carries_it_unsaved(desk)
     window.note = None
     window._refresh_state()
     assert window.status.get().endswith("have changes from Update SolidWorks that are not saved: save them in "
-                                        "SolidWorks to keep them.")
+                                        "SolidWorks to keep them. If SolidWorks closed them without saving, press "
+                                        "Update SolidWorks to make them again.")
     assert window.footer().build_enabled and window.plan.refusal == ""
     assert [(m.gear_ids, os.path.basename(m.old), os.path.basename(m.new)) for m in window.plan.unsaved_made_new] == [
         (("G2",), "Gear_m1.5_N68.SLDPRT", "Gear_m1.5_N69.SLDPRT")]
@@ -421,9 +428,9 @@ def test_a_structural_edit_asks_and_no_changes_nothing(desk, monkeypatch):
     assert title == "Build again?" and f"Build again as {NAME}_r2?" in question
     assert "reuses 3 parts that have not changed" in question and f"{NAME}.SLDASM stays as it is on disk" in question
     # After No the reason stays on screen, joined plainly (W4 review nit: it read the answer alone).
-    assert window.status.get() == (f"{ui_text.NOTHING_CHANGED} Gear_m1.5_N17 (G1): The recipe changed from 'A' to "
-                                   "'B', so it needs a new part. Update SolidWorks offers to build again as "
-                                   f"{NAME}_r2.")
+    assert window.status.get() == (f"{ui_text.NOTHING_CHANGED} Gear_m1.5_N17 (G1): Flank changed from involute to "
+                                   "arcs, which its values cannot carry, so it needs a new part. Update SolidWorks "
+                                   f"offers to build again as {NAME}_r2.")
     assert len(desk.worker.calls) == calls and record_bytes(window) == on_record
     window.press_build()                                       # Build again… asks the same question
     assert len(asked) == 2 and asked[1] == asked[0] and len(desk.worker.calls) == calls
@@ -831,6 +838,12 @@ def test_a_finish_that_raises_still_answers_and_frees_the_window(desk, monkeypat
     assert window._pending is None and window._job is None
     assert "What the build saved could not all be put on record — KeyError: 'parts'." in window.status.get()
     assert window.status.get().startswith(f"Built 4 parts, {NAME}_Layout and {NAME}.SLDASM")
+    # Nothing of the finish was written, but the journal written before the build was (second review N4.2): the
+    # next Build reuses what SolidWorks saved, once checked, rather than go beside it.
+    assert window.status.get().endswith("the next Build finds it from the journal written before the build, checks "
+                                        "it in SolidWorks and reuses what it can.")
+    assert [r.stem for r in window.plan.reuse] == list(PARTS) and not isinstance(window.plan.layout, LayoutReuse)
+    assert window.plan.revision == 2 and window.plan.build == ()
 
 
 def test_an_update_lost_with_solidworks_and_its_file_saved_unchanged_is_made_new_by_the_next_press(desk, monkeypatch):
@@ -849,7 +862,8 @@ def test_an_update_lost_with_solidworks_and_its_file_saved_unchanged_is_made_new
     desk.finish(window)
     assert store.same_path(next(iter(p for p in record_of(window).unsaved if p.endswith("N68.SLDPRT"))), n68)
 
-    desk.sw.saved[_key(n68)] = as_built                        # SolidWorks closed without saving ...
+    desk.sw.close_all()                                        # SolidWorks closed without saving ...
+    assert desk.sw.saved[_key(n68)] == as_built
     for path in record_of(window).unsaved:
         touch_later(path)                                      # ... and the files saved later, unchanged
     save_in_excel(window, {"Gears": {"J2": ""}}, seconds=4)    # G1's bore cleared: a new revision
@@ -894,8 +908,8 @@ def test_a_global_deleted_from_a_part_marks_it_so_build_again_makes_it_new(desk)
     from test_swbuild import _key
     window = built(desk)
     n68 = desk.part("Gear_m1.5_N68")
-    equations, made = desk.sw.saved[_key(n68)]
-    desk.sw.saved[_key(n68)] = ([e for e in equations if not e.startswith('"No. of Teeth"')], made)
+    equations, made = desk.sw.memory[_key(n68)]                # open in SolidWorks since the build
+    desk.sw.memory[_key(n68)] = ([e for e in equations if not e.startswith('"No. of Teeth"')], made)
     window.press_update()
     desk.finish(window)
     assert "Update SolidWorks cannot put that back; Build again… builds the next revision" in window.status.get()
@@ -964,11 +978,240 @@ def test_the_demonstrations_structural_step_with_update_unsaved_asks_for_the_sav
     save_in_excel(window, {"Gears": {"J2": ""}}, seconds=4)
     text = window.status.get()
     assert text.endswith(f"Gear_m1.5_N68, {NAME}_Layout and {NAME} have changes from Update SolidWorks that are not "
-                         "saved: save them in SolidWorks to keep them. Until Gear_m1.5_N68 is saved, the new revision "
-                         "makes G2's part new, as Gear_m1.5_N69, rather than reuse it.")
+                         "saved: save them in SolidWorks to keep them. If SolidWorks closed them without saving, those "
+                         "changes are gone. While Gear_m1.5_N68's changes are not saved, the new revision makes G2's "
+                         "part new, as Gear_m1.5_N69, rather than reuse it.")
     assert text.startswith(f"Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its "
                            f"values, so it needs a new part. Update SolidWorks offers to build again as {NAME}_r2.")
     assert text.count("save them") == 1 and text.lower().count("build again") == 1
     footer = window.footer()
     assert footer.ok and footer.build_enabled and footer.update_enabled
     assert window.read_line.get().endswith(" · changed since it was built")
+
+
+# -- the second W4 review ------------------------------------------------------------------------------------------
+
+
+def _moved_away(desk, window):
+    """The built workbook moved to another folder by hand, its record with it (naming the old path, now gone)."""
+    import shutil
+    old = window.link.path
+    window._pending = window._job = None
+    window.close()
+    folder = desk.tmp / "moved"
+    folder.mkdir(exist_ok=True)
+    new = folder / f"{NAME}.xlsx"
+    shutil.move(old, new)
+    shutil.move(store.link_record_path(old), store.link_record_path(str(new)))
+    return old, new
+
+
+def test_a_record_whose_workbook_is_gone_is_asked_about_once_and_yes_adopts_it(desk, monkeypatch):
+    """Second W4 review N1c: a record written for a workbook that is gone was adopted silently and for good — and
+    two copies of one deleted original both adopted it. Now the window asks once (default No); until the answer
+    the record is not taken as this workbook's; Yes adopts it, and the answer is kept in the record."""
+    from gear_generator import workbook_gui
+    asked = []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append((title, text)) or True)
+    old, new = _moved_away(desk, built(desk))
+    window = desk.open(path=new)
+    assert asked == [] and window.record is None and window.plan.foreign_gone      # not from inside planning
+    assert window.status.get().endswith(
+        f"The record that came with this workbook was written for {ui_text.short_path(old, 48)}, which is not there "
+        "any more: until you say whether this workbook was moved or renamed from it, Build makes this workbook's own "
+        "gearbox beside the files it lists, sharing and overwriting nothing.")
+    window.update()                                            # the question, once the plan is painted
+    assert asked == [(ui_text.MOVED_TITLE, ui_text.moved_question(str(new), old))]
+    assert asked[0][1] == (
+        f"The record of what was built beside this workbook was written for {ui_text.short_path(old, 60)}, which is "
+        "not there any more. Was this workbook moved or renamed from it? Yes: the record is this workbook's, and "
+        "Update SolidWorks and Build carry on from what it lists. No: this workbook is a copy, so Build makes its own "
+        "gearbox beside those files, sharing and overwriting nothing. The answer is kept in the record.")
+    record = record_of(window)
+    assert store.same_path(record.workbook, str(new)) and record.moved_from == [old] and record.copy_of == ""
+    assert window.record is not None and window.read_line.get().endswith(" · built from this version")
+    window.reread()
+    window.update()
+    assert len(asked) == 1                                     # never asked again
+
+
+def test_no_keeps_a_record_whose_workbook_is_gone_another_workbooks_and_builds_beside_it(desk, monkeypatch):
+    from gear_generator import workbook_gui
+    asked = []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append(title) or False)
+    old, new = _moved_away(desk, built(desk))
+    before = record_of_path(new)
+    window = desk.open(path=new)
+    window.update()
+    assert asked == [ui_text.MOVED_TITLE]
+    record = record_of(window)
+    assert record.copy_of == old and record.workbook == old and record.parts == before.parts   # kept as it came
+    assert window.record is None and not window.footer().update_shown
+    assert window.plan.foreign_record == old and not window.plan.foreign_gone
+    # Another window on it, in this session or the next, is not asked again: the answer is the record's.
+    workbook_gui._VERDICTS.clear()
+    workbook_gui._ASKED.clear()
+    window._pending = window._job = None
+    window.close()
+    again = desk.open(path=new)
+    again.update()
+    assert asked == [ui_text.MOVED_TITLE] and again.record is None
+    again.press_build()
+    desk.finish(again)
+    built_now = record_of(again)
+    assert store.same_path(built_now.workbook, str(new)) and built_now.gearbox.revision == 2
+
+
+def test_two_copies_of_one_deleted_original_are_each_asked_never_adopt_silently(desk, monkeypatch):
+    import shutil
+    from gear_generator import workbook_gui
+    asked = []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", lambda parent, title, text: asked.append(title) or False)
+    window = built(desk)
+    original = window.link.path
+    copies = []
+    for name in ("a", "b"):
+        folder = desk.tmp / name
+        folder.mkdir()
+        copy = folder / f"{NAME}.xlsx"
+        shutil.copy2(original, copy)
+        shutil.copy2(store.link_record_path(original), store.link_record_path(str(copy)))
+        copies.append(copy)
+    window._pending = window._job = None
+    window.close()
+    os.remove(original)                                        # the original deleted
+    for copy in copies:
+        w = desk.open(path=copy)
+        w.update()
+        assert w.record is None
+    assert asked == [ui_text.MOVED_TITLE, ui_text.MOVED_TITLE]
+    assert all(record_of_path(c).copy_of == original and record_of_path(c).moved_from == [] for c in copies)
+
+
+def test_locate_on_a_copy_never_takes_the_originals_record_for_its_own(desk, monkeypatch):
+    """Second W4 review N1b (w4v_locate_launders_copy): a copy renamed while open, then Locate…, adopted the
+    original's record, and the copy's Update then drove the original's files."""
+    import shutil
+    from gear_generator import workbook_gui
+    window = built(desk)
+    original = window.link.path
+    folder = desk.tmp / "copy"
+    folder.mkdir()
+    copy = folder / f"{NAME}.xlsx"
+    shutil.copy2(original, copy)
+    shutil.copy2(store.link_record_path(original), store.link_record_path(str(copy)))
+    opened = desk.open(path=copy)
+    assert opened.record is None and opened.plan.foreign_record == original
+    renamed = folder / f"{NAME} v2.xlsx"
+    os.rename(copy, renamed)
+    monkeypatch.setattr(workbook_gui.filedialog, "askopenfilename", lambda **kw: str(renamed))
+    opened.locate()
+    assert not os.path.exists(store.link_record_path(str(renamed)))
+    assert opened.record is None and opened.update_plan is None and not opened.footer().update_shown
+    assert ("The record of what was built stays beside the workbook's old place: it was written for "
+            f"{original}, so it is that workbook's record and lists that workbook's files, not this one's.") \
+        in opened.status.get()
+
+
+def test_closing_a_window_twice_while_solidworks_does_not_answer_offers_to_close_anyway_and_the_journal_reuses(
+        desk, monkeypatch):
+    """Second W4 review N4.3: with SolidWorks held by a dialog the window could not be closed at all, and killing the
+    app lost the record. A second close asks (default No); Yes closes, leaving the job's files to the journal: the
+    next window plans them for reuse, checked live, and writes their .gear.json."""
+    from gear_generator import workbook_gui
+    answers, asked = [False, True], []
+    monkeypatch.setattr(workbook_gui, "ask_yes_no",
+                        lambda parent, title, text: asked.append((title, text)) or answers.pop(0))
+    window = desk.open()
+    path = window.link.path
+    window.press_build()
+    journal = record_of(window).pending
+    assert [os.path.basename(e.path) for e in journal] == [f"{s}.SLDPRT" for s in PARTS] + [
+        f"{NAME}_Layout.SLDPRT", f"{NAME}.SLDASM"]
+    window.close()                                             # first: it stays, and closes once on record
+    assert asked == [] and not window._closed()
+    window.close()                                             # second: asks; No keeps waiting
+    assert asked == [(ui_text.CLOSE_ANYWAY_TITLE, ui_text.close_anyway_question())] and not window._closed()
+    assert asked[0][1] == (
+        "SolidWorks has not answered yet: the build is still running there, perhaps held up by a dialog open in "
+        "SolidWorks. Close this window anyway? Files SolidWorks saves from now are not put on record by this window, "
+        "and nothing will be overwritten: the next Build finds them, checks them in SolidWorks and reuses what it can.")
+    window.close()                                             # again: Yes closes; the job goes on
+    assert window._closed()
+    desk.worker.run()                                          # SolidWorks answers at last: nobody collects it
+    assert all(store.read_sidecar(desk.part(s)) is None for s in PARTS)
+    assert record_of_path(path).pending == journal and record_of_path(path).parts == []
+    # The parts are reused once checked; the assembly SolidWorks saved is in the way of revision 0, so the build
+    # goes beside it as revision 2, saying why, with a layout part of its own.
+    again = desk.open(path=path)
+    assert [r.stem for r in again.plan.reuse] == list(PARTS) and all(r.journaled for r in again.plan.reuse)
+    assert again.plan.revision == 2 and again.plan.build == () and not isinstance(again.plan.layout, LayoutReuse)
+    assert again.plan.revision_reason.startswith(f"{NAME}.SLDASM was saved by a build that was interrupted before it "
+                                                 "was put on record")
+    again.press_build()
+    desk.finish(again)
+    record = record_of(again)
+    assert record.pending == [] and record.gearbox.revision == 2 and len(record.parts) == 4
+    assert all(store.read_sidecar(desk.part(s)).record.workbook == path for s in PARTS)
+
+
+def test_a_question_open_over_a_window_keeps_it_and_the_app_until_it_is_answered(desk, monkeypatch):
+    """Second W4 review N4.4: CloseGuard destroyed the root with Build again? still open, and its answer then ran on
+    destroyed widgets."""
+    from gear_generator import gui, workbook_gui
+    said, quit = [], []
+    guard = gui.CloseGuard(desk.root, lambda text, ok=True: said.append((text, ok)), poll_ms=10 ** 6,
+                           quit=lambda: quit.append(True))
+    window = built(desk)
+    save_in_excel(window, {"Gears": {"J2": ""}})                # a change that asks Build again?
+
+    def close_the_app_meanwhile(parent, title, text):
+        guard.request()                                        # the strip's close clicked while the question is open
+        assert quit == [] and said[-1] == (ui_text.APP_CLOSES_AFTER_QUESTION, True)
+        return False
+
+    monkeypatch.setattr(workbook_gui, "ask_yes_no", close_the_app_meanwhile)
+    window.press_update()
+    assert window._closed()                                    # answered: then closed, as asked
+    guard.check()
+    assert quit == [True]
+
+
+def test_closing_the_strips_window_twice_while_a_job_has_not_answered_offers_to_quit_anyway(desk):
+    from gear_generator import gui
+    said, quit, asked = [], [], []
+    answers = [False, True]
+    guard = gui.CloseGuard(desk.root, lambda text, ok=True: said.append((text, ok)), poll_ms=10 ** 6,
+                           quit=lambda: quit.append(True),
+                           ask=lambda title, text: asked.append((title, text)) or answers.pop(0))
+    window = desk.open()
+    window.press_build()
+    guard.request()
+    assert asked == [] and quit == []
+    guard.request()
+    assert asked == [(ui_text.QUIT_ANYWAY_TITLE, ui_text.quit_anyway_question(True))] and quit == []
+    assert asked[0][1] == (
+        "SolidWorks has not answered yet: a job is still running there, perhaps held up by a dialog open in "
+        "SolidWorks. Quit anyway? Files SolidWorks saves from now, and documents it changes, are not put on record by "
+        "this session, and nothing will be overwritten. The workbook's next Build finds the files its build saved, "
+        "checks them in SolidWorks and reuses what it can.")
+    guard.request()
+    assert quit == [True]
+
+
+def test_closing_the_strips_window_waits_for_the_strips_own_build(desk):
+    """Second W4 review N4.5: the strip's own build was not guarded: closing mid-build lost the part's .gear.json."""
+    from gear_generator import gui
+    said, quit = [], []
+    guard = gui.CloseGuard(desk.root, lambda text, ok=True: said.append((text, ok)), poll_ms=10 ** 6,
+                           quit=lambda: quit.append(True), strip=desk.app)
+    desk.app._pending_build = object()                         # the strip building a part of its own
+    guard.request()
+    assert quit == [] and said == [(ui_text.app_closes_when_done(0, strip=True), True)]
+    assert said[0][0] == ("Gear Generator closes once the strip's build in SolidWorks has finished and what it saved "
+                          "is on record; it stays open if something needs saying.")
+    guard.check()
+    assert quit == []
+    desk.app._pending_build = None                             # the strip's poll collected it, its record written
+    guard.check()
+    assert quit == [True]

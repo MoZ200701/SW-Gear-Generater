@@ -525,12 +525,12 @@ def test_a_change_update_cannot_carry_offers_to_build_again():
         "Gear_m1.5_N17 (G1): The recipe changed from 'A' to 'B', so it needs a new part. Update SolidWorks offers to "
         "build again as a new revision.")
     assert ui_text.update_summary(_update(missing=(_path("Gear_m1.5_N68"),))) == (
-        f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved or renamed since it was built, so Update SolidWorks "
-        "offers to build again as a new revision.")
+        f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved, renamed or deleted since it was built, so Update "
+        "SolidWorks offers to build again as a new revision.")
     both = _update(missing=(_path("Gear_m1.5_N68"), _path("Reducer_12to1_Layout")), structural=("S4 was added.",))
     assert ui_text.update_summary(both) == (
-        "Gear_m1.5_N68.SLDPRT and Reducer_12to1_Layout.SLDPRT are no longer where they were built: they were moved "
-        "or renamed since (and 1 other change Update SolidWorks cannot carry), so Update SolidWorks offers to build "
+        "Gear_m1.5_N68.SLDPRT and Reducer_12to1_Layout.SLDPRT are no longer where they were built: they were moved, "
+        "renamed or deleted since (and 1 other change Update SolidWorks cannot carry), so Update SolidWorks offers to build "
         "again as a new revision.")
 
 
@@ -620,7 +620,8 @@ def test_the_build_again_question_never_promises_the_old_assembly_is_untouched()
 
 def test_the_build_again_question_for_a_missing_file_or_by_choice():
     missing = ui_text.build_again_question(_update(missing=(_path("Gear_m1.5_N68"),)), _again())
-    assert missing.startswith(f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved or renamed since it was built, "
+    assert missing.startswith(f"Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved, renamed or deleted since it "
+                              "was built, "
                               "so Update SolidWorks cannot change it. Build again as Reducer_12to1_r2? ")
     fresh = _gearbox("Reducer_12to1_r2", **FULL)
     chosen = ui_text.build_again_question(_update(), fresh)
@@ -732,8 +733,9 @@ def test_an_answer_is_followed_plainly_by_what_was_already_so(ready, tmp_path):
     missing = _update(missing=(_path("Gear_m1.5_N68"),))
     f = _footer(ready, record=_record(), plan=_again(), update=missing,
                 note=ui_text.Note(ui_text.NOTHING_CHANGED, True, ui_text.NOTE_ANSWER))
-    assert f.text == (f"Nothing was changed in SolidWorks. Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved or "
-                      "renamed since it was built, so Update SolidWorks offers to build again as Reducer_12to1_r2.")
+    assert f.text == (f"Nothing was changed in SolidWorks. Gear_m1.5_N68.SLDPRT is no longer in {P}: it was moved, "
+                      "renamed or deleted since it was built, so Update SolidWorks offers to build again as "
+                      "Reducer_12to1_r2.")
     assert not f.ok
     f = _footer(ready, record=_record(), plan=_again(), update=missing,
                 note=ui_text.Note(ui_text.ASKED_TOO_LATE, False, ui_text.NOTE_ANSWER))
@@ -756,7 +758,8 @@ def test_an_update_left_unsaved_is_said_until_it_is_saved(ready):
     update = _update(unsaved=(_path("Gear_m1.5_N68"), _path("Reducer_12to1_Layout")))
     f = _footer(ready, record=_record(), update=update)
     assert f.text.endswith("re-place G2, G3 and G4. Gear_m1.5_N68 and Reducer_12to1_Layout have changes from Update "
-                           "SolidWorks that are not saved: save them in SolidWorks to keep them.")
+                           "SolidWorks that are not saved: save them in SolidWorks to keep them. If SolidWorks "
+                           "closed them without saving, press Update SolidWorks to make them again.")
     f = _footer(ready, record=_record(unsaved={_path("Gear_m1.5_N68"): 1.0}), update=None)
     assert "Gear_m1.5_N68 has changes from Update SolidWorks that are not saved: save it" in f.text
 
@@ -857,6 +860,16 @@ def test_the_gear_table_says_what_is_built_and_what_update_changes(ready):
     assert rows["G1"][7] == ui_text.GEAR_STATE_BUILT
     plain = {r[0]: r for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, ready.diagnostics)}
     assert plain["G1"][7:] == (ui_text.GEAR_STATE_BUILDS, "to build")
+
+
+def test_the_gear_table_shows_the_part_the_build_would_make(ready):
+    """Second W4 review N6: a gear whose own file name is taken is built as <stem>_r2, but the Part column showed
+    its own stem (visible on the WorkbookCopy board)."""
+    plan = _gearbox(part_of={"G1": _path("Gear_m1.5_N17_r2"), "G2": _path("Gear_m1.5_N68"),
+                             "G3": _path("Gear_m2_N17_r3"), "G4": _path("OutputGear")})
+    rows = {r[0]: r for r in ui_text.workbook_gear_rows(ready.spec, ready.parts, ready.diagnostics, plan=plan)}
+    assert [rows[g][6] for g in ("G1", "G2", "G3", "G4")] == ["Gear_m1.5_N17_r2", "Gear_m1.5_N68", "Gear_m2_N17_r3",
+                                                              "OutputGear"]
 
 
 # -- what the Workbook window itself says around a job (the W4 window wiring) ------------------------------------
@@ -969,7 +982,8 @@ def test_an_update_left_unsaved_never_holds_build_again(ready):
     f = _footer(ready, record=_record(unsaved=unsaved), plan=again, update=matches)
     assert f.build_enabled and f.update_enabled
     assert f.text.endswith("Gear_m1.5_N68 and Reducer_12to1 have changes from Update SolidWorks that are not saved: "
-                           "save them in SolidWorks to keep them.")
+                           "save them in SolidWorks to keep them. If SolidWorks closed them without saving, press "
+                           "Update SolidWorks to make them again.")
     assert "waits" not in f.text
     updated = ("Updated SolidWorks: changed 1 variable in Gear_m1.5_N68; no interference between the gears. Save in "
                "SolidWorks to keep it.", True)
@@ -1038,19 +1052,20 @@ def test_structural_and_unsaved_asks_for_the_save_once_and_says_which_part_is_ma
         "Gear_m1.5_N17 (G1): A bore cannot be added to or removed from a built part through its values, so it needs a "
         "new part. Update SolidWorks offers to build again as Reducer_12to1_r2. Gear_m1.5_N68, Reducer_12to1_Layout "
         "and Reducer_12to1 have changes from Update SolidWorks that are not saved: save them in SolidWorks to keep "
-        "them. Until Gear_m1.5_N68 is saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than "
-        "reuse it.")
+        "them. If SolidWorks closed them without saving, those changes are gone. While Gear_m1.5_N68's changes are "
+        "not saved, the new revision makes G2's part new, as Gear_m1.5_N69, rather than reuse it.")
     assert (f.ok, f.build_enabled, f.update_enabled) == (True, True, True)
     assert f.text.count("save them") == 1 and all(s.lower().count("build again") <= 1 for s in f.text.split(". "))
     question = ui_text.build_again_question(update, again)
     assert ("G2's part is new because Gear_m1.5_N68 has changes from Update SolidWorks that are not saved; to reuse "
-            "it instead, answer No and save it in SolidWorks first.") in question
+            "it instead, answer No and save it in SolidWorks first (if SolidWorks has closed it since without saving, "
+            "those changes are gone, and it cannot be reused).") in question
 
 
 def test_one_document_left_unsaved_is_it_throughout(ready):
     f = _footer(ready, record=_record(unsaved={_path("Gear_m1.5_N68"): 1.0}), update=None)
     assert f.text.endswith("Gear_m1.5_N68 has changes from Update SolidWorks that are not saved: save it in "
-                           "SolidWorks to keep it.")
+                           "SolidWorks to keep it. If SolidWorks closed it without saving, those changes are gone.")
     assert ui_text.save_to_keep([_path("Gear_m1.5_N68")]) == "Save Gear_m1.5_N68 in SolidWorks to keep it."
 
 
@@ -1135,10 +1150,11 @@ def test_a_part_that_failed_the_live_check_is_said_and_the_next_press_makes_it_n
                                                             "than reuse Gear_m1.5_N68; nothing is overwritten.")
     again = dataclasses.replace(_again(), made_new=(_made(["G2"], "Gear_m1.5_N68", "Gear_m1.5_N69", MISMATCHED),))
     f = _footer(ready, record=_record(), plan=again, update=_update(structural=("G1's bore was cleared.",)))
-    assert f.text.endswith("Update SolidWorks offers to build again as Reducer_12to1_r2. Gear_m1.5_N68 did not hold "
-                           "what the record says when the last build checked it, so the new revision makes G2's part "
-                           "new, as Gear_m1.5_N69, rather than reuse it.")
-    assert "G2's part is new because Gear_m1.5_N68 did not hold what the record says when the last build checked it." \
+    assert f.text.endswith("Update SolidWorks offers to build again as Reducer_12to1_r2. Gear_m1.5_N68 does not hold "
+                           "what the record says, as the last job in SolidWorks found, so the new revision makes G2's "
+                           "part new, as Gear_m1.5_N69, rather than reuse it.")
+    assert "G2's part is new because Gear_m1.5_N68 does not hold what the record says, as the last job in SolidWorks " \
+           "found." \
         in ui_text.build_again_question(_update(structural=("G1's bore was cleared.",)), again)
 
 
@@ -1207,3 +1223,68 @@ def test_what_the_window_says_when_the_app_closes_mid_job_or_a_finish_raises():
     assert ui_text.finish_failed(RuntimeError("boom")) == (
         "What the build saved could not all be put on record — RuntimeError: boom. What SolidWorks saved stays on "
         "disk, and the next Build goes beside it rather than over it.")
+    assert ui_text.finish_failed(RuntimeError("boom"), journaled=True) == (
+        "What the build saved could not all be put on record — RuntimeError: boom. What SolidWorks saved stays on "
+        "disk, and the next Build finds it from the journal written before the build, checks it in SolidWorks and "
+        "reuses what it can.")
+    assert ui_text.finish_failed(RuntimeError("boom"), updating=True) == (
+        "What the update changed could not all be put on record — RuntimeError: boom. Its changes are in SolidWorks, "
+        "not saved: save them there to keep them.")
+
+
+# -- the second W4 review: the save asked only where it can happen (N2), the answer keeps the state's lines (N6) ----
+
+
+def test_an_earlier_revisions_unsaved_documents_are_never_nagged_about(ready):
+    """Second review N2 (w4v_after_build_again_unsaved): after Build again… made the next revision, the header for
+    _r2 read "updated from this version, not yet saved" because revision 0's documents were still marked, for ever
+    if they were abandoned. Only the current revision's documents count, in the header and the footer."""
+    record = _record(unsaved=UNSAVED_DOCS)
+    record.digest = "d"
+    assert ui_text.workbook_built_tag(record, "d") == " · updated from this version, not yet saved"
+    record.earlier = [store.EarlierRevision(revision=0, name="Reducer_12to1", layout=_path("Reducer_12to1_Layout"),
+                                            assembly=_path("Reducer_12to1", ".SLDASM"),
+                                            parts=[_path("Gear_m1.5_N68")])]
+    r2 = [_path(s) for s in ("Gear_m1.5_N17", "Gear_m1.5_N69", "Gear_m2_N17", "OutputGear")]
+    record.parts = [store.PartEntry(path=p, gears=[g]) for p, g in zip(r2, ("G1", "G2", "G3", "G4"))]
+    record.gearbox = store.GearboxRecord(
+        revision=2, name="Reducer_12to1_r2", layout=_path("Reducer_12to1_r2_Layout"),
+        assembly=_path("Reducer_12to1_r2", ".SLDASM"),
+        components=[store.ComponentEntry(gear=g, part=p, name="x-1") for p, g in zip(r2, ("G1", "G2", "G3", "G4"))])
+    assert record.current_marks(record.unsaved) == []
+    assert ui_text.workbook_built_tag(record, "d") == " · built from this version"
+    f = _footer(ready, record=record, update=None)
+    assert "not saved" not in f.text and "save" not in f.text
+
+
+def test_a_document_found_not_holding_what_the_record_says_is_not_called_built_from_this_version():
+    record = _record()
+    record.digest = "d"
+    record.mismatched = {_path("Gear_m1.5_N68"): 1.0}
+    assert ui_text.workbook_built_tag(record, "d") == " · SolidWorks no longer holds all of this version"
+    assert ui_text.workbook_built_tag(record, "e") == " · changed since it was built"
+    record.mismatched = {_path("Gear_m1.5_N68_old"): 1.0}               # an earlier revision's: not counted
+    assert ui_text.workbook_built_tag(record, "d") == " · built from this version"
+
+
+def test_after_no_to_build_again_the_unsaved_and_made_new_lines_stay_with_the_reason(ready):
+    """The leftover nit: after "No" the reason was kept, but the save asked for and the part made new were dropped."""
+    from gear_generator.workbook.gearbox import UNSAVED
+    again = dataclasses.replace(_again(), revision=2, made_new=(_made(["G2"], "Gear_m1.5_N68", "Gear_m1.5_N69",
+                                                                       UNSAVED),))
+    update = _update(structural=("G1's bore was cleared.",), unsaved=tuple(UNSAVED_DOCS))
+    plain = _footer(ready, record=_record(unsaved=UNSAVED_DOCS), plan=again, update=update).text
+    answered = _footer(ready, record=_record(unsaved=UNSAVED_DOCS), plan=again, update=update,
+                       note=ui_text.Note(ui_text.NOTHING_CHANGED, True, ui_text.NOTE_ANSWER)).text
+    assert answered == f"{ui_text.NOTHING_CHANGED} {plain}"
+    assert "have changes from Update SolidWorks that are not saved" in answered
+    assert "the new revision makes G2's part new, as Gear_m1.5_N69" in answered
+
+
+def test_the_save_is_never_asked_as_if_it_were_certain_to_be_possible(ready):
+    """Second review N2: the footer asked for a save of documents SolidWorks had closed. Nothing on the Tk thread can
+    know whether they are open, so the sentence is true either way and says what to press."""
+    f = _footer(ready, record=_record(unsaved=UNSAVED_DOCS), plan=_again(), update=_update(unsaved=tuple(UNSAVED_DOCS)))
+    assert f.update_enabled and f.text.endswith(
+        "save them in SolidWorks to keep them. If SolidWorks closed them without saving, press Update SolidWorks to "
+        "make them again.")
