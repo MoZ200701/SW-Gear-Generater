@@ -12,11 +12,18 @@ closed modified documents without a dialog, W4-RERUN-2026), assembly first, and 
 compared before and after. Refuses unless the session attached is the PID given; documents open before the run
 are left alone and logged as ``<user document N>``.
 
-Run on 2026-11-14 (2026, 34.1.1) on section b's and c's gearboxes as SolidWorks 2024 saved them: every document
-read GetSaveFlag False straight after the open and no file changed. But ``QuitDoc`` on each assembly raised a
-modal "SOLIDWORKS CAM Warning" asking "Save changes to <assembly>?" (the CAM add-in, whatever the save flag
-said), which blocked the run until No was pressed by hand; a 2026-made assembly closed by ``QuitDoc`` raised
-none. ``GetVersionHistory`` answered "<unknown>.GetVersionHistory" through late binding (not probed; logged only).
+Run on 2026-11-14 (2026, 34.1.1) on section b's and c's gearboxes as SolidWorks 2024 saved them, from a
+``git archive`` snapshot of 9ac36c5 (its ``findings.py`` held 8504856's values, ``MATED_ASSEMBLY_REBUILD_ROUTE``
+among them, which only the train kind reads; nothing here rebuilds anything): every document read GetSaveFlag
+False straight after the open and no file changed. Then ``GetVersionHistory`` was asked of each document (it
+answered "<unknown>.GetVersionHistory" through late binding: not probed, logged only), and ``QuitDoc`` on each
+assembly raised a modal "SOLIDWORKS CAM Warning" (the SOLIDWORKS CAM add-in's) asking "Save changes to
+<assembly>?". GetSaveFlag was not read again between the open and the close, so what it read at that moment is
+not known. The dialog held the run until the agent driving it ran a separate Python helper on the host that
+found the dialog's "&No" button by ``win32gui.EnumChildWindows`` and sent it ``BM_CLICK`` with
+``win32gui.PostMessage``, once for each assembly; nothing was saved, and the files compared equal afterwards.
+Neither log shows the dialog: this script has no dialog watcher. A 2026-made assembly closed by ``QuitDoc`` in
+workbook_assembly_check's a3 raised none.
 """
 
 import hashlib
@@ -63,7 +70,10 @@ def documents(app):
 
 
 def ours(path):
-    return bool(path) and os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(FOLDER))
+    """Whether a document is in the gearbox's folder or below it: matched with a separator, so the folder of
+    section a cannot also take a2's or a3's documents."""
+    root = os.path.normcase(FOLDER).rstrip("\\/") + os.sep
+    return bool(path) and os.path.normcase(os.path.abspath(path)).startswith(root)
 
 
 def stamps():

@@ -243,7 +243,10 @@ def documents(app):
 
 
 def ours(path):
-    return bool(path) and os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(os.path.abspath(OUT)))
+    """Whether a document is under this run's output folder: matched with a separator, so a folder whose name
+    merely starts with OUT's (asm2026b beside asm2026) is not taken for it."""
+    root = os.path.normcase(os.path.abspath(OUT)).rstrip("\\/") + os.sep
+    return bool(path) and os.path.normcase(os.path.abspath(path)).startswith(root)
 
 
 USERS = {}
@@ -805,12 +808,17 @@ Desk.plan_shafts = _plan_shafts
 # -- Excel ----------------------------------------------------------------------------------------------------
 
 
+OPEN_BOOKS = []            # every Workbook opened and not yet closed, so main closes what a section left open
+
+
 class Workbook:
     """One workbook open in this run's own Excel."""
 
     def __init__(self, excel, path, tag):
         self.path = path
         self.wb, report = excel.open(path, tag)
+        if self.wb is not None:
+            OPEN_BOOKS.append(self)
         check(self.wb is not None and not report["repaired"],
               f"Excel opened {os.path.basename(path)} with no dialog or repair: {report.get('dialogs')}")
 
@@ -834,6 +842,24 @@ class Workbook:
     def close(self):
         self.wb.Close(SaveChanges=False)
         self.wb = None
+        if self in OPEN_BOOKS:
+            OPEN_BOOKS.remove(self)
+
+
+def close_books():
+    """Close, unsaved, every workbook a section left open: the first 2026 rerun's section a raised before its
+    book.close(), and a2 and a3 then could not open their Reducer_12to1.xlsx beside it (Excel keeps one workbook
+    per file name). Returns the names closed."""
+    closed = []
+    for book in list(OPEN_BOOKS):
+        try:
+            book.close()
+            closed.append(os.path.basename(book.path))
+        except Exception as exc:  # noqa: BLE001 - logged; the next section's own open check says what follows
+            say(f"excel   could not close {os.path.basename(book.path)}: {exc}")
+            if book in OPEN_BOOKS:
+                OPEN_BOOKS.remove(book)
+    return closed
 
 
 def fresh_folder(name):
@@ -1375,6 +1401,9 @@ def main():
                 for line in traceback.format_exc().splitlines():
                     say("        " + line)
             finally:
+                books = close_books()
+                if books:
+                    say(f"excel   section {name} left {books} open in Excel: closed without saving")
                 left = run(worker, close_ours, 600)
                 say(f"close   section {name}: left of ours {left}; {time.monotonic() - started:.0f} s; {memory()}")
     finally:
