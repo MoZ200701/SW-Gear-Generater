@@ -176,9 +176,8 @@ DRIVE_TOLERANCE = 1e-6               # relative, on each gear's turn in degrees 
 FRAME_TOLERANCE = 1e-6               # on every origin coordinate (mm) and rotation entry
 TURNED_SENTENCE = "The gears stand where they were turned in SolidWorks."
 LOST_SENTENCE = "was not saved before Reducer_12to1.SLDASM was closed, so its changes were made again"
-# Package C's sentences (43527b4), as ui_text gives them for m5 and a3 (pinned from the dry harness, 2026-11-14).
-REMADE_SENTENCE = ("set the gear mate G1 meshes G2 back to the workbook's ratio, which SolidWorks held at another, "
-                   "re-placed G1, G2, G3 and G4")
+# Package C's sentences (9f1e27c), as ui_text gives them for m5 and a3 (pinned from the dry harness, 2026-11-14).
+REMADE_SENTENCE = "set the gear mate G1 meshes G2 back to 17 : 69 (SolidWorks held it at 17 : 68), re-placed G1, G2, G3 and G4"
 TYPED_BACK_SENTENCE = ("SolidWorks already matches the workbook: nothing was changed. The last Update SolidWorks was not "
                        "saved before Reducer_12to1.SLDASM was closed; SolidWorks already holds the workbook as it now "
                        "is, so nothing needed making again. The gear mate G1 meshes G2 was already 17 : 68 in "
@@ -798,7 +797,8 @@ class Desk:
         say(f"        loaded from disk {[os.path.basename(p) for p in result.opened]}")
         say(f"        motion: turned {result.turned}; out of step {result.out_of_step}; off axis {result.off_axis}; "
             f"restored {result.restored}; unsuppressed {result.unsuppressed}; axial {result.axial}; ratios "
-            f"{result.ratios}; extra mates {result.extra_mates}")
+            f"{result.ratios}; extra mates {result.extra_mates}; ratios found {result.ratios_found}, already "
+            f"{result.ratios_already}, read {result.ratios_read}")
         say(f"        train_check residuals (rad) {[(a, b, f'{r:.2e}') for a, b, r in result.residuals]}")
         record, may_write, notes = self._open_record()
         base_record = record if record is not None else self.record
@@ -2115,8 +2115,9 @@ def section_m5(worker, excel):
         check(result.ratios == ["G1 meshes G2"] and result.ratios_found == ["G1 meshes G2"],
               f"m5: the gear mate, found live at 17 : 68 (the file's), remade once at 17 : 69: ratios {result.ratios}, "
               f"ratios_found {result.ratios_found}")
-        check(REMADE_SENTENCE in desk.note[0], f"m5: the sentence says the gear mate was set back to the workbook's "
-              f"ratio: {REMADE_SENTENCE!r}")
+        check([tuple(r) for r in result.ratios_read] == [("G1 meshes G2", 17, 68, 17, 69)],
+              f"m5: Update read the gear mate at 17 : 68 and wanted 17 : 69: ratios_read {result.ratios_read}")
+        check(REMADE_SENTENCE in desk.note[0], f"m5: the sentence names both ratios: {REMADE_SENTENCE!r}")
         measure_frames(worker, desk, "m5 pressed again")
         measure_mates(worker, desk, "m5 pressed again")
         drive_proof(worker, desk, "m5 pressed again, at the record's 17 : 69")
@@ -2408,6 +2409,8 @@ def section_a3(worker, excel):
     check(result.ratios == [] and result.ratios_already == ["G1 meshes G2"] and changed == [],
           f"Update found the gear mate already at 17 : 68 and every document holding the workbook's values: no remake, "
           f"nothing changed: ratios {result.ratios}, ratios_already {result.ratios_already}, changed {changed}")
+    check([tuple(r) for r in result.ratios_read] == [("G1 meshes G2", 17, 68, 17, 68)],
+          f"Update read the gear mate at 17 : 68, as wanted: ratios_read {result.ratios_read}")
     entry = next(m for m in desk.record.gearbox.mates if m.name == "G1 meshes G2")
     check(list(entry.ratio) == [17, 68], f"the record takes the ratio SolidWorks holds: G1 meshes G2 {entry.ratio}")
     check(desk.note[0] == TYPED_BACK_SENTENCE, f"the sentence (package C, 43527b4): {desk.note[0]!r}")
