@@ -467,6 +467,16 @@ def _by_ref(value: Any) -> int:
         return 0
 
 
+def _as_sentence(exc: BaseException) -> str:
+    """What a raise says, as a sentence to follow another: a SolidWorks refusal (``ComError`` included) as it came,
+    anything else named, since it is not a sentence of ours."""
+    text = str(exc).strip()
+    if isinstance(exc, SolidWorksError) and text:
+        return text if text.endswith(".") else text + "."
+    text = text.rstrip(".")
+    return f"It stopped on an unexpected {type(exc).__name__}" + (f": {text}." if text else ".")
+
+
 def _base_name(path: str) -> str:
     """A Windows path's file name, wherever this runs (``os.path.basename`` keeps backslashes on Linux)."""
     return os.path.basename(str(path).replace("\\", "/"))
@@ -2180,13 +2190,15 @@ class Session:
         if name in self._mate_names():
             raise SolidWorksError(f"SolidWorks would not delete the gear mate {name} in {title} to give it its new "
                                   "ratio, so it keeps its old one.")
-        restore = (f"The saved {title} still has it: close {title} in SolidWorks without saving to bring it back.")
+        lost = f"The open {title} has lost the gear mate {name}: it was deleted to give it its new ratio"
+        restore = f"The saved {title} still has it: close {title} in SolidWorks without saving to bring it back."
         try:
             kept, _ = self._gear_mate(handle, a, b, (float(ratio[0]), float(ratio[1])), bool(flip), name)
-        except MateRefused as exc:
-            said = str(exc).rstrip(".")
-            raise MateRefused(f"The open {title} has lost the gear mate {name}: it was deleted to give it its new "
-                              f"ratio, and SolidWorks would not make it again ({said}). {restore}") from None
+        except MateRefused as exc:              # SolidWorks' own refusal: the one failure that is a MateRefused
+            raise MateRefused(f"{lost}, and SolidWorks would not make it again. {restore} {_as_sentence(exc)}") \
+                from None
+        except Exception as exc:  # noqa: BLE001 - a COM or selection failure: an ordinary failure, still said
+            raise SolidWorksError(f"{lost}, and making it again stopped. {restore} {_as_sentence(exc)}") from exc
         if kept != name:
             raise SolidWorksError(f"The open {title} has lost the gear mate {name} by that name: it was made again with "
                                   f"its new ratio, and SolidWorks named it {kept}. {restore}")

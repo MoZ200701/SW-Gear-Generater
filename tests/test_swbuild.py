@@ -2654,7 +2654,9 @@ def test_a_train_whose_template_is_missing_fails_as_in_w4_with_no_mate_problem()
 
 
 @pytest.mark.parametrize("name", ["ADD_MATE_NO_ERROR", "COMPONENT_UNDER_DEFINED", "MATE_FIND_ROUTE", "THIS_CONFIGURATION",
-                                  "COMPOUND_LOCK_ROUTE", "LOCK_SELECT_ROUTE", "MATE_LOCK", "MATE_RENAME_ROUTE"])
+                                  "COMPOUND_LOCK_ROUTE", "LOCK_SELECT_ROUTE", "MATE_LOCK", "MATE_RENAME_ROUTE",
+                                  "MATE_COINCIDENT", "MATE_DISTANCE", "MATE_GEAR", "GEAR_MATE_ROUTE",
+                                  "GEAR_MATE_NUMERATOR_FIRST", "ORIGIN_POINT"])
 def test_a_train_is_refused_before_anything_is_made_while_a_finding_it_needs_is_not_settled(monkeypatch, name):
     """Every finding the build's SolidWorks calls rest on is read before anything is made: the check's, and the
     lock's and the rename's for a plan that locks a gear and names its mates (the review of package A)."""
@@ -2974,7 +2976,8 @@ def test_a_motion_update_without_its_findings_is_refused_before_anything_is_read
 @pytest.mark.parametrize("name, ratios", [("FEATURE_SUPPRESS", False), ("FEATURE_UNSUPPRESS", False),
                                           ("THIS_CONFIGURATION", False), ("GEAR_MATE_RATIO_REMAKE_WORKS", True),
                                           ("MATE_DELETE_ROUTE", True), ("MATE_RENAME_ROUTE", True),
-                                          ("GEAR_MATE_FLIP", True)])
+                                          ("GEAR_MATE_FLIP", True), ("GEAR_MATE_ROUTE", True), ("MATE_GEAR", True),
+                                          ("GEAR_MATE_NUMERATOR_FIRST", True)])
 def test_every_finding_the_motion_update_calls_need_is_read_before_anything_is_read(monkeypatch, name, ratios):
     """A missing FEATURE_UNSUPPRESS would suppress the locks and then refuse to turn them back on: read first."""
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
@@ -3143,10 +3146,16 @@ def test_a_first_put_that_raises_still_lists_the_assembly_as_changed():
     assert not fake.mate("G3 locked to G2", T_ASM).suppressed
 
 
-def test_a_remake_that_fails_still_lists_the_assembly_as_changed(monkeypatch):
+@pytest.mark.parametrize("refused", [True, False])
+def test_a_remake_that_fails_still_lists_the_assembly_as_changed(monkeypatch, refused):
+    """A refusal is a MateRefused, a COM or selection failure an ordinary one (Build stays enabled): either way the
+    gear mate was deleted, so the assembly is changed and listed."""
     monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
     fake = _built_train()
-    lost = swcom.MateRefused("The open T.SLDASM has lost the gear mate G3 meshes G4: …")
+    lost = (swcom.MateRefused if refused else SolidWorksError)(
+        "The open T.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its new ratio, and making "
+        "it again stopped. The saved T.SLDASM still has it: close T.SLDASM in SolidWorks without saving to bring it "
+        "back. SolidWorks did not complete AddMate5: The remote procedure call failed (RPC_S_CALL_FAILED).")
     fake.raises = {"set_gear_ratio": (1, lost)}
     result = _update_train(fake, motion=_motion(ratios=(("G3 meshes G4", 18, 50),)))
     assert result.failures[0] == ("T.SLDASM", str(lost)) and result.ratios == [] and result.changed == [T_ASM]

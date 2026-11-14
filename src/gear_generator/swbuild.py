@@ -237,6 +237,15 @@ TRAIN_CHECK_FINDINGS = (("ADD_MATE_NO_ERROR", _SET), ("ADD_MATE_OVER_DEFINED", _
 LOCK_FINDINGS = (("COMPOUND_LOCK_ROUTE", "lock alone"), ("LOCK_SELECT_ROUTE", "Select4 with a mark-1 select data"),
                  ("MATE_LOCK", _SET), ("MATE_ALIGN_CLOSEST", _SET))
 RENAME_FINDINGS = (("MATE_RENAME_ROUTE", "IFeature.Name put"),)
+# What swcom.Session.add_mate and _gear_mate read for each kind of mate a train plan makes (W4-era members, read there
+# mid-build): an axis mate (coincident), an anchor's origin on or at a distance from the Front plane, a gear mate.
+MATE_KIND_FINDINGS = {
+    "coincident": (("MATE_COINCIDENT", _SET), ("MATE_ALIGN_CLOSEST", _SET)),
+    "point": (("MATE_COINCIDENT", _SET), ("MATE_ALIGN_CLOSEST", _SET), ("ORIGIN_POINT", _SET)),
+    "point distance": (("MATE_DISTANCE", _SET), ("MATE_ALIGN_CLOSEST", _SET), ("ORIGIN_POINT", _SET)),
+    "gear": (("MATE_GEAR", _SET), ("GEAR_MATE_ROUTE", _SET), ("GEAR_MATE_NUMERATOR_FIRST", _SET),
+             ("MATE_ALIGN_CLOSEST", _SET)),
+}
 
 
 def _settled(needed: Sequence[Tuple[str, object]]) -> Optional[Tuple[str, object]]:
@@ -258,6 +267,8 @@ def _train_gate(plan: Optional[BuildPlan] = None) -> None:
         needed += LOCK_FINDINGS
     if any(op.name for op in mates):
         needed += RENAME_FINDINGS
+    for kind in dict.fromkeys(op.kind for op in mates):
+        needed += MATE_KIND_FINDINGS.get(kind, ())
     missing = _settled(needed)
     if missing is not None:
         raise BuildError(f"A gearbox built to turn needs findings.{missing[0]} settled on SolidWorks (it is "
@@ -2319,6 +2330,9 @@ MOTION_UPDATE_FINDINGS = (
     ("MATE_DELETE_ROUTE", "Select2 then EditDelete()", "making a gear mate again at a new ratio", "ratios"),
     ("MATE_RENAME_ROUTE", "IFeature.Name put", "making a gear mate again at a new ratio", "ratios"),
     ("GEAR_MATE_FLIP", _SET, "making a gear mate again at a new ratio", "ratios"),
+    ("GEAR_MATE_ROUTE", _SET, "making a gear mate again at a new ratio", "ratios"),
+    ("MATE_GEAR", _SET, "making a gear mate again at a new ratio", "ratios"),
+    ("GEAR_MATE_NUMERATOR_FIRST", _SET, "making a gear mate again at a new ratio", "ratios"),
 )
 
 

@@ -1695,9 +1695,9 @@ def test_a_remake_solidworks_will_not_make_again_says_the_mate_was_deleted(mated
     with pytest.raises(swcom.MateRefused) as raised:
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
     assert str(raised.value) == ("The open R.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its "
-                                 "new ratio, and SolidWorks would not make it again (AddMate5 would not make a gear "
-                                 "mate between placed3:Gear Axis and placed4:Gear Axis). The saved R.SLDASM still has "
-                                 "it: close R.SLDASM in SolidWorks without saving to bring it back.")
+                                 "new ratio, and SolidWorks would not make it again. The saved R.SLDASM still has it: "
+                                 "close R.SLDASM in SolidWorks without saving to bring it back. AddMate5 would not make "
+                                 "a gear mate between placed3:Gear Axis and placed4:Gear Axis.")
 
 
 def test_a_remake_whose_selection_fails_is_an_ordinary_failure_not_mate_refused(mated, monkeypatch):
@@ -1709,8 +1709,34 @@ def test_a_remake_whose_selection_fails_is_an_ordinary_failure_not_mate_refused(
     doc.Extension = type("NoSelect", (), {"SelectByID2": lambda self, *args: False})()
     with pytest.raises(SolidWorksError) as raised:
         session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
+    assert not isinstance(raised.value, swcom.MateRefused)          # an ordinary failure: Build is not greyed
+    assert str(raised.value) == ("The open R.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its "
+                                 "new ratio, and making it again stopped. The saved R.SLDASM still has it: close "
+                                 "R.SLDASM in SolidWorks without saving to bring it back. Gear Axis@Gear_m1.5_N51-1@R "
+                                 "could not be selected for a mate.")
+
+
+@pytest.mark.parametrize("error, said", [
+    (swcom.ComError("AddMate5", RPC_FAILED), "SolidWorks did not complete AddMate5: The remote procedure call failed "
+                                             "(RPC_S_CALL_FAILED). SolidWorks may have closed or crashed; the next "
+                                             "press connects to it again."),
+    (RuntimeError("the selection manager went away"), "It stopped on an unexpected RuntimeError: the selection "
+                                                      "manager went away."),
+])
+def test_any_failure_after_the_delete_says_the_open_assembly_lost_the_gear_mate(mated, monkeypatch, error, said):
+    session, doc = mated
+    _ratio_world(session, doc)
+    monkeypatch.setattr(findings, "GEAR_MATE_RATIO_ROUTE", "remake")
+
+    def fails(*args):
+        raise error
+    doc.AddMate5 = fails
+    with pytest.raises(SolidWorksError) as raised:
+        session.set_gear_ratio("mesh2", "placed3:Gear Axis", "placed4:Gear Axis", (18, 50))
     assert not isinstance(raised.value, swcom.MateRefused)
-    assert str(raised.value).endswith("could not be selected for a mate.")
+    assert str(raised.value) == ("The open R.SLDASM has lost the gear mate G3 meshes G4: it was deleted to give it its "
+                                 "new ratio, and making it again stopped. The saved R.SLDASM still has it: close "
+                                 f"R.SLDASM in SolidWorks without saving to bring it back. {said}")
 
 
 def test_a_remake_solidworks_names_otherwise_says_the_open_assembly_lost_the_mate(mated, monkeypatch):
