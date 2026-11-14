@@ -18,10 +18,13 @@ its findings is marked *open* and is filled in when they are committed.
 2. **Update returns a train the user turned to its built position whenever it has to move any gear** (D4
    stands, with M1's rule below). With nothing to put, the train stays where the user turned it. The footer
    says so plainly when it happens.
-3. **The first gear's place along its shaft: Front plane (D8) or a datum plane (M5) — open.** The user asked
-   whether the datum plane is a special case; it is not (every anchor of every turning gearbox would be
-   measured from it). Waits for probe `axial_datum_plane` and the user's word. Until then nothing that depends
-   on it is coded.
+3. **No datum plane: the first gear's place along its shaft is measured from the Front plane** (D8 stands;
+   review M5's alternative is declined — an extra plane in the layout part is not wanted for geometry that is
+   not part of the specified gear train). So an anchor's front face reaching, leaving or crossing the Front
+   plane is structural (Build again…), which includes a face-width or `At` change on an anchor whose front face
+   sits on the Front plane, as G1 and G2 of the 12 : 1 do. The sentence names the edit ("G1's face width
+   moves its front face off the Front plane…"), never only the plane. Probe `axial_datum_plane` is recorded
+   for the record and nothing is built on it.
 4. **The Checks panel stays as built: problems only**, a clean workbook saying so in one line
    (`design/UI-DESIGN.md`, "Where it differs from PLAN-WORKBOOK §5"). PLAN-WORKBOOK §5's "then the passed
    checks, one line each" is not built.
@@ -38,10 +41,10 @@ its findings is marked *open* and is filled in when they are committed.
   changes, and the demonstration reruns on SolidWorks 2026 and 2024), named in `W5-INTERFACES.md`.
 - **M4 accepted**, and widened: package P0 probes the ratio change (P1), the lock re-taken after a move along
   the shaft (P2), renaming each kind of mate and finding it by name, the demonstration's drive, a put on a gear
-  in two gear mates, the datum plane, and — from the review of probe `assembly_rebuild_scope` — which rebuild a
+  in two gear mates, the datum plane (probed before answer 3 was given; not used), and — from the review of probe `assembly_rebuild_scope` — which rebuild a
   mated assembly needs and what it marks modified (`MATED_ASSEMBLY_REBUILD_ROUTE`). Until that last finding
   is set, every mated assembly rebuilds in full (`ForceRebuild3(False)`), as tiers 4, 5 and 8 proved it.
-- **M6** is answer 1. **M5** is answer 3.
+- **M6** is answer 1. **M5** is answer 3: declined, with its last point kept (the sentence names the edit).
 - **M7 accepted:** in the check phase, a mate the record does not know that touches a gear refuses the Update
   before anything is changed, naming the mate ("suppress Angle1 and press again").
 - **M8 accepted:** locks are unsuppressed in a `finally`; if that fails, the failure sentence says which
@@ -60,6 +63,5 @@ its findings is marked *open* and is filled in when they are committed.
 
 - D7 (a tooth change the globals carry: Update or structural) — by `GEAR_MATE_RATIO_ROUTE`.
 - D8's follower case (a follower's place along its shaft) — by `LOCK_RETAKES_AN_OFFSET`.
-- Answer 3 — by `AXIAL_DATUM_ROUTE` and the user.
 - Which rebuild a turning gearbox uses — by `MATED_ASSEMBLY_REBUILD_ROUTE`. If only the full rebuild re-solves
   mates, a mated Update leaves every part marked modified in SolidWorks; that is then the user's to accept or not.
