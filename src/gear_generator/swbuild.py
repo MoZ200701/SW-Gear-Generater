@@ -51,7 +51,7 @@ class SolidWorks(Protocol):
     def new_assembly(self, template: str = "") -> DocInfo: ...
     def document_path(self) -> str: ...
     def set_rebuild_suppressed(self, suppressed: bool) -> None: ...
-    def rebuild(self, mated: bool = False) -> bool: ...
+    def rebuild(self, mated: Optional[bool] = None) -> bool: ...
     def save_as(self, path: str) -> str: ...
     def detect_trig_units(self) -> str: ...
     def add_global_variable(self, name: str, expression: str) -> int: ...
@@ -89,7 +89,7 @@ class SolidWorks(Protocol):
                  name: str = "", ratio: Tuple[float, float] = (1.0, 1.0), flip: bool = False) -> Tuple[str, str]: ...
     def interference_count(self) -> Tuple[int, float]: ...
     def set_custom_property(self, name: str, value: str) -> None: ...
-    def place_component(self, handle: str, rotation: Sequence[float], at, mated: bool = False) -> None: ...
+    def place_component(self, handle: str, rotation: Sequence[float], at, mated: Optional[bool] = None) -> None: ...
     # W4 (a workbook's layout part and static assembly). ``documents`` and ``feature_names`` are swcom.Session's
     # own, unchanged; the other four are new there (each docstring in swcom says what it does).
     def documents(self) -> List[DocInfo]: ...
@@ -196,7 +196,7 @@ def _gate(sw: SolidWorks) -> None:
         raise BuildError(f"Building needs SolidWorks {release_year(MINIMUM_MAJOR)} or newer.")
 
 
-def _assembly_rebuild_gate(mated: bool = False) -> None:
+def _assembly_rebuild_gate(mated: bool) -> None:
     """Refuse, before anything is made or changed, a job that would rebuild an assembly of this kind while how to
     rebuild one is not settled: :func:`swcom.rebuild_call`'s sentence, as a :class:`BuildError`. Every assembly
     rebuild goes through ``rebuild_call`` (``Session.rebuild`` and ``place_component``), so without this a job
@@ -375,7 +375,7 @@ def _unfix(sw, op: base.Unfix, result, trig):
     return f"unfixed {op.component}"
 
 
-def _place(sw, op: base.Place, result, trig, mated=False):
+def _place(sw, op: base.Place, result, trig, mated):
     sw.place_component(op.component, op.rotation, op.at, mated=mated)
     return f"placed {op.component}"
 
@@ -489,7 +489,8 @@ def _said(exc: BaseException) -> str:
     return f"it stopped on an unexpected {type(exc).__name__}" + (f": {text}." if text else ".")
 
 
-def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]) -> BuildResult:
+def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool],
+                  mated: Optional[bool] = None) -> BuildResult:
     """:func:`build`, for one document of a job that has already saved others: what :func:`build` raises (its
     template is not there, SolidWorks would not make the document, the path was taken since the job's own check)
     comes back as a failed :class:`BuildResult` instead, so the job still reports, and the record still keeps,
@@ -502,7 +503,7 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
     already saved), with its type named.
     """
     try:
-        return build(sw, plan, exists)
+        return build(sw, plan, exists, mated=mated)
     except Exception as exc:  # noqa: BLE001 - see the docstring
         first = plan.ops[0] if plan.ops else None
         what = ("new part" if isinstance(first, base.NewPart) else "new assembly"
@@ -513,7 +514,7 @@ def _build_in_job(sw: SolidWorks, plan: BuildPlan, exists: Callable[[str], bool]
                            manual=[op.text for op in plan.manual_steps()])
 
 
-def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, mated: bool = False) -> None:
+def _run(sw: SolidWorks, plan: BuildPlan, result: BuildResult, mated: bool) -> None:
     sw.set_rebuild_suppressed(True)
     try:
         for op in plan.ops[1:]:
@@ -574,6 +575,9 @@ def build_pair(sw: SolidWorks, gear_a: BuildPlan, gear_b: BuildPlan, assembly: B
         save = next((op for op in plan.ops if isinstance(op, base.SaveAs)), None)
         if save is not None and save.path and exists(save.path):
             raise BuildError(f"{save.path} already exists, and a build never overwrites a file.")
+    # Before the gears, not after them at the assembly: a bad MATED_ASSEMBLY_REBUILD_ROUTE would otherwise leave two
+    # saved gears behind, which the next Build refuses to overwrite. It never refuses while that finding is None.
+    _assembly_rebuild_gate(mated=True)
     pair = PairResult(gear_a=build(sw, gear_a, exists))
     if not pair.gear_a.ok:
         pair.skipped = "the second gear and the assembly, because the first gear failed"
@@ -1483,7 +1487,9 @@ def _build_gearbox_body(sw: SolidWorks, result: GearboxResult, parts: Sequence[B
     stage[0] = "the assembly"
     stem = _stem(_saved_path(assembly))
     say(Step(STAGE_ASSEMBLY, stem))
-    result.assembly = _build_in_job(sw, assembly, exists)
+    # Its kind said explicitly: today's workbook gearbox is fixed and unmated (static, top-only); W5's mated one
+    # is mated by the same predicate the gate above used.
+    result.assembly = _build_in_job(sw, assembly, exists, mated=is_mated(assembly))
     result.components = dict(result.assembly.components)
     if result.assembly.ok and result.assembly.saved and getattr(findings, "INTERFERENCE_CHECKED", False):
         stage[0] = "the interference check"
@@ -1503,11 +1509,11 @@ class GearboxUpdate:
     """What :func:`update_gearbox` did. Nothing is saved: ``changed`` lists every document whose CONTENT it
     changed in SolidWorks — a part's or the layout's globals set, the assembly's components re-placed — and the
     record marks those unsaved until the app sees them saved (decision 3). A document SolidWorks marks modified
-    only because it was rebuilt or interference-checked is not in it: after a part-only Update the assembly is
+    only because it was rebuilt or read afterwards (frames, interference) is not in it: after a part-only Update the assembly is
     rebuilt (and so reads modified in SolidWorks) but holds nothing new, and listing it would tell a user who
     saved the part and closed the assembly unsaved that SolidWorks no longer holds this version. So what
-    SolidWorks marks modified is ``changed`` and the assembly whenever ``rebuilt`` (or the interference check
-    ran), as probe assembly_rebuild_scope saw.
+    SolidWorks marks modified is ``changed`` and the assembly whenever ``rebuilt`` (it is then also read), as
+    probe assembly_rebuild_scope saw.
 
     ``parts`` holds one result per part reached, in the order given;
     ``layout`` the layout's, if one was given and reached. ``found`` is each
@@ -1664,7 +1670,7 @@ def update_gearbox(sw: SolidWorks, parts: Sequence[DocumentValues] = (), layout:
     if placements and not assembly:
         raise BuildError("Gears can only be re-placed in an assembly, and Update SolidWorks was given none.")
     if assembly:
-        _assembly_rebuild_gate()
+        _assembly_rebuild_gate(mated=False)        # the workbook's static gearbox: fixed components, no mates
     for path in paths:
         if not exists(path):
             raise BuildError(f"{path} is no longer there, so Update SolidWorks cannot change it: it was moved, "
@@ -1793,7 +1799,7 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
                 for handle, placement in moves:
                     if unfix:
                         sw.unfix_component(handle)
-                    sw.place_component(handle, placement.rotation, placement.at)
+                    sw.place_component(handle, placement.rotation, placement.at, mated=False)
                     result.placed.append(placement.gear)
                     if unfix:
                         sw.fix_component(handle)
@@ -1802,7 +1808,7 @@ def _update_change(sw: SolidWorks, result: GearboxUpdate, parts: Sequence[Docume
         except Exception as exc:  # noqa: BLE001 - the assembly's failure; what was placed stays listed (B1)
             result.failures.append((_file(assembly), _said(exc)))
         if opened and (result.changed or result.placed):
-            result.rebuilt = bool(sw.rebuild())
+            result.rebuilt = bool(sw.rebuild(mated=False))
             if not result.rebuilt:
                 result.failures.append((_file(assembly), f"SolidWorks reported an error rebuilding {stem}."))
         if result.rebuilt and not result.failures and getattr(findings, "INTERFERENCE_CHECKED", False):

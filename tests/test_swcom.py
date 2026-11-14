@@ -1077,7 +1077,7 @@ def test_placing_a_component_goes_through_the_same_wrapper_as_call(com_errors, m
     session = swcom.Session(App(), (34, 0, 0), 1)
     session._handles = {"gear1": {"component": object()}}
     with pytest.raises(swcom.ComError) as raised:
-        session.place_component("gear1", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (0.0, 0.0, 0.0))
+        session.place_component("gear1", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (0.0, 0.0, 0.0), mated=False)
     assert str(raised.value).startswith("SolidWorks did not complete CreateTransform: The remote procedure call failed")
     assert swcom.CONNECTION.lost
 
@@ -1146,7 +1146,7 @@ def _marked(com):
 def test_an_assembly_rebuilds_top_only_and_marks_only_itself(com):
     """W4 rerun on 2026: ForceRebuild3(False) marked every part of the assembly modified, untouched ones too."""
     assembly, _parts = _gearbox_world(com)
-    assert _session(com).rebuild() is True
+    assert _session(com).rebuild(mated=False) is True
     assert _calls(com, "ForceRebuild3") == [("ForceRebuild3", "R.SLDASM", True)]
     assert _marked(com) == ["R.SLDASM"]
 
@@ -1168,14 +1168,14 @@ def test_a_part_rebuilds_as_always_even_while_the_assembly_route_is_unsettled(co
 def test_a_component_in_error_still_fails_the_top_only_rebuild(com):
     _assembly, parts = _gearbox_world(com)
     parts[2].fails = True
-    assert _session(com).rebuild() is False
+    assert _session(com).rebuild(mated=False) is False
     assert _marked(com) == ["R.SLDASM"]
 
 
 def test_the_edit_rebuild_route_is_taken_when_the_finding_names_it(com, monkeypatch):
     monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", "EditRebuild3")
     _gearbox_world(com)
-    assert _session(com).rebuild() is True
+    assert _session(com).rebuild(mated=False) is True
     assert _calls(com, "EditRebuild3") == [("EditRebuild3", "R.SLDASM")] and _calls(com, "ForceRebuild3") == []
     assert _marked(com) == ["R.SLDASM"]
 
@@ -1223,7 +1223,7 @@ def _placing(com, monkeypatch):
 def test_a_put_is_rebuilt_top_only_and_still_read_back(com, monkeypatch):
     session, gear = _placing(com, monkeypatch)
     turned = (0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
-    session.place_component("gear2", turned, (64.5, 0.0, 0.0))
+    session.place_component("gear2", turned, (64.5, 0.0, 0.0), mated=False)
     assert [e for e in com.log if e[0] in ("CreateTransform", "Transform2 put", "ForceRebuild3")] == [
         ("CreateTransform",), ("Transform2 put", "Gear_m1.5_N68-1"), ("ForceRebuild3", "R.SLDASM", True)]
     assert _marked(com) == ["R.SLDASM"]                         # the gear's own part is not marked
@@ -1249,10 +1249,10 @@ def test_an_unsettled_assembly_rebuild_is_refused_before_anything_is_changed(com
     session, gear = _placing(com, monkeypatch)
     before = gear.Transform2.ArrayData
     with pytest.raises(swcom.SolidWorksError) as raised:
-        session.rebuild()
+        session.rebuild(mated=False)
     assert str(raised.value) == sentence
     with pytest.raises(swcom.SolidWorksError) as raised:
-        session.place_component("gear2", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (64.5, 0.0, 0.0))
+        session.place_component("gear2", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (64.5, 0.0, 0.0), mated=False)
     assert str(raised.value) == sentence
     assert gear.Transform2.ArrayData == before                 # refused before the put, not after it
     assert not any(e[0] in ("CreateTransform", "Transform2 put", "ForceRebuild3", "EditRebuild3") for e in com.log)
@@ -1265,7 +1265,7 @@ def test_an_unsettled_assembly_rebuild_is_refused_before_anything_is_changed(com
 @pytest.mark.parametrize("workbook_route", ["ForceRebuild3(True)", None])
 def test_a_mated_assembly_rebuilds_in_full_as_it_always_did(com, monkeypatch, workbook_route):
     monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", workbook_route)
-    assert getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None) is None
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None, raising=False)     # until the W5 batch sets it
     _gearbox_world(com)
     assert _session(com).rebuild(mated=True) is True
     assert _calls(com, "ForceRebuild3") == [("ForceRebuild3", "R.SLDASM", False)]
@@ -1275,6 +1275,7 @@ def test_a_mated_assembly_rebuilds_in_full_as_it_always_did(com, monkeypatch, wo
 def test_a_put_in_a_mated_assembly_is_rebuilt_in_full(com, monkeypatch):
     session, _gear = _placing(com, monkeypatch)
     monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None)        # a pair never leans on the workbook finding
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None, raising=False)
     session.place_component("gear2", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (64.5, 0.0, 0.0), mated=True)
     assert _calls(com, "ForceRebuild3") == [("ForceRebuild3", "R.SLDASM", False)]
 
@@ -1289,3 +1290,21 @@ def test_a_mated_route_once_set_is_taken_and_an_unknown_one_refused(com, monkeyp
     assert str(raised.value) == ("findings.MATED_ASSEMBLY_REBUILD_ROUTE is 'guess', which is not a rebuild this code "
                                  "knows, so no mated assembly is changed; run probe tier 8 again.")
     assert _calls(com, "ForceRebuild3") == [] and _marked(com) == []
+
+
+def test_an_assembly_whose_kind_is_not_said_is_refused_before_anything_is_changed(com, monkeypatch):
+    """The review of 31d1ac9: with mated defaulting to False, a caller that forgot it put a mated assembly on the
+    unprobed top-only route. Now an assembly's kind must be said; a part's need not."""
+    session, gear = _placing(com, monkeypatch)
+    before = gear.Transform2.ArrayData
+    sentence = ("This assembly was to be rebuilt without saying whether its components are mated or fixed, so which "
+                "rebuild it takes cannot be chosen and nothing is changed; that is a fault in Gear Generator, not in "
+                "SolidWorks.")
+    for act in (lambda: session.rebuild(),
+                lambda: session.place_component("gear2", (1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0), (64.5, 0.0, 0.0))):
+        with pytest.raises(swcom.SolidWorksError) as raised:
+            act()
+        assert str(raised.value) == sentence
+    assert gear.Transform2.ArrayData == before and _marked(com) == []
+    assert not any(e[0] in ("CreateTransform", "Transform2 put", "ForceRebuild3", "EditRebuild3") for e in com.log)
+    assert swcom.rebuild_call(swcom.DOC_PART) == ("ForceRebuild3", (False,))

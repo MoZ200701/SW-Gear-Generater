@@ -59,7 +59,9 @@ class FakeSolidWorks:
     (``assembly_components`` keeps each saved assembly's inserted paths); any
     component in ``failed_documents`` makes it return False, top-only or not.
     A put alone marks nothing (``findings.PUT_MARKS_ASSEMBLY_MODIFIED``).
-    Running interference detection marks the assembly. The kind each rebuild
+    Running interference detection marks the assembly (the probe saw the
+    reads after a put mark it, frame reads and the check together; which of
+    them is not isolated, and the fake pins it on the check). The kind each rebuild
     was asked for (``mated``) and the member it took are kept in
     ``rebuild_kinds`` and ``rebuild_members``. Nothing unprobed is modelled:
     not a rebuild under ``CommandInProgress``, not what a top-only rebuild
@@ -100,6 +102,7 @@ class FakeSolidWorks:
         self.failed_documents = {_key(p) for p in failed_documents}
         self.rebuild_kinds = []        # the ``mated`` each rebuild was asked with
         self.rebuild_members = []      # what rebuild_call gave each rebuild, a put's own included
+        self.assembly_kinds = []       # the ``mated`` each assembly rebuild (a put's own included) was asked with
 
     def _log(self, name, *args):
         self.calls.append((name, args))
@@ -143,7 +146,7 @@ class FakeSolidWorks:
         self._log("suppress", suppressed)
         self.suppressed = suppressed
 
-    def rebuild(self, mated=False):
+    def rebuild(self, mated=None):
         self._log("rebuild", self.suppressed)
         self.rebuild_kinds.append(mated)
         return self._rebuilt(mated)
@@ -151,11 +154,13 @@ class FakeSolidWorks:
     def _is_assembly(self):
         return self.current.lower().endswith(".sldasm") if self.current else self.kind == 2
 
-    def _rebuilt(self, mated=False):
+    def _rebuilt(self, mated=None):
         """What a rebuild of the current document does to the marks, and what it returns (see the class)."""
         from gear_generator import swcom
         member, args = swcom.rebuild_call(swcom.DOC_ASSEMBLY if self._is_assembly() else swcom.DOC_PART, mated)
         self.rebuild_members.append((member, args))
+        if self._is_assembly():
+            self.assembly_kinds.append(mated)
         self._touch()
         if not self._is_assembly():
             return self.rebuild_ok
@@ -318,7 +323,7 @@ class FakeSolidWorks:
         return (name or f"Mate{len(self.calls)}"), ("D7" if kind in ("distance", "angle", "axis angle",
                                                                     "point distance") else "")
 
-    def place_component(self, handle, rotation, at, mated=False):
+    def place_component(self, handle, rotation, at, mated=None):
         self._log("place_component", handle)
         if getattr(findings, "PUT_MARKS_ASSEMBLY_MODIFIED", False):
             self._touch()
@@ -380,8 +385,9 @@ class FakeSolidWorks:
         return self.frames.get(handle, self.frames.get(self.found.get(handle), identity))
 
     def interferences(self):
-        """As probe assembly_rebuild_scope recorded it (``flags_after_reads``): running the interference check marks
-        the assembly modified, after a rebuild or with none."""
+        """Marks the assembly modified. Probe assembly_rebuild_scope saw the assembly marked after a put by the reads
+        that followed it (``flags_after_reads``: the frame reads and interferences() together), without isolating
+        which; the fake pins it here, on the interference check."""
         self._log("interferences")
         self._touch()
         return list(self.clashes)
@@ -1639,8 +1645,9 @@ def _build_again(fake):
 def test_a_fresh_build_leaves_every_part_and_the_layout_as_saved():
     fake, result = _build()
     assert result.ok and result.assembly.rebuilt
-    # Every part and the layout read as saved; the assembly reads modified, because the interference check run
-    # after its save marks it (probe assembly_rebuild_scope's flags_after_reads), with nothing lost by not saving it.
+    # Every part and the layout read as saved; the assembly reads modified, because a read after its save marks it
+    # (probe assembly_rebuild_scope's flags_after_reads; the fake pins it on the interference check), with nothing
+    # lost by not saving it.
     assert fake.touched == {_key(ASM)}
 
 
@@ -1655,7 +1662,7 @@ def test_a_build_again_leaves_the_part_it_reuses_as_saved():
     fake = _built_gearbox()
     fake.touched.clear()
     _build_again(fake)
-    assert fake.touched == {_key(R1_ASM)}            # its interference check's mark alone
+    assert fake.touched == {_key(R1_ASM)}            # the mark of the reads after its save alone
 
 
 def test_a_build_again_with_the_old_full_rebuild_marked_the_shared_part(monkeypatch):
@@ -1711,7 +1718,7 @@ def test_a_put_alone_marks_nothing_its_rebuild_marks_the_assembly():
     fake.open_document(ASM)
     fake.touched.clear()
     fake.find_component("g2", "gear2-1")
-    fake.place_component("g2", TURNED2, (64.5, 0.0, 0.0))
+    fake.place_component("g2", TURNED2, (64.5, 0.0, 0.0), mated=False)
     assert fake.touched == {_key(ASM)}
 
 
@@ -1804,15 +1811,17 @@ def _pair_kinds():
 
 @pytest.fixture
 def gear_mates_settled(monkeypatch):
+    """The gear-mate findings, and MATED_ASSEMBLY_REBUILD_ROUTE None: what the full route for mates is pinned under,
+    whatever the W5 probe batch later sets it to (a test that wants it set sets it)."""
     for name, value in (("GEAR_MATE_ROUTE", "mates"), ("MATE_GEAR", 10), ("GEAR_MATE_NUMERATOR_FIRST", True),
                         ("GEAR_MATE_EXTERNAL_FLIP", False)):
         monkeypatch.setattr(findings, name, value)
+    monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None, raising=False)
 
 
 @pytest.mark.parametrize("workbook_finding", ["set", "unset", "unknown"])
 def test_every_pair_kind_rebuilds_and_puts_in_full_whatever_the_workbook_finding(monkeypatch, gear_mates_settled,
                                                                                  workbook_finding):
-    assert getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None) is None    # set by the W5 probe batch, not yet
     if workbook_finding != "set":
         monkeypatch.setattr(findings, "ASSEMBLY_REBUILD_ROUTE", None if workbook_finding == "unset" else "guess")
     kinds = _pair_kinds()
@@ -1859,13 +1868,19 @@ def test_the_static_gearbox_still_rebuilds_and_puts_top_only():
 
 
 def test_an_unknown_mated_finding_refuses_a_pair_before_anything_is_made(monkeypatch, gear_mates_settled):
+    """The review of 31d1ac9: the refusal came after both gears were saved (new_part, save_as, new_part, save_as),
+    leaving files with no sidecars that the next Build refused to overwrite."""
     monkeypatch.setattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", "guess", raising=False)
-    fake = FakeSolidWorks()
-    with pytest.raises(swbuild.BuildError) as raised:
-        swbuild.build(fake, _pair_kinds()["spur, gear mate"], never_exists)
-    assert str(raised.value) == ("findings.MATED_ASSEMBLY_REBUILD_ROUTE is 'guess', which is not a rebuild this code "
-                                 "knows, so no mated assembly is changed; run probe tier 8 again.")
-    assert not any(n in CHANGES for n in names(fake))
+    sentence = ("findings.MATED_ASSEMBLY_REBUILD_ROUTE is 'guess', which is not a rebuild this code knows, so no "
+                "mated assembly is changed; run probe tier 8 again.")
+    for make in (lambda fake: swbuild.build_pair(fake, plan(S17, path=PAIR_PATHS[0]), plan(S68, path=PAIR_PATHS[1]),
+                                                 _pair_kinds()["spur, gear mate"], never_exists),
+                 lambda fake: swbuild.build(fake, _pair_kinds()["spur, gear mate"], never_exists)):
+        fake = FakeSolidWorks()
+        with pytest.raises(swbuild.BuildError) as raised:
+            make(fake)
+        assert str(raised.value) == sentence
+        assert not any(n in CHANGES for n in names(fake)) and fake.saved == {}
 
 
 def test_a_mated_finding_once_set_is_taken(monkeypatch, gear_mates_settled):
@@ -1903,3 +1918,59 @@ def test_no_rebuild_member_is_called_but_through_the_one_decision():
             if named and id(node) not in allowed:
                 found.append(f"{path.relative_to(root)}:{node.lineno}")
     assert found == []
+
+
+# -- the review of 31d1ac9: an assembly's kind is always said; one that is not is refused ---------------------
+
+
+def test_an_assembly_rebuild_or_put_whose_kind_is_not_said_is_refused():
+    fake = _built_gearbox()
+    fake.open_document(ASM)
+    fake.touched.clear()
+    sentence = ("This assembly was to be rebuilt without saying whether its components are mated or fixed, so "
+                "which rebuild it takes cannot be chosen and nothing is changed; that is a fault in Gear Generator, "
+                "not in SolidWorks.")
+    with pytest.raises(SolidWorksError) as raised:
+        fake.rebuild()
+    assert str(raised.value) == sentence
+    fake.find_component("g2", "gear2-1")
+    with pytest.raises(SolidWorksError) as raised:
+        fake.place_component("g2", TURNED2, (64.5, 0.0, 0.0))
+    assert str(raised.value) == sentence
+
+
+def test_a_part_rebuilds_whether_or_not_a_kind_is_said():
+    fake = FakeSolidWorks()
+    fake.new_part()
+    assert fake.rebuild() is True and fake.rebuild_members == [FULL_CALL]
+
+
+def test_every_static_site_says_its_kind():
+    fake, result = _build()
+    assert result.ok and fake.assembly_kinds and set(fake.assembly_kinds) == {False}      # build_gearbox: 3 puts, 1 rebuild
+    fake.calls.clear()
+    fake.assembly_kinds.clear()
+    fake.frames = {"layout-1": (IDENTITY, (0.0, 0.0, 0.0)), "gear1-1": (IDENTITY, (0.0, 0.0, 0.0)),
+                   "gear2-1": (TURNED2, AT2)}
+    update = _update(fake)
+    assert update.ok and update.placed == ["G2"]
+    assert fake.assembly_kinds == [False, False]                 # update_gearbox: its put, then its one rebuild
+
+
+def test_every_put_in_the_app_and_its_scripts_names_its_kind():
+    """A put is always on an assembly, so every place_component call says mated=… (a rebuild's document is known
+    only at run time: the fake refuses an assembly rebuild with no kind, which the build and update tests meet)."""
+    import ast
+    import pathlib
+
+    import gear_generator
+
+    root = pathlib.Path(gear_generator.__file__).parent
+    scripts = pathlib.Path(__file__).resolve().parents[1] / "probe"
+    missing = []
+    for path in sorted(list(root.rglob("*.py")) + list(scripts.glob("*.py"))):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "place_component" and \
+                    not any(k.arg == "mated" for k in node.keywords):
+                missing.append(f"{path.name}:{node.lineno}")
+    assert missing == []

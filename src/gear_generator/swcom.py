@@ -105,10 +105,13 @@ class SolidWorksError(Exception):
     """Something about the SolidWorks connection did not work."""
 
 
-def rebuild_call(doc_type: int, mated: bool = False) -> Tuple[str, Tuple[Any, ...]]:
+def rebuild_call(doc_type: int, mated: Optional[bool] = None) -> Tuple[str, Tuple[Any, ...]]:
     """The member, and its arguments, that rebuild a document of this ``GetType``: the one place that decides.
 
-    The caller says what kind of assembly it is; nothing here infers it.
+    The caller says what kind of assembly it is (``mated`` True or False);
+    nothing here infers it, and an assembly whose kind was not said is refused
+    with a sentence before anything is changed, so a caller that forgets it
+    never falls to the static route on a mated assembly. A part ignores it.
 
     - A part (or anything that is not an assembly) is rebuilt as it always
       was, ``ForceRebuild3(False)``: a rebuild of a part's own features, and
@@ -133,6 +136,10 @@ def rebuild_call(doc_type: int, mated: bool = False) -> Tuple[str, Tuple[Any, ..
     """
     if doc_type != DOC_ASSEMBLY:
         return "ForceRebuild3", (False,)
+    if mated is None:
+        raise SolidWorksError("This assembly was to be rebuilt without saying whether its components are mated or "
+                              "fixed, so which rebuild it takes cannot be chosen and nothing is changed; that is a "
+                              "fault in Gear Generator, not in SolidWorks.")
     if mated:
         route = getattr(findings, "MATED_ASSEMBLY_REBUILD_ROUTE", None)
         if route is None:
@@ -669,7 +676,7 @@ class Session:
         """
         self._app.CommandInProgress = bool(suppressed)
 
-    def rebuild(self, mated: bool = False) -> bool:
+    def rebuild(self, mated: Optional[bool] = None) -> bool:
         """Rebuild the build's document (else the active one). Called once, after the last change.
 
         Which rebuild is :func:`rebuild_call`'s to say, by the document's
@@ -1733,7 +1740,7 @@ class Session:
             raise SolidWorksError(f"{full} could not be selected for a mate.")
 
     def place_component(self, handle: str, rotation: Sequence[float], at: Tuple[float, float, float],
-                        mated: bool = False) -> None:
+                        mated: Optional[bool] = None) -> None:
         """Set a component's frame: a rotation given by rows, and its origin in mm (probe nonparallel_mates).
 
         ``IMathUtility.CreateTransform`` answered "member not found" to late
